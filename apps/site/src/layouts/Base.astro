@@ -1,0 +1,85 @@
+---
+import "../styles/global.css";
+import { STRINGS } from "../lib/strings.ts";
+
+interface Props {
+  title?: string;
+}
+const { title } = Astro.props;
+const pageTitle =
+  title === undefined ? STRINGS.siteTitle : `${title} · ${STRINGS.siteTitle}`;
+const nav = [
+  { href: "/", label: STRINGS.nav.home },
+  { href: "/categories/", label: STRINGS.nav.categories },
+  { href: "/tags/", label: STRINGS.nav.tags },
+  { href: "/search/", label: STRINGS.nav.search },
+];
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <script is:inline>
+      const stored = localStorage.getItem("theme");
+      if (
+        stored === "dark" ||
+        (stored === null && matchMedia("(prefers-color-scheme: dark)").matches)
+      ) {
+        document.documentElement.classList.add("dark");
+      }
+    </script>
+  </head>
+  <body
+    class="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
+  >
+    <header class="border-b border-neutral-200 dark:border-neutral-800">
+      <div
+        class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4"
+      >
+        <a href="/" class="text-lg font-bold tracking-tight">
+          {STRINGS.siteTitle}
+          <span class="ml-2 text-sm font-normal text-neutral-500"
+            >{STRINGS.siteTagline}</span
+          >
+        </a>
+        <nav class="flex items-center gap-4 text-sm">
+          {
+            nav.map((item) => (
+              <a
+                href={item.href}
+                class="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+              >
+                {item.label}
+              </a>
+            ))
+          }
+          <button
+            id="theme-toggle"
+            type="button"
+            aria-label="切换深色模式"
+            class="rounded-md border border-neutral-300 px-2 py-1 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
+          >
+            <span class="dark:hidden">🌙</span><span class="hidden dark:inline"
+              >☀️</span
+            >
+          </button>
+        </nav>
+      </div>
+    </header>
+    <main class="mx-auto max-w-6xl px-4 py-8">
+      <slot />
+    </main>
+    <footer class="mx-auto max-w-6xl px-4 py-10 text-sm text-neutral-500">
+      <a href="https://github.com/hutusi/tiro" class="hover:underline">Tiro</a>
+    </footer>
+    <script is:inline>
+      document.getElementById("theme-toggle")?.addEventListener("click", () => {
+        const dark = document.documentElement.classList.toggle("dark");
+        localStorage.setItem("theme", dark ? "dark" : "light");
+      });
+    </script>
+  </body>
+</html>

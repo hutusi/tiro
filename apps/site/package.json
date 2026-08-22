@@ -3,9 +3,25 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "assets": "bun run scripts/copy-assets.ts",
+    "dev": "bun run assets && astro dev",
+    "build": "bun run assets && astro build && pagefind --site dist",
+    "preview": "astro preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tiro/shared": "workspace:*"
+    "@tailwindcss/typography": "^0.5.20",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tiro/shared": "workspace:*",
+    "astro": "^7.2.4",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "tailwindcss": "^4.3.3",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "pagefind": "^1.5.2"
   }
 }

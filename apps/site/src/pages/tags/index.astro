@@ -1,0 +1,30 @@
+---
+import Base from "../../layouts/Base.astro";
+import { getArticles } from "../../lib/articles.ts";
+import { STRINGS } from "../../lib/strings.ts";
+
+const articles = await getArticles();
+const counts = new Map<string, number>();
+for (const article of articles) {
+  for (const tag of article.frontmatter.tags ?? []) {
+    counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+}
+const tags = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+---
+
+<Base title={STRINGS.tags.title}>
+  <h1 class="mb-6 text-xl font-bold">{STRINGS.tags.title}</h1>
+  <div class="flex flex-wrap gap-2">
+    {
+      tags.map(([tag, count]) => (
+        <a
+          href={`/tags/${tag}/`}
+          class="rounded-full bg-neutral-100 px-3 py-1 text-sm text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+        >
+          #{tag} <span class="text-neutral-500">{count}</span>
+        </a>
+      ))
+    }
+  </div>
+</Base>
