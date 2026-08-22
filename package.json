@@ -10,6 +10,7 @@
     "lint": "biome ci . && bun run lint:astro",
     "lint:astro": "prettier --check --no-error-on-unmatched-pattern \"**/*.astro\"",
     "fix": "biome check --write . && prettier --write --no-error-on-unmatched-pattern \"**/*.astro\"",
+    "process": "bun run packages/processor/src/cli.ts run",
     "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/processor && tsc --noEmit -p apps/extension && tsc --noEmit -p apps/site",
     "test": "bun test"
   },
