@@ -1,0 +1,11 @@
+{
+  "name": "@tiro/extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tiro/shared": "workspace:*"
+  }
+}

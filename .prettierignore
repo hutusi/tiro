@@ -1,0 +1,6 @@
+# Prettier only owns .astro files; Biome owns everything else.
+*
+!*/
+!*.astro
+node_modules
+dist
