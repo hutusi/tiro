@@ -11,11 +11,12 @@ main value is content-script HMR and manifest wiring.
 
 ## Decision
 
-- **No declared content script.** The extension uses `activeTab` +
-  `scripting` and injects the clipper on demand via
-  `chrome.scripting.executeScript({files: ["clipper.js"]})` when the popup is
-  opened. Results come back over `chrome.runtime.sendMessage` (the return
-  value of file-based injection is not reliable).
+- **No declared content script.** The manifest declares the `activeTab` and
+  `scripting` permissions, and the popup injects the clipper on demand via
+  `chrome.scripting.executeScript({target: {tabId}, files: ["clipper.js"]})`
+  with the active tab's id. Results come back over
+  `chrome.runtime.sendMessage` (the return value of file-based injection is
+  not reliable).
 - **Plain Vite, two build passes** (no CRXJS):
   1. popup/options/service-worker as a normal multi-entry ESM build
      (`background.type: "module"` in the manifest), static `manifest.json`

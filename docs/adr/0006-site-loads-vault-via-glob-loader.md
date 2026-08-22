@@ -12,8 +12,14 @@ vault clone.
 
 - Astro 5 Content Layer `glob()` loaders with `base` pointing at
   `$TIRO_VAULT_DIR/articles` (default: the in-repo `fixtures/vault`). Two
-  collections: `articles` (`*/*/index.md`, schema from `@tiro/shared`) and
-  `translations` (`*/*/zh.md`), joined by their `year/slug` entry id.
+  collections: `articles` (`*/*/index.md`) and `translations` (`*/*/zh.md`),
+  joined by a shared entry id. The loaders' default path-derived ids would
+  differ (`…/index` vs `…/zh`), so each collection supplies a `generateId`
+  that strips its filename, leaving both with the identical
+  `<year>/<slug>` id — the first two path segments, where `<slug>` is the
+  directory name produced by the slug rules in `@tiro/shared` (ADR 0002).
+  Frontmatter is validated by the shared Zod schema in site code, not by an
+  Astro collection schema (Astro bundles its own zod version).
 - Guardrails for the known failure mode where a bad `base` yields a
   **silently empty collection** (withastro/astro#12795): `lib/vault.ts`
   asserts the directory exists, and production builds fail if the articles
