@@ -1,0 +1,87 @@
+name: Process articles
+
+on:
+  push:
+    branches: [main]
+    paths: ["articles/**"]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Reprocess even if already marked processed"
+        type: boolean
+        default: false
+      slug:
+        description: "Only process this article slug"
+        type: string
+        default: ""
+
+# Serialize runs; queued (not cancelled) so a clip landing mid-run still gets
+# its own run afterwards.
+concurrency:
+  group: tiro-process
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: vault
+
+      # The processor code lives in the tiro monorepo. If tiro is private,
+      # add a read-scoped PAT here via `token:`.
+      - uses: actions/checkout@v4
+        with:
+          repository: hutusi/tiro
+          path: tiro
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - run: bun install --frozen-lockfile
+        working-directory: tiro
+
+      - name: Run the processor
+        working-directory: tiro
+        env:
+          # Must match llm.api_key_env in config/tiro.yml.
+          TIRO_LLM_API_KEY: ${{ secrets.TIRO_LLM_API_KEY }}
+        run: |
+          ARGS="--vault $GITHUB_WORKSPACE/vault"
+          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
+          if [ -n "${{ inputs.slug }}" ]; then ARGS="$ARGS --slug ${{ inputs.slug }}"; fi
+          bun run process -- $ARGS
+
+      # Pushes made with the default GITHUB_TOKEN do not retrigger workflows,
+      # so committing back here cannot loop. The rebase-retry absorbs a clip
+      # that landed while this run was working.
+      - name: Commit results back
+        working-directory: vault
+        run: |
+          git config user.name "tiro-processor"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "process: summarize and translate new articles"
+          for attempt in 1 2 3; do
+            git push && exit 0
+            echo "push rejected (attempt $attempt), rebasing"
+            git pull --rebase
+          done
+          git push
+
+      - name: Trigger site deploy
+        if: success()
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
+          repository: hutusi/tiro
+          event-type: vault-updated
