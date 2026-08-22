@@ -1,0 +1,40 @@
+# ADR 0006: Site loads vault content via Astro glob loader from an external directory
+
+Status: accepted (2026-08)
+
+## Context
+
+The Astro site (in `tiro`) builds from content in `tiro-vault`, checked out as
+a sibling directory at build time. Locally, developers should not need a
+vault clone.
+
+## Decision
+
+- Astro 5 Content Layer `glob()` loaders with `base` pointing at
+  `$TIRO_VAULT_DIR/articles` (default: the in-repo `fixtures/vault`). Two
+  collections: `articles` (`*/*/index.md`) and `translations` (`*/*/zh.md`),
+  joined by a shared entry id. The loaders' default path-derived ids would
+  differ (`…/index` vs `…/zh`), so each collection supplies a `generateId`
+  that strips its filename, leaving both with the identical
+  `<year>/<slug>` id — the first two path segments, where `<slug>` is the
+  directory name produced by the slug rules in `@tiro/shared` (ADR 0002).
+  Frontmatter is validated by the shared Zod schema in site code, not by an
+  Astro collection schema (Astro bundles its own zod version).
+- Guardrails for the known failure mode where a bad `base` yields a
+  **silently empty collection** (withastro/astro#12795): `lib/vault.ts`
+  asserts the directory exists, and production builds fail if the articles
+  collection is empty.
+- Vault images bypass Astro's image pipeline: a prebuild script copies
+  `assets/` into `public/vault-assets/<year>/<slug>/` and a rehype plugin
+  rewrites relative URLs. (Astro image optimization for out-of-project
+  content is historically fragile; deliberately not attempted in v1.)
+- Search is Pagefind (extended build — CJK segmentation), run after
+  `astro build`; deploys go to Cloudflare Pages via wrangler from a GitHub
+  Actions workflow triggered by push to main or `repository_dispatch` from
+  the vault.
+
+## Consequences
+
+- Fast local dev loop against `fixtures/vault`; the same fixtures double as
+  the CI integration test of the content contract.
+- The fixture vault must stay schema-valid or CI builds fail — by design.

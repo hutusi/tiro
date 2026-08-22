@@ -1,0 +1,23 @@
+{
+  "name": "tiro",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "lint": "biome ci . && bun run lint:astro",
+    "lint:astro": "prettier --check --no-error-on-unmatched-pattern \"**/*.astro\"",
+    "fix": "biome check --write . && prettier --write --no-error-on-unmatched-pattern \"**/*.astro\"",
+    "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/processor && tsc --noEmit -p apps/extension && tsc --noEmit -p apps/site",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@types/bun": "1.3.14",
+    "prettier": "^3.9.6",
+    "prettier-plugin-astro": "^0.14.1",
+    "typescript": "^7.0.2"
+  }
+}

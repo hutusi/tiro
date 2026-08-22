@@ -1,0 +1,22 @@
+# Fixture copy of the vault config used by tests and local site builds.
+# The canonical template for a real vault lives in vault-template/.
+llm:
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: qwen-plus
+  api_key_env: TIRO_LLM_API_KEY
+categories:
+  - tech
+  - ai
+  - programming
+  - product
+  - science
+  - business
+  - culture
+  - life
+  - other
+translation:
+  target: zh
+  cjk_threshold: 0.3
+images:
+  max_bytes: 10485760
+  timeout_ms: 20000

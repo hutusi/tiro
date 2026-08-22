@@ -1,0 +1,14 @@
+{
+  "name": "@tiro/processor",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tiro-process": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tiro/shared": "workspace:*"
+  }
+}
