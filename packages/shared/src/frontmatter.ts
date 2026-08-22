@@ -1,11 +1,12 @@
-import matter from "gray-matter";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 
 export const TIRO_SCHEMA_VERSION = 1;
 
 /**
- * YAML parsers (js-yaml under gray-matter) turn unquoted ISO timestamps into
- * Date objects. Accept both and normalize to an ISO string.
+ * YAML 1.1 parsers (e.g. js-yaml) turn unquoted ISO timestamps into Date
+ * objects; the `yaml` package keeps them strings. Accept both and normalize
+ * to an ISO string so hand-edited vault files can't break the schema.
  */
 const isoDatetime = z.preprocess(
   (v) => (v instanceof Date ? v.toISOString() : v),
@@ -56,21 +57,29 @@ export interface ParsedArticle {
   body: string;
 }
 
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+
 /** Parse and validate a full `index.md` file. Throws on schema violations. */
 export function parseArticle(fileText: string): ParsedArticle {
-  const { data, content } = matter(fileText);
-  const frontmatter = ArticleFrontmatterSchema.parse(data);
-  return { frontmatter, body: content.replace(/^\n+/, "") };
+  const match = fileText.match(FRONTMATTER_RE);
+  if (match?.[1] === undefined) {
+    throw new Error("article has no frontmatter block");
+  }
+  const frontmatter = ArticleFrontmatterSchema.parse(parseYaml(match[1]));
+  const body = fileText.slice(match[0].length).replace(/^\n+/, "");
+  return { frontmatter, body };
 }
 
 /**
- * Serialize an article back to `index.md` text. gray-matter (js-yaml) handles
- * YAML quoting/escaping — titles containing `: " #` etc. must never be
- * templated by hand.
+ * Serialize an article back to `index.md` text. The `yaml` serializer handles
+ * quoting/escaping — titles containing `: " #` etc. must never be templated
+ * by hand. (`yaml` rather than gray-matter because this must bundle cleanly
+ * for the extension: gray-matter requires `fs` at module load.)
  */
 export function stringifyArticle(
   frontmatter: ArticleFrontmatter,
   body: string,
 ): string {
-  return matter.stringify(`${body.trimEnd()}\n`, frontmatter);
+  const yamlText = stringifyYaml(frontmatter).trimEnd();
+  return `---\n${yamlText}\n---\n\n${body.trimEnd()}\n`;
 }
