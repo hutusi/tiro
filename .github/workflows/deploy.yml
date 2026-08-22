@@ -12,11 +12,18 @@ concurrency:
   group: deploy
   cancel-in-progress: true
 
+# The deploy builds and uploads to Cloudflare — it never pushes to git, so
+# the token stays read-only and neither checkout persists credentials.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # VAULT_READ_TOKEN (fine-grained PAT, tiro-vault, Contents: read) is
       # only required if the vault repo is private.
@@ -25,6 +32,7 @@ jobs:
           repository: hutusi/tiro-vault
           path: vault
           token: ${{ secrets.VAULT_READ_TOKEN || github.token }}
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         with:
