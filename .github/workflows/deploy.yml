@@ -1,0 +1,45 @@
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  # Fired by tiro-vault's process.yml after it commits processed articles.
+  repository_dispatch:
+    types: [vault-updated]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # VAULT_READ_TOKEN (fine-grained PAT, tiro-vault, Contents: read) is
+      # only required if the vault repo is private.
+      - uses: actions/checkout@v4
+        with:
+          repository: hutusi/tiro-vault
+          path: vault
+          token: ${{ secrets.VAULT_READ_TOKEN || github.token }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build site from the vault
+        env:
+          TIRO_VAULT_DIR: ${{ github.workspace }}/vault
+        run: bun run --cwd apps/site build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/site/dist --project-name=tiro
