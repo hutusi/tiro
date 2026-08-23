@@ -12,14 +12,41 @@ describe("renderBlockHtml", () => {
     expect(html).toContain('src="/vault-assets/2026/my-slug/abc.png"');
   });
 
-  test("passes raw HTML blocks through", () => {
-    expect(
-      renderBlockHtml(
-        '<figure><img src="./assets/x.png"></figure>',
-        "2026",
-        "s",
-      ),
-    ).toContain('<figure><img src="/vault-assets/2026/s/x.png"></figure>');
+  test("keeps figure markup with rewritten asset URLs", () => {
+    const html = renderBlockHtml(
+      '<figure><img src="./assets/x.png"><figcaption>cap</figcaption></figure>',
+      "2026",
+      "s",
+    );
+    expect(html).toContain("<figure>");
+    expect(html).toContain('src="/vault-assets/2026/s/x.png"');
+    expect(html).toContain("<figcaption>cap</figcaption>");
+  });
+
+  test("strips event handlers but keeps the image", () => {
+    const html = renderBlockHtml(
+      '<img src="./assets/x.png" onerror="alert(1)" alt="a">',
+      "2026",
+      "s",
+    );
+    expect(html).toContain('src="/vault-assets/2026/s/x.png"');
+    expect(html).not.toContain("onerror");
+  });
+
+  test("strips script and iframe elements entirely", () => {
+    const html = renderBlockHtml(
+      '<script>alert(1)</script><iframe src="https://evil.example"></iframe>',
+      "2026",
+      "s",
+    );
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<iframe");
+    expect(html).not.toContain("alert(1)");
+  });
+
+  test("strips javascript: link targets", () => {
+    const html = renderBlockHtml("[click](javascript:alert(1))", "2026", "s");
+    expect(html).not.toContain("javascript:");
   });
 
   test("renders GFM tables", () => {
