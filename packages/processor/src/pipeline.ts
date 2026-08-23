@@ -32,6 +32,7 @@ export interface PipelineReport {
   translated: string[];
   summaryFailed: string[];
   translationFailed: string[];
+  errored: { slug: string; error: string }[];
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
@@ -54,6 +55,7 @@ export async function runPipeline(
     translated: [],
     summaryFailed: [],
     translationFailed: [],
+    errored: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -76,7 +78,18 @@ export async function runPipeline(
       log(`[dry-run] would process ${article.slug} (lang=${lang})`);
       continue;
     }
-    await processOne(article, config, deps, report, log);
+    try {
+      await processOne(article, config, deps, report, log);
+    } catch (error) {
+      // A hard failure (LLM outage, provider 403, disk error) must not kill
+      // the run: other articles still process, the workflow's commit step
+      // still runs for them, and this article stays unmarked so the next
+      // push retries it.
+      report.errored.push({ slug: article.slug, error: String(error) });
+      log(
+        `processing failed for ${article.slug}, left pending: ${String(error)}`,
+      );
+    }
   }
 
   return report;

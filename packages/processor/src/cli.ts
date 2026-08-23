@@ -79,6 +79,13 @@ async function run(vault: string): Promise<number> {
       `warning: ${report.invalid.length} invalid article(s) skipped — run 'tiro-process validate' for details`,
     );
   }
+  if (report.errored.length > 0) {
+    for (const failure of report.errored) {
+      console.warn(
+        `warning: ${failure.slug} failed and stays pending: ${failure.error}`,
+      );
+    }
+  }
   return 0;
 }
 

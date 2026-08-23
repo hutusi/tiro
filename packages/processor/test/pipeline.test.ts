@@ -202,3 +202,29 @@ describe("failure markers", () => {
     expect(frontmatter.category).toBe("ai");
   });
 });
+
+describe("hard failures", () => {
+  test("a throwing LLM leaves the article pending and the run alive", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const before = readFileSync(
+      join(vault, "articles", RAW, "index.md"),
+      "utf8",
+    );
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("provider says 403 Model.AccessDenied");
+      },
+    });
+    expect(report.processed).toEqual([]);
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.error).toContain("AccessDenied");
+    // Untouched on disk — the next run retries it.
+    expect(readFileSync(join(vault, "articles", RAW, "index.md"), "utf8")).toBe(
+      before,
+    );
+    const { frontmatter } = parseArticle(before);
+    expect(needsProcessing(frontmatter)).toBe(true);
+  });
+});
