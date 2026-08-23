@@ -69,9 +69,17 @@ async function run(vault: string): Promise<number> {
   console.log(
     `done: ${report.processed.length} processed, ${report.translated.length} translated, ` +
       `${report.imagesDownloaded} images downloaded (${report.imagesFailed} kept as hotlinks), ` +
-      `${report.summaryFailed.length} summary fallback(s), ${report.invalid.length} invalid`,
+      `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ${report.invalid.length} invalid`,
   );
-  return report.invalid.length > 0 ? 1 : 0;
+  // Invalid articles are warnings here: exiting non-zero would fail the
+  // workflow before its commit step, discarding the articles that DID
+  // process. `validate` is the strict gate for contract violations.
+  if (report.invalid.length > 0) {
+    console.warn(
+      `warning: ${report.invalid.length} invalid article(s) skipped — run 'tiro-process validate' for details`,
+    );
+  }
+  return 0;
 }
 
 /** Whole-vault contract check: frontmatter schema + zh.md block alignment. */

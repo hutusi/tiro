@@ -31,6 +31,7 @@ export interface PipelineReport {
   processed: string[];
   translated: string[];
   summaryFailed: string[];
+  translationFailed: string[];
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
@@ -52,6 +53,7 @@ export async function runPipeline(
     processed: [],
     translated: [],
     summaryFailed: [],
+    translationFailed: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -121,6 +123,7 @@ async function processOne(
     log(`summary fell back to excerpt for ${article.slug}`);
   }
 
+  let translationFailed = false;
   if (lang !== config.translation.target) {
     const zhBody = await translateBlocks({
       chat: deps.chat,
@@ -132,9 +135,23 @@ async function processOne(
     if (zhBody !== null) {
       await Bun.write(`${article.dirAbs}/zh.md`, zhBody);
       report.translated.push(article.slug);
+    } else {
+      // Deliberate: the article is still marked processed so a pathological
+      // failure cannot re-run (and re-bill) on every future push; the marker
+      // makes it greppable and `--force --slug` is the retry path.
+      translationFailed = true;
+      report.translationFailed.push(article.slug);
+      log(`translation failed for ${article.slug}; marked translation_failed`);
     }
   }
 
+  // Rebuild the failure markers from this run only — a --force reprocess
+  // must clear a stale summary_failed/translation_failed from a prior run.
+  const {
+    summary_failed: _staleSummaryFailed,
+    translation_failed: _staleTranslationFailed,
+    ...previousTiro
+  } = frontmatter.tiro;
   const updated = {
     ...frontmatter,
     lang,
@@ -142,10 +159,11 @@ async function processOne(
     category: summary.category,
     tags: summary.tags,
     tiro: {
-      ...frontmatter.tiro,
+      ...previousTiro,
       processed_at: now().toISOString(),
       processor_version: PROCESSOR_VERSION,
       ...(summary.failed ? { summary_failed: true } : {}),
+      ...(translationFailed ? { translation_failed: true } : {}),
     },
   };
   await Bun.write(article.indexAbs, stringifyArticle(updated, body));

@@ -144,3 +144,61 @@ describe("runPipeline", () => {
     ).toBe(before);
   });
 });
+
+describe("failure markers", () => {
+  const RAW_SLUG = "example-org-blog-raw-clip-b5de6fbd";
+
+  test("translation failure marks translation_failed but still processes", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    // Batch responses carry no markers, and per-block fallbacks split into
+    // two paragraphs — every path ends misaligned, so zhBody is null.
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async (request) => {
+        if (request.response_format?.type === "json_object") {
+          return JSON.stringify({ summary: "s", category: "ai", tags: [] });
+        }
+        return "第一段。\n\n第二段。";
+      },
+    });
+    expect(report.processed).toEqual([RAW_SLUG]);
+    expect(report.translationFailed).toEqual([RAW_SLUG]);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(frontmatter)).toBe(false);
+    expect(frontmatter.tiro.translation_failed).toBe(true);
+    expect(() => readFileSync(join(vault, "articles", RAW, "zh.md"))).toThrow();
+  });
+
+  test("--force reprocess clears a stale summary_failed marker", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    // First run: the category never validates, so the summary falls back.
+    const failing = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: { summary: "s", category: "not-in-taxonomy", tags: [] },
+      }),
+    });
+    expect(failing.summaryFailed).toEqual([RAW_SLUG]);
+    let { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.tiro.summary_failed).toBe(true);
+
+    // Force reprocess with a healthy LLM: the stale marker must clear.
+    const healthy = await runPipeline(
+      { vaultDir: vault, force: true, slug: RAW_SLUG },
+      config,
+      deps,
+    );
+    expect(healthy.summaryFailed).toEqual([]);
+    ({ frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    ));
+    expect(frontmatter.tiro.summary_failed).toBeUndefined();
+    expect(frontmatter.category).toBe("ai");
+  });
+});
