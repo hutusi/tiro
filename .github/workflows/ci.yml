@@ -26,3 +26,5 @@ jobs:
       - run: bun test
       - name: Build extension
         run: bun run --cwd apps/extension build
+      - name: Build site against the fixture vault
+        run: bun run --cwd apps/site build

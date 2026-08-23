@@ -1,0 +1,200 @@
+---
+import Base from "../../../layouts/Base.astro";
+import { getArticles } from "../../../lib/articles.ts";
+import { buildReaderView } from "../../../lib/reader.ts";
+import { STRINGS } from "../../../lib/strings.ts";
+
+export async function getStaticPaths() {
+  const articles = await getArticles();
+  return articles.map((article) => ({
+    params: { year: article.year, slug: article.slug },
+    props: { article },
+  }));
+}
+
+const { article } = Astro.props;
+const { frontmatter } = article;
+const view = buildReaderView(
+  article.body,
+  article.zhBody,
+  article.year,
+  article.slug,
+);
+const t = STRINGS.article;
+const date = frontmatter.clipped_at.slice(0, 10);
+---
+
+<Base title={frontmatter.title}>
+  <article data-pagefind-body>
+    <header
+      class="mb-8 border-b border-neutral-200 pb-6 dark:border-neutral-800"
+    >
+      <h1 class="text-2xl font-bold leading-tight">{frontmatter.title}</h1>
+      <div
+        class="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500"
+      >
+        <a
+          href={frontmatter.url}
+          rel="noopener"
+          target="_blank"
+          class="hover:underline"
+        >
+          {t.source} ↗
+        </a>
+        <span>·</span>
+        <span>{frontmatter.domain}</span>
+        <span>·</span>
+        <span
+          >{t.clippedAt}
+          <time datetime={frontmatter.clipped_at}>{date}</time></span
+        >
+        {
+          frontmatter.category !== undefined && (
+            <a
+              href={`/categories/${frontmatter.category}/`}
+              data-pagefind-meta={`category:${frontmatter.category}`}
+              class="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+            >
+              {frontmatter.category}
+            </a>
+          )
+        }
+        {
+          (frontmatter.tags ?? []).map((tag) => (
+            <a href={`/tags/${tag}/`} class="text-xs hover:underline">
+              #{tag}
+            </a>
+          ))
+        }
+      </div>
+      {
+        frontmatter.summary !== undefined && (
+          <div class="mt-4 rounded-lg bg-neutral-50 p-4 text-sm leading-relaxed text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+            <span class="font-semibold">{t.summary}：</span>
+            {frontmatter.summary}
+          </div>
+        )
+      }
+    </header>
+
+    {
+      view.kind === "paired" && (
+        <div>
+          <div class="mb-6 flex gap-1 text-sm" id="view-toggle">
+            <button
+              type="button"
+              data-view="both"
+              class="rounded-md border border-neutral-300 px-3 py-1 dark:border-neutral-700"
+            >
+              {t.sideBySide}
+            </button>
+            <button
+              type="button"
+              data-view="original"
+              class="rounded-md border border-neutral-300 px-3 py-1 dark:border-neutral-700"
+            >
+              {t.original}
+            </button>
+            <button
+              type="button"
+              data-view="translation"
+              class="rounded-md border border-neutral-300 px-3 py-1 dark:border-neutral-700"
+            >
+              {t.translation}
+            </button>
+          </div>
+          <div id="reader" data-mode="both" class="space-y-2">
+            {view.rows.map((row) => (
+              <div class="reader-row grid gap-x-10 gap-y-2 lg:grid-cols-2">
+                <div
+                  class="pane-original prose prose-neutral max-w-none dark:prose-invert"
+                  set:html={row.original}
+                />
+                <div
+                  class="pane-translation prose prose-neutral max-w-none dark:prose-invert"
+                  lang="zh-CN"
+                  set:html={row.translation}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    {
+      view.kind === "single" && (
+        <div class="prose prose-neutral mx-auto max-w-3xl dark:prose-invert">
+          {view.blocks.map((html) => (
+            <Fragment set:html={html} />
+          ))}
+        </div>
+      )
+    }
+
+    {
+      view.kind === "stacked" && (
+        <div class="space-y-10">
+          <p class="text-sm text-amber-600 dark:text-amber-500">
+            {t.misaligned}
+          </p>
+          <div class="prose prose-neutral max-w-3xl dark:prose-invert">
+            {view.original.map((html) => (
+              <Fragment set:html={html} />
+            ))}
+          </div>
+          <div
+            class="prose prose-neutral max-w-3xl dark:prose-invert"
+            lang="zh-CN"
+          >
+            {view.translation.map((html) => (
+              <Fragment set:html={html} />
+            ))}
+          </div>
+        </div>
+      )
+    }
+  </article>
+</Base>
+
+<style>
+  #reader[data-mode="original"] .pane-translation {
+    display: none;
+  }
+  #reader[data-mode="translation"] .pane-original {
+    display: none;
+  }
+  #reader[data-mode="original"] .reader-row,
+  #reader[data-mode="translation"] .reader-row {
+    grid-template-columns: 1fr;
+    max-width: 48rem;
+    margin-inline: auto;
+  }
+  #view-toggle button[aria-pressed="true"] {
+    background-color: var(--color-neutral-900);
+    color: var(--color-white);
+    border-color: var(--color-neutral-900);
+  }
+  :global(.dark) #view-toggle button[aria-pressed="true"] {
+    background-color: var(--color-neutral-100);
+    color: var(--color-neutral-900);
+    border-color: var(--color-neutral-100);
+  }
+</style>
+
+<script is:inline>
+  const reader = document.getElementById("reader");
+  const toggle = document.getElementById("view-toggle");
+  if (reader !== null && toggle !== null) {
+    const buttons = toggle.querySelectorAll("button");
+    const apply = (mode) => {
+      reader.dataset.mode = mode;
+      for (const b of buttons)
+        b.setAttribute("aria-pressed", String(b.dataset.view === mode));
+      localStorage.setItem("tiro-reader-mode", mode);
+    };
+    for (const b of buttons)
+      b.addEventListener("click", () => apply(b.dataset.view));
+    apply(localStorage.getItem("tiro-reader-mode") ?? "both");
+  }
+</script>

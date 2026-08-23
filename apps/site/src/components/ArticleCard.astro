@@ -1,0 +1,47 @@
+---
+import { type Article, articleUrl } from "../lib/articles.ts";
+
+interface Props {
+  article: Article;
+}
+const { article } = Astro.props;
+const { frontmatter } = article;
+const date = frontmatter.clipped_at.slice(0, 10);
+---
+
+<article
+  class="rounded-lg border border-neutral-200 p-4 transition-colors hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
+>
+  <a href={articleUrl(article)} class="block">
+    <h2 class="text-base font-semibold leading-snug">{frontmatter.title}</h2>
+    {
+      frontmatter.summary !== undefined && (
+        <p class="mt-2 line-clamp-3 text-sm text-neutral-600 dark:text-neutral-400">
+          {frontmatter.summary}
+        </p>
+      )
+    }
+  </a>
+  <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+    <span>{frontmatter.domain}</span>
+    <span>·</span>
+    <time datetime={frontmatter.clipped_at}>{date}</time>
+    {
+      frontmatter.category !== undefined && (
+        <a
+          href={`/categories/${frontmatter.category}/`}
+          class="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+        >
+          {frontmatter.category}
+        </a>
+      )
+    }
+    {
+      (frontmatter.tags ?? []).map((tag) => (
+        <a href={`/tags/${tag}/`} class="text-neutral-500 hover:underline">
+          #{tag}
+        </a>
+      ))
+    }
+  </div>
+</article>

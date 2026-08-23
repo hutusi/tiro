@@ -1,0 +1,25 @@
+---
+import Base from "../layouts/Base.astro";
+import { STRINGS } from "../lib/strings.ts";
+---
+
+<Base title={STRINGS.search.title}>
+  <h1 class="mb-6 text-xl font-bold">{STRINGS.search.title}</h1>
+  <link rel="stylesheet" href="/pagefind/pagefind-ui.css" />
+  <div id="search" class="mx-auto max-w-2xl"></div>
+  <p id="search-notice" hidden class="text-sm text-neutral-500">
+    {STRINGS.search.devNotice}
+  </p>
+</Base>
+
+<script is:inline>
+  const script = document.createElement("script");
+  script.src = "/pagefind/pagefind-ui.js";
+  script.onload = () => {
+    new PagefindUI({ element: "#search", showSubResults: true });
+  };
+  script.onerror = () => {
+    document.getElementById("search-notice")?.removeAttribute("hidden");
+  };
+  document.head.appendChild(script);
+</script>
