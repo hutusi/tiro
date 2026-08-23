@@ -17,6 +17,13 @@ const indexFiles = Array.from(
 describe("fixture vault", () => {
   test("contains the expected articles", () => {
     expect(indexFiles.length).toBeGreaterThanOrEqual(3);
+    for (const expected of [
+      "2026/example-cn-posts-ai-times-0d21367e/index.md",
+      "2026/example-com-posts-hello-ai-e8446b12/index.md",
+      "2026/example-org-blog-raw-clip-b5de6fbd/index.md",
+    ]) {
+      expect(indexFiles).toContain(expected);
+    }
   });
 
   for (const relPath of indexFiles) {
