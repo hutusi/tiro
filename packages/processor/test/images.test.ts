@@ -33,6 +33,25 @@ beforeAll(() => {
         return new Response(PNG_BYTES, {
           headers: { "Content-Type": "application/octet-stream" },
         });
+      if (path === "/stream.png") {
+        // Streamed body with no Content-Length, far larger than the cap in
+        // the test: only the incremental byte cap can stop it early. Bounded
+        // (not infinite) so a bug hangs an assertion, not the event loop.
+        let sent = 0;
+        const stream = new ReadableStream({
+          pull(controller) {
+            if (sent >= 5000) {
+              controller.close();
+              return;
+            }
+            sent += 1;
+            controller.enqueue(PNG_BYTES);
+          },
+        });
+        return new Response(stream, {
+          headers: { "Content-Type": "image/png" },
+        });
+      }
       return new Response("not found", { status: 404 });
     },
   });
@@ -53,6 +72,8 @@ const options = (body: string, assetsDirAbs: string) => ({
   assetsDirAbs,
   maxBytes: 1024 * 1024,
   timeoutMs: 5000,
+  // The fixture server listens on localhost, which production would reject.
+  allowPrivateHosts: true,
   log: () => {},
 });
 
@@ -72,7 +93,7 @@ describe("findImageUrls", () => {
 });
 
 describe("processImages", () => {
-  test("downloads an image and rewrites every occurrence of its URL", async () => {
+  test("downloads an image, rewriting image syntax but not plain links", async () => {
     const dir = tempAssetsDir();
     const body = `![cover](${base}/ok.png)\n\nSee [the image](${base}/ok.png) again.`;
     const result = await processImages(options(body, dir));
@@ -81,8 +102,51 @@ describe("processImages", () => {
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^[0-9a-f]{12}\.png$/);
-    expect(result.body).not.toContain(base);
-    expect(result.body.match(/\.\/assets\//g)).toHaveLength(2);
+    expect(result.body).toContain(`![cover](./assets/${files[0]})`);
+    // Plain links keep pointing at the source.
+    expect(result.body).toContain(`[the image](${base}/ok.png)`);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("does not corrupt longer URLs sharing the downloaded URL as a prefix", async () => {
+    const dir = tempAssetsDir();
+    const body = `![cover](${base}/ok.png)\n\n![broken](${base}/ok.pngx.html)`;
+    const result = await processImages(options(body, dir));
+    expect(result.downloaded).toBe(1);
+    expect(result.failed).toBe(1);
+    // The failing longer URL must survive byte-identically.
+    expect(result.body).toContain(`![broken](${base}/ok.pngx.html)`);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("rejects non-public hosts unless explicitly allowed", async () => {
+    const dir = tempAssetsDir();
+    const body = [
+      `![loop](${base}/ok.png)`,
+      "![meta](http://169.254.169.254/latest/meta-data.png)",
+      "![lan](https://10.0.0.5/x.png)",
+      "![name](https://vault.internal/x.png)",
+    ].join("\n\n");
+    const result = await processImages({
+      ...options(body, dir),
+      allowPrivateHosts: false,
+    });
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(4);
+    expect(result.body).toBe(body);
+    expect(readdirSync(dir)).toHaveLength(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("caps a stream that never declares its length", async () => {
+    const dir = tempAssetsDir();
+    const result = await processImages({
+      ...options(`![endless](${base}/stream.png)`, dir),
+      maxBytes: 4096,
+    });
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(readdirSync(dir)).toHaveLength(0);
     rmSync(dir, { recursive: true, force: true });
   });
 
