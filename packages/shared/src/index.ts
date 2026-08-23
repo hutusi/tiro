@@ -1,6 +1,10 @@
 /**
  * @tiro/shared — the content contract shared by the extension, the processor,
  * and the site. Only browser-safe modules may be re-exported from this root
- * entry; anything touching `node:` APIs must be exposed via a subpath export.
+ * entry; anything else must be exposed via a subpath export (see
+ * `@tiro/shared/config`).
  */
-export const TIRO_SCHEMA_VERSION = 1;
+export * from "./blocks.ts";
+export * from "./frontmatter.ts";
+export * from "./paths.ts";
+export * from "./slug.ts";
