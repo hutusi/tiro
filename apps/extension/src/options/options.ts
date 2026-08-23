@@ -34,7 +34,10 @@ async function init(): Promise<void> {
 }
 
 saveButton.addEventListener("click", () => {
-  void saveConfig(currentConfig()).then(() => show("Saved.", true));
+  void saveConfig(currentConfig()).then(
+    () => show("Saved.", true),
+    (error: unknown) => show(`Could not save: ${String(error)}`, false),
+  );
 });
 
 testButton.addEventListener("click", () => {

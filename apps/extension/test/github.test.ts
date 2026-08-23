@@ -92,7 +92,7 @@ describe("putFile", () => {
     const puts: Record<string, unknown>[] = [];
     let putCount = 0;
     const fetchImpl = async (
-      input: string | URL | Request,
+      _input: string | URL | Request,
       init?: RequestInit,
     ): Promise<Response> => {
       if (init?.method === "PUT") {

@@ -45,5 +45,8 @@ import type { ClipResultMessage } from "./messages.ts";
       readabilityFailed,
     },
   };
-  void chrome.runtime.sendMessage(message);
+  chrome.runtime.sendMessage(message).catch(() => {
+    // Expected when the popup closed before the result arrived — the
+    // receiving end no longer exists and the clip is simply abandoned.
+  });
 })();

@@ -66,6 +66,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  // executeScript resolves when injection starts, not when the clipper
+  // messages back; if the clipper dies mid-run the popup would otherwise sit
+  // on "Reading page…" forever.
+  setTimeout(() => {
+    if (result === null) {
+      setStatus(
+        "The page did not produce a clip. Reload it and try again.",
+        true,
+      );
+    }
+  }, 10_000);
+
   el.clip.addEventListener("click", () => {
     if (result === null) return;
     void (async (payload) => {
