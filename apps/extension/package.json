@@ -3,9 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "vite build && vite build -c vite.clipper.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tiro/shared": "workspace:*"
+    "@joplin/turndown-plugin-gfm": "^1.0.67",
+    "@mozilla/readability": "^0.6.0",
+    "@tiro/shared": "workspace:*",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.7",
+    "@types/turndown": "^5.0.6",
+    "vite": "^8.2.2"
   }
 }
