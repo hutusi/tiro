@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tiro/shared": "workspace:*"
+    "@tiro/shared": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

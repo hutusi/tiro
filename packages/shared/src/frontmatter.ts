@@ -42,6 +42,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),
+    translation_failed: z.boolean().optional(),
   }),
 });
 export type ArticleFrontmatter = z.infer<typeof ArticleFrontmatterSchema>;
