@@ -71,4 +71,19 @@ describe("slugForUrl", () => {
     const slug = await slugForUrl("https://example.com");
     expect(slug).toMatch(/^example-com-[0-9a-f]{8}$/);
   });
+
+  test("survives malformed percent escapes in the path", async () => {
+    // decodeURIComponent throws URIError on "%zz"; the slug must still form.
+    const slug = await slugForUrl("https://example.com/a%zz-path");
+    expect(slug).toMatch(/^example-com-a-zz-path-[0-9a-f]{8}$/);
+  });
+
+  test("collapses repeated trailing slashes into one identity (intended)", async () => {
+    // /a, /a/, and /a// serve the same page; re-clipping any variant must
+    // overwrite the same article — the same reasoning as stripping utm_*
+    // params and fragments. Do not "fix" this into slash-count preservation.
+    const canonical = await slugForUrl("https://example.com/a");
+    expect(await slugForUrl("https://example.com/a/")).toBe(canonical);
+    expect(await slugForUrl("https://example.com/a//")).toBe(canonical);
+  });
 });

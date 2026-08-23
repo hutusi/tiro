@@ -41,6 +41,17 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+/** decodeURIComponent throws URIError on malformed escapes (a URL can carry
+ * a literal stray "%"); such URLs must still get a slug, so fall back to the
+ * encoded pathname — slugify flattens the difference anyway. */
+function safeDecodePathname(pathname: string): string {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return pathname;
+  }
+}
+
 /**
  * Deterministic slug for a URL: slugified host+path (www stripped, ASCII
  * only, truncated) plus an 8-hex SHA-256 suffix of the normalized URL.
@@ -54,7 +65,7 @@ export async function slugForUrl(rawUrl: string): Promise<string> {
   const hash = (await sha256Hex(normalized)).slice(0, HASH_SUFFIX_LEN);
   const url = new URL(normalized);
   const host = url.hostname.replace(/^www\./, "");
-  let base = slugify(`${host}${decodeURIComponent(url.pathname)}`);
+  let base = slugify(`${host}${safeDecodePathname(url.pathname)}`);
   if (base.length > SLUG_BASE_MAX) {
     base = base.slice(0, SLUG_BASE_MAX).replace(/-+$/, "");
   }
