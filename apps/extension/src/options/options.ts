@@ -41,10 +41,18 @@ saveButton.addEventListener("click", () => {
 });
 
 testButton.addEventListener("click", () => {
+  const config = currentConfig();
+  const missing = [
+    config.owner === "" ? "owner" : null,
+    config.repo === "" ? "repository" : null,
+    config.token === "" ? "token" : null,
+  ].filter((f) => f !== null);
+  if (missing.length > 0) {
+    show(`Fill in the ${missing.join(", ")} field(s) first.`, false);
+    return;
+  }
   show("Testing…", true);
-  void testConnection(currentConfig()).then(({ ok, message }) =>
-    show(message, ok),
-  );
+  void testConnection(config).then(({ ok, message }) => show(message, ok));
 });
 
 void init();
