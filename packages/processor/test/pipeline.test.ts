@@ -1,5 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -204,27 +210,59 @@ describe("failure markers", () => {
 });
 
 describe("hard failures", () => {
-  test("a throwing LLM leaves the article pending and the run alive", async () => {
+  const SECOND = "2026/zz-second-pending-article-aaaaaaaa";
+  const secondClip = [
+    "---",
+    'url: "https://example.net/second"',
+    'title: "Second Pending Article"',
+    'domain: "example.net"',
+    'clipped_at: "2026-08-23T09:00:00.000Z"',
+    "tiro:",
+    "  schema: 1",
+    "---",
+    "",
+    "Second pending article body.",
+    "",
+  ].join("\n");
+
+  test("a failing article stays pending while later articles still process", async () => {
     const vault = freshVault();
+    // Sorts after the RAW fixture, so the failure happens first.
+    const secondPath = join(vault, "articles", SECOND, "index.md");
+    mkdirSync(join(vault, "articles", SECOND), { recursive: true });
+    writeFileSync(secondPath, secondClip);
     const config = await loadVaultConfig(vault);
     const before = readFileSync(
       join(vault, "articles", RAW, "index.md"),
       "utf8",
     );
+
+    const healthy = makeFakeChat();
     const report = await runPipeline({ vaultDir: vault }, config, {
       ...deps,
-      chat: async () => {
-        throw new Error("provider says 403 Model.AccessDenied");
+      chat: async (request) => {
+        // Fail only the first article (identified by its body text).
+        const user =
+          request.messages.find((m) => m.role === "user")?.content ?? "";
+        if (user.includes("This fixture represents an article")) {
+          throw new Error("provider says 403 Model.AccessDenied");
+        }
+        return healthy(request);
       },
     });
-    expect(report.processed).toEqual([]);
+
     expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.slug).toBe("example-org-blog-raw-clip-b5de6fbd");
     expect(report.errored[0]?.error).toContain("AccessDenied");
-    // Untouched on disk — the next run retries it.
+    expect(report.processed).toEqual(["zz-second-pending-article-aaaaaaaa"]);
+
+    // Failed article untouched on disk — the next run retries it.
     expect(readFileSync(join(vault, "articles", RAW, "index.md"), "utf8")).toBe(
       before,
     );
-    const { frontmatter } = parseArticle(before);
-    expect(needsProcessing(frontmatter)).toBe(true);
+    expect(needsProcessing(parseArticle(before).frontmatter)).toBe(true);
+    // Succeeding article fully processed despite the earlier failure.
+    const second = parseArticle(readFileSync(secondPath, "utf8"));
+    expect(needsProcessing(second.frontmatter)).toBe(false);
   });
 });
