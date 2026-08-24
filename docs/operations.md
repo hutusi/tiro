@@ -1,0 +1,102 @@
+# Operations Runbook
+
+Day-2 operations for the running Tiro system.
+
+## The moving parts
+
+| Thing | Where |
+| --- | --- |
+| Live site | <https://tiro-36s.pages.dev/> (Cloudflare Pages project `tiro`, direct upload) |
+| Content vault | <https://github.com/hutusi/tiro-vault> (private) |
+| Processing workflow | tiro-vault → Actions → "Process articles" |
+| Deploy workflow | tiro → Actions → "Deploy site" |
+| LLM config | `config/tiro.yml` in the vault |
+
+## Secrets and tokens
+
+All fine-grained PATs expire (max ~1 year) — when clips or deploys start
+failing with 401/404, check these first and rotate.
+
+| Secret | Lives in | Scope | Purpose |
+| --- | --- | --- | --- |
+| `TIRO_LLM_API_KEY` | tiro-vault | Bailian API key | LLM calls |
+| `TIRO_DISPATCH_TOKEN` | tiro-vault | PAT: `tiro`, Contents RW | fire `repository_dispatch` after processing |
+| `VAULT_READ_TOKEN` | tiro | PAT: `tiro-vault`, Contents R | deploy checks out the private vault |
+| `CLOUDFLARE_API_TOKEN` | tiro | Account → Cloudflare Pages: Edit | `wrangler pages deploy` |
+| `CLOUDFLARE_ACCOUNT_ID` | tiro | (not sensitive) | wrangler target account |
+| extension PAT | Chrome options page only | PAT: `tiro-vault`, Contents RW | clip commits |
+
+Rotate a GitHub secret with `gh secret set NAME -R hutusi/<repo>` (prompts for
+the value); the extension PAT is re-pasted in its options page.
+
+## LLM configuration
+
+`config/tiro.yml` in the vault sets `base_url`, `model`, optional
+`summary_model`/`translation_model`, and `api_key_env`. Any OpenAI-compatible
+endpoint works.
+
+- **Current working setup**: `https://dashscope.aliyuncs.com/compatible-mode/v1`
+  with `model: glm-5.2`. This key has **GLM access only** — `qwen-*` and the
+  docs' prefixed `ZHIPU/GLM-*` ids return `model_access_denied`.
+- The summary call needs a model supporting JSON mode
+  (`response_format: json_object`); translation does not.
+- Self-test a key/model without burning workflow runs:
+
+  ```sh
+  curl -s https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \
+    -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+    -d '{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}'
+  ```
+
+## Reprocessing articles
+
+Articles are selected by the missing `tiro.processed_at` frontmatter marker,
+so re-runs are always safe no-ops for finished articles.
+
+- **Retry pending/failed articles**: tiro-vault → Actions → Process articles
+  → Run workflow (no inputs), or `gh workflow run process.yml -R hutusi/tiro-vault`.
+- **Redo one article** (e.g. after a bad summary):
+  Run workflow with `force: true` and the article's `slug`.
+- **Redo everything**: `force: true`, no slug. Re-bills every article.
+- **Locally**: `TIRO_LLM_API_KEY=… bun run process -- --vault ../tiro-vault`
+  (then commit/push the vault yourself).
+- **Contract check over the whole vault**:
+  `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
+
+### Failure markers
+
+| Marker | Meaning | Fix |
+| --- | --- | --- |
+| `tiro.summary_failed: true` | LLM summary failed; excerpt used | reprocess with `force` + slug |
+| `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
+| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403) | fix the cause; next run retries automatically |
+
+## Deploys
+
+Triggered by: push to `main` in tiro, `vault-updated` dispatch from the vault,
+or manually (Actions → Deploy site → Run workflow). Wrangler is pinned in
+devDependencies — the action must log "using pre-installed wrangler".
+
+- A failed deploy is always safe to **Re-run** from the Actions UI.
+- **Empty-vault guard**: the build refuses to publish a site with zero
+  articles. Keep at least one article in the vault.
+- Deleting an article: remove its directory from the vault and push — the
+  push triggers processing (a no-op) which triggers a redeploy.
+
+## Extension
+
+- Loaded unpacked from `apps/extension/dist`. After pulling extension
+  changes: `bun run --cwd apps/extension build`, then the reload icon on
+  `chrome://extensions`. Saved settings survive reloads.
+- Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
+  prefix), branch `main`, plus the extension PAT.
+
+## Known failure signatures
+
+| Symptom | Cause | Action |
+| --- | --- | --- |
+| `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
+| Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
+| Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
+| `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
+| Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |

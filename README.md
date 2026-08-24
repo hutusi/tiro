@@ -20,7 +20,7 @@ This monorepo holds all the code; content lives in a separate vault repo
 | `apps/site` | Astro site, deployed to Cloudflare Pages |
 | `vault-template/` | Files to bootstrap a new `tiro-vault` repo |
 | `fixtures/vault` | A tiny fake vault for tests and local site development |
-| `docs/` | [Architecture](./docs/architecture.md) and [ADRs](./docs/adr/) |
+| `docs/` | [Architecture](./docs/architecture.md), [ADRs](./docs/adr/), and the [operations runbook](./docs/operations.md) |
 
 ## Development
 
