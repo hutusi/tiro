@@ -1,15 +1,32 @@
 # AGENTS.md
 
-Guidance for AI agents (and future humans) working on Tiro. Claude Code loads
-this file via `CLAUDE.md`.
+Guidance for AI coding agents (Claude Code, Codex, Cursor, …) working in this
+repository. This file is the single source of truth — CLAUDE.md imports it.
 
-Tiro is a personal read-it-later tool: a Chrome extension clips pages as
-Markdown into a separate content repo (`hutusi/tiro-vault`, private), a GitHub
-Actions workflow there summarizes/tags/translates them with an LLM, and an
-Astro site publishes the result at <https://tiro-36s.pages.dev/>. This repo
-holds all the code; the vault holds all the content. Design details live in
-[docs/architecture.md](docs/architecture.md) and [docs/adr/](docs/adr/);
-day-2 operations live in [docs/operations.md](docs/operations.md).
+## Project
+
+Tiro is a personal read-it-later tool and external knowledge base: a Chrome
+MV3 extension clips pages as Markdown into a separate content repo
+(`hutusi/tiro-vault`, private), a GitHub Actions workflow there
+summarizes/tags/translates them with an LLM, and an Astro site publishes the
+result at <https://tiro-36s.pages.dev/>. TypeScript + Bun workspaces
+throughout; Astro 7 + Tailwind 4 for the site.
+
+Product decisions that look odd but are deliberate:
+
+- **The site is fully public** — no auth tier. The owner accepted the
+  trade-off; consequently *all* clipped HTML must be sanitized before
+  rendering (invariant 5 below).
+- **All content lives in the vault repo, never here.** This repo is code
+  only; the vault holds articles, config, and the processing workflow. The
+  two meet in CI (the vault workflow checks this repo out; the deploy
+  workflow checks the vault out).
+- **The LLM is provider-configurable, never hardcoded** — an
+  OpenAI-compatible endpoint set in the vault's `config/tiro.yml` (ADR 0004).
+- `vault-template/` is the **bootstrap template** for new vaults; the *live*
+  vault's config evolves independently (it currently runs `glm-5.2` while
+  the template ships a generic default). Editing the template does not
+  change the live vault — propagate deliberate changes by hand.
 
 ## Repo map
 
@@ -18,76 +35,126 @@ day-2 operations live in [docs/operations.md](docs/operations.md).
 | `packages/shared` | **The content contract — keystone.** Zod frontmatter schemas, slug rules, block alignment, `tiro.yml` config schema |
 | `packages/processor` | LLM pipeline CLI (`tiro-process run\|validate`), run by the vault's workflow |
 | `apps/extension` | Chrome MV3 clipper (Readability + Turndown → GitHub Contents API) |
-| `apps/site` | Astro site (Tailwind 4, Pagefind search), deployed to Cloudflare Pages |
+| `apps/site` | Astro site (side-by-side reader, Pagefind search), deployed to Cloudflare Pages |
 | `vault-template/` | Files to bootstrap a new vault repo |
 | `fixtures/vault` | Fake vault for tests and local site dev — its articles must stay contract-valid (test-enforced) |
 
 ## Commands
 
 ```sh
-bun install                # workspace install
-bun run lint               # Biome (ts/js/json) + Prettier (.astro only)
-bun run fix                # auto-format both
-bun run typecheck          # tsc per package + astro check
-bun test                   # bun test across all packages
-bun run --cwd apps/extension build   # two-pass Vite build → dist/
-bun run --cwd apps/site dev          # site dev against fixtures/vault
-bun run --cwd apps/site build        # assets + astro build + pagefind
+bun install                          # workspace install
+bun run lint                         # Biome (ts/js/json) + Prettier (.astro only)
+bun run fix                          # auto-format both
+bun run typecheck                    # tsc per package + astro check — part of the verify gate
+bun test                             # bun test across all packages
+bun run --cwd apps/extension build   # two-pass Vite build → dist/ (load unpacked from there)
+bun run --cwd apps/site dev          # site dev against fixtures/vault — no vault clone needed
+bun run --cwd apps/site build        # assets + astro build + pagefind — part of the verify gate
 bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 ```
 
+## Development workflow
+
+- **Branch only for big work.** A new feature, a large refactor, a dependency
+  upgrade, or broad/risky work spanning many systems gets its own
+  `<type>/<topic>` branch off `main` so it lands as one reviewable unit.
+  Minor work — bug fixes, small improvements, doc edits, single-purpose
+  tweaks — commits straight to `main`, even when it touches a few files.
+  Judge by scope and risk, not file count; when unsure, prefer `main`.
+  Either way, the verify gate below must be green before anything lands.
+- **Commit in focused slices.** One commit per logical slice; keep lint green
+  at each commit so branches stay bisectable. Conventional Commit messages;
+  no `Co-Authored-By` trailers or AI-attribution lines anywhere (commits,
+  PR descriptions).
+- **Explain the why in the commit body.** The subject says what changed; the
+  body explains why — the motivation and any non-obvious decision or
+  trade-off. Required for anything beyond trivial edits; `git log` should
+  make sense without opening the PR.
+- **Docs and tests ship *with* the change — not later.** The Docs section
+  below says what each page tracks; update every page covering what you
+  touched, cover new logic with tests, and add a `CHANGELOG.md` entry under
+  `[Unreleased]` for anything release-worthy. A contract change additionally
+  means checking all three consumers (extension, processor, site) in the
+  same change — see invariant 1.
+- **Verify before it lands** — the same list CI runs: `bun run lint`,
+  `bun run typecheck`, `bun test`, plus both builds
+  (`--cwd apps/extension build`, `--cwd apps/site build`). Extension UI
+  changes also need a manual pass (load unpacked, clip a page); pipeline
+  changes are tested against `fixtures/vault` with the fake chat client —
+  don't burn live workflow runs or LLM credit to test what a fixture can
+  prove (a curl against the provider answers model/key questions).
+- **Pushing and opening PRs are user-authorized** — don't push or open a PR
+  unless asked. PRs target `main` on `hutusi/tiro`.
+- **Merging: rebase-merge single-commit PRs; merge-commit multi-commit PRs.**
+  Never rebase-merge the base of a stacked PR — SHA rewriting breaks every
+  downstream diff. When unstacking a merged base: merge → retarget the next
+  PR to `main` → delete the branch, in that order (deleting first closes the
+  stacked PR).
+- **CodeRabbit reviews PRs** (rate limit 1/hour; trigger manually with a
+  `@coderabbitai review` comment). Verify each finding against the code
+  before acting; reply on the thread with fixed-in-`<sha>` or a reasoned,
+  evidence-backed decline.
+
 ## Hard invariants — do not break casually
 
-1. **The content contract is shared by three independent components** that
-   ship separately (extension writes, processor transforms, site reads).
+1. **The content contract is shared by three independently shipping
+   components** (extension writes, processor transforms, site reads).
    Schema/slug/path changes must keep all three in lockstep and bump
    `tiro.schema` when breaking (ADR 0002).
 2. **Slugs are deterministic from the URL** (normalized URL → slug + 8-hex
-   SHA-256). Re-clipping must overwrite the same article, never duplicate.
+   SHA-256). Re-clipping must overwrite the same article, never duplicate —
+   trailing-slash and tracking-param variants are one identity by design.
 3. **"Needs processing" = `tiro.processed_at` absent.** The processor is
    idempotent and retry-safe; never select work by push diffs.
 4. **`zh.md` must be strictly 1:1 block-aligned** with the `index.md` body,
    code blocks byte-identical. A misaligned `zh.md` must never be written;
    the site falls back to stacked rendering rather than misaligned rows
    (ADR 0003).
-5. **The site is fully public** — all clipped HTML must pass rehype-sanitize
-   in `apps/site/src/lib/render.ts`. Never reintroduce `allowDangerousHtml`
-   at the stringify stage; extend the sanitize schema instead if legitimate
-   tags get stripped.
-6. **`@tiro/shared`'s root export must stay browser-safe** (it is bundled
-   into the extension). Anything touching `node:` APIs goes in a subpath
-   export (`@tiro/shared/config`).
-7. **Per-article fault isolation in the processor**: a hard failure logs,
-   leaves the article pending, and must never fail the workflow before its
-   commit step. Per-image failures fall back to the hotlink; downloads are
-   guarded (non-public-host rejection, streaming byte cap).
+5. **All clipped HTML passes rehype-sanitize** in
+   `apps/site/src/lib/render.ts` before reaching the public site. Never
+   reintroduce `allowDangerousHtml` at the stringify stage; extend the
+   sanitize schema instead if legitimate tags get stripped.
+6. **`@tiro/shared`'s root export stays browser-safe** (it is bundled into
+   the extension). Anything touching `node:` APIs goes in a subpath export
+   (`@tiro/shared/config`).
+7. **Per-article fault isolation in the processor:** a hard failure logs,
+   leaves the article pending for the next run, and must never fail the
+   workflow before its commit step. Per-image failures fall back to the
+   hotlink; downloads are guarded (non-public-host rejection, streaming
+   byte cap).
 
 ## Toolchain notes
 
 - **TypeScript is pinned to 6.x** — `astro check` needs the programmatic API
-  that the native TS 7 compiler doesn't expose. Don't bump to 7 until it does.
+  the native TS 7 compiler doesn't expose. Don't bump until it does.
 - Biome owns ts/js/json; Prettier owns `.astro` only; the Tailwind 4
   stylesheet is excluded from Biome (it can't parse `@plugin`/`@custom-variant`).
-- `@tiro/shared` ships TypeScript source directly — no build step, every
+- `@tiro/shared` ships TypeScript source directly — no build step; every
   consumer is TS-native (ADR 0001).
 - Use the structural `FetchLike` type for injectable fetch, not
   `typeof fetch` (Bun's type demands `preconnect`).
-- The extension clipper must stay an **IIFE** (second Vite pass):
+- The extension clipper must stay an **IIFE** (second Vite pass) —
   `executeScript`-injected files are classic scripts (ADR 0005).
 - Astro glob loaders read `TIRO_VAULT_DIR` (default `fixtures/vault`); a bad
-  base yields a silently empty collection, so the guards in
+  base yields a *silently empty* collection, so the guards in
   `apps/site/src/lib/{vault,articles}.ts` must stay (ADR 0006).
+- `wrangler` is pinned in devDependencies so the deploy action never
+  installs it mid-workflow (a historic flake).
 
-## Conventions
+## Docs
 
-- Conventional Commits; the body explains **why**; no AI-attribution lines
-  or `Co-Authored-By` trailers anywhere.
-- Features → `<type>/<topic>` branch + PR; doc edits and small fixes may go
-  straight to `main`. CI must be green before anything lands.
-- Merging: **rebase-merge single-commit PRs; merge-commit multi-commit PRs.**
-  Never rebase-merge the base of a stacked PR (it breaks downstream diffs).
-- CodeRabbit reviews PRs (rate limit: 1/hour; trigger manually with a
-  `@coderabbitai review` comment). Verify each finding against the code;
-  reply on the thread with fixed-in-`<sha>` or a reasoned decline.
-- `CHANGELOG.md` is updated per release-worthy milestone; fine-grained
-  history is the git log.
+Update whichever of these covers what you changed — in the same change:
+
+- [docs/architecture.md](docs/architecture.md) — system diagram, data flow,
+  contract summary, credentials table, risk register. Tracks: pipeline
+  stages, workflows, cross-repo wiring.
+- [docs/adr/](docs/adr/) — decision records 0001–0006. A reversed decision
+  gets a superseding ADR, not a silent edit.
+- [docs/operations.md](docs/operations.md) — day-2 runbook. Tracks: secrets
+  and PAT scopes, LLM config, reprocess/deploy procedures, failure
+  signatures. Anything touching workflows, secrets, or config lands here.
+- [vault-template/README.md](vault-template/README.md) — vault bootstrap
+  instructions. Tracks: vault layout, required secrets, manual operations.
+- `CHANGELOG.md` — release-worthy milestones under `[Unreleased]`;
+  fine-grained history is the git log.
+- `README.md` — repo map and quick start for humans.
