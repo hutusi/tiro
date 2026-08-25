@@ -17,7 +17,12 @@ export const TiroConfigSchema = z.object({
   categories: z.array(z.string().min(1)).min(1),
   translation: z
     .object({
-      target: z.string().min(2).default("zh"),
+      // zh-only, deliberately. Two things hardcode it: `translationPath()`
+      // always names the artifact `zh.md`, and `detectLang` only ever returns
+      // "zh" | "en" — so any other value makes the pipeline's
+      // `lang !== target` check permanently true and translates every article,
+      // Chinese originals included. Widening this means changing both.
+      target: z.literal("zh").default("zh"),
       cjk_threshold: z.number().min(0).max(1).default(0.3),
       // Chars of source text per translation LLM call. Sized against provider
       // output caps and the client timeout, not the context window: the

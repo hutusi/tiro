@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { splitBlocks, stringifyArticle } from "@tiro/shared";
 import {
   modelFor,
@@ -138,6 +139,12 @@ async function processOne(
   }
 
   let translationFailed = false;
+  // Every path that does not write a fresh zh.md must remove any older one.
+  // The body above has just been rewritten, so a leftover translation would be
+  // rendered block-against-block with content it was never translated from —
+  // and the site joins the two by filename alone, with no lang or
+  // translation_failed check to save it (ADR 0003).
+  const zhAbs = `${article.dirAbs}/zh.md`;
   if (lang !== config.translation.target) {
     const zhBody = await translateBlocks({
       chat: deps.chat,
@@ -148,7 +155,7 @@ async function processOne(
       log,
     });
     if (zhBody !== null) {
-      await Bun.write(`${article.dirAbs}/zh.md`, zhBody);
+      await Bun.write(zhAbs, zhBody);
       report.translated.push(article.slug);
     } else {
       // Deliberate: the article is still marked processed so a pathological
@@ -156,8 +163,13 @@ async function processOne(
       // makes it greppable and `--force --slug` is the retry path.
       translationFailed = true;
       report.translationFailed.push(article.slug);
+      await rm(zhAbs, { force: true });
       log(`translation failed for ${article.slug}; marked translation_failed`);
     }
+  } else {
+    // Already in the target language, so by contract this article has no
+    // translation. A re-clip can move an article into this branch.
+    await rm(zhAbs, { force: true });
   }
 
   // Rebuild the failure markers from this run only — a --force reprocess

@@ -1,6 +1,6 @@
 import { splitBlocks } from "@tiro/shared";
 import { z } from "zod";
-import type { ChatFn } from "./client.ts";
+import type { ChatFn, ChatMessage } from "./client.ts";
 
 export interface SummarizeOptions {
   chat: ChatFn;
@@ -36,6 +36,12 @@ const MAX_ATTEMPTS = 3;
  * MAX_ATTEMPTS the result falls back to a first-paragraph excerpt with
  * `failed: true` so the article still gets processed (and is greppable for a
  * manual `--force` retry).
+ *
+ * Only *model* failures are handled that way. Transport and HTTP errors from
+ * `chat` propagate to the caller, which leaves the article pending (invariant
+ * 7) — a 403 or a provider outage is not something a corrective prompt can
+ * fix, and burning the retry budget on it would mark every article processed
+ * with an excerpt. `translateBlocks` already behaves this way.
  */
 export async function summarize(
   options: SummarizeOptions,
@@ -64,22 +70,24 @@ export async function summarize(
     "Output JSON only, no markdown fences.",
   ].join("\n");
 
-  const messages = [
-    { role: "system" as const, content: system },
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
     {
-      role: "user" as const,
+      role: "user",
       content: `Title: ${title}\n\nArticle (markdown):\n\n${truncated}`,
     },
   ];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    // Outside the try on purpose — see the note above about propagating.
+    const raw = await chat({
+      model,
+      messages,
+      response_format: { type: "json_object" },
+    });
+
     let feedback: string;
     try {
-      const raw = await chat({
-        model,
-        messages,
-        response_format: { type: "json_object" },
-      });
       const parsed = ResponseSchema.safeParse(JSON.parse(raw));
       if (!parsed.success) {
         feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
@@ -95,23 +103,39 @@ export async function summarize(
     // this line the workflow log is silent until the excerpt fallback.
     log(`summary attempt ${attempt}/${MAX_ATTEMPTS} failed: ${feedback}`);
     if (attempt < MAX_ATTEMPTS) {
+      // The correction says "your previous response", so that response has to
+      // be in the transcript for the reference to resolve to anything.
+      messages.push({ role: "assistant", content: raw });
       messages.push({
-        role: "user" as const,
+        role: "user",
         content: `${feedback}\nRespond again with a corrected JSON object.`,
       });
     }
   }
 
   return {
-    summary: excerptFallback(body),
-    category: "other",
+    summary: excerptFallback(body, title),
+    category: fallbackCategory(categories),
     tags: [],
     failed: true,
   };
 }
 
-function excerptFallback(body: string): string {
+/** "other" is the conventional catch-all, but nothing in the config schema
+ * requires a vault to define it. Emitting it unconditionally would write the
+ * off-taxonomy category the retry loop above exists to prevent, so fall back
+ * to the last configured category instead. */
+function fallbackCategory(categories: readonly string[]): string {
+  if (categories.includes("other")) return "other";
+  return categories[categories.length - 1] ?? "other";
+}
+
+/** First paragraph, trimmed. Falls back to the title because a body with no
+ * paragraph block (all code, or a single image) would otherwise produce an
+ * empty summary — which the frontmatter schema accepts silently. */
+function excerptFallback(body: string, title: string): string {
   const firstParagraph = splitBlocks(body).find((b) => b.type === "paragraph");
   const text = (firstParagraph?.text ?? "").replace(/\s+/g, " ").trim();
+  if (text === "") return title;
   return text.length > 300 ? `${text.slice(0, 300)}…` : text;
 }

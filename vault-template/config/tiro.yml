@@ -24,6 +24,8 @@ categories:
   - other
 
 translation:
+  # zh is the only supported target: the artifact is always zh.md and the
+  # language detector only tells Chinese from non-Chinese.
   target: zh
   # Articles whose Han-character ratio reaches this threshold are treated as
   # already-Chinese and are not translated.

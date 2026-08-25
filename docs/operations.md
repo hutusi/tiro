@@ -40,6 +40,10 @@ endpoint works.
   docs' prefixed `ZHIPU/GLM-*` ids return `model_access_denied`.
 - The summary call needs a model supporting JSON mode
   (`response_format: json_object`); translation does not.
+- **`translation.target` is `zh` and nothing else.** The schema rejects other
+  values on purpose: the artifact is always named `zh.md` and the language
+  detector only distinguishes Chinese from non-Chinese, so any other target
+  would translate every article — Chinese originals included.
 - **Translation speed** is governed by `translation.batch_chars` (default
   10000): chars of source text per LLM call. Bigger batches = fewer, faster
   runs, but the translated output must fit the provider's per-request output
@@ -75,9 +79,9 @@ so re-runs are always safe no-ops for finished articles.
 
 | Marker | Meaning | Fix |
 | --- | --- | --- |
-| `tiro.summary_failed: true` | LLM summary failed; excerpt used | reprocess with `force` + slug |
+| `tiro.summary_failed: true` | the model returned unusable JSON three times; excerpt used | reprocess with `force` + slug |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
-| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403) | fix the cause; next run retries automatically |
+| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys

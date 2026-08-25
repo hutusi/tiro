@@ -266,3 +266,48 @@ describe("hard failures", () => {
     expect(needsProcessing(second.frontmatter)).toBe(false);
   });
 });
+
+describe("stale translations", () => {
+  const CN = "example-cn-posts-ai-times-0d21367e";
+
+  test("removes a leftover zh.md when the article is already in the target language", async () => {
+    const vault = freshVault();
+    const zhPath = join(vault, "articles", CN, "zh.md");
+    // A previous clip of this URL was English and got translated; the re-clip
+    // is Chinese, so the translation branch is skipped entirely.
+    writeFileSync(zhPath, "过时的译文。\n");
+    const config = await loadVaultConfig(vault);
+
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: CN },
+      config,
+      deps,
+    );
+
+    expect(report.processed).toEqual([CN]);
+    expect(report.translated).toEqual([]);
+    expect(() => readFileSync(zhPath)).toThrow();
+  });
+
+  test("removes a leftover zh.md when the translation fails", async () => {
+    const vault = freshVault();
+    const zhPath = join(vault, "articles", RAW, "zh.md");
+    writeFileSync(zhPath, "过时的译文。\n");
+    const config = await loadVaultConfig(vault);
+
+    // Same misaligning chat as the translation-failure test above.
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async (request) => {
+        if (request.response_format?.type === "json_object") {
+          return JSON.stringify({ summary: "s", category: "ai", tags: [] });
+        }
+        return "第一段。\n\n第二段。";
+      },
+    });
+
+    expect(report.translationFailed).toEqual([RAW]);
+    // Keeping it would pair last clip's translation with this clip's body.
+    expect(() => readFileSync(zhPath)).toThrow();
+  });
+});
