@@ -194,6 +194,32 @@ anything. `bun run --cwd apps/extension package` produces the same zip
 locally; `workflow_dispatch` builds one as a workflow artifact without
 publishing a release.
 
+### Chrome Web Store
+
+Published **unlisted**: installable from the link, invisible in search. That
+buys auto-updates, a stable extension ID, and no Developer-mode banner — worth
+the $5 one-time registration for a tool installed on more than one machine.
+
+Everything the dashboard asks for is drafted in
+`apps/extension/store/listing.md` (description, single-purpose statement,
+per-permission justifications, data-use declarations) with the images and their
+regeneration steps in `apps/extension/store/README.md`. Keep that file honest:
+a listing that disagrees with the manifest is how a review gets rejected.
+
+The privacy policy Google requires — the extension handles a GitHub token, which
+counts as authentication information — is a page on the site,
+<https://tiro.ainaive.com/privacy/> (`apps/site/src/pages/privacy.astro`). It
+must stay reachable for as long as the item is published.
+
+**Publishing an update**: cut an `ext-v*` release as above, then upload that
+same zip in the dashboard as a new version. The manifest version is what
+triggers client updates, so it must be higher than the published one — the tag
+guard in the release workflow is what keeps that number trustworthy.
+
+On a machine that installs from the store, **remove the unpacked copy** —
+otherwise two copies of the extension are clipping. The store assigns its own
+permanent extension ID, unrelated to the unpacked one.
+
 ## Known failure signatures
 
 | Symptom | Cause | Action |

@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 // chrome.scripting.executeScript({files: ["clipper.js"]}), which runs it as a
 // classic script — ESM output (Vite's default) would silently break there.
 export default defineConfig({
+  // Pass 1 already copied public/ (the icons) into dist/. This pass runs with
+  // emptyOutDir: false, so letting it copy them again is pure churn.
+  publicDir: false,
   build: {
     outDir: "dist",
     emptyOutDir: false,

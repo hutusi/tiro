@@ -35,6 +35,15 @@ versions follow the `0.x` line while Tiro is a personal system.
   and attaches an installable zip to a GitHub Release, so other machines
   install it without a clone or a toolchain. The workflow refuses to publish
   when the tag and `manifest.json` disagree.
+- The extension has icons (16/32/48/128, rendered from
+  `apps/extension/icons/icon.svg`), a `homepage_url`, and the modern
+  `options_ui` form — the set of things a Chrome Web Store submission requires
+  before it will accept the package. Listing copy and images are drafted in
+  `apps/extension/store/`.
+- A privacy policy at `/privacy/`, bilingual, covering what the extension
+  stores (a GitHub token, locally) and what the site collects (nothing). The
+  Web Store requires a reachable policy URL for any extension handling
+  authentication information.
 - `validate` now checks the invariants it claimed to gate: every directory
   name is re-derived from its article's `url`, articles nested below
   `articles/<slug>/` are reported instead of being silently skipped by every

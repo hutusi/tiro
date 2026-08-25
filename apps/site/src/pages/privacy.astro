@@ -1,0 +1,130 @@
+---
+// The Chrome Web Store requires a reachable privacy policy URL for any
+// extension that handles authentication information — Tiro Clipper stores a
+// GitHub token. Bilingual on purpose: the site reads Chinese, store reviewers
+// read English.
+import Base from "../layouts/Base.astro";
+
+const updated = "2026-08-25";
+---
+
+<Base title="隐私政策">
+  <article
+    class="prose prose-neutral mx-auto max-w-3xl dark:prose-invert prose-headings:font-bold"
+  >
+    <h1>隐私政策 / Privacy Policy</h1>
+    <p class="text-sm text-neutral-500">最后更新 / Last updated: {updated}</p>
+
+    <h2>中文</h2>
+
+    <p>
+      Tiro 由两部分组成：Chrome 扩展 <strong>Tiro Clipper</strong>，以及本站点。
+      两者都不设置追踪
+      Cookie，不接入任何分析或广告服务，也不把你的数据交给第三方。
+    </p>
+
+    <h3>扩展存储什么</h3>
+    <ul>
+      <li>
+        你在设置页填写的 GitHub
+        用户名、仓库名、分支名，以及个人访问令牌（PAT）。
+      </li>
+      <li>
+        这些内容保存在本机的 <code>chrome.storage.local</code> 中，不会同步到其他设备，
+        也不会上传到除 GitHub 以外的任何服务器。
+      </li>
+    </ul>
+
+    <h3>扩展发送什么、发到哪里</h3>
+    <ul>
+      <li>
+        唯一的网络目标是 <code>https://api.github.com</code>，这也是扩展在
+        <code>host_permissions</code> 中申请的唯一域名。
+      </li>
+      <li>
+        只有在你点击「剪藏」时，扩展才读取当前标签页的内容，把正文转换为
+        Markdown，
+        并用你自己的令牌提交到你自己的仓库。扩展不会在后台浏览、读取或上传任何页面。
+      </li>
+      <li>扩展不加载远程代码：全部逻辑都打包在扩展内部。</li>
+    </ul>
+
+    <h3>如何删除数据</h3>
+    <ul>
+      <li>在设置页清空各字段，或直接卸载扩展，本机保存的配置随之删除。</li>
+      <li>在 GitHub 的设置中撤销该令牌，即可立即失效。</li>
+      <li>剪藏的文章保存在你自己的仓库里，由你自行删除。</li>
+    </ul>
+
+    <h3>本站点</h3>
+    <p>
+      站点是纯静态页面，不设置追踪
+      Cookie，不运行分析脚本；搜索完全在浏览器本地完成。
+      深色模式偏好保存在浏览器的 <code>localStorage</code> 里。站点托管在 Cloudflare
+      Pages，由其按常规方式处理访问日志。
+    </p>
+
+    <h2>English</h2>
+
+    <p>
+      Tiro is two things: the <strong>Tiro Clipper</strong> Chrome extension and this
+      site. Neither sets tracking cookies, runs analytics or ads, or shares your data
+      with third parties. Nothing is sold.
+    </p>
+
+    <h3>What the extension stores</h3>
+    <ul>
+      <li>
+        The GitHub owner, repository, branch, and personal access token (PAT)
+        you enter on its options page.
+      </li>
+      <li>
+        These live in <code>chrome.storage.local</code> on that machine only. They
+        are not synced across devices and are not uploaded to any server other than
+        GitHub.
+      </li>
+    </ul>
+
+    <h3>What it sends, and where</h3>
+    <ul>
+      <li>
+        The only network destination is <code>https://api.github.com</code>,
+        which is also the only entry in the extension's
+        <code>host_permissions</code>.
+      </li>
+      <li>
+        Page content is read only when you click Clip. The article is converted
+        to Markdown and committed to your own repository with your own token.
+        The extension does not read or upload pages in the background.
+      </li>
+      <li>No remote code is loaded; all logic is bundled in the extension.</li>
+    </ul>
+
+    <h3>Deleting your data</h3>
+    <ul>
+      <li>
+        Clear the fields on the options page, or uninstall the extension — the
+        stored settings go with it.
+      </li>
+      <li>
+        Revoke the token in your GitHub settings to cut off access at once.
+      </li>
+      <li>Clipped articles live in your own repository; delete them there.</li>
+    </ul>
+
+    <h3>This site</h3>
+    <p>
+      The site is static. It sets no tracking cookies and runs no analytics;
+      search runs entirely in your browser. Your dark-mode preference is kept in
+      <code>localStorage</code>. It is hosted on Cloudflare Pages, which handles
+      request logs in the ordinary way.
+    </p>
+
+    <h3>Contact</h3>
+    <p>
+      Questions or requests: <a href="https://github.com/hutusi/tiro/issues"
+        >github.com/hutusi/tiro/issues</a
+      >.
+    </p>
+  </article>
+</Base>
