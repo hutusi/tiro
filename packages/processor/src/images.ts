@@ -24,6 +24,11 @@ export interface ImageStageOptions {
   assetsDirAbs: string;
   maxBytes: number;
   timeoutMs: number;
+  /** Aggregate guards. maxBytes/timeoutMs bound a single image; these bound
+   * the whole stage so one pathological article cannot run out the job. */
+  maxCount?: number;
+  totalMaxBytes?: number;
+  stageTimeoutMs?: number;
   fetchImpl?: FetchLike;
   /** Test escape hatch: fixture servers listen on localhost. */
   allowPrivateHosts?: boolean;
@@ -69,9 +74,12 @@ function isPrivateIpv4(host: string): boolean {
 /**
  * Reject obviously non-public hosts so a malicious clipped page cannot point
  * the workflow at loopback/link-local/private services (e.g. cloud metadata).
- * Deliberately name-based — no DNS resolution or per-redirect-hop checks —
- * which blocks the practical vectors at proportionate cost; responses are
- * additionally gated on an image content type and a recognized extension.
+ * Name-based, and applied to every redirect hop rather than only the URL in
+ * the article — a public host answering 302 to 169.254.169.254 is the cheap
+ * version of this attack. Deliberately no DNS resolution: on GitHub-hosted
+ * runners, resolving every candidate to defeat rebinding costs more than the
+ * residual risk is worth. Responses are additionally gated on a declared
+ * image content type and a recognized extension.
  */
 function isForbiddenHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
@@ -89,6 +97,32 @@ function isForbiddenHost(hostname: string): boolean {
     );
   }
   return false;
+}
+
+const MAX_REDIRECTS = 5;
+
+/** fetch() follows redirects itself, which would apply the host guard only to
+ * the URL the article names. Follow them by hand so every hop is checked. */
+async function fetchChecked(
+  url: string,
+  init: RequestInit,
+  fetchImpl: FetchLike,
+  allowPrivateHosts: boolean,
+): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    if (!allowPrivateHosts && isForbiddenHost(new URL(current).hostname)) {
+      throw new Error("non-public host");
+    }
+    const res = await fetchImpl(current, { ...init, redirect: "manual" });
+    if (res.status < 300 || res.status >= 400) return res;
+    const location = res.headers.get("location");
+    if (location === null) {
+      throw new Error(`redirect ${res.status} without a location header`);
+    }
+    current = new URL(location, current).toString();
+  }
+  throw new Error(`more than ${MAX_REDIRECTS} redirects`);
 }
 
 /** Read the body incrementally so a server that omits or lies about
@@ -156,7 +190,10 @@ async function assetFilename(
  * Download every hotlinked image into assets/ and rewrite image references to
  * relative paths. Already-relative and data: URLs are untouched, which makes
  * the stage idempotent. Any per-image failure leaves that URL hotlinked and
- * never fails the article.
+ * never fails the article, and so does hitting any of the aggregate caps.
+ *
+ * Downloads stay sequential on purpose: the stage deadline is what actually
+ * protects the job, and a deterministic order keeps the tests readable.
  */
 export async function processImages(
   options: ImageStageOptions,
@@ -166,6 +203,9 @@ export async function processImages(
     assetsDirAbs,
     maxBytes,
     timeoutMs,
+    maxCount = 100,
+    totalMaxBytes = 100 * 1024 * 1024,
+    stageTimeoutMs = 300_000,
     fetchImpl = fetch,
     allowPrivateHosts = false,
     log = () => {},
@@ -174,27 +214,53 @@ export async function processImages(
   const replacements = new Map<string, string>();
   let failed = 0;
 
-  for (const url of findImageUrls(body)) {
+  const urls = findImageUrls(body);
+  const deadline = Date.now() + stageTimeoutMs;
+  let totalBytes = 0;
+
+  for (const [index, url] of urls.entries()) {
+    // Aggregate guards. Hitting one abandons the rest of the images, which
+    // leaves them hotlinked — the same outcome as any per-image failure, and
+    // never a failed article.
+    const remainingMs = deadline - Date.now();
+    const budget = totalMaxBytes - totalBytes;
+    let stop: string | undefined;
+    if (index >= maxCount) stop = `image count cap (${maxCount})`;
+    else if (remainingMs <= 0) stop = `stage timeout (${stageTimeoutMs}ms)`;
+    else if (budget <= 0) stop = `total byte budget (${totalMaxBytes})`;
+    if (stop !== undefined) {
+      const left = urls.length - index;
+      failed += left;
+      log(`${left} image(s) kept as hotlinks, hit the ${stop}`);
+      break;
+    }
+
     try {
-      if (!allowPrivateHosts && isForbiddenHost(new URL(url).hostname)) {
-        throw new Error("non-public host");
-      }
-      const res = await fetchImpl(url, {
-        headers: { "User-Agent": USER_AGENT, Referer: articleUrl },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      const res = await fetchChecked(
+        url,
+        {
+          headers: { "User-Agent": USER_AGENT, Referer: articleUrl },
+          signal: AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
+        },
+        fetchImpl,
+        allowPrivateHosts,
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // A missing Content-Type used to skip this check and fall through to the
+      // path extension, which let an arbitrary endpoint at a .png path through.
       const contentType = res.headers.get("content-type");
-      if (contentType !== null && !contentType.startsWith("image/")) {
-        throw new Error(`not an image: ${contentType}`);
+      if (contentType === null || !contentType.startsWith("image/")) {
+        throw new Error(`not an image: ${contentType ?? "no content type"}`);
       }
+      const cap = Math.min(maxBytes, budget);
       const declaredLength = Number(res.headers.get("content-length") ?? "0");
-      if (declaredLength > maxBytes)
+      if (declaredLength > cap)
         throw new Error(`too large: ${declaredLength} bytes`);
       const filename = await assetFilename(url, contentType);
       if (filename === null) throw new Error("no recognizable image extension");
-      const bytes = await readBodyCapped(res, maxBytes);
+      const bytes = await readBodyCapped(res, cap);
       await Bun.write(`${assetsDirAbs}/${filename}`, bytes);
+      totalBytes += bytes.byteLength;
       replacements.set(url, `./assets/${filename}`);
     } catch (error) {
       failed += 1;

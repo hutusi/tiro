@@ -3,6 +3,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findImageUrls, processImages } from "../src/images.ts";
+import type { FetchLike } from "../src/llm/client.ts";
 
 const PNG_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -17,7 +18,7 @@ beforeAll(() => {
     port: 0,
     fetch(req) {
       const path = new URL(req.url).pathname;
-      if (path === "/ok.png")
+      if (path === "/ok.png" || path === "/ok2.png" || path === "/ok3.png")
         return new Response(PNG_BYTES, {
           headers: { "Content-Type": "image/png" },
         });
@@ -179,6 +180,89 @@ describe("processImages", () => {
     const body = "![cover](./assets/abc123def456.png)";
     const result = await processImages(options(body, dir));
     expect(result).toEqual({ body, downloaded: 0, failed: 0 });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("stops at the image count cap, hotlinking the rest", async () => {
+    const dir = tempAssetsDir();
+    const body = [
+      `![a](${base}/ok.png)`,
+      `![b](${base}/ok2.png)`,
+      `![c](${base}/ok3.png)`,
+    ].join("\n\n");
+    const result = await processImages({
+      ...options(body, dir),
+      maxCount: 2,
+    });
+    expect(result.downloaded).toBe(2);
+    expect(result.failed).toBe(1);
+    expect(result.body).toContain(`![c](${base}/ok3.png)`);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("stops once the total byte budget is spent", async () => {
+    const dir = tempAssetsDir();
+    const body = [
+      `![a](${base}/ok.png)`,
+      `![b](${base}/ok2.png)`,
+      `![c](${base}/ok3.png)`,
+    ].join("\n\n");
+    // Room for one PNG and no more.
+    const result = await processImages({
+      ...options(body, dir),
+      totalMaxBytes: PNG_BYTES.byteLength,
+    });
+    expect(result.downloaded).toBe(1);
+    expect(result.failed).toBe(2);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("re-checks the host on every redirect hop", async () => {
+    const dir = tempAssetsDir();
+    const META = "http://169.254.169.254/latest/meta-data.png";
+    const requested: string[] = [];
+    // Stands in for real fetch, which follows redirects itself unless the
+    // caller opts out. Without that opt-out the guard only ever sees the URL
+    // the article named.
+    const fetchImpl: FetchLike = async (input, init) => {
+      let url = String(input);
+      for (;;) {
+        requested.push(url);
+        if (url !== "https://cdn.example/x.png") {
+          return new Response(PNG_BYTES, {
+            headers: { "Content-Type": "image/png" },
+          });
+        }
+        const redirect = new Response(null, {
+          status: 302,
+          headers: { location: META },
+        });
+        if (init?.redirect === "manual") return redirect;
+        url = META;
+      }
+    };
+    const result = await processImages({
+      ...options("![x](https://cdn.example/x.png)", dir),
+      allowPrivateHosts: false,
+      fetchImpl,
+    });
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(1);
+    // The metadata endpoint was never requested.
+    expect(requested).toEqual(["https://cdn.example/x.png"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("rejects a response that declares no content type", async () => {
+    const dir = tempAssetsDir();
+    const fetchImpl: FetchLike = async () => new Response(PNG_BYTES);
+    const result = await processImages({
+      ...options("![x](https://cdn.example/x.png)", dir),
+      fetchImpl,
+    });
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(readdirSync(dir)).toHaveLength(0);
     rmSync(dir, { recursive: true, force: true });
   });
 });

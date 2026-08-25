@@ -39,6 +39,17 @@ export const TiroConfigSchema = z.object({
         .positive()
         .default(10 * 1024 * 1024),
       timeout_ms: z.number().int().positive().default(20_000),
+      // max_bytes and timeout_ms bound one image; these bound the stage. A
+      // page full of slow or huge images would otherwise run the job past its
+      // timeout-minutes, and a killed run leaves the article pending and
+      // repeats the whole download next push.
+      max_count: z.number().int().positive().default(100),
+      total_max_bytes: z
+        .number()
+        .int()
+        .positive()
+        .default(100 * 1024 * 1024),
+      stage_timeout_ms: z.number().int().positive().default(300_000),
     })
     .prefault({}),
 });

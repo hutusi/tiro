@@ -117,6 +117,9 @@ async function processOne(
     assetsDirAbs: `${article.dirAbs}/assets`,
     maxBytes: config.images.max_bytes,
     timeoutMs: config.images.timeout_ms,
+    maxCount: config.images.max_count,
+    totalMaxBytes: config.images.total_max_bytes,
+    stageTimeoutMs: config.images.stage_timeout_ms,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
     log,
   });

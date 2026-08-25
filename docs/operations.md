@@ -44,6 +44,12 @@ endpoint works.
   values on purpose: the artifact is always named `zh.md` and the language
   detector only distinguishes Chinese from non-Chinese, so any other target
   would translate every article — Chinese originals included.
+- **Image downloads** are bounded per image (`images.max_bytes`,
+  `images.timeout_ms`) and per article (`images.max_count`,
+  `images.total_max_bytes`, `images.stage_timeout_ms`). Hitting an aggregate
+  cap leaves the remaining images hotlinked and logs one line — it never fails
+  the article. Raise them only if the process job has headroom under its
+  `timeout-minutes`.
 - **Translation speed** is governed by `translation.batch_chars` (default
   10000): chars of source text per LLM call. Bigger batches = fewer, faster
   runs, but the translated output must fit the provider's per-request output
