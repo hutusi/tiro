@@ -597,9 +597,11 @@ describe("reconcileAssets keep-set breadth", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("does not keep a file whose name merely shares a prefix", async () => {
+  test("does not keep a file that merely shares a digest", async () => {
     const dir = tempAssetsDir();
-    writeFileSync(join(dir, "abc123def456ff.png"), PNG_BYTES);
+    // Two digest names can never be prefixes of one another — same length —
+    // so the only near-miss left is the same digest with another extension.
+    writeFileSync(join(dir, "abc123def456.jpg"), PNG_BYTES);
     expect(await reconcileAssets(dir, `![x](./assets/${NAME})`)).toBe(1);
     rmSync(dir, { recursive: true, force: true });
   });
@@ -654,33 +656,27 @@ describe("reconcileAssets reference boundaries", () => {
   test("still deletes a file nothing references", async () => {
     const dir = tempAssetsDir();
     writeFileSync(join(dir, NAME), PNG_BYTES);
-    writeFileSync(join(dir, "orphan999999.png"), PNG_BYTES);
+    writeFileSync(join(dir, "999999999999.png"), PNG_BYTES);
     expect(await reconcileAssets(dir, `![x](./assets/${NAME})`)).toBe(1);
     expect(readdirSync(dir)).toEqual([NAME]);
     rmSync(dir, { recursive: true, force: true });
   });
 });
 
-describe("reconcileAssets reference encodings", () => {
-  // A reference and a filename can be spelled differently and still mean the
-  // same file. Enumerating spellings is how this function kept losing content,
-  // so both sides are compared after decoding.
-  const encodings: [label: string, name: string, body: string][] = [
-    ["a non-canonical escape", "a.png", "![x](./assets/%61.png)"],
-    ["an escaped space", "my file.png", "![x](./assets/my%20file.png)"],
-    [
-      "an escaped CJK name",
-      "中文.png",
-      "![x](./assets/%E4%B8%AD%E6%96%87.png)",
-    ],
-    ["a fully escaped name", "a.png", "![x](./assets/%61%2Epng)"],
-    ["no escaping at all", "plain.png", "![x](./assets/plain.png)"],
-    ["a malformed escape", "100%.png", "![x](./assets/100%.png)"],
-    ["a lone percent", "50%off.png", "![x](./assets/50%off.png)"],
+describe("reconcileAssets ownership", () => {
+  // Every asset the processor writes is a 12-hex digest plus a known
+  // extension, so anything else in assets/ was put there by someone else and
+  // is not ours to delete. That bounds the damage a missed reference can do,
+  // rather than trying to recognise every way one can be spelled.
+  const NOT_OURS: [label: string, name: string, body: string][] = [
+    ["an HTML entity", "a&b.png", '<img src="./assets/a&amp;b.png">'],
+    ["a space", "my file.png", "![x](./assets/my file.png)"],
+    ["a CJK name", "中文.png", "![x](./assets/中文.png)"],
+    ["a name we cannot match at all", "hand-made.png", "nothing refers to it"],
   ];
 
-  for (const [label, name, body] of encodings) {
-    test(`keeps a file referenced by ${label}`, async () => {
+  for (const [label, name, body] of NOT_OURS) {
+    test(`never deletes a file we did not create: ${label}`, async () => {
       const dir = tempAssetsDir();
       writeFileSync(join(dir, name), PNG_BYTES);
       expect(await reconcileAssets(dir, body)).toBe(0);
@@ -689,12 +685,32 @@ describe("reconcileAssets reference encodings", () => {
     });
   }
 
-  test("still deletes a file no spelling in the body refers to", async () => {
+  test("still deletes an orphan it did create", async () => {
     const dir = tempAssetsDir();
-    writeFileSync(join(dir, "a.png"), PNG_BYTES);
-    writeFileSync(join(dir, "b.png"), PNG_BYTES);
-    expect(await reconcileAssets(dir, "![x](./assets/%61.png)")).toBe(1);
-    expect(readdirSync(dir)).toEqual(["a.png"]);
+    writeFileSync(join(dir, "abc123def456.png"), PNG_BYTES);
+    writeFileSync(join(dir, "deadbeefdead.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, "![x](./assets/abc123def456.png)")).toBe(
+      1,
+    );
+    expect(readdirSync(dir)).toEqual(["abc123def456.png"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("keeps a name of ours written percent-encoded", async () => {
+    const dir = tempAssetsDir();
+    // %61 is "a", which is also a hex digit — so a digest name genuinely can
+    // arrive escaped, and percent-decoding still earns its place.
+    writeFileSync(join(dir, "abc123def456.png"), PNG_BYTES);
+    expect(
+      await reconcileAssets(dir, "![x](./assets/%61bc123def456.png)"),
+    ).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("ignores a file with an extension we never write", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "abc123def456.txt"), "notes");
+    expect(await reconcileAssets(dir, "")).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 });

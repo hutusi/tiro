@@ -358,7 +358,7 @@ describe("asset reconciliation", () => {
   test("keeps assets the committed article still references", async () => {
     const vault = freshVault();
     const assets = join(vault, "articles", EN, "assets");
-    writeFileSync(join(assets, "orphanorphan.png"), "not really a png");
+    writeFileSync(join(assets, "deadbeefdead.png"), "not really a png");
     const config = await loadVaultConfig(vault);
 
     const report = await runPipeline(
@@ -375,7 +375,7 @@ describe("asset reconciliation", () => {
   test("a failure while cleaning up does not change the article's outcome", async () => {
     const vault = freshVault();
     const assets = join(vault, "articles", EN, "assets");
-    writeFileSync(join(assets, "orphanorphan.png"), "not really a png");
+    writeFileSync(join(assets, "deadbeefdead.png"), "not really a png");
     chmodSync(assets, 0o500); // readable, not writable: rm will fail
     const config = await loadVaultConfig(vault);
 

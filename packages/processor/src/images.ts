@@ -13,6 +13,15 @@ const EXT_BY_CONTENT_TYPE: Record<string, string> = {
 };
 const KNOWN_EXTENSIONS = new Set(Object.values(EXT_BY_CONTENT_TYPE));
 
+/** What `assetFilename` produces: a 12-hex digest plus one of the extensions
+ * above. Built from KNOWN_EXTENSIONS so adding a format cannot leave this
+ * behind. Anything in assets/ not matching was put there by someone else. */
+const PROCESSOR_ASSET_RE = new RegExp(
+  `^[0-9a-f]{12}(?:${[...KNOWN_EXTENSIONS]
+    .map((ext) => ext.replace(".", "\\."))
+    .join("|")})$`,
+);
+
 // A browser-ish UA plus the article as Referer defuses most hotlink protection.
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -467,10 +476,15 @@ export async function processImages(
  * them, so the orphan window is one run rather than forever.
  *
  * The body is the source of truth: filenames are derived from the source URL,
- * so a file the body still names can never be a candidate here. Only regular
- * files are considered — a stray subdirectory is left alone rather than
- * removed recursively, because this deletes from the user's content repo and
- * should err toward doing too little.
+ * so a file the body still names can never be a candidate here.
+ *
+ * Two things narrow what is even eligible, because this deletes from the
+ * user's content repo and should err toward doing too little. A stray
+ * subdirectory is left alone rather than removed recursively. And only files
+ * shaped like this processor's own output are considered at all: a reference
+ * can be spelled in unboundedly many ways — percent escapes, HTML entities,
+ * both at once — so rather than trying to recognise every spelling, a file
+ * nothing here created is simply never a candidate.
  */
 export async function reconcileAssets(
   assetsDirAbs: string,
@@ -486,8 +500,10 @@ export async function reconcileAssets(
   }
   let pruned = 0;
   for (const entry of entries) {
-    if (!entry.isFile() || isReferenced(body, decodedBody, entry.name))
-      continue;
+    if (!entry.isFile()) continue;
+    // Not ours, so not ours to remove — see PROCESSOR_ASSET_RE.
+    if (!PROCESSOR_ASSET_RE.test(entry.name)) continue;
+    if (isReferenced(body, decodedBody, entry.name)) continue;
     await rm(`${assetsDirAbs}/${entry.name}`, { force: true });
     pruned += 1;
     log(`removed orphaned asset: ${entry.name}`);
