@@ -367,6 +367,56 @@ describe("processImages", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("rejects every non-public IPv6 range", async () => {
+    const dir = tempAssetsDir();
+    const hosts = [
+      "[fec0::1]", // site-local, deprecated
+      "[fed0::1]", // site-local
+      "[2002:7f00:1::1]", // 6to4 wrapping 127.0.0.1
+      "[64:ff9b::7f00:1]", // NAT64 wrapping 127.0.0.1
+      "[2001::1]", // Teredo
+      "[100::1]", // discard-only
+      "[2001:db8::1]", // documentation
+      "[ff02::1]", // multicast
+      "[::7f00:1]", // IPv4-compatible
+      "[::ffff:7f00:1]", // IPv4-mapped
+      "[fc00::1]", // unique-local
+      "[fe80::1]", // link-local
+      "[::1]", // loopback
+      "[0:0:0:0:0:0:0:1]", // loopback, uncompressed spelling
+    ];
+    const body = hosts.map((h) => `![x](https://${h}/x.png)`).join("\n\n");
+    const reached: string[] = [];
+    const result = await processImages({
+      ...options(body, dir),
+      allowPrivateHosts: false,
+      fetchImpl: async (input) => {
+        reached.push(String(input));
+        return new Response(PNG_BYTES, {
+          headers: { "Content-Type": "image/png" },
+        });
+      },
+    });
+    expect(reached).toEqual([]);
+    expect(result.failed).toBe(hosts.length);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("still allows public IPv6 addresses that look nearby", async () => {
+    const dir = tempAssetsDir();
+    // 2001:db8::/32 and 2001::/32 are rejected above; these must not be.
+    const hosts = ["[2606:4700::1111]", "[2001:4860:4860::8888]"];
+    const body = hosts.map((h) => `![x](https://${h}/x.png)`).join("\n\n");
+    const result = await processImages({
+      ...options(body, dir),
+      allowPrivateHosts: false,
+      fetchImpl: async () =>
+        new Response(PNG_BYTES, { headers: { "Content-Type": "image/png" } }),
+    });
+    expect(result.downloaded).toBe(hosts.length);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("still allows a public IPv6 literal", async () => {
     const dir = tempAssetsDir();
     const result = await processImages({

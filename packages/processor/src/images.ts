@@ -102,23 +102,83 @@ function isForbiddenHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (PRIVATE_NAME_RE.test(host)) return true;
   if (isPrivateIpv4(host)) return true;
-  if (host.includes(":")) {
-    // Unspecified, unique-local fc00::/7, link-local fe80::/10, multicast
-    // ff00::/8 — the counterpart of the IPv4 `a >= 224` arm, which this was
-    // missing — and both IPv4-in-IPv6 blocks, which are never a public image
-    // host. ::/96 covers loopback and the deprecated IPv4-compatible form:
-    // `https://[::127.0.0.1]/` is normalised to `[::7f00:1]` by the URL
-    // parser, so matching the dotted spelling would miss it entirely.
-    return (
-      host === "::" ||
-      /^f[cd]/.test(host) ||
-      /^fe[89ab]/.test(host) ||
-      /^ff/.test(host) ||
-      /^::([0-9a-f]{1,4}:)?[0-9a-f]{1,4}$/.test(host) ||
-      host.startsWith("::ffff:")
-    );
-  }
+  if (host.includes(":")) return isPrivateIpv6(host);
   return false;
+}
+
+/**
+ * Non-public IPv6 space, by numeric prefix rather than by how the address
+ * happens to be spelled.
+ *
+ * String prefixes cannot express this. `2001:db8::/32` and `2001::/32` have to
+ * be rejected while `2001:4860:4860::8888` keeps working, and `::` compression
+ * gives one address several spellings — three rounds of review each found
+ * another range a prefix test had missed. Expanding to hextets and masking
+ * ends that.
+ *
+ * A false reject costs one hotlinked image and never fails an article, while a
+ * miss is an SSRF vector, so anything documented as special-purpose is in.
+ * 6to4 and Teredo are deprecated and no image host lives there, but both embed
+ * an IPv4 address, which is exactly the property being defended against.
+ */
+function isPrivateIpv6(host: string): boolean {
+  const h = expandIpv6(host);
+  if (h === null) return true; // unparseable is not a public image host
+  const [h0, h1, h2, h3, h4, h5] = h as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  const zero = (...parts: number[]): boolean => parts.every((p) => p === 0);
+  return (
+    zero(h0, h1, h2, h3, h4, h5) || // ::/96 — unspecified, loopback, v4-compatible
+    (zero(h0, h1, h2, h3, h4) && h5 === 0xffff) || // ::ffff:0:0/96 v4-mapped
+    (h0 === 0x0064 && h1 === 0xff9b && zero(h2, h3, h4, h5)) || // 64:ff9b::/96 NAT64
+    (h0 === 0x0100 && zero(h1, h2, h3)) || // 100::/64 discard-only
+    h0 === 0x2002 || // 2002::/16 6to4
+    (h0 === 0x2001 && h1 === 0x0000) || // 2001::/32 Teredo
+    (h0 === 0x2001 && h1 === 0x0db8) || // 2001:db8::/32 documentation
+    (h0 & 0xfe00) === 0xfc00 || // fc00::/7 unique-local
+    (h0 & 0xffc0) === 0xfe80 || // fe80::/10 link-local
+    (h0 & 0xffc0) === 0xfec0 || // fec0::/10 site-local, deprecated
+    (h0 & 0xff00) === 0xff00 // ff00::/8 multicast
+  );
+}
+
+/** Eight hextets, or null if this is not an address we can read. Handles `::`
+ * compression and a trailing dotted-quad; the hostname arrives normalised from
+ * `new URL()`, but the parse stays defensive because the alternative to
+ * understanding an address is fetching it. */
+function expandIpv6(host: string): number[] | null {
+  let text = host;
+  const dotted = text.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dotted?.[1] !== undefined) {
+    const octets = dotted[1].split(".").map(Number);
+    if (octets.some((o) => Number.isNaN(o) || o > 255)) return null;
+    const [a, b, c, d] = octets as [number, number, number, number];
+    text = `${text.slice(0, -dotted[1].length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === "") return [];
+    const out: number[] = [];
+    for (const group of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+      out.push(Number.parseInt(group, 16));
+    }
+    return out;
+  };
+  const head = parse(halves[0] ?? "");
+  const tail = halves.length === 2 ? parse(halves[1] ?? "") : [];
+  if (head === null || tail === null) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const gap = 8 - head.length - tail.length;
+  if (gap < 1) return null;
+  return [...head, ...new Array<number>(gap).fill(0), ...tail];
 }
 
 /** Literal addresses were already judged by `isForbiddenHost`; resolving one
