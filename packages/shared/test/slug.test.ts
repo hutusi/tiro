@@ -140,4 +140,35 @@ describe("tagSlug", () => {
       expect(tagSlug(tagSlug(tag))).toBe(tagSlug(tag));
     }
   });
+
+  test("caps a long tag to a valid path component", () => {
+    const bytes = (t: string) => new TextEncoder().encode(t).length;
+    // NAME_MAX is 255 bytes; an uncapped tag became a directory name that
+    // long and failed the production build outright.
+    expect(bytes(tagSlug("x".repeat(300)))).toBeLessThanOrEqual(255);
+    // Chinese tags are the reason the cap is measured in bytes, not
+    // characters: 100 characters is already 300 bytes.
+    expect(bytes(tagSlug("智".repeat(100)))).toBeLessThanOrEqual(255);
+  });
+
+  test("does not split a character when truncating", () => {
+    const slug = tagSlug("智".repeat(100));
+    expect(slug).not.toContain("\uFFFD");
+    // Re-encoding is lossless only if every code point survived intact.
+    expect(new TextDecoder().decode(new TextEncoder().encode(slug))).toBe(slug);
+  });
+
+  test("keeps long tags sharing a prefix distinct", () => {
+    const base = "x".repeat(300);
+    expect(tagSlug(`${base}a`)).not.toBe(tagSlug(`${base}b`));
+  });
+
+  test("caps deterministically", () => {
+    expect(tagSlug("x".repeat(300))).toBe(tagSlug("x".repeat(300)));
+  });
+
+  test("leaves a tag that already fits untouched", () => {
+    expect(tagSlug("ci/cd")).toBe("ci-cd");
+    expect(tagSlug("人工智能")).toBe("人工智能");
+  });
 });

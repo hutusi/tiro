@@ -18,6 +18,8 @@ const TRACKING_PARAMS = new Set([
   "isappinstalled",
 ]);
 const SLUG_BASE_MAX = 60;
+/** Byte budget for a tag slug's readable part, before any hash suffix. */
+const TAG_SLUG_MAX_BYTES = 60;
 const HASH_SUFFIX_LEN = 8;
 
 /**
@@ -112,14 +114,43 @@ function shortHash(text: string): string {
  * string and pile them all onto one route.
  *
  * Distinct tags can share a slug (`AI/ML` and `ai-ml`), so callers must group
- * by the result rather than assume it is unique.
+ * by the result rather than assume it is unique. That also merges terms that
+ * are not really the same — `C#` and `C` both reduce to `c` — which is a
+ * deliberate trade: grouping still lists every article and shows a real label,
+ * and hashing every lossy slug to avoid it would make each one an unreadable
+ * URL.
+ *
+ * The result is capped in *bytes*, because a path component must fit NAME_MAX
+ * (255) and a 100-character Chinese tag is already 300 bytes — which this has
+ * to expect, since summaries are written in the target language.
  */
 export function tagSlug(tag: string): string {
-  const slug = tag
+  const cleaned = tag
     .normalize("NFKC")
     .toLowerCase()
     .replace(/[/\\?#%\s]+/g, "-")
     .replace(/-{2,}/g, "-")
     .replace(/^[.-]+|[.-]+$/g, "");
-  return slug === "" ? `tag-${shortHash(tag)}` : slug;
+  if (cleaned === "") return `tag-${shortHash(tag)}`;
+  const truncated = truncateUtf8(cleaned, TAG_SLUG_MAX_BYTES);
+  if (truncated === cleaned) return cleaned;
+  // Same shape as slugForUrl: a readable base plus a hash of the whole input,
+  // so two long tags sharing a prefix do not collapse into one route.
+  return `${truncated.replace(/-+$/, "")}-${shortHash(tag)}`;
+}
+
+/** Cut to at most `maxBytes` of UTF-8 without splitting a character. Iterating
+ * a string yields whole code points, so surrogate pairs survive. */
+function truncateUtf8(text: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) return text;
+  let bytes = 0;
+  let out = "";
+  for (const char of text) {
+    const size = encoder.encode(char).length;
+    if (bytes + size > maxBytes) break;
+    bytes += size;
+    out += char;
+  }
+  return out;
 }
