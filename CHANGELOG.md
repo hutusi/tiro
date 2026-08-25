@@ -31,6 +31,10 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- Web Store data-use declarations now cover the GitHub username (PII) and the
+  clipped URL (web history). Google's definitions are broader than "what we send
+  to our own servers" — they cover locally processed data, and since August 2026
+  apply regardless of how necessary the data is to the item's single purpose.
 - **First-run data disclosure in the extension popup**, gating the first page
   read behind an explicit acceptance. The page is read when the popup opens (to
   build the preview), not when you click Clip, and the Web Store requires that

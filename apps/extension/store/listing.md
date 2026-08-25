@@ -62,7 +62,17 @@ across machines, not for an audience.
 
 ## Data use declarations
 
-- **Personally identifiable information**: No
+Declare generously. Google defines "handle" as "collecting, transmitting, using,
+or sharing", requires disclosure even for data that never leaves the device, and
+since the August 2026 policy update requires it "regardless of whether the data
+is closely related to the extension's single purpose". None of the categories
+below are excused by the data being user-supplied or going to the user's own
+repository — a declaration that reads narrower than the code is a rejection.
+
+- **Personally identifiable information**: **Yes** — a GitHub username, typed by
+  the user on the options page. Google's definition of PII enumerates
+  "username". It is stored locally and sent to `api.github.com` only as part of
+  the repository path it identifies.
 - **Health / financial / payment information**: No
 - **Authentication information**: **Yes** — a GitHub personal access token the
   user creates and enters themselves. Stored in `chrome.storage.local` on their
@@ -70,15 +80,28 @@ across machines, not for an audience.
   GitHub API requests the extension makes — the connection test on the options
   page and the commit itself. Never sent anywhere else, and never to the
   developer.
-- **Personal communications, location, web history, user activity**: No
-- **Website content**: **Yes** — the text of a page, but only the page the user
-  explicitly clips, and only to the user's own GitHub repository.
+- **Web history**: **Yes** — the URL of a page the user chooses to clip is
+  stored in the article's frontmatter, encoded in its directory name, and
+  committed to the user's repository. Google's definition covers "the domains or
+  URLs the browser interacts with" and publishes no carve-out for a URL the user
+  deliberately saves, so this is declared rather than argued.
+- **Personal communications, location, user activity**: No
+- **Website content**: **Yes** — the text of a page, read when the user opens
+  the popup on it, and transmitted only if they then clip it, only to their own
+  GitHub repository.
+
+**How consent is obtained**: on first use the popup shows a disclosure panel
+naming what is read and when, and the extension injects nothing until the user
+presses "I understand — continue". A one-line notice then stays beside the
+preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
+this disclosure ever changes.
 
 Required certifications, all true of this extension:
 
 - Data is **not** sold to third parties.
 - Data is **not** used or transferred for purposes unrelated to the item's
-  single purpose.
+  single purpose. (The one transfer is to GitHub, at the user's direction — it
+  *is* the single purpose.)
 - Data is **not** used to determine creditworthiness or for lending.
 
 ## Remote code
