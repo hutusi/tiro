@@ -72,7 +72,21 @@ export async function validateVault(
     }
 
     const zhFile = Bun.file(`${vaultDir}/${translationPath(slug)}`);
-    if (!(await zhFile.exists())) continue;
+    if (!(await zhFile.exists())) {
+      // A finished run leaves exactly one of the two behind, so a processed
+      // article with neither lost its translation somewhere. Pending articles
+      // are exempt: nothing has looked at them yet.
+      if (
+        frontmatter.tiro.processed_at !== undefined &&
+        frontmatter.lang !== TRANSLATION_TARGET &&
+        frontmatter.tiro.translation_failed !== true
+      ) {
+        errors.push(
+          `${relPath}: processed as ${frontmatter.lang ?? "an unknown language"} but has neither zh.md nor translation_failed`,
+        );
+      }
+      continue;
+    }
 
     if (frontmatter.lang === TRANSLATION_TARGET) {
       errors.push(

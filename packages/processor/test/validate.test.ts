@@ -96,4 +96,22 @@ describe("validateVault", () => {
     ).toBe(true);
     rmSync(vault, { recursive: true, force: true });
   });
+
+  test("catches a processed article with neither a translation nor a marker", async () => {
+    const vault = freshVault();
+    rmSync(join(vault, "articles", EN, "zh.md"));
+    const report = await validateVault(vault);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toContain("neither zh.md nor translation_failed");
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("exempts a pending article with no translation", async () => {
+    const vault = freshVault();
+    // The raw clip fixture is pending and has no zh.md — nothing has looked
+    // at it yet, so demanding a translation would fail every fresh vault.
+    const report = await validateVault(vault);
+    expect(report.errors.filter((e) => e.includes(RAW))).toEqual([]);
+    rmSync(vault, { recursive: true, force: true });
+  });
 });

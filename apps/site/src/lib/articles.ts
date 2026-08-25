@@ -5,6 +5,7 @@ import {
   tagSlug,
 } from "@tiro/shared";
 import { groupByTerm, type TermGroup } from "./terms.ts";
+import { usableTranslation } from "./translation.ts";
 
 export interface Article {
   /** The slug — the article's whole identity (flat layout, ADR 0007). */
@@ -39,7 +40,7 @@ export async function getArticles(): Promise<Article[]> {
       slug: entry.id,
       frontmatter,
       body: entry.body ?? "",
-      zhBody: zhById.get(entry.id) ?? null,
+      zhBody: usableTranslation(frontmatter, zhById.get(entry.id) ?? null),
     };
   });
 
