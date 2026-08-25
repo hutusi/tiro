@@ -28,6 +28,11 @@ translation:
   # Articles whose Han-character ratio reaches this threshold are treated as
   # already-Chinese and are not translated.
   cjk_threshold: 0.3
+  # Chars of source text per translation LLM call. Tune per provider: bigger
+  # batches mean fewer (faster) calls, but the translated output must fit the
+  # provider's per-request output cap — raise cautiously (e.g. 20000-30000),
+  # lower if you see "batch marker mismatch" lines in the workflow log.
+  batch_chars: 10000
 
 images:
   max_bytes: 10485760 # 10 MB per image; larger ones stay hotlinked

@@ -130,6 +130,7 @@ async function processOne(
     title: frontmatter.title,
     body,
     targetLang: config.translation.target,
+    log,
   });
   if (summary.failed) {
     report.summaryFailed.push(article.slug);
@@ -143,6 +144,7 @@ async function processOne(
       model: modelFor(config, "translation"),
       targetLang: config.translation.target,
       blocks: splitBlocks(body),
+      batchChars: config.translation.batch_chars,
       log,
     });
     if (zhBody !== null) {

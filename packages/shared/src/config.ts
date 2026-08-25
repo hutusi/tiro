@@ -19,6 +19,11 @@ export const TiroConfigSchema = z.object({
     .object({
       target: z.string().min(2).default("zh"),
       cjk_threshold: z.number().min(0).max(1).default(0.3),
+      // Chars of source text per translation LLM call. Sized against provider
+      // output caps and the client timeout, not the context window: the
+      // output is as long as the input, so batches beyond ~10-30K chars risk
+      // truncated responses and slow, expensive batch retries.
+      batch_chars: z.number().int().positive().default(10_000),
     })
     .prefault({}),
   images: z

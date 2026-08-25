@@ -40,7 +40,7 @@ export async function translateBlocks(
     model,
     targetLang,
     blocks,
-    batchChars = 2500,
+    batchChars = 10_000,
     log = () => {},
   } = options;
 
@@ -60,8 +60,19 @@ export async function translateBlocks(
       translated[index] = await translateSingle(chat, model, targetLang, block);
     }
   } else {
-    for (const batch of packBatches(todo, batchChars)) {
+    const batches = packBatches(todo, batchChars);
+    for (let b = 0; b < batches.length; b += 1) {
+      const batch = batches[b];
+      if (batch === undefined) continue;
+      log(
+        `translating batch ${b + 1}/${batches.length} (${batch.length} block(s))`,
+      );
       const results = await translateBatch(chat, model, targetLang, batch, log);
+      if (results === null) {
+        log(
+          `batch ${b + 1}/${batches.length} falling back to per-block translation`,
+        );
+      }
       for (let i = 0; i < batch.length; i += 1) {
         const item = batch[i];
         const result = results?.[i];

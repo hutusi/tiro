@@ -36,6 +36,7 @@ describe("parseTiroConfig", () => {
     const config = parseTiroConfig(minimalConfig);
     expect(config.translation.target).toBe("zh");
     expect(config.translation.cjk_threshold).toBe(0.3);
+    expect(config.translation.batch_chars).toBe(10_000);
     expect(config.images.max_bytes).toBe(10 * 1024 * 1024);
     expect(config.images.timeout_ms).toBe(20000);
   });
