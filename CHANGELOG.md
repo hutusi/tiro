@@ -41,9 +41,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   before it will accept the package. Listing copy and images are drafted in
   `apps/extension/store/`.
 - A privacy policy at `/privacy/`, bilingual, covering what the extension
-  stores (a GitHub token, locally) and what the site collects (nothing). The
-  Web Store requires a reachable policy URL for any extension handling
-  authentication information.
+  stores (a GitHub token, locally) and that the site runs no tracking or
+  analytics, Cloudflare's ordinary request logs aside. The Web Store requires a
+  reachable policy URL for any extension handling authentication information.
 - `validate` now checks the invariants it claimed to gate: every directory
   name is re-derived from its article's `url`, articles nested below
   `articles/<slug>/` are reported instead of being silently skipped by every

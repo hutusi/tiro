@@ -63,8 +63,10 @@ across machines, not for an audience.
 - **Health / financial / payment information**: No
 - **Authentication information**: **Yes** — a GitHub personal access token the
   user creates and enters themselves. Stored in `chrome.storage.local` on their
-  machine, transmitted only to `api.github.com` as the `Authorization` header of
-  the commit request. Never sent anywhere else, and never to the developer.
+  machine, sent only to `api.github.com`, as the `Authorization` header of the
+  GitHub API requests the extension makes — the connection test on the options
+  page and the commit itself. Never sent anywhere else, and never to the
+  developer.
 - **Personal communications, location, web history, user activity**: No
 - **Website content**: **Yes** — the text of a page, but only the page the user
   explicitly clips, and only to the user's own GitHub repository.
