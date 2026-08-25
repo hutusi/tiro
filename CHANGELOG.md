@@ -31,6 +31,10 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Extension releases**: pushing an `ext-v<version>` tag builds the extension
+  and attaches an installable zip to a GitHub Release, so other machines
+  install it without a clone or a toolchain. The workflow refuses to publish
+  when the tag and `manifest.json` disagree.
 - `validate` now checks the invariants it claimed to gate: every directory
   name is re-derived from its article's `url`, articles nested below
   `articles/<slug>/` are reported instead of being silently skipped by every

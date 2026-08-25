@@ -24,7 +24,7 @@ failing with 401/404, check these first and rotate.
 | `VAULT_READ_TOKEN` | tiro | PAT: `tiro-vault`, Contents R | deploy checks out the private vault |
 | `CLOUDFLARE_API_TOKEN` | tiro | Account → Cloudflare Pages: Edit | `wrangler pages deploy` |
 | `CLOUDFLARE_ACCOUNT_ID` | tiro | (not sensitive) | wrangler target account |
-| extension PAT | Chrome options page only | PAT: `tiro-vault`, Contents RW | clip commits |
+| extension PAT | Chrome options page only (one per machine) | PAT: `tiro-vault`, Contents RW | clip commits |
 
 Rotate a GitHub secret with `gh secret set NAME -R hutusi/<repo>` (prompts for
 the value); the extension PAT is re-pasted in its options page.
@@ -145,11 +145,54 @@ window safely). The 0007 migration was
 
 ## Extension
 
+### Development machine
+
 - Loaded unpacked from `apps/extension/dist`. After pulling extension
   changes: `bun run --cwd apps/extension build`, then the reload icon on
   `chrome://extensions`. Saved settings survive reloads.
 - Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
   prefix), branch `main`, plus the extension PAT.
+
+### Installing on another computer
+
+No clone or toolchain needed — every `ext-v*` tag publishes a zip.
+
+1. Download `tiro-clipper-<version>.zip` from the repo's Releases page.
+2. Unzip it into a **permanent** folder (e.g. `~/Applications/tiro-clipper`).
+   Chrome reads an unpacked extension from that path forever — moving or
+   deleting the folder breaks the install.
+3. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
+   pick that folder.
+4. Open the extension's Settings and fill in owner, repository, branch, and a
+   PAT, then hit **Test connection**.
+
+Two things follow from how the extension stores its config
+(`chrome.storage.local`, see `apps/extension/src/storage.ts`):
+
+- **Settings do not sync between machines.** Each install is configured by
+  hand. This is deliberate — `chrome.storage.sync` would upload the PAT to
+  Google.
+- **Mint a separate fine-grained PAT per machine** (`tiro-vault`, Contents:
+  Read and write) so a lost laptop can be revoked without breaking the other.
+
+An unpacked extension's ID is derived from its folder path, so the ID differs
+per machine. Harmless here: nothing depends on a stable ID (no OAuth redirect,
+no `externally_connectable`).
+
+### Cutting an extension release
+
+`apps/extension/manifest.json` holds the only version string in the repo.
+
+1. Bump `version` there and commit.
+2. Tag `ext-v<version>` (matching exactly) and push the tag.
+3. "Release extension" builds, verifies the tag against the manifest, zips
+   `dist/` with `manifest.json` at the archive root, and attaches it to a new
+   GitHub Release.
+
+A tag that disagrees with the manifest fails the run before publishing
+anything. `bun run --cwd apps/extension package` produces the same zip
+locally; `workflow_dispatch` builds one as a workflow artifact without
+publishing a release.
 
 ## Known failure signatures
 
