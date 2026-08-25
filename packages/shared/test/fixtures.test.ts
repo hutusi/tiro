@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { checkAlignment, splitBlocks } from "../src/blocks.ts";
 import { needsProcessing, parseArticle } from "../src/frontmatter.ts";
-import { yearFromClippedAt } from "../src/paths.ts";
 import { slugForUrl } from "../src/slug.ts";
 
 /**
@@ -11,35 +10,41 @@ import { slugForUrl } from "../src/slug.ts";
 const articlesDir = `${import.meta.dir}/../../../fixtures/vault/articles`;
 
 const indexFiles = Array.from(
-  new Bun.Glob("*/*/index.md").scanSync({ cwd: articlesDir }),
+  new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
 ).sort();
 
 describe("fixture vault", () => {
   test("contains the expected articles", () => {
     expect(indexFiles.length).toBeGreaterThanOrEqual(3);
     for (const expected of [
-      "2026/example-cn-posts-ai-times-0d21367e/index.md",
-      "2026/example-com-posts-hello-ai-e8446b12/index.md",
-      "2026/example-org-blog-raw-clip-b5de6fbd/index.md",
+      "example-cn-posts-ai-times-0d21367e/index.md",
+      "example-com-posts-hello-ai-e8446b12/index.md",
+      "example-org-blog-raw-clip-b5de6fbd/index.md",
     ]) {
       expect(indexFiles).toContain(expected);
     }
   });
 
+  test("contains no legacy year-nested articles", () => {
+    // The flat glob above would silently ignore a stale
+    // articles/<year>/<slug>/ fixture; enforce the flat layout explicitly.
+    const nested = Array.from(
+      new Bun.Glob("*/*/index.md").scanSync({ cwd: articlesDir }),
+    );
+    expect(nested).toEqual([]);
+  });
+
   for (const relPath of indexFiles) {
-    const [year, slug] = relPath.split("/");
+    const [slug] = relPath.split("/");
 
     test(`${slug} honors the content contract`, async () => {
       const text = await Bun.file(`${articlesDir}/${relPath}`).text();
       const { frontmatter, body } = parseArticle(text);
 
       expect(await slugForUrl(frontmatter.url)).toBe(slug ?? "");
-      expect(String(yearFromClippedAt(frontmatter.clipped_at))).toBe(
-        year ?? "",
-      );
       expect(splitBlocks(body).length).toBeGreaterThan(0);
 
-      const zhFile = Bun.file(`${articlesDir}/${year}/${slug}/zh.md`);
+      const zhFile = Bun.file(`${articlesDir}/${slug}/zh.md`);
       if (await zhFile.exists()) {
         const alignment = checkAlignment(
           splitBlocks(body),
@@ -54,14 +59,14 @@ describe("fixture vault", () => {
   test("processing state markers are as expected", async () => {
     const raw = parseArticle(
       await Bun.file(
-        `${articlesDir}/2026/example-org-blog-raw-clip-b5de6fbd/index.md`,
+        `${articlesDir}/example-org-blog-raw-clip-b5de6fbd/index.md`,
       ).text(),
     );
     expect(needsProcessing(raw.frontmatter)).toBe(true);
 
     const processed = parseArticle(
       await Bun.file(
-        `${articlesDir}/2026/example-com-posts-hello-ai-e8446b12/index.md`,
+        `${articlesDir}/example-com-posts-hello-ai-e8446b12/index.md`,
       ).text(),
     );
     expect(needsProcessing(processed.frontmatter)).toBe(false);

@@ -94,7 +94,7 @@ async function validateVault(vault: string): Promise<number> {
   const articlesDir = `${vault}/articles`;
   let errors = 0;
   const relPaths = Array.from(
-    new Bun.Glob("*/*/index.md").scanSync({ cwd: articlesDir }),
+    new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
   ).sort();
   for (const relPath of relPaths) {
     const indexAbs = `${articlesDir}/${relPath}`;

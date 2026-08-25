@@ -5,7 +5,6 @@ import {
 } from "@tiro/shared";
 
 export interface DiscoveredArticle {
-  year: string;
   slug: string;
   dirAbs: string;
   indexAbs: string;
@@ -35,20 +34,19 @@ export async function discoverArticles(
   const invalid: { path: string; error: string }[] = [];
 
   const relPaths = Array.from(
-    new Bun.Glob("*/*/index.md").scanSync({ cwd: articlesDir }),
+    new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
   ).sort();
   for (const relPath of relPaths) {
-    const [year, slug] = relPath.split("/");
-    if (year === undefined || slug === undefined) continue;
+    const [slug] = relPath.split("/");
+    if (slug === undefined) continue;
     if (options.slug !== undefined && options.slug !== slug) continue;
     const indexAbs = `${articlesDir}/${relPath}`;
     try {
       const parsed = parseArticle(await Bun.file(indexAbs).text());
       if (options.force === true || needsProcessing(parsed.frontmatter)) {
         pending.push({
-          year,
           slug,
-          dirAbs: `${articlesDir}/${year}/${slug}`,
+          dirAbs: `${articlesDir}/${slug}`,
           indexAbs,
           parsed,
         });

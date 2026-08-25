@@ -1,4 +1,22 @@
-const TRACKING_PARAMS = new Set(["fbclid", "gclid"]);
+/** Referral/tracking params stripped for identity. Blocklist, not allowlist,
+ * on purpose: a missed tracker only yields a visible duplicate article, while
+ * a stripped content-identifying param (?v=, ?id=, ?p=) would silently merge
+ * distinct pages into one slug — data loss. Keep this list conservative. */
+const TRACKING_PARAMS = new Set([
+  "fbclid",
+  "gclid",
+  "ref",
+  "source",
+  "from",
+  "si",
+  "spm",
+  "scm",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "wfr",
+  "isappinstalled",
+]);
 const SLUG_BASE_MAX = 60;
 const HASH_SUFFIX_LEN = 8;
 

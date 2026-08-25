@@ -20,10 +20,9 @@ export type ReaderView =
 export function buildReaderView(
   body: string,
   zhBody: string | null,
-  year: string,
   slug: string,
 ): ReaderView {
-  const render = (text: string): string => renderBlockHtml(text, year, slug);
+  const render = (text: string): string => renderBlockHtml(text, slug);
   const originalBlocks = splitBlocks(body);
   if (zhBody === null) {
     return {

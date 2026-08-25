@@ -5,9 +5,8 @@ import {
 } from "@tiro/shared";
 
 export interface Article {
-  /** "year/slug" */
+  /** The slug — the article's whole identity (flat layout, ADR 0007). */
   id: string;
-  year: string;
   slug: string;
   frontmatter: ArticleFrontmatter;
   body: string;
@@ -30,14 +29,12 @@ export async function getArticles(): Promise<Article[]> {
 
   const articles = entries.map((entry): Article => {
     const frontmatter = ArticleFrontmatterSchema.parse(entry.data);
-    const [year, slug] = entry.id.split("/");
-    if (year === undefined || slug === undefined) {
+    if (entry.id.includes("/")) {
       throw new Error(`unexpected article id: ${entry.id}`);
     }
     return {
       id: entry.id,
-      year,
-      slug,
+      slug: entry.id,
       frontmatter,
       body: entry.body ?? "",
       zhBody: zhById.get(entry.id) ?? null,
@@ -58,5 +55,5 @@ export async function getArticles(): Promise<Article[]> {
 }
 
 export function articleUrl(article: Article): string {
-  return `/articles/${article.year}/${article.slug}/`;
+  return `/articles/${article.slug}/`;
 }

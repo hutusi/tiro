@@ -93,8 +93,10 @@ async function main(): Promise<void> {
           readabilityFailed: payload.readabilityFailed,
           clippedAt: new Date().toISOString(),
         });
+        // The flat layout makes file.path deterministic; the lookup only
+        // supplies the sha that turns the PUT into an overwrite.
         const existing = await findExistingIndex(config, file.slug);
-        const path = existing?.path ?? file.path;
+        const path = file.path;
         await putFile(config, {
           path,
           contentBase64: encodeBase64Utf8(file.content),

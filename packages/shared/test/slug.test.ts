@@ -16,6 +16,20 @@ describe("normalizeUrl", () => {
     ).toBe("https://example.com/search?q=llm");
   });
 
+  test("strips the extended referral-param blocklist", () => {
+    expect(
+      normalizeUrl(
+        "https://example.com/post?ref=newsletter&source=tw&from=timeline&si=AbC&spm=a2.b3&scm=x&igshid=123&mc_cid=9&mc_eid=8&wfr=spider&isappinstalled=0",
+      ),
+    ).toBe("https://example.com/post");
+  });
+
+  test("strips trackers but keeps content-identifying params alongside them", () => {
+    expect(normalizeUrl("https://example.com/watch?v=abc123&si=share9")).toBe(
+      "https://example.com/watch?v=abc123",
+    );
+  });
+
   test("keeps the root path slash and drops default ports", () => {
     expect(normalizeUrl("https://example.com:443/")).toBe(
       "https://example.com/",
@@ -49,6 +63,14 @@ describe("slugForUrl", () => {
     const a = await slugForUrl("https://example.com/posts?page=1");
     const b = await slugForUrl("https://example.com/posts?page=2");
     expect(a).not.toBe(b);
+  });
+
+  test("referral params do not change identity", async () => {
+    const clean = await slugForUrl("https://example.com/posts/hello-ai");
+    const shared = await slugForUrl(
+      "https://example.com/posts/hello-ai?ref=hn&source=rss&from=timeline",
+    );
+    expect(shared).toBe(clean);
   });
 
   test("has the shape base-hash8 and respects the length cap", async () => {

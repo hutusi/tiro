@@ -1,25 +1,20 @@
 ---
-import Base from "../../../layouts/Base.astro";
-import { getArticles } from "../../../lib/articles.ts";
-import { buildReaderView } from "../../../lib/reader.ts";
-import { STRINGS } from "../../../lib/strings.ts";
+import Base from "../../layouts/Base.astro";
+import { getArticles } from "../../lib/articles.ts";
+import { buildReaderView } from "../../lib/reader.ts";
+import { STRINGS } from "../../lib/strings.ts";
 
 export async function getStaticPaths() {
   const articles = await getArticles();
   return articles.map((article) => ({
-    params: { year: article.year, slug: article.slug },
+    params: { slug: article.slug },
     props: { article },
   }));
 }
 
 const { article } = Astro.props;
 const { frontmatter } = article;
-const view = buildReaderView(
-  article.body,
-  article.zhBody,
-  article.year,
-  article.slug,
-);
+const view = buildReaderView(article.body, article.zhBody, article.slug);
 const t = STRINGS.article;
 const date = frontmatter.clipped_at.slice(0, 10);
 ---

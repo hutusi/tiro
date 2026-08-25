@@ -32,14 +32,10 @@ const processor = unified()
  * them at the copied public assets is a plain prefix swap (see
  * copy-assets.ts).
  */
-export function renderBlockHtml(
-  blockText: string,
-  year: string,
-  slug: string,
-): string {
+export function renderBlockHtml(blockText: string, slug: string): string {
   const withAssets = blockText.replaceAll(
     "./assets/",
-    `/vault-assets/${year}/${slug}/`,
+    `/vault-assets/${slug}/`,
   );
   return String(processor.processSync(withAssets));
 }

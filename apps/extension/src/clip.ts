@@ -4,7 +4,6 @@ import {
   slugForUrl,
   stringifyArticle,
   TIRO_SCHEMA_VERSION,
-  yearFromClippedAt,
 } from "@tiro/shared";
 
 export interface ClipInput {
@@ -20,9 +19,8 @@ export interface ClipInput {
 
 export interface ClipFile {
   slug: string;
-  year: number;
-  /** Vault-relative path for a brand-new clip (an existing article's path,
-   * possibly under an older year, takes precedence — see findExistingIndex). */
+  /** Vault-relative path — deterministic from the slug alone, so a re-clip
+   * always targets the same file. */
   path: string;
   content: string;
   title: string;
@@ -49,11 +47,9 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
   });
 
   const slug = await slugForUrl(input.url);
-  const year = yearFromClippedAt(frontmatter.clipped_at);
   return {
     slug,
-    year,
-    path: indexPath(year, slug),
+    path: indexPath(slug),
     content: stringifyArticle(frontmatter, input.markdown),
     title,
   };

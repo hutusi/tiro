@@ -9,7 +9,7 @@ flowchart LR
         EXT[Extension\nReadability + Turndown]
     end
     subgraph tiro-vault
-        MD[articles/&lt;year&gt;/&lt;slug&gt;/index.md]
+        MD[articles/&lt;slug&gt;/index.md]
         ZH[zh.md + assets/]
         WF[process.yml\nGitHub Actions]
     end
@@ -53,8 +53,9 @@ components: frontmatter schema (Zod), slug/path rules, block-alignment
 helpers, and the `tiro.yml` config schema. Key invariants:
 
 - **Slug is deterministic from the URL** (normalized URL → slugified
-  host+path + 8-hex SHA-256 suffix). Re-clipping the same URL overwrites the
-  same article and reprocesses it.
+  host+path + 8-hex SHA-256 suffix). Articles live flat at
+  `articles/<slug>/` (ADR 0007), so the path itself guarantees a re-clip
+  overwrites the same article and reprocesses it.
 - **Needs processing** = frontmatter lacks `tiro.processed_at`. Idempotent and
   retry-safe; no dependence on push diffs.
 - **Translation alignment**: `zh.md` has strict 1:1 top-level-block alignment

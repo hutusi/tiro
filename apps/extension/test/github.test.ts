@@ -37,31 +37,23 @@ describe("findExistingIndex", () => {
     expect(result).toBeNull();
   });
 
-  test("searches years newest-first and finds an older-year clip", async () => {
+  test("finds an existing clip with a single deterministic-path probe", async () => {
     const requested: string[] = [];
     const fetchImpl = async (
       input: string | URL | Request,
     ): Promise<Response> => {
       const url = String(input);
       requested.push(url);
-      if (url.includes("/contents/articles?"))
-        return json(200, [
-          { name: "2025", type: "dir" },
-          { name: "2026", type: "dir" },
-          { name: "config", type: "dir" },
-        ]);
-      if (url.includes("/articles/2026/")) return json(404, {});
-      if (url.includes("/articles/2025/")) return json(200, { sha: "abc123" });
+      if (url.includes("/contents/articles/slug-a1b2c3d4/index.md"))
+        return json(200, { sha: "abc123" });
       return json(500, {});
     };
     const result = await findExistingIndex(config, "slug-a1b2c3d4", fetchImpl);
     expect(result).toEqual({
-      path: "articles/2025/slug-a1b2c3d4/index.md",
+      path: "articles/slug-a1b2c3d4/index.md",
       sha: "abc123",
     });
-    const yearProbes = requested.filter((u) => u.includes("/index.md"));
-    expect(yearProbes[0]).toContain("/2026/");
-    expect(yearProbes[1]).toContain("/2025/");
+    expect(requested).toHaveLength(1);
   });
 });
 
@@ -71,7 +63,7 @@ describe("putFile", () => {
     await putFile(
       config,
       {
-        path: "articles/2026/s/index.md",
+        path: "articles/s/index.md",
         contentBase64: "QQ==",
         message: "clip: x",
       },
