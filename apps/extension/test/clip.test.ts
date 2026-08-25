@@ -18,7 +18,8 @@ describe("buildClipFile", () => {
     expect(file.path).toBe(`articles/${file.slug}/index.md`);
 
     const { frontmatter, body } = parseArticle(file.content);
-    expect(frontmatter.url).toBe(input.url);
+    // The stored URL is normalized — tracking params never reach the vault.
+    expect(frontmatter.url).toBe("https://example.com/posts/hello-ai");
     expect(frontmatter.title).toBe(input.title);
     expect(frontmatter.domain).toBe("example.com");
     expect(frontmatter.clipped_at).toBe(input.clippedAt);

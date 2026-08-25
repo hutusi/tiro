@@ -1,6 +1,7 @@
 import {
   ArticleFrontmatterSchema,
   indexPath,
+  normalizeUrl,
   slugForUrl,
   stringifyArticle,
   TIRO_SCHEMA_VERSION,
@@ -29,10 +30,15 @@ export interface ClipFile {
 /** Assemble the complete index.md the extension commits — the write half of
  * the content contract, validated through the shared schema. */
 export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
-  const domain = new URL(input.url).hostname;
+  // Store the normalized URL, not location.href: the public site links
+  // straight to it, so tracking params would be republished noise — and
+  // keeping it identical to the slug's input means re-clips from any URL
+  // variant produce byte-identical frontmatter.
+  const url = normalizeUrl(input.url);
+  const domain = new URL(url).hostname;
   const title = input.title.trim() || domain;
   const frontmatter = ArticleFrontmatterSchema.parse({
-    url: input.url,
+    url,
     title,
     domain,
     clipped_at: input.clippedAt,

@@ -17,6 +17,9 @@ versions follow the `0.x` line while Tiro is a personal system.
 - URL normalization strips a wider referral-param blocklist (`ref`, `source`,
   `from`, `si`, `spm`, `scm`, `igshid`, `mc_cid`, `mc_eid`, `wfr`,
   `isappinstalled`) so share-link noise dedups to one article.
+- The extension stores the *normalized* URL in frontmatter (previously the
+  raw `location.href`), so tracking params never reach the vault or the
+  public site's source links.
 
 ## [0.1.0] - 2026-08-24
 
