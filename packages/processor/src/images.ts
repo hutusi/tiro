@@ -51,8 +51,6 @@ export interface ImageStageResult {
   body: string;
   downloaded: number;
   failed: number;
-  /** Files deleted from assets/ because the body no longer points at them. */
-  pruned: number;
 }
 
 /** Collect the distinct absolute image URLs referenced by the body. */
@@ -341,17 +339,19 @@ export async function processImages(
     .replace(MD_IMAGE_RE, rewriteMatch)
     .replace(HTML_IMG_RE, rewriteMatch);
 
-  const pruned = await pruneAssets(
-    assetsDirAbs,
-    referencedAssets(rewritten),
-    log,
-  );
-
-  return { body: rewritten, downloaded: replacements.size, failed, pruned };
+  return { body: rewritten, downloaded: replacements.size, failed };
 }
 
-/** Asset filenames the final body points at — both the ones this run wrote
- * and the ones it left alone because they were already localized. */
+/** Asset filenames the body points at — both the ones a run wrote and the
+ * ones it left alone because they were already localized.
+ *
+ * Percent-decoding is guarded and *both* forms are kept. This set decides what
+ * survives deletion, so when the two disagree it must err toward keeping a
+ * live file. `decodeURIComponent` also throws outright on a malformed escape
+ * (`./assets/100%.png`), and a body can carry one: the extension's raw-body
+ * fallback deliberately does not resolve relative URLs, so a source site's
+ * paths reach the vault verbatim. Same hazard `safeDecodePathname` guards in
+ * `@tiro/shared`. */
 function referencedAssets(body: string): Set<string> {
   const names = new Set<string>();
   for (const pattern of [MD_ASSET_RE, HTML_ASSET_RE]) {
@@ -359,30 +359,42 @@ function referencedAssets(body: string): Set<string> {
       const ref = match[1];
       if (ref === undefined) continue;
       const name = ref.slice(ASSET_PREFIX.length);
-      if (name !== "") names.add(decodeURIComponent(name));
+      if (name === "") continue;
+      names.add(name);
+      try {
+        names.add(decodeURIComponent(name));
+      } catch {
+        // Malformed escape: the raw form above is all we can match on.
+      }
     }
   }
   return names;
 }
 
 /**
- * Delete files in assets/ the body no longer points at.
+ * Delete files in assets/ that `body` no longer points at, returning how many
+ * went. Call this only with a body that has been written to disk.
  *
- * Nothing reconciled this directory before, so a re-clip whose images changed
- * left the old files behind for good — and the site copies `*​/assets/*`
- * wholesale, which shipped every orphan to the public build. The body is the
- * source of truth: filenames are derived from the source URL, so a file the
- * body still names can never be a candidate here.
+ * It lives outside `processImages` for that reason. Downloading has to happen
+ * before the body that references the new files is rewritten, and the stages
+ * between the two can throw — so the stage cannot be atomic. Deletion can be:
+ * running it after the article is written means a file is only ever removed
+ * against a body that actually exists. A failed run still leaves its
+ * speculative downloads unreferenced, but the next successful run reconciles
+ * them, so the orphan window is one run rather than forever.
  *
- * Only regular files are considered. A stray subdirectory is left alone
- * rather than removed recursively — this deletes from the user's content
- * repo, so it errs toward doing too little.
+ * The body is the source of truth: filenames are derived from the source URL,
+ * so a file the body still names can never be a candidate here. Only regular
+ * files are considered — a stray subdirectory is left alone rather than
+ * removed recursively, because this deletes from the user's content repo and
+ * should err toward doing too little.
  */
-async function pruneAssets(
+export async function reconcileAssets(
   assetsDirAbs: string,
-  keep: Set<string>,
-  log: (message: string) => void,
+  body: string,
+  log: (message: string) => void = () => {},
 ): Promise<number> {
+  const keep = referencedAssets(body);
   let entries: Dirent[];
   try {
     entries = await readdir(assetsDirAbs, { withFileTypes: true });

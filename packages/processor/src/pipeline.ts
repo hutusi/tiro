@@ -6,7 +6,7 @@ import {
   type TiroConfig,
 } from "@tiro/shared/config";
 import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
-import { processImages } from "./images.ts";
+import { processImages, reconcileAssets } from "./images.ts";
 import { detectLang } from "./language.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import { summarize } from "./llm/summarize.ts";
@@ -128,7 +128,6 @@ async function processOne(
   });
   report.imagesDownloaded += imageResult.downloaded;
   report.imagesFailed += imageResult.failed;
-  report.imagesPruned += imageResult.pruned;
   const body = imageResult.body;
 
   const summary = await summarize({
@@ -201,5 +200,13 @@ async function processOne(
     },
   };
   await Bun.write(article.indexAbs, stringifyArticle(updated, body));
+  // Only now: everything above can throw, and the workflow commits whatever is
+  // on disk. Deleting against a body that was never written would drop files
+  // the committed article still points at.
+  report.imagesPruned += await reconcileAssets(
+    `${article.dirAbs}/assets`,
+    body,
+    log,
+  );
   report.processed.push(article.slug);
 }

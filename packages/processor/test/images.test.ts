@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findImageUrls, processImages } from "../src/images.ts";
+import {
+  findImageUrls,
+  processImages,
+  reconcileAssets,
+} from "../src/images.ts";
 import type { FetchLike } from "../src/llm/client.ts";
 
 const PNG_BYTES = Buffer.from(
@@ -185,7 +189,7 @@ describe("processImages", () => {
     const dir = tempAssetsDir();
     const body = "![cover](./assets/abc123def456.png)";
     const result = await processImages(options(body, dir));
-    expect(result).toEqual({ body, downloaded: 0, failed: 0, pruned: 0 });
+    expect(result).toEqual({ body, downloaded: 0, failed: 0 });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -275,49 +279,14 @@ describe("processImages", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("removes an asset the new body no longer references", async () => {
+  test("does not delete anything itself", async () => {
     const dir = tempAssetsDir();
-    // What a re-clip leaves behind: a file from the previous body.
+    // Reconciliation is the pipeline's job, after the article is written —
+    // the stage runs before fallible LLM calls and must not touch the disk
+    // on behalf of a body that may never be committed.
     writeFileSync(join(dir, "deadbeefdead.png"), PNG_BYTES);
-    const result = await processImages(options(`![a](${base}/ok.png)`, dir));
-    expect(result.downloaded).toBe(1);
-    expect(result.pruned).toBe(1);
-    expect(readdirSync(dir)).not.toContain("deadbeefdead.png");
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("keeps an already-localized asset and prunes nothing on a re-run", async () => {
-    const dir = tempAssetsDir();
-    const first = await processImages(options(`![a](${base}/ok.png)`, dir));
-    const name = readdirSync(dir)[0] as string;
-    expect(first.pruned).toBe(0);
-
-    // Second pass over the rewritten body: the reference is now relative, so
-    // nothing is downloaded and the live asset must survive.
-    const second = await processImages(options(first.body, dir));
-    expect(second.downloaded).toBe(0);
-    expect(second.pruned).toBe(0);
-    expect(readdirSync(dir)).toEqual([name]);
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("a hotlinked fallback does not drag a live asset down with it", async () => {
-    const dir = tempAssetsDir();
-    const body = `![good](${base}/ok.png)\n\n![gone](${base}/missing.png)`;
-    const result = await processImages(options(body, dir));
-    expect(result.downloaded).toBe(1);
-    expect(result.failed).toBe(1);
-    expect(result.pruned).toBe(0);
-    expect(readdirSync(dir)).toHaveLength(1);
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("leaves a stray subdirectory in assets/ alone", async () => {
-    const dir = tempAssetsDir();
-    mkdirSync(join(dir, "nested"));
-    const result = await processImages(options(`![a](${base}/ok.png)`, dir));
-    expect(result.pruned).toBe(0);
-    expect(readdirSync(dir)).toContain("nested");
+    await processImages(options(`![a](${base}/ok.png)`, dir));
+    expect(readdirSync(dir)).toContain("deadbeefdead.png");
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -354,5 +323,73 @@ describe("processImages", () => {
     });
     expect(result.downloaded).toBe(1);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("reconcileAssets", () => {
+  test("removes a file the body no longer references", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "deadbeefdead.png"), PNG_BYTES);
+    writeFileSync(join(dir, "abc123def456.png"), PNG_BYTES);
+    const pruned = await reconcileAssets(
+      dir,
+      "![live](./assets/abc123def456.png)",
+    );
+    expect(pruned).toBe(1);
+    expect(readdirSync(dir)).toEqual(["abc123def456.png"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("is idempotent", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "abc123def456.png"), PNG_BYTES);
+    const body = "![live](./assets/abc123def456.png)";
+    expect(await reconcileAssets(dir, body)).toBe(0);
+    expect(await reconcileAssets(dir, body)).toBe(0);
+    expect(readdirSync(dir)).toEqual(["abc123def456.png"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("keeps a file referenced from an <img> tag", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "abc123def456.png"), PNG_BYTES);
+    const pruned = await reconcileAssets(
+      dir,
+      '<img src="./assets/abc123def456.png" alt="x">',
+    );
+    expect(pruned).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("survives a malformed percent-escape instead of wedging the article", async () => {
+    const dir = tempAssetsDir();
+    // The extension's raw-body fallback keeps a source site's relative URLs
+    // verbatim, so this reaches the vault. decodeURIComponent throws on it,
+    // and this runs outside the per-image fallback — an unguarded decode left
+    // the article pending on every retry, forever.
+    writeFileSync(join(dir, "100%.png"), PNG_BYTES);
+    const pruned = await reconcileAssets(dir, "![x](./assets/100%.png)");
+    expect(pruned).toBe(0);
+    expect(readdirSync(dir)).toEqual(["100%.png"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("keeps a file whether the body escapes its name or not", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "my file.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, "![x](./assets/my%20file.png)")).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("leaves a stray subdirectory alone", async () => {
+    const dir = tempAssetsDir();
+    mkdirSync(join(dir, "nested"));
+    expect(await reconcileAssets(dir, "")).toBe(0);
+    expect(readdirSync(dir)).toContain("nested");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("is a no-op when there is no assets directory", async () => {
+    expect(await reconcileAssets("/nonexistent/assets", "")).toBe(0);
   });
 });

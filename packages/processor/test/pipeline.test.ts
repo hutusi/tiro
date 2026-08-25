@@ -3,6 +3,7 @@ import {
   cpSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -309,5 +310,50 @@ describe("stale translations", () => {
     expect(report.translationFailed).toEqual([RAW]);
     // Keeping it would pair last clip's translation with this clip's body.
     expect(() => readFileSync(zhPath)).toThrow();
+  });
+});
+
+describe("asset reconciliation", () => {
+  const EN = "example-com-posts-hello-ai-e8446b12";
+
+  test("deletes nothing when the run fails before the article is written", async () => {
+    const vault = freshVault();
+    const assets = join(vault, "articles", EN, "assets");
+    writeFileSync(join(assets, "orphanorphan.png"), "not really a png");
+    const before = readFileSync(
+      join(vault, "articles", EN, "index.md"),
+      "utf8",
+    );
+    const config = await loadVaultConfig(vault);
+
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: EN },
+      config,
+      {
+        ...deps,
+        chat: async () => {
+          throw new Error("provider says 403 Model.AccessDenied");
+        },
+      },
+    );
+
+    expect(report.errored).toHaveLength(1);
+    expect(report.imagesPruned).toBe(0);
+    // The workflow commits whatever is on disk, so a deletion made against a
+    // body that was never written would ship without its article.
+    expect(readdirSync(assets)).toContain("orphanorphan.png");
+    expect(readFileSync(join(vault, "articles", EN, "index.md"), "utf8")).toBe(
+      before,
+    );
+
+    // The next healthy run reconciles it: the orphan window is one run.
+    const healthy = await runPipeline(
+      { vaultDir: vault, force: true, slug: EN },
+      config,
+      deps,
+    );
+    expect(healthy.processed).toEqual([EN]);
+    expect(healthy.imagesPruned).toBe(1);
+    expect(readdirSync(assets)).not.toContain("orphanorphan.png");
   });
 });
