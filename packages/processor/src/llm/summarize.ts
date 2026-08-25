@@ -11,6 +11,7 @@ export interface SummarizeOptions {
   /** Language the summary should be written in (config.translation.target). */
   targetLang: string;
   maxBodyChars?: number;
+  log?: (message: string) => void;
 }
 
 export interface SummaryResult {
@@ -47,6 +48,7 @@ export async function summarize(
     body,
     targetLang,
     maxBodyChars = 30_000,
+    log = () => {},
   } = options;
   const truncated =
     body.length > maxBodyChars ? `${body.slice(0, maxBodyChars)}\n…` : body;
@@ -89,6 +91,9 @@ export async function summarize(
     } catch (error) {
       feedback = `Your previous response was not valid JSON: ${String(error).slice(0, 200)}`;
     }
+    // Each failed attempt is minutes of LLM time on a long article; without
+    // this line the workflow log is silent until the excerpt fallback.
+    log(`summary attempt ${attempt}/${MAX_ATTEMPTS} failed: ${feedback}`);
     if (attempt < MAX_ATTEMPTS) {
       messages.push({
         role: "user" as const,
