@@ -6,9 +6,9 @@ their Chinese translations, and the processing workflow.
 ## Layout
 
 ```
-articles/<year>/<slug>/index.md   # original article + frontmatter
-articles/<year>/<slug>/zh.md      # paragraph-aligned Chinese translation
-articles/<year>/<slug>/assets/    # images downloaded by the workflow
+articles/<slug>/index.md   # original article + frontmatter
+articles/<slug>/zh.md      # paragraph-aligned Chinese translation
+articles/<slug>/assets/    # images downloaded by the workflow
 config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
 ```

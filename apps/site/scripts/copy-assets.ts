@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
- * Copy vault article assets into public/vault-assets/<year>/<slug>/ before
- * the Astro build. Vault images deliberately bypass Astro's image pipeline
+ * Copy vault article assets into public/vault-assets/<slug>/ before the
+ * Astro build. Vault images deliberately bypass Astro's image pipeline
  * (ADR 0006); this plain copy has no Astro-version risk and re-clips
  * overwrite cleanly.
  */
-import { cpSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { vaultDir } from "../src/lib/vault.ts";
 
@@ -20,7 +20,7 @@ rmSync(outRoot, { recursive: true, force: true });
 
 let copied = 0;
 let skipped = 0;
-for (const relPath of new Bun.Glob("*/*/assets/*").scanSync({
+for (const relPath of new Bun.Glob("*/assets/*").scanSync({
   cwd: articlesDir,
 })) {
   const source = join(articlesDir, relPath);
@@ -29,9 +29,9 @@ for (const relPath of new Bun.Glob("*/*/assets/*").scanSync({
     skipped += 1;
     continue;
   }
-  const [year, slug, , file] = relPath.split("/");
-  if (year === undefined || slug === undefined || file === undefined) continue;
-  const targetDir = join(outRoot, year, slug);
+  const [slug, , file] = relPath.split("/");
+  if (slug === undefined || file === undefined) continue;
+  const targetDir = join(outRoot, slug);
   mkdirSync(targetDir, { recursive: true });
   cpSync(source, join(targetDir, file));
   copied += 1;

@@ -1,6 +1,8 @@
 # ADR 0002: Vault content contract — per-article folders, deterministic slugs, frontmatter marker
 
-Status: accepted (2026-08)
+Status: accepted (2026-08). The `articles/<year>/<slug>/` layout described
+below is superseded by ADR 0007 (flat `articles/<slug>/`); the slug,
+frontmatter-marker, and schema decisions stand.
 
 ## Context
 

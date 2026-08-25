@@ -83,6 +83,16 @@ devDependencies — the action must log "using pre-installed wrangler".
 - Deleting an article: remove its directory from the vault and push — the
   push triggers processing (a no-op) which triggers a redeploy.
 
+## Vault layout migrations
+
+The vault layout is `articles/<slug>/` (flat, ADR 0007). A layout change is
+a lockstep event: land the code on `main` first, then immediately push one
+`git mv` commit in tiro-vault moving every article to the new scheme — the
+vault workflow always checks out tiro@`main`, so the window between the two
+pushes must stay deploy-free (the empty-glob guard fails any deploy in that
+window safely). The 0007 migration was
+`git mv articles/<year>/<slug> articles/<slug>` for each article.
+
 ## Extension
 
 - Loaded unpacked from `apps/extension/dist`. After pulling extension

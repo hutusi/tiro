@@ -59,42 +59,24 @@ export interface ExistingIndex {
 }
 
 /**
- * Locate an existing index.md for this slug across year directories, newest
- * year first — a re-clip of an URL first clipped last year must overwrite
- * the original path, not create a duplicate under the current year.
+ * Look up an existing index.md for this slug. The flat layout makes the path
+ * deterministic from the slug, so this is a single GET — its only job is
+ * fetching the blob sha a re-clip must send to overwrite instead of create.
  */
 export async function findExistingIndex(
   config: TiroExtensionConfig,
   slug: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<ExistingIndex | null> {
-  const ref = `?ref=${encodeURIComponent(config.branch)}`;
-  const yearsRes = await fetchImpl(
-    `${API}/repos/${config.owner}/${config.repo}/contents/articles${ref}`,
+  const path = `articles/${slug}/index.md`;
+  const res = await fetchImpl(
+    `${API}/repos/${config.owner}/${config.repo}/contents/${path}?ref=${encodeURIComponent(config.branch)}`,
     { headers: headers(config) },
   );
-  if (yearsRes.status === 404) return null; // first clip ever
-  if (!yearsRes.ok)
-    throw new Error(`listing articles/ failed: ${yearsRes.status}`);
-  const entries = (await yearsRes.json()) as { name: string; type: string }[];
-  const years = entries
-    .filter((e) => e.type === "dir" && /^\d{4}$/.test(e.name))
-    .map((e) => e.name)
-    .sort()
-    .reverse();
-
-  for (const year of years) {
-    const path = `articles/${year}/${slug}/index.md`;
-    const res = await fetchImpl(
-      `${API}/repos/${config.owner}/${config.repo}/contents/${path}${ref}`,
-      { headers: headers(config) },
-    );
-    if (res.status === 404) continue;
-    if (!res.ok) throw new Error(`checking ${path} failed: ${res.status}`);
-    const file = (await res.json()) as { sha: string };
-    return { path, sha: file.sha };
-  }
-  return null;
+  if (res.status === 404) return null; // first clip of this URL
+  if (!res.ok) throw new Error(`checking ${path} failed: ${res.status}`);
+  const file = (await res.json()) as { sha: string };
+  return { path, sha: file.sha };
 }
 
 export interface PutFileOptions {

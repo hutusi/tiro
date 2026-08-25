@@ -9,7 +9,7 @@ const articlesBase = `${vaultDir()}/articles`;
 // schemas across that boundary is not worth the coupling).
 const articles = defineCollection({
   loader: glob({
-    pattern: "*/*/index.md",
+    pattern: "*/index.md",
     base: articlesBase,
     generateId: ({ entry }) => entry.replace(/\/index\.md$/, ""),
   }),
@@ -17,7 +17,7 @@ const articles = defineCollection({
 
 const translations = defineCollection({
   loader: glob({
-    pattern: "*/*/zh.md",
+    pattern: "*/zh.md",
     base: articlesBase,
     generateId: ({ entry }) => entry.replace(/\/zh\.md$/, ""),
   }),

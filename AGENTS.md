@@ -52,7 +52,7 @@ bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 ## Hard invariants — do not break casually
 
 1. **The content contract is shared by three independently shipping components** (extension writes, processor transforms, site reads). Schema/slug/path changes must keep all three in lockstep and bump `tiro.schema` when breaking (ADR 0002).
-2. **Slugs are deterministic from the URL** (normalized URL → slug + 8-hex SHA-256). Re-clipping must overwrite the same article, never duplicate — trailing-slash and tracking-param variants are one identity by design.
+2. **Slugs are deterministic from the URL** (normalized URL → slug + 8-hex SHA-256), and articles live flat at `articles/<slug>/` so the path itself is the identity (ADR 0007). Re-clipping must overwrite the same article, never duplicate — trailing-slash and tracking-param variants are one identity by design.
 3. **"Needs processing" = `tiro.processed_at` absent.** The processor is idempotent and retry-safe; never select work by push diffs.
 4. **`zh.md` must be strictly 1:1 block-aligned** with the `index.md` body, code blocks byte-identical. A misaligned `zh.md` must never be written; the site falls back to stacked rendering rather than misaligned rows (ADR 0003).
 5. **All clipped HTML passes rehype-sanitize** in `apps/site/src/lib/render.ts` before reaching the public site. Never reintroduce `allowDangerousHtml` at the stringify stage; extend the sanitize schema instead if legitimate tags get stripped.

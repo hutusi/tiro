@@ -7,6 +7,17 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Changed
+
+- **Flat vault layout** (breaking, ADR 0007): articles moved from
+  `articles/<year>/<slug>/` to `articles/<slug>/` — the path is now the
+  identity, so a re-clip structurally cannot duplicate. Site URLs changed to
+  `/articles/<slug>/` (no redirects). Existing vaults migrate with one
+  `git mv` commit; `tiro.schema` stays 1 (document format unchanged).
+- URL normalization strips a wider referral-param blocklist (`ref`, `source`,
+  `from`, `si`, `spm`, `scm`, `igshid`, `mc_cid`, `mc_eid`, `wfr`,
+  `isappinstalled`) so share-link noise dedups to one article.
+
 ## [0.1.0] - 2026-08-24
 
 First complete, live system: clip → summarize/tag/translate → publish,

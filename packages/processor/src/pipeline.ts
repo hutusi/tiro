@@ -104,7 +104,7 @@ async function processOne(
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
-  log(`processing ${article.year}/${article.slug}`);
+  log(`processing ${article.slug}`);
 
   const lang =
     frontmatter.lang ??

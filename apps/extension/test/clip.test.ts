@@ -15,8 +15,7 @@ describe("buildClipFile", () => {
   test("produces a schema-valid index.md at the contract path", async () => {
     const file = await buildClipFile(input);
     expect(file.slug).toBe(await slugForUrl(input.url));
-    expect(file.year).toBe(2026);
-    expect(file.path).toBe(`articles/2026/${file.slug}/index.md`);
+    expect(file.path).toBe(`articles/${file.slug}/index.md`);
 
     const { frontmatter, body } = parseArticle(file.content);
     expect(frontmatter.url).toBe(input.url);

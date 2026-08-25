@@ -19,7 +19,7 @@ import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
 import { makeFakeChat } from "./helpers.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
-const RAW = "2026/example-org-blog-raw-clip-b5de6fbd";
+const RAW = "example-org-blog-raw-clip-b5de6fbd";
 
 // The fixture image is a hotlink to example.org; tests must not touch the
 // network, so the injected fetch fails and the pipeline keeps the hotlink.
@@ -81,13 +81,13 @@ describe("runPipeline", () => {
 
   test("does not touch already-processed articles", () => {
     const processed = readFileSync(
-      join(vault, "articles/2026/example-com-posts-hello-ai-e8446b12/index.md"),
+      join(vault, "articles/example-com-posts-hello-ai-e8446b12/index.md"),
       "utf8",
     );
     const original = readFileSync(
       join(
         fixtureVault,
-        "articles/2026/example-com-posts-hello-ai-e8446b12/index.md",
+        "articles/example-com-posts-hello-ai-e8446b12/index.md",
       ),
       "utf8",
     );
@@ -122,7 +122,7 @@ describe("runPipeline", () => {
     // Chinese original: reprocessing must not create a zh.md.
     expect(() =>
       readFileSync(
-        join(vault, "articles/2026/example-cn-posts-ai-times-0d21367e/zh.md"),
+        join(vault, "articles/example-cn-posts-ai-times-0d21367e/zh.md"),
       ),
     ).toThrow();
   });
@@ -210,7 +210,7 @@ describe("failure markers", () => {
 });
 
 describe("hard failures", () => {
-  const SECOND = "2026/zz-second-pending-article-aaaaaaaa";
+  const SECOND = "zz-second-pending-article-aaaaaaaa";
   const secondClip = [
     "---",
     'url: "https://example.net/second"',
