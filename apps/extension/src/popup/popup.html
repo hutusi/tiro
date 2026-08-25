@@ -38,6 +38,26 @@
         color: #57606a;
         font-size: 12px;
       }
+      #notice {
+        color: #57606a;
+        font-size: 11px;
+        margin-top: 6px;
+      }
+      #disclosure {
+        margin: 10px 0;
+        padding: 10px;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+      }
+      #disclosure h2 {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      #disclosure p {
+        margin: 0 0 8px;
+        color: #57606a;
+        line-height: 1.45;
+      }
       #warning {
         color: #9a6700;
         font-size: 12px;
@@ -85,12 +105,29 @@
   </head>
   <body>
     <h1>Tiro</h1>
-    <div id="status" role="status">Reading page…</div>
+    <div id="status" role="status"></div>
+    <div id="disclosure" hidden>
+      <h2>Before Tiro reads this page</h2>
+      <p>
+        To show you a preview, Tiro reads the open page in your browser — its
+        article text, title, and address.
+      </p>
+      <p>
+        None of it leaves your browser until you press <b>Clip to vault</b>,
+        which commits it to the GitHub repository you configured. Close this
+        popup without clipping and the result is discarded.
+      </p>
+      <button id="accept" type="button">I understand — continue</button>
+    </div>
     <div id="preview" hidden>
       <div id="article-title"></div>
       <div id="article-meta"></div>
       <div id="warning" hidden>
         Readability could not extract an article; clipping the raw page instead.
+      </div>
+      <div id="notice">
+        Read in your browser to build this preview. Nothing is sent until you
+        clip.
       </div>
     </div>
     <button id="clip" type="button" disabled>Clip to vault</button>

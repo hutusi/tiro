@@ -1,10 +1,18 @@
 import { buildClipFile } from "../clip.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
 import { type ClipResultMessage, isClipResult } from "../messages.ts";
-import { isConfigComplete, loadConfig } from "../storage.ts";
+import {
+  acceptDisclosure,
+  isConfigComplete,
+  loadConfig,
+  loadDisclosure,
+  needsDisclosure,
+} from "../storage.ts";
 
 const el = {
   status: document.getElementById("status") as HTMLDivElement,
+  disclosure: document.getElementById("disclosure") as HTMLDivElement,
+  accept: document.getElementById("accept") as HTMLButtonElement,
   preview: document.getElementById("preview") as HTMLDivElement,
   title: document.getElementById("article-title") as HTMLDivElement,
   meta: document.getElementById("article-meta") as HTMLDivElement,
@@ -55,28 +63,32 @@ async function main(): Promise<void> {
     setStatus("This page cannot be clipped.", true);
     return;
   }
+  const tabId = tab.id;
 
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["clipper.js"],
-    });
-  } catch (error) {
-    setStatus(`Cannot read this page: ${String(error)}`, true);
-    return;
-  }
-
-  // executeScript resolves when injection starts, not when the clipper
-  // messages back; if the clipper dies mid-run the popup would otherwise sit
-  // on "Reading page…" forever.
-  setTimeout(() => {
-    if (result === null) {
-      setStatus(
-        "The page did not produce a clip. Reload it and try again.",
-        true,
-      );
+  async function extract(): Promise<void> {
+    if (configured) setStatus("Reading page…");
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["clipper.js"],
+      });
+    } catch (error) {
+      setStatus(`Cannot read this page: ${String(error)}`, true);
+      return;
     }
-  }, 10_000);
+
+    // executeScript resolves when injection starts, not when the clipper
+    // messages back; if the clipper dies mid-run the popup would otherwise sit
+    // on "Reading page…" forever.
+    setTimeout(() => {
+      if (result === null) {
+        setStatus(
+          "The page did not produce a clip. Reload it and try again.",
+          true,
+        );
+      }
+    }, 10_000);
+  }
 
   el.clip.addEventListener("click", () => {
     if (result === null) return;
@@ -112,6 +124,32 @@ async function main(): Promise<void> {
       }
     })(result);
   });
+
+  // The page is read to build the preview, which happens before the Clip
+  // click — so the disclosure has to gate the extraction itself, not the
+  // upload. A store listing or privacy page does not satisfy this; the consent
+  // has to be in the product UI and has to be an explicit action.
+  if (needsDisclosure(await loadDisclosure())) {
+    el.disclosure.hidden = false;
+    // Hide the (disabled) clip button meanwhile, so the panel's Continue is the
+    // only button on screen and cannot be mistaken for it.
+    el.clip.hidden = true;
+    el.accept.addEventListener(
+      "click",
+      () => {
+        void (async () => {
+          await acceptDisclosure(new Date().toISOString());
+          el.disclosure.hidden = true;
+          el.clip.hidden = false;
+          await extract();
+        })();
+      },
+      { once: true },
+    );
+    return;
+  }
+
+  await extract();
 }
 
 void main();

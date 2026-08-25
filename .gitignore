@@ -1,5 +1,6 @@
 node_modules/
 dist/
+apps/extension/*.zip
 .astro/
 apps/site/public/vault-assets/
 *.log

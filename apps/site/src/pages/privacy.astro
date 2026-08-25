@@ -1,0 +1,175 @@
+---
+// The Chrome Web Store requires a reachable privacy policy URL for any
+// extension that handles authentication information — Tiro Clipper stores a
+// GitHub token. Bilingual on purpose: the site reads Chinese, store reviewers
+// read English.
+import Base from "../layouts/Base.astro";
+
+const updated = "2026-08-26";
+---
+
+<Base title="隐私政策">
+  <article
+    class="prose prose-neutral mx-auto max-w-3xl dark:prose-invert prose-headings:font-bold"
+  >
+    <h1>隐私政策 / Privacy Policy</h1>
+    <p class="text-sm text-neutral-500">最后更新 / Last updated: {updated}</p>
+
+    <h2>中文</h2>
+
+    <p>
+      Tiro 由两部分组成：Chrome 扩展 <strong>Tiro Clipper</strong>，以及本站点。
+      两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
+      扩展只把数据发往一个第三方：GitHub——发到你自己指定的仓库，用你自己的令牌，
+      且只在你按下「剪藏」之后。
+    </p>
+
+    <h3>扩展存储什么</h3>
+    <ul>
+      <li>
+        你在设置页填写的 GitHub
+        用户名、仓库名、分支名，以及个人访问令牌（PAT）。
+      </li>
+      <li>
+        这些内容保存在本机的 <code>chrome.storage.local</code> 中，不会同步到其他设备，
+        也不会上传到除 GitHub 以外的任何服务器。
+      </li>
+      <li>以及一条记录：你在哪一刻同意了首次弹出的数据说明。</li>
+    </ul>
+
+    <h3>扩展何时读取页面</h3>
+    <ul>
+      <li>
+        在某个页面上点击工具栏里的 Tiro 图标、打开弹窗时，扩展就会读取该页面，
+        用于生成预览（标题、字数）。<strong>这发生在你点击「剪藏」之前</strong
+        >。
+      </li>
+      <li>
+        首次使用时，弹窗会先显示一段数据说明，只有你确认之后才会读取页面。
+      </li>
+      <li>
+        读取结果只留在浏览器里。若你不点「剪藏」就关闭弹窗，结果随即丢弃，
+        不会发送、也不会保存。
+      </li>
+      <li>
+        扩展不会在后台浏览、读取或上传任何页面；没打开弹窗的页面它碰不到。
+      </li>
+    </ul>
+
+    <h3>扩展发送什么、发到哪里</h3>
+    <ul>
+      <li>
+        唯一的网络目标是 <code>https://api.github.com</code>，这也是扩展在
+        <code>host_permissions</code> 中申请的唯一域名。
+      </li>
+      <li>
+        点击「剪藏」后，扩展用你自己的令牌把这些内容提交到你自己的仓库：正文的
+        Markdown、标题、原文网址、域名和剪藏时间。标题还会出现在提交信息里，
+        网址会体现在文章目录名中。
+      </li>
+      <li>扩展不加载远程代码：全部逻辑都打包在扩展内部。</li>
+    </ul>
+
+    <h3>如何删除数据</h3>
+    <ul>
+      <li>在设置页清空各字段，或直接卸载扩展，本机保存的配置随之删除。</li>
+      <li>在 GitHub 的设置中撤销该令牌，即可立即失效。</li>
+      <li>剪藏的文章保存在你自己的仓库里，由你自行删除。</li>
+    </ul>
+
+    <h3>本站点</h3>
+    <p>
+      站点是纯静态页面，不设置追踪
+      Cookie，不运行分析脚本；搜索完全在浏览器本地完成。
+      深色模式偏好保存在浏览器的 <code>localStorage</code> 里。站点托管在 Cloudflare
+      Pages，由其按常规方式处理访问日志。
+    </p>
+
+    <h2>English</h2>
+
+    <p>
+      Tiro is two things: the <strong>Tiro Clipper</strong> Chrome extension and this
+      site. Neither sets tracking cookies, runs analytics or ads, and nothing is sold.
+      The extension sends data to exactly one third party — GitHub — into the repository
+      you name, with your own token, and only after you press Clip.
+    </p>
+
+    <h3>What the extension stores</h3>
+    <ul>
+      <li>
+        The GitHub owner, repository, branch, and personal access token (PAT)
+        you enter on its options page.
+      </li>
+      <li>
+        These live in <code>chrome.storage.local</code> on that machine only. They
+        are not synced across devices and are not uploaded to any server other than
+        GitHub.
+      </li>
+      <li>A record of when you accepted the first-run disclosure.</li>
+    </ul>
+
+    <h3>When it reads a page</h3>
+    <ul>
+      <li>
+        When you click the Tiro toolbar icon on a page and the popup opens, the
+        extension reads that page to build the preview (title, word count).
+        <strong>This happens before you click Clip.</strong>
+      </li>
+      <li>
+        The first time you use it, the popup shows this disclosure and reads
+        nothing until you agree to it.
+      </li>
+      <li>
+        The result stays in the browser. Close the popup without clipping and it
+        is discarded — not sent, not stored.
+      </li>
+      <li>
+        The extension never reads or uploads pages in the background, and cannot
+        touch a page you have not opened the popup on.
+      </li>
+    </ul>
+
+    <h3>What it sends, and where</h3>
+    <ul>
+      <li>
+        The only network destination is <code>https://api.github.com</code>,
+        which is also the only entry in the extension's
+        <code>host_permissions</code>.
+      </li>
+      <li>
+        When you click Clip, it commits to your own repository, with your own
+        token: the article as Markdown, its title, the source URL, the domain,
+        and the time you clipped it. The title also appears in the commit
+        message, and the URL is reflected in the article's directory name.
+      </li>
+      <li>No remote code is loaded; all logic is bundled in the extension.</li>
+    </ul>
+
+    <h3>Deleting your data</h3>
+    <ul>
+      <li>
+        Clear the fields on the options page, or uninstall the extension — the
+        stored settings go with it.
+      </li>
+      <li>
+        Revoke the token in your GitHub settings to cut off access at once.
+      </li>
+      <li>Clipped articles live in your own repository; delete them there.</li>
+    </ul>
+
+    <h3>This site</h3>
+    <p>
+      The site is static. It sets no tracking cookies and runs no analytics;
+      search runs entirely in your browser. Your dark-mode preference is kept in
+      <code>localStorage</code>. It is hosted on Cloudflare Pages, which handles
+      request logs in the ordinary way.
+    </p>
+
+    <h3>Contact</h3>
+    <p>
+      Questions or requests: <a href="https://github.com/hutusi/tiro/issues"
+        >github.com/hutusi/tiro/issues</a
+      >.
+    </p>
+  </article>
+</Base>

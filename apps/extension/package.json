@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build && vite build -c vite.clipper.config.ts",
+    "package": "bun run build && cd dist && rm -f ../tiro-clipper.zip && zip -qr ../tiro-clipper.zip . -x '.DS_Store' '**/.DS_Store'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

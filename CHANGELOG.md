@@ -31,6 +31,32 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- The 440×280 small promotional tile the Web Store requires for publishing, and
+  16px of transparent padding on the 128px store icon per Chrome's listing
+  guidance (toolbar sizes stay full-bleed).
+- Web Store data-use declarations now cover the GitHub username (PII) and the
+  clipped URL (web history). Google's definitions are broader than "what we send
+  to our own servers" — they cover locally processed data, and since August 2026
+  apply regardless of how necessary the data is to the item's single purpose.
+- **First-run data disclosure in the extension popup**, gating the first page
+  read behind an explicit acceptance. The page is read when the popup opens (to
+  build the preview), not when you click Clip, and the Web Store requires that
+  disclosure and consent to be in the product UI rather than only in a privacy
+  policy. Re-prompts when `DISCLOSURE_VERSION` is bumped.
+- **Extension releases**: pushing an `ext-v<version>` tag builds the extension
+  and attaches an installable zip to a GitHub Release, so other machines
+  install it without a clone or a toolchain. The workflow refuses to publish
+  when the tag and `manifest.json` disagree.
+- The extension has icons (16/32/48/128, rendered from
+  `apps/extension/icons/icon.svg`), a `homepage_url`, and the modern
+  `options_ui` form — the set of things a Chrome Web Store submission requires
+  before it will accept the package. Listing copy and images are drafted in
+  `apps/extension/store/`.
+- A privacy policy at `/privacy/`, bilingual, covering when the extension reads
+  a page, what it stores (a GitHub token, locally), what a clip sends to GitHub,
+  and that the site runs no tracking or analytics, Cloudflare's ordinary request
+  logs aside. The Web Store requires a reachable policy URL for any extension
+  handling authentication information.
 - `validate` now checks the invariants it claimed to gate: every directory
   name is re-derived from its article's `url`, articles nested below
   `articles/<slug>/` are reported instead of being silently skipped by every
