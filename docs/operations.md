@@ -80,6 +80,11 @@ so re-runs are always safe no-ops for finished articles.
   (then commit/push the vault yourself).
 - **Contract check over the whole vault**:
   `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
+  Checks frontmatter schema, that each directory name still equals the slug
+  derived from its `url` (invariant 2), that no article is nested below
+  `articles/<slug>/`, and that every `zh.md` belongs to an article that should
+  have one and stays block-aligned with it. Exits non-zero on any of these —
+  `run` only warns, so this is the only thing that fails on a violation.
 
 ### Failure markers
 
@@ -115,7 +120,8 @@ window safely). The 0007 migration was
 - **Preflight**: check that no slug appears under more than one year
   (`ls -d articles/*/*/ | awk -F/ '{print $3}' | sort | uniq -d` must print
   nothing) — `git mv` onto an existing target directory silently nests the
-  source into it instead of failing.
+  source into it instead of failing. `validate` reports the same state
+  afterwards, as `nested article`.
 - **Don't clip during the window.** The extension deploys by hand (rebuild +
   reload), so the order is: land the code, migrate the vault, reload the
   extension, then clip. An old extension against a migrated vault re-creates

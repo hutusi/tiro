@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
-import { checkAlignment, parseArticle, splitBlocks } from "@tiro/shared";
 import { type ChatFn, createChatClient } from "./llm/client.ts";
 import { loadVaultConfig, runPipeline } from "./pipeline.ts";
+import { validateVault } from "./validate.ts";
 
 function usage(): never {
   console.error(
@@ -32,7 +32,7 @@ if (vaultDir === undefined || (command !== "run" && command !== "validate"))
   usage();
 
 if (command === "validate") {
-  process.exit(await validateVault(vaultDir));
+  process.exit(await validate(vaultDir));
 } else {
   process.exit(await run(vaultDir));
 }
@@ -89,33 +89,11 @@ async function run(vault: string): Promise<number> {
   return 0;
 }
 
-/** Whole-vault contract check: frontmatter schema + zh.md block alignment. */
-async function validateVault(vault: string): Promise<number> {
-  const articlesDir = `${vault}/articles`;
-  let errors = 0;
-  const relPaths = Array.from(
-    new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
-  ).sort();
-  for (const relPath of relPaths) {
-    const indexAbs = `${articlesDir}/${relPath}`;
-    try {
-      const { body } = parseArticle(await Bun.file(indexAbs).text());
-      const zhFile = Bun.file(indexAbs.replace(/index\.md$/, "zh.md"));
-      if (await zhFile.exists()) {
-        const alignment = checkAlignment(
-          splitBlocks(body),
-          splitBlocks(await zhFile.text()),
-        );
-        if (!alignment.ok) {
-          errors += 1;
-          console.error(`${relPath}: ${alignment.errors.join("; ")}`);
-        }
-      }
-    } catch (error) {
-      errors += 1;
-      console.error(`${relPath}: ${String(error)}`);
-    }
-  }
-  console.log(`validated ${relPaths.length} article(s), ${errors} error(s)`);
-  return errors > 0 ? 1 : 0;
+async function validate(vault: string): Promise<number> {
+  const report = await validateVault(vault);
+  for (const error of report.errors) console.error(error);
+  console.log(
+    `validated ${report.articles} article(s), ${report.errors.length} error(s)`,
+  );
+  return report.errors.length > 0 ? 1 : 0;
 }
