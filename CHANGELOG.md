@@ -68,6 +68,14 @@ versions follow the `0.x` line while Tiro is a personal system.
   after the article is written, and a malformed relative reference such as
   `./assets/100%.png` no longer throws out of the image stage — that escaped
   the per-image fallback and left the article pending on every retry.
+- Asset reconciliation only recognised markdown and `<img src>` references, so
+  a file reachable solely through `<img srcset>`, a link, or prose was deleted.
+  Any `./assets/` mention now keeps a file: over-keeping costs a stale byte,
+  over-deleting loses content.
+- `images.stage_timeout_ms` did not cover DNS resolution, which happens before
+  the request the abort signal bounds. With up to six lookups per image and the
+  deadline only checked between images, one image could overrun the stage
+  budget by minutes.
 
 - A provider failure during summarization (403, timeout, network) was
   reported to the model as malformed JSON, retried, and finally written as an

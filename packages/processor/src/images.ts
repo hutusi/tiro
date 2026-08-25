@@ -20,12 +20,13 @@ const USER_AGENT =
 const MD_IMAGE_RE = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
 const HTML_IMG_RE = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/g;
 
-// Localized images look like this once the stage has run. Matching them is
-// what makes the stage idempotent, and what lets it tell a live asset from a
-// leftover of an older body.
-const ASSET_PREFIX = "./assets/";
-const MD_ASSET_RE = /!\[[^\]]*\]\((\.\/assets\/[^)\s]+?)(?:\s+"[^"]*")?\)/g;
-const HTML_ASSET_RE = /<img[^>]+src=["'](\.\/assets\/[^"']+)["']/g;
+// Localized images look like this once the stage has run: matching them is
+// what lets reconciliation tell a live asset from a leftover of an older body.
+// Deliberately syntax-blind, unlike the two patterns above. Those drive the
+// rewrite, where matching image syntax exactly is the point; this one drives
+// deletion, where missing a reference destroys content. Stops at the first
+// character a filename cannot contain.
+const ANY_ASSET_RE = /\.\/assets\/([^\s"'()<>\]]+)/g;
 
 export interface ImageStageOptions {
   body: string;
@@ -129,6 +130,36 @@ function isIpLiteral(hostname: string): boolean {
   return host.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
 }
 
+/** Reject if `promise` has not settled within `ms`.
+ *
+ * `AbortSignal.timeout` reaches `fetch` and nothing else, and resolution
+ * happens before the request exists — so without this an unbounded lookup lets
+ * a single image outrun the whole stage budget. The losing promise keeps
+ * running: `dns.lookup` has no abort, and the OS resolver will settle it in
+ * its own time. */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      Math.max(0, ms),
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 async function resolveViaDns(hostname: string): Promise<string[]> {
   const results = await lookup(hostname, { all: true });
   return results.map((entry) => entry.address);
@@ -152,11 +183,16 @@ async function resolveViaDns(hostname: string): Promise<string[]> {
 async function assertPublicAddresses(
   hostname: string,
   resolveHost: (hostname: string) => Promise<string[]>,
+  budgetMs: number,
 ): Promise<void> {
   if (isIpLiteral(hostname)) return;
   let addresses: string[];
   try {
-    addresses = await resolveHost(hostname);
+    addresses = await withTimeout(
+      resolveHost(hostname),
+      budgetMs,
+      `resolving ${hostname}`,
+    );
   } catch (error) {
     throw new Error(`cannot resolve ${hostname}: ${String(error)}`);
   }
@@ -177,13 +213,16 @@ async function fetchChecked(
   fetchImpl: FetchLike,
   allowPrivateHosts: boolean,
   resolveHost: (hostname: string) => Promise<string[]>,
+  /** Re-read per hop: every lookup draws from the same shrinking budget the
+   * request already respects, so six redirects cannot multiply it. */
+  budgetMs: () => number,
 ): Promise<Response> {
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const hostname = new URL(current).hostname;
     if (!allowPrivateHosts) {
       if (isForbiddenHost(hostname)) throw new Error("non-public host");
-      await assertPublicAddresses(hostname, resolveHost);
+      await assertPublicAddresses(hostname, resolveHost, budgetMs());
     }
     const res = await fetchImpl(current, { ...init, redirect: "manual" });
     if (res.status < 300 || res.status >= 400) return res;
@@ -317,6 +356,7 @@ export async function processImages(
         fetchImpl,
         allowPrivateHosts,
         resolveHost,
+        () => Math.min(timeoutMs, Math.max(0, deadline - Date.now())),
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // A missing Content-Type used to skip this check and fall through to the
@@ -356,30 +396,32 @@ export async function processImages(
   return { body: rewritten, downloaded: replacements.size, failed };
 }
 
-/** Asset filenames the body points at — both the ones a run wrote and the
- * ones it left alone because they were already localized.
+/**
+ * Asset filenames the body points at, in any syntax at all.
  *
- * Percent-decoding is guarded and *both* forms are kept. This set decides what
- * survives deletion, so when the two disagree it must err toward keeping a
- * live file. `decodeURIComponent` also throws outright on a malformed escape
- * (`./assets/100%.png`), and a body can carry one: the extension's raw-body
- * fallback deliberately does not resolve relative URLs, so a source site's
- * paths reach the vault verbatim. Same hazard `safeDecodePathname` guards in
- * `@tiro/shared`. */
+ * This set decides what survives deletion, so it errs toward keeping. Scanning
+ * only the two image patterns would drop a file referenced by `<img srcset>`,
+ * a plain link, or prose — none of which the processor emits, but all of which
+ * reach the vault through hand-edits and through the extension's raw-body
+ * fallback, which preserves a source site's markup verbatim. Adding those two
+ * syntaxes by name would only move the gap to the next one. Over-keeping costs
+ * a stale file the next edit reclaims; over-deleting loses content.
+ *
+ * Percent-decoding is guarded and both forms are kept for the same reason.
+ * `decodeURIComponent` throws outright on a malformed escape
+ * (`./assets/100%.png`), which a body can genuinely carry — the same hazard
+ * `safeDecodePathname` guards in `@tiro/shared`.
+ */
 function referencedAssets(body: string): Set<string> {
   const names = new Set<string>();
-  for (const pattern of [MD_ASSET_RE, HTML_ASSET_RE]) {
-    for (const match of body.matchAll(pattern)) {
-      const ref = match[1];
-      if (ref === undefined) continue;
-      const name = ref.slice(ASSET_PREFIX.length);
-      if (name === "") continue;
-      names.add(name);
-      try {
-        names.add(decodeURIComponent(name));
-      } catch {
-        // Malformed escape: the raw form above is all we can match on.
-      }
+  for (const match of body.matchAll(ANY_ASSET_RE)) {
+    const name = match[1];
+    if (name === undefined || name === "") continue;
+    names.add(name);
+    try {
+      names.add(decodeURIComponent(name));
+    } catch {
+      // Malformed escape: the raw form above is all we can match on.
     }
   }
   return names;

@@ -290,6 +290,32 @@ describe("processImages", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("gives up on a slow resolver instead of outrunning the stage budget", async () => {
+    const dir = tempAssetsDir();
+    let fetched = false;
+    const result = await processImages({
+      ...options("![x](https://cdn.example/x.png)", dir),
+      allowPrivateHosts: false,
+      stageTimeoutMs: 50,
+      // A resolver slower than the whole stage budget. Nothing else bounds it:
+      // the abort signal reaches fetch only, and resolution happens first.
+      resolveHost: () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(["93.184.216.34"]), 2000);
+        }),
+      fetchImpl: async () => {
+        fetched = true;
+        return new Response(PNG_BYTES, {
+          headers: { "Content-Type": "image/png" },
+        });
+      },
+    });
+    expect(fetched).toBe(false);
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("rejects a name that resolves into carrier-grade NAT space", async () => {
     const dir = tempAssetsDir();
     let fetched = false;
@@ -446,5 +472,45 @@ describe("reconcileAssets", () => {
 
   test("is a no-op when there is no assets directory", async () => {
     expect(await reconcileAssets("/nonexistent/assets", "")).toBe(0);
+  });
+});
+
+describe("reconcileAssets keep-set breadth", () => {
+  const NAME = "abc123def456.png";
+
+  // The processor only ever emits markdown/`<img src>` references, so these
+  // arrive by hand-edit or via the extension's raw-body fallback, which
+  // preserves a source site's markup verbatim. Deleting a live file is the
+  // worst thing this function can do, so the scan errs toward keeping.
+  const references: [label: string, body: string][] = [
+    ['<img srcset="…">', `<img srcset="./assets/${NAME} 2x">`],
+    ["a plain link", `[download](./assets/${NAME})`],
+    ["a bare mention", `See ./assets/${NAME} for the diagram.`],
+    ["an HTML anchor", `<a href="./assets/${NAME}">figure</a>`],
+  ];
+
+  for (const [label, body] of references) {
+    test(`keeps a file referenced only by ${label}`, async () => {
+      const dir = tempAssetsDir();
+      writeFileSync(join(dir, NAME), PNG_BYTES);
+      expect(await reconcileAssets(dir, body)).toBe(0);
+      expect(readdirSync(dir)).toEqual([NAME]);
+      rmSync(dir, { recursive: true, force: true });
+    });
+  }
+
+  test("still removes a file nothing mentions", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, NAME), PNG_BYTES);
+    expect(await reconcileAssets(dir, "A body with no assets at all.")).toBe(1);
+    expect(readdirSync(dir)).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("does not keep a file whose name merely shares a prefix", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "abc123def456ff.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, `![x](./assets/${NAME})`)).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
