@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findImageUrls, processImages } from "../src/images.ts";
@@ -179,7 +185,7 @@ describe("processImages", () => {
     const dir = tempAssetsDir();
     const body = "![cover](./assets/abc123def456.png)";
     const result = await processImages(options(body, dir));
-    expect(result).toEqual({ body, downloaded: 0, failed: 0 });
+    expect(result).toEqual({ body, downloaded: 0, failed: 0, pruned: 0 });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -244,6 +250,9 @@ describe("processImages", () => {
     const result = await processImages({
       ...options("![x](https://cdn.example/x.png)", dir),
       allowPrivateHosts: false,
+      // Public for the first hop; the redirect target is a literal address,
+      // so it is judged by name and never reaches the resolver.
+      resolveHost: async () => ["93.184.216.34"],
       fetchImpl,
     });
     expect(result.downloaded).toBe(0);
@@ -263,6 +272,87 @@ describe("processImages", () => {
     expect(result.downloaded).toBe(0);
     expect(result.failed).toBe(1);
     expect(readdirSync(dir)).toHaveLength(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("removes an asset the new body no longer references", async () => {
+    const dir = tempAssetsDir();
+    // What a re-clip leaves behind: a file from the previous body.
+    writeFileSync(join(dir, "deadbeefdead.png"), PNG_BYTES);
+    const result = await processImages(options(`![a](${base}/ok.png)`, dir));
+    expect(result.downloaded).toBe(1);
+    expect(result.pruned).toBe(1);
+    expect(readdirSync(dir)).not.toContain("deadbeefdead.png");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("keeps an already-localized asset and prunes nothing on a re-run", async () => {
+    const dir = tempAssetsDir();
+    const first = await processImages(options(`![a](${base}/ok.png)`, dir));
+    const name = readdirSync(dir)[0] as string;
+    expect(first.pruned).toBe(0);
+
+    // Second pass over the rewritten body: the reference is now relative, so
+    // nothing is downloaded and the live asset must survive.
+    const second = await processImages(options(first.body, dir));
+    expect(second.downloaded).toBe(0);
+    expect(second.pruned).toBe(0);
+    expect(readdirSync(dir)).toEqual([name]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a hotlinked fallback does not drag a live asset down with it", async () => {
+    const dir = tempAssetsDir();
+    const body = `![good](${base}/ok.png)\n\n![gone](${base}/missing.png)`;
+    const result = await processImages(options(body, dir));
+    expect(result.downloaded).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.pruned).toBe(0);
+    expect(readdirSync(dir)).toHaveLength(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("leaves a stray subdirectory in assets/ alone", async () => {
+    const dir = tempAssetsDir();
+    mkdirSync(join(dir, "nested"));
+    const result = await processImages(options(`![a](${base}/ok.png)`, dir));
+    expect(result.pruned).toBe(0);
+    expect(readdirSync(dir)).toContain("nested");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("rejects a public name that resolves to a private address", async () => {
+    const dir = tempAssetsDir();
+    let fetched = false;
+    const fetchImpl: FetchLike = async () => {
+      fetched = true;
+      return new Response(PNG_BYTES, {
+        headers: { "Content-Type": "image/png" },
+      });
+    };
+    const result = await processImages({
+      ...options("![x](https://127.0.0.1.nip.io/x.png)", dir),
+      allowPrivateHosts: false,
+      resolveHost: async () => ["127.0.0.1"],
+      fetchImpl,
+    });
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(fetched).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("allows a public name that resolves to a public address", async () => {
+    const dir = tempAssetsDir();
+    const fetchImpl: FetchLike = async () =>
+      new Response(PNG_BYTES, { headers: { "Content-Type": "image/png" } });
+    const result = await processImages({
+      ...options("![x](https://cdn.example/x.png)", dir),
+      allowPrivateHosts: false,
+      resolveHost: async () => ["93.184.216.34"],
+      fetchImpl,
+    });
+    expect(result.downloaded).toBe(1);
     rmSync(dir, { recursive: true, force: true });
   });
 });

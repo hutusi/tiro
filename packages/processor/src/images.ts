@@ -1,3 +1,6 @@
+import { lookup } from "node:dns/promises";
+import type { Dirent } from "node:fs";
+import { readdir, rm } from "node:fs/promises";
 import type { FetchLike } from "./llm/client.ts";
 
 const EXT_BY_CONTENT_TYPE: Record<string, string> = {
@@ -17,6 +20,13 @@ const USER_AGENT =
 const MD_IMAGE_RE = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
 const HTML_IMG_RE = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/g;
 
+// Localized images look like this once the stage has run. Matching them is
+// what makes the stage idempotent, and what lets it tell a live asset from a
+// leftover of an older body.
+const ASSET_PREFIX = "./assets/";
+const MD_ASSET_RE = /!\[[^\]]*\]\((\.\/assets\/[^)\s]+?)(?:\s+"[^"]*")?\)/g;
+const HTML_ASSET_RE = /<img[^>]+src=["'](\.\/assets\/[^"']+)["']/g;
+
 export interface ImageStageOptions {
   body: string;
   articleUrl: string;
@@ -30,6 +40,8 @@ export interface ImageStageOptions {
   totalMaxBytes?: number;
   stageTimeoutMs?: number;
   fetchImpl?: FetchLike;
+  /** Injectable so tests never touch a resolver. */
+  resolveHost?: (hostname: string) => Promise<string[]>;
   /** Test escape hatch: fixture servers listen on localhost. */
   allowPrivateHosts?: boolean;
   log?: (message: string) => void;
@@ -39,6 +51,8 @@ export interface ImageStageResult {
   body: string;
   downloaded: number;
   failed: number;
+  /** Files deleted from assets/ because the body no longer points at them. */
+  pruned: number;
 }
 
 /** Collect the distinct absolute image URLs referenced by the body. */
@@ -99,6 +113,48 @@ function isForbiddenHost(hostname: string): boolean {
   return false;
 }
 
+/** Literal addresses were already judged by `isForbiddenHost`; resolving one
+ * would just hand the same string back. */
+function isIpLiteral(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  return host.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+}
+
+async function resolveViaDns(hostname: string): Promise<string[]> {
+  const results = await lookup(hostname, { all: true });
+  return results.map((entry) => entry.address);
+}
+
+/**
+ * A hostname's *text* can look public while its record points at loopback or
+ * the metadata endpoint — `127.0.0.1.nip.io` is the ready-made version, and
+ * `169-254-169-254.nip.io` aims at exactly what the name guard exists to
+ * protect. Resolve it and apply the same address rules.
+ *
+ * This closes static mappings, which is the attack that needs no
+ * infrastructure. It is not proof against DNS rebinding: `fetch` cannot be
+ * pinned to the address checked here, so a name that answers differently on
+ * the connection's own lookup still gets through. The content-type and
+ * extension gates remain the backstop for that.
+ */
+async function assertPublicAddresses(
+  hostname: string,
+  resolveHost: (hostname: string) => Promise<string[]>,
+): Promise<void> {
+  if (isIpLiteral(hostname)) return;
+  let addresses: string[];
+  try {
+    addresses = await resolveHost(hostname);
+  } catch (error) {
+    throw new Error(`cannot resolve ${hostname}: ${String(error)}`);
+  }
+  for (const address of addresses) {
+    if (isForbiddenHost(address)) {
+      throw new Error(`${hostname} resolves to a non-public address`);
+    }
+  }
+}
+
 const MAX_REDIRECTS = 5;
 
 /** fetch() follows redirects itself, which would apply the host guard only to
@@ -108,11 +164,14 @@ async function fetchChecked(
   init: RequestInit,
   fetchImpl: FetchLike,
   allowPrivateHosts: boolean,
+  resolveHost: (hostname: string) => Promise<string[]>,
 ): Promise<Response> {
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    if (!allowPrivateHosts && isForbiddenHost(new URL(current).hostname)) {
-      throw new Error("non-public host");
+    const hostname = new URL(current).hostname;
+    if (!allowPrivateHosts) {
+      if (isForbiddenHost(hostname)) throw new Error("non-public host");
+      await assertPublicAddresses(hostname, resolveHost);
     }
     const res = await fetchImpl(current, { ...init, redirect: "manual" });
     if (res.status < 300 || res.status >= 400) return res;
@@ -207,6 +266,7 @@ export async function processImages(
     totalMaxBytes = 100 * 1024 * 1024,
     stageTimeoutMs = 300_000,
     fetchImpl = fetch,
+    resolveHost = resolveViaDns,
     allowPrivateHosts = false,
     log = () => {},
   } = options;
@@ -244,6 +304,7 @@ export async function processImages(
         },
         fetchImpl,
         allowPrivateHosts,
+        resolveHost,
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       // A missing Content-Type used to skip this check and fall through to the
@@ -280,5 +341,60 @@ export async function processImages(
     .replace(MD_IMAGE_RE, rewriteMatch)
     .replace(HTML_IMG_RE, rewriteMatch);
 
-  return { body: rewritten, downloaded: replacements.size, failed };
+  const pruned = await pruneAssets(
+    assetsDirAbs,
+    referencedAssets(rewritten),
+    log,
+  );
+
+  return { body: rewritten, downloaded: replacements.size, failed, pruned };
+}
+
+/** Asset filenames the final body points at — both the ones this run wrote
+ * and the ones it left alone because they were already localized. */
+function referencedAssets(body: string): Set<string> {
+  const names = new Set<string>();
+  for (const pattern of [MD_ASSET_RE, HTML_ASSET_RE]) {
+    for (const match of body.matchAll(pattern)) {
+      const ref = match[1];
+      if (ref === undefined) continue;
+      const name = ref.slice(ASSET_PREFIX.length);
+      if (name !== "") names.add(decodeURIComponent(name));
+    }
+  }
+  return names;
+}
+
+/**
+ * Delete files in assets/ the body no longer points at.
+ *
+ * Nothing reconciled this directory before, so a re-clip whose images changed
+ * left the old files behind for good — and the site copies `*​/assets/*`
+ * wholesale, which shipped every orphan to the public build. The body is the
+ * source of truth: filenames are derived from the source URL, so a file the
+ * body still names can never be a candidate here.
+ *
+ * Only regular files are considered. A stray subdirectory is left alone
+ * rather than removed recursively — this deletes from the user's content
+ * repo, so it errs toward doing too little.
+ */
+async function pruneAssets(
+  assetsDirAbs: string,
+  keep: Set<string>,
+  log: (message: string) => void,
+): Promise<number> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(assetsDirAbs, { withFileTypes: true });
+  } catch {
+    return 0; // no assets directory — nothing was ever downloaded
+  }
+  let pruned = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || keep.has(entry.name)) continue;
+    await rm(`${assetsDirAbs}/${entry.name}`, { force: true });
+    pruned += 1;
+    log(`removed orphaned asset: ${entry.name}`);
+  }
+  return pruned;
 }

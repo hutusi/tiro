@@ -68,7 +68,7 @@ async function run(vault: string): Promise<number> {
 
   console.log(
     `done: ${report.processed.length} processed, ${report.translated.length} translated, ` +
-      `${report.imagesDownloaded} images downloaded (${report.imagesFailed} kept as hotlinks), ` +
+      `${report.imagesDownloaded} images downloaded (${report.imagesFailed} kept as hotlinks, ${report.imagesPruned} orphans removed), ` +
       `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ${report.invalid.length} invalid`,
   );
   // Invalid articles are warnings here: exiting non-zero would fail the

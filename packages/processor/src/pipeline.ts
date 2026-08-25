@@ -37,6 +37,8 @@ export interface PipelineReport {
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
+  /** Assets deleted because no article body references them any more. */
+  imagesPruned: number;
 }
 
 export async function loadVaultConfig(vaultDir: string): Promise<TiroConfig> {
@@ -60,6 +62,7 @@ export async function runPipeline(
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
+    imagesPruned: 0,
   };
 
   const { pending, invalid } = await discoverArticles(options.vaultDir, {
@@ -125,6 +128,7 @@ async function processOne(
   });
   report.imagesDownloaded += imageResult.downloaded;
   report.imagesFailed += imageResult.failed;
+  report.imagesPruned += imageResult.pruned;
   const body = imageResult.body;
 
   const summary = await summarize({

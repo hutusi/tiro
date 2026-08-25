@@ -37,8 +37,29 @@ versions follow the `0.x` line while Tiro is a personal system.
 - Stage-wide image caps (`images.max_count`, `images.total_max_bytes`,
   `images.stage_timeout_ms`) so one image-heavy article cannot run the
   process job past its `timeout-minutes`.
+- The image stage reconciles `assets/` against the article body, removing
+  files no longer referenced. Orphans from earlier clips previously
+  accumulated forever and were copied into the deployed site.
+- `validate` also reports a processed non-Chinese article that has neither a
+  `zh.md` nor `translation_failed` — a finished run always leaves one or the
+  other.
 
 ### Fixed
+
+- The site rendered any `zh.md` it found next to an article. Since the
+  extension rewrites `index.md` on a re-clip and never touches `zh.md`, a
+  changed article was published against the previous body's translation until
+  the next successful run — shown as confident side-by-side rows whenever the
+  block counts happened to match. A translation is now rendered only when the
+  frontmatter vouches for it (processed, not already Chinese, not
+  `translation_failed`).
+- A long tag became a directory name past `NAME_MAX` and failed the whole site
+  build with `ENAMETOOLONG`. Tag slugs are now capped in bytes (Chinese tags
+  reach 3 bytes per character) with a hash suffix when truncated.
+- The image host guard checked hostname text only, so a public-looking name
+  resolving into private space (`127.0.0.1.nip.io`) passed. Every redirect hop
+  is now resolved and its addresses checked. DNS rebinding remains out of
+  reach — `fetch` cannot be pinned to the checked address.
 
 - A provider failure during summarization (403, timeout, network) was
   reported to the model as malformed JSON, retried, and finally written as an
