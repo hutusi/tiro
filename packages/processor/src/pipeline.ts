@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { splitBlocks, stringifyArticle } from "@tiro/shared";
 import {
   modelFor,
@@ -5,7 +6,7 @@ import {
   type TiroConfig,
 } from "@tiro/shared/config";
 import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
-import { processImages } from "./images.ts";
+import { processImages, reconcileAssets } from "./images.ts";
 import { detectLang } from "./language.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import { summarize } from "./llm/summarize.ts";
@@ -16,6 +17,9 @@ export const PROCESSOR_VERSION = "0.1.0";
 export interface PipelineDeps {
   chat: ChatFn;
   fetchImpl?: FetchLike;
+  /** Injectable alongside fetchImpl so tests stay off the network entirely —
+   * host validation resolves names, which is a second way out. */
+  resolveHost?: (hostname: string) => Promise<string[]>;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -36,6 +40,8 @@ export interface PipelineReport {
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
+  /** Assets deleted because no article body references them any more. */
+  imagesPruned: number;
 }
 
 export async function loadVaultConfig(vaultDir: string): Promise<TiroConfig> {
@@ -59,6 +65,7 @@ export async function runPipeline(
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
+    imagesPruned: 0,
   };
 
   const { pending, invalid } = await discoverArticles(options.vaultDir, {
@@ -89,6 +96,17 @@ export async function runPipeline(
       log(
         `processing failed for ${article.slug}, left pending: ${String(error)}`,
       );
+      // Images are downloaded before the LLM stages, so a failure here leaves
+      // files nothing references — and the workflow commits them regardless.
+      // Reaching this catch proves index.md was never rewritten (the only step
+      // after it cannot throw), so the parsed body is exactly what is on disk:
+      // still hotlinked, so this drops just this run's downloads and keeps
+      // every asset the committed article points at.
+      report.imagesPruned += await reconcileQuietly(
+        `${article.dirAbs}/assets`,
+        article.parsed.body,
+        log,
+      );
     }
   }
 
@@ -116,7 +134,13 @@ async function processOne(
     assetsDirAbs: `${article.dirAbs}/assets`,
     maxBytes: config.images.max_bytes,
     timeoutMs: config.images.timeout_ms,
+    maxCount: config.images.max_count,
+    totalMaxBytes: config.images.total_max_bytes,
+    stageTimeoutMs: config.images.stage_timeout_ms,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+    ...(deps.resolveHost !== undefined
+      ? { resolveHost: deps.resolveHost }
+      : {}),
     log,
   });
   report.imagesDownloaded += imageResult.downloaded;
@@ -138,6 +162,12 @@ async function processOne(
   }
 
   let translationFailed = false;
+  // Every path that does not write a fresh zh.md must remove any older one.
+  // The body above has just been rewritten, so a leftover translation would be
+  // rendered block-against-block with content it was never translated from —
+  // and the site joins the two by filename alone, with no lang or
+  // translation_failed check to save it (ADR 0003).
+  const zhAbs = `${article.dirAbs}/zh.md`;
   if (lang !== config.translation.target) {
     const zhBody = await translateBlocks({
       chat: deps.chat,
@@ -148,7 +178,7 @@ async function processOne(
       log,
     });
     if (zhBody !== null) {
-      await Bun.write(`${article.dirAbs}/zh.md`, zhBody);
+      await Bun.write(zhAbs, zhBody);
       report.translated.push(article.slug);
     } else {
       // Deliberate: the article is still marked processed so a pathological
@@ -156,8 +186,13 @@ async function processOne(
       // makes it greppable and `--force --slug` is the retry path.
       translationFailed = true;
       report.translationFailed.push(article.slug);
+      await rm(zhAbs, { force: true });
       log(`translation failed for ${article.slug}; marked translation_failed`);
     }
+  } else {
+    // Already in the target language, so by contract this article has no
+    // translation. A re-clip can move an article into this branch.
+    await rm(zhAbs, { force: true });
   }
 
   // Rebuild the failure markers from this run only — a --force reprocess
@@ -182,5 +217,35 @@ async function processOne(
     },
   };
   await Bun.write(article.indexAbs, stringifyArticle(updated, body));
+  // The article is done the moment this lands. Recording it before cleaning up
+  // matters: reconciliation used to run first, so a failure there reported the
+  // article as "left pending" while it was already marked processed on disk —
+  // finished silently, failed loudly, and skipped by every later run.
   report.processed.push(article.slug);
+
+  // Only now, and never fatally: everything above can throw, and the workflow
+  // commits whatever is on disk, so deleting against a body that was never
+  // written would drop files the committed article still points at.
+  report.imagesPruned += await reconcileQuietly(
+    `${article.dirAbs}/assets`,
+    body,
+    log,
+  );
+}
+
+/** Reconciliation is housekeeping and must never change an article's outcome,
+ * the same rule the per-image fallback follows. A stale file left behind is a
+ * wasted byte; a thrown error here would rewrite history the caller has
+ * already committed to. */
+async function reconcileQuietly(
+  assetsDirAbs: string,
+  body: string,
+  log: (message: string) => void,
+): Promise<number> {
+  try {
+    return await reconcileAssets(assetsDirAbs, body, log);
+  } catch (error) {
+    log(`could not reconcile ${assetsDirAbs}: ${String(error)}`);
+    return 0;
+  }
 }

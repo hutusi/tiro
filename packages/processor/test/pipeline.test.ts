@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -35,6 +37,9 @@ function freshVault(): string {
 const deps = {
   chat: makeFakeChat(),
   fetchImpl: offlineFetch,
+  // Host validation resolves names, so without this the suite would hit real
+  // DNS. Answers public so the injected fetch decides every outcome.
+  resolveHost: async () => ["93.184.216.34"],
   now: () => new Date("2026-08-22T12:00:00.000Z"),
   log: () => {},
 };
@@ -264,5 +269,133 @@ describe("hard failures", () => {
     // Succeeding article fully processed despite the earlier failure.
     const second = parseArticle(readFileSync(secondPath, "utf8"));
     expect(needsProcessing(second.frontmatter)).toBe(false);
+  });
+});
+
+describe("stale translations", () => {
+  const CN = "example-cn-posts-ai-times-0d21367e";
+
+  test("removes a leftover zh.md when the article is already in the target language", async () => {
+    const vault = freshVault();
+    const zhPath = join(vault, "articles", CN, "zh.md");
+    // A previous clip of this URL was English and got translated; the re-clip
+    // is Chinese, so the translation branch is skipped entirely.
+    writeFileSync(zhPath, "过时的译文。\n");
+    const config = await loadVaultConfig(vault);
+
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: CN },
+      config,
+      deps,
+    );
+
+    expect(report.processed).toEqual([CN]);
+    expect(report.translated).toEqual([]);
+    expect(() => readFileSync(zhPath)).toThrow();
+  });
+
+  test("removes a leftover zh.md when the translation fails", async () => {
+    const vault = freshVault();
+    const zhPath = join(vault, "articles", RAW, "zh.md");
+    writeFileSync(zhPath, "过时的译文。\n");
+    const config = await loadVaultConfig(vault);
+
+    // Same misaligning chat as the translation-failure test above.
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async (request) => {
+        if (request.response_format?.type === "json_object") {
+          return JSON.stringify({ summary: "s", category: "ai", tags: [] });
+        }
+        return "第一段。\n\n第二段。";
+      },
+    });
+
+    expect(report.translationFailed).toEqual([RAW]);
+    // Keeping it would pair last clip's translation with this clip's body.
+    expect(() => readFileSync(zhPath)).toThrow();
+  });
+});
+
+describe("asset reconciliation", () => {
+  const EN = "example-com-posts-hello-ai-e8446b12";
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const servingFetch: FetchLike = async () =>
+    new Response(PNG, { headers: { "Content-Type": "image/png" } });
+  const throwingChat = async () => {
+    throw new Error("provider says 403 Model.AccessDenied");
+  };
+
+  test("rolls back downloads from a run that failed before writing", async () => {
+    const vault = freshVault();
+    const assets = join(vault, "articles", RAW, "assets");
+    const before = readFileSync(
+      join(vault, "articles", RAW, "index.md"),
+      "utf8",
+    );
+    const config = await loadVaultConfig(vault);
+
+    // Image succeeds, summary does not: exactly the window where files land on
+    // disk that no committed body references, and the workflow commits them.
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: servingFetch,
+      chat: throwingChat,
+    });
+
+    expect(report.errored).toHaveLength(1);
+    expect(report.processed).toEqual([]);
+    expect(readdirSync(assets)).toEqual([]);
+    // Rolled back against the body on disk, which was never rewritten.
+    expect(readFileSync(join(vault, "articles", RAW, "index.md"), "utf8")).toBe(
+      before,
+    );
+  });
+
+  test("keeps assets the committed article still references", async () => {
+    const vault = freshVault();
+    const assets = join(vault, "articles", EN, "assets");
+    writeFileSync(join(assets, "deadbeefdead.png"), "not really a png");
+    const config = await loadVaultConfig(vault);
+
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: EN },
+      config,
+      { ...deps, chat: throwingChat },
+    );
+
+    expect(report.errored).toHaveLength(1);
+    // cover.png is named by the committed body; the orphan is not.
+    expect(readdirSync(assets)).toEqual(["cover.png"]);
+  });
+
+  test("a failure while cleaning up does not change the article's outcome", async () => {
+    const vault = freshVault();
+    const assets = join(vault, "articles", EN, "assets");
+    writeFileSync(join(assets, "deadbeefdead.png"), "not really a png");
+    chmodSync(assets, 0o500); // readable, not writable: rm will fail
+    const config = await loadVaultConfig(vault);
+
+    try {
+      const report = await runPipeline(
+        { vaultDir: vault, force: true, slug: EN },
+        config,
+        deps,
+      );
+      // Reconciliation is housekeeping. Before this it ran before the article
+      // was recorded, so a throw here reported "left pending" for an article
+      // already marked processed on disk — and every later run skipped it.
+      expect(report.processed).toEqual([EN]);
+      expect(report.errored).toEqual([]);
+      const { frontmatter } = parseArticle(
+        readFileSync(join(vault, "articles", EN, "index.md"), "utf8"),
+      );
+      expect(needsProcessing(frontmatter)).toBe(false);
+    } finally {
+      chmodSync(assets, 0o700);
+    }
   });
 });

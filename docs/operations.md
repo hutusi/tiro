@@ -40,6 +40,16 @@ endpoint works.
   docs' prefixed `ZHIPU/GLM-*` ids return `model_access_denied`.
 - The summary call needs a model supporting JSON mode
   (`response_format: json_object`); translation does not.
+- **`translation.target` is `zh` and nothing else.** The schema rejects other
+  values on purpose: the artifact is always named `zh.md` and the language
+  detector only distinguishes Chinese from non-Chinese, so any other target
+  would translate every article — Chinese originals included.
+- **Image downloads** are bounded per image (`images.max_bytes`,
+  `images.timeout_ms`) and per article (`images.max_count`,
+  `images.total_max_bytes`, `images.stage_timeout_ms`). Hitting an aggregate
+  cap leaves the remaining images hotlinked and logs one line — it never fails
+  the article. Raise them only if the process job has headroom under its
+  `timeout-minutes`.
 - **Translation speed** is governed by `translation.batch_chars` (default
   10000): chars of source text per LLM call. Bigger batches = fewer, faster
   runs, but the translated output must fit the provider's per-request output
@@ -70,14 +80,19 @@ so re-runs are always safe no-ops for finished articles.
   (then commit/push the vault yourself).
 - **Contract check over the whole vault**:
   `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
+  Checks frontmatter schema, that each directory name still equals the slug
+  derived from its `url` (invariant 2), that no article is nested below
+  `articles/<slug>/`, and that every `zh.md` belongs to an article that should
+  have one and stays block-aligned with it. Exits non-zero on any of these —
+  `run` only warns, so this is the only thing that fails on a violation.
 
 ### Failure markers
 
 | Marker | Meaning | Fix |
 | --- | --- | --- |
-| `tiro.summary_failed: true` | LLM summary failed; excerpt used | reprocess with `force` + slug |
+| `tiro.summary_failed: true` | the model returned unusable JSON three times; excerpt used | reprocess with `force` + slug |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
-| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403) | fix the cause; next run retries automatically |
+| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys
@@ -105,7 +120,8 @@ window safely). The 0007 migration was
 - **Preflight**: check that no slug appears under more than one year
   (`ls -d articles/*/*/ | awk -F/ '{print $3}' | sort | uniq -d` must print
   nothing) — `git mv` onto an existing target directory silently nests the
-  source into it instead of failing.
+  source into it instead of failing. `validate` reports the same state
+  afterwards, as `nested article`.
 - **Don't clip during the window.** The extension deploys by hand (rebuild +
   reload), so the order is: land the code, migrate the vault, reload the
   extension, then clip. An old extension against a migrated vault re-creates

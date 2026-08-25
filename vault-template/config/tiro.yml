@@ -24,6 +24,8 @@ categories:
   - other
 
 translation:
+  # zh is the only supported target: the artifact is always zh.md and the
+  # language detector only tells Chinese from non-Chinese.
   target: zh
   # Articles whose Han-character ratio reaches this threshold are treated as
   # already-Chinese and are not translated.
@@ -37,3 +39,8 @@ translation:
 images:
   max_bytes: 10485760 # 10 MB per image; larger ones stay hotlinked
   timeout_ms: 20000
+  # Stage-wide caps. Without them one image-heavy article can run the job past
+  # its timeout-minutes, and a killed run repeats the whole download next push.
+  max_count: 100
+  total_max_bytes: 104857600 # 100 MB per article
+  stage_timeout_ms: 300000 # 5 min for the whole image stage

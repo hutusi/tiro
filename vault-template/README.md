@@ -25,8 +25,12 @@ translates, and localizes images, then commits the results back.
    OpenAI-compatible chat-completions endpoint works.
 3. Add two **Actions secrets** (repo → Settings → Secrets and variables →
    Actions):
-   - `TIRO_LLM_API_KEY` — your LLM provider API key. The secret name must
-     match `llm.api_key_env` in `config/tiro.yml`.
+   - `TIRO_LLM_API_KEY` — your LLM provider API key. Keeping the default name
+     is the easy path. To use a different one you must change it in *three*
+     places: the secret, `llm.api_key_env` in `config/tiro.yml`, and the
+     `env:` key in `.github/workflows/process.yml` — the workflow exports one
+     fixed name, while the processor reads whichever name the config gives, so
+     changing only the first two fails with `missing API key`.
    - `TIRO_DISPATCH_TOKEN` — a fine-grained PAT that lets the workflow ping
      the site repo to redeploy: token scoped to the `tiro` repository with
      **Contents: Read and write** permission.

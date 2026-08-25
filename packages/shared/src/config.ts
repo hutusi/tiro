@@ -17,7 +17,12 @@ export const TiroConfigSchema = z.object({
   categories: z.array(z.string().min(1)).min(1),
   translation: z
     .object({
-      target: z.string().min(2).default("zh"),
+      // zh-only, deliberately. Two things hardcode it: `translationPath()`
+      // always names the artifact `zh.md`, and `detectLang` only ever returns
+      // "zh" | "en" — so any other value makes the pipeline's
+      // `lang !== target` check permanently true and translates every article,
+      // Chinese originals included. Widening this means changing both.
+      target: z.literal("zh").default("zh"),
       cjk_threshold: z.number().min(0).max(1).default(0.3),
       // Chars of source text per translation LLM call. Sized against provider
       // output caps and the client timeout, not the context window: the
@@ -34,6 +39,17 @@ export const TiroConfigSchema = z.object({
         .positive()
         .default(10 * 1024 * 1024),
       timeout_ms: z.number().int().positive().default(20_000),
+      // max_bytes and timeout_ms bound one image; these bound the stage. A
+      // page full of slow or huge images would otherwise run the job past its
+      // timeout-minutes, and a killed run leaves the article pending and
+      // repeats the whole download next push.
+      max_count: z.number().int().positive().default(100),
+      total_max_bytes: z
+        .number()
+        .int()
+        .positive()
+        .default(100 * 1024 * 1024),
+      stage_timeout_ms: z.number().int().positive().default(300_000),
     })
     .prefault({}),
 });

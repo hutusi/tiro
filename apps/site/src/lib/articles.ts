@@ -2,7 +2,10 @@ import { getCollection } from "astro:content";
 import {
   type ArticleFrontmatter,
   ArticleFrontmatterSchema,
+  tagSlug,
 } from "@tiro/shared";
+import { groupByTerm, type TermGroup } from "./terms.ts";
+import { usableTranslation } from "./translation.ts";
 
 export interface Article {
   /** The slug — the article's whole identity (flat layout, ADR 0007). */
@@ -37,7 +40,7 @@ export async function getArticles(): Promise<Article[]> {
       slug: entry.id,
       frontmatter,
       body: entry.body ?? "",
-      zhBody: zhById.get(entry.id) ?? null,
+      zhBody: usableTranslation(frontmatter, zhById.get(entry.id) ?? null),
     };
   });
 
@@ -56,4 +59,40 @@ export async function getArticles(): Promise<Article[]> {
 
 export function articleUrl(article: Article): string {
   return `/articles/${article.slug}/`;
+}
+
+export function tagUrl(tag: string): string {
+  return `/tags/${tagSlug(tag)}/`;
+}
+
+export function categoryUrl(category: string): string {
+  return `/categories/${tagSlug(category)}/`;
+}
+
+export interface ArticleGroup {
+  slug: string;
+  label: string;
+  articles: Article[];
+}
+
+function toArticleGroups(groups: TermGroup<Article>[]): ArticleGroup[] {
+  return groups.map(({ slug, label, items }) => ({
+    slug,
+    label,
+    articles: items,
+  }));
+}
+
+export async function tagIndex(): Promise<ArticleGroup[]> {
+  return toArticleGroups(
+    groupByTerm(await getArticles(), (a) => a.frontmatter.tags ?? []),
+  );
+}
+
+export async function categoryIndex(): Promise<ArticleGroup[]> {
+  return toArticleGroups(
+    groupByTerm(await getArticles(), (a) =>
+      a.frontmatter.category === undefined ? [] : [a.frontmatter.category],
+    ),
+  );
 }

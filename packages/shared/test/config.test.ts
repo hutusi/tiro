@@ -63,3 +63,11 @@ describe("modelFor", () => {
     expect(modelFor(config, "translation")).toBe("qwen-plus");
   });
 });
+
+describe("translation.target", () => {
+  test("rejects a language the pipeline cannot actually produce", () => {
+    expect(() =>
+      parseTiroConfig(`${minimalConfig}translation:\n  target: ja\n`),
+    ).toThrow();
+  });
+});

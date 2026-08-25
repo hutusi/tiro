@@ -27,7 +27,94 @@ versions follow the `0.x` line while Tiro is a personal system.
   failures; the vault-template process job is bounded by
   `timeout-minutes: 30`.
 
+### Added
+
+- `validate` now checks the invariants it claimed to gate: every directory
+  name is re-derived from its article's `url`, articles nested below
+  `articles/<slug>/` are reported instead of being silently skipped by every
+  glob, and translations that should not exist (no sibling `index.md`, or
+  beside an already-Chinese or `translation_failed` article) are flagged.
+- Stage-wide image caps (`images.max_count`, `images.total_max_bytes`,
+  `images.stage_timeout_ms`) so one image-heavy article cannot run the
+  process job past its `timeout-minutes`.
+- The image stage reconciles `assets/` against the article body, removing
+  files no longer referenced. Orphans from earlier clips previously
+  accumulated forever and were copied into the deployed site.
+- `validate` also reports a processed non-Chinese article that has neither a
+  `zh.md` nor `translation_failed` — a finished run always leaves one or the
+  other.
+
 ### Fixed
+
+- The site rendered any `zh.md` it found next to an article. Since the
+  extension rewrites `index.md` on a re-clip and never touches `zh.md`, a
+  changed article was published against the previous body's translation until
+  the next successful run — shown as confident side-by-side rows whenever the
+  block counts happened to match. A translation is now rendered only when the
+  frontmatter vouches for it (processed, not already Chinese, not
+  `translation_failed`).
+- A long tag became a directory name past `NAME_MAX` and failed the whole site
+  build with `ENAMETOOLONG`. Tag slugs are now capped in bytes (Chinese tags
+  reach 3 bytes per character) with a hash suffix when truncated.
+- The image host guard checked hostname text only, so a public-looking name
+  resolving into private space (`127.0.0.1.nip.io`) passed. Every redirect hop
+  is now resolved and its addresses checked, against the private ranges plus
+  RFC 6890's special-purpose ones — `100.64.0.0/10` (carrier-grade NAT) was
+  previously accepted. DNS rebinding remains out of reach: `fetch` cannot be
+  pinned to the checked address, and nothing downstream helps, since the
+  request is already sent by the time the content-type gate runs. IPv6 is now
+  accepted only inside global unicast (`2000::/3`) minus four documented
+  carve-outs, rather than checked against a list of non-public ranges that
+  could never be finished — multicast, site-local, 6to4, NAT64, Teredo and the
+  IPv4-in-IPv6 blocks were all accepted before, several of which can carry a
+  private IPv4 address.
+- Asset reconciliation ran before the summary and translation calls, so a
+  provider failure committed asset changes with no matching body. It now runs
+  after the article is written, and a malformed relative reference such as
+  `./assets/100%.png` no longer throws out of the image stage — that escaped
+  the per-image fallback and left the article pending on every retry.
+- Asset reconciliation deleted files that were plainly referenced: it scanned
+  the body for references, which meant guessing where each one ended, so a
+  comma inside an `srcset` or a full stop closing a sentence took the file with
+  it. The question is asked filename-first now — does the body contain this
+  exact name — which has no boundary to get wrong, and compared after
+  percent-decoding. Only files shaped like the processor's own output (a 12-hex
+  digest plus a known extension) are eligible for deletion at all, so a file it
+  did not write can never be lost to a reference it failed to recognise.
+- Reconciliation ran before the article was recorded as processed, so a failure
+  while cleaning up (an unwritable `assets/` is enough) reported the article as
+  "left pending" while it was already marked processed on disk, and every later
+  run skipped it. Cleanup can no longer change an article's outcome.
+- A run that failed after downloading images left those files behind for the
+  workflow to commit. They are now rolled back against the article's committed
+  body.
+- `images.stage_timeout_ms` did not cover DNS resolution, which happens before
+  the request the abort signal bounds. With up to six lookups per image and the
+  deadline only checked between images, one image could overrun the stage
+  budget by minutes.
+
+- A provider failure during summarization (403, timeout, network) was
+  reported to the model as malformed JSON, retried, and finally written as an
+  excerpt with `processed_at` set — a wrong API key quietly degraded every
+  article instead of failing. Such errors now leave the article pending, the
+  way the translation stage already did.
+- A stale `zh.md` was never removed, so a re-clip that turned Chinese, or a
+  reprocess whose translation failed, left the previous translation rendering
+  against a body it was never translated from.
+- `translation.target` accepted any language while the artifact is always
+  `zh.md`; a value like `ja` or `zh-CN` made every article translate,
+  Chinese originals included. The schema now accepts only `zh`.
+- Tags went into URLs raw, so an ordinary LLM tag like `ci/cd` produced a
+  page at a path the route pattern cannot match (404 in `astro dev`) and
+  broken links everywhere it appeared. Tags and categories are now routed by
+  a slug, with the raw spelling kept as the label.
+- The article's original pane declared no language and inherited `zh-CN` from
+  the layout, so English text was announced as Chinese by screen readers.
+- `workflow_dispatch` inputs were interpolated into the processing job's
+  shell instead of passed as environment data.
+- The image stage accepted a response with no `Content-Type` at all, and
+  applied its non-public-host guard only to the URL the article named rather
+  than to each redirect hop.
 
 - Queued process runs checked out the vault at their trigger SHA, so they
   re-processed articles the previous run had just committed and then failed

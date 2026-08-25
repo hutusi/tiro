@@ -11,6 +11,7 @@ tags:
   - llm
   - introduction
   - tutorial
+  - ci/cd
 tiro:
   schema: 1
   processed_at: "2026-08-20T09:35:00.000Z"
