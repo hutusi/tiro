@@ -32,9 +32,14 @@ jobs:
     # committed back simply retries on the next run.
     timeout-minutes: 30
     steps:
+      # ref: main, not the default trigger SHA — queued runs (concurrency
+      # serializes them) would otherwise check out a vault that predates the
+      # previous run's commit-back, re-process its articles, and then fail
+      # the push with a rebase conflict against that commit.
       - uses: actions/checkout@v4
         with:
           path: vault
+          ref: main
 
       # The processor code lives in the tiro monorepo. If tiro is private,
       # add a read-scoped PAT here via `token:`.
@@ -75,10 +80,14 @@ jobs:
             exit 0
           fi
           git commit -m "process: summarize and translate new articles"
+          # -X theirs: if a concurrent commit touched the same article (e.g.
+          # a re-clip mid-run), both sides are valid content — prefer this
+          # run's version rather than failing and discarding the whole run.
+          # (In a rebase, "theirs" is the commit being replayed, i.e. ours.)
           for attempt in 1 2 3; do
             git push && exit 0
             echo "push rejected (attempt $attempt), rebasing"
-            git pull --rebase
+            git pull --rebase -X theirs
           done
           git push
 

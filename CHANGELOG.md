@@ -27,6 +27,14 @@ versions follow the `0.x` line while Tiro is a personal system.
   failures; the vault-template process job is bounded by
   `timeout-minutes: 30`.
 
+### Fixed
+
+- Queued process runs checked out the vault at their trigger SHA, so they
+  re-processed articles the previous run had just committed and then failed
+  the push with a rebase conflict — discarding all their LLM work. The vault
+  checkout is now pinned to `ref: main` and the commit-back rebase resolves
+  same-article conflicts with `-X theirs`.
+
 ## [0.1.0] - 2026-08-24
 
 First complete, live system: clip → summarize/tag/translate → publish,

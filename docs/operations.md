@@ -78,6 +78,7 @@ so re-runs are always safe no-ops for finished articles.
 | `tiro.summary_failed: true` | LLM summary failed; excerpt used | reprocess with `force` + slug |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403) | fix the cause; next run retries automatically |
+| run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys
 
