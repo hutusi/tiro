@@ -89,3 +89,37 @@ export async function slugForUrl(rawUrl: string): Promise<string> {
   }
   return base === "" ? `article-${hash}` : `${base}-${hash}`;
 }
+
+/** FNV-1a. Sync, unlike the SHA-256 used for article slugs, because the site
+ * calls this once per tag per page render. */
+function shortHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * Route-safe form of a free-form tag or category.
+ *
+ * Tags are unconstrained LLM output and go straight into a URL path segment,
+ * so `ci/cd` would otherwise emit a page at a path the route pattern cannot
+ * match, and `..` would climb out of the output directory. Unlike
+ * `slugForUrl` this keeps non-ASCII: the summary is written in the target
+ * language, so ASCII-folding would collapse every Chinese tag to the empty
+ * string and pile them all onto one route.
+ *
+ * Distinct tags can share a slug (`AI/ML` and `ai-ml`), so callers must group
+ * by the result rather than assume it is unique.
+ */
+export function tagSlug(tag: string): string {
+  const slug = tag
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[/\\?#%\s]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "");
+  return slug === "" ? `tag-${shortHash(tag)}` : slug;
+}

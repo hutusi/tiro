@@ -1,5 +1,10 @@
 ---
-import { type Article, articleUrl } from "../lib/articles.ts";
+import {
+  type Article,
+  articleUrl,
+  categoryUrl,
+  tagUrl,
+} from "../lib/articles.ts";
 
 interface Props {
   article: Article;
@@ -29,7 +34,7 @@ const date = frontmatter.clipped_at.slice(0, 10);
     {
       frontmatter.category !== undefined && (
         <a
-          href={`/categories/${frontmatter.category}/`}
+          href={categoryUrl(frontmatter.category)}
           class="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
         >
           {frontmatter.category}
@@ -38,7 +43,7 @@ const date = frontmatter.clipped_at.slice(0, 10);
     }
     {
       (frontmatter.tags ?? []).map((tag) => (
-        <a href={`/tags/${tag}/`} class="text-neutral-500 hover:underline">
+        <a href={tagUrl(tag)} class="text-neutral-500 hover:underline">
           #{tag}
         </a>
       ))

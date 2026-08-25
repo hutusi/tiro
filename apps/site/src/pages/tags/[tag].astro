@@ -1,29 +1,23 @@
 ---
 import ArticleCard from "../../components/ArticleCard.astro";
 import Base from "../../layouts/Base.astro";
-import { getArticles } from "../../lib/articles.ts";
-import { STRINGS } from "../../lib/strings.ts";
+import { tagIndex } from "../../lib/articles.ts";
 
 export async function getStaticPaths() {
-  const articles = await getArticles();
-  const tags = new Set(articles.flatMap((a) => a.frontmatter.tags ?? []));
-  return [...tags].map((tag) => ({
-    params: { tag },
-    props: {
-      articles: articles.filter((a) =>
-        (a.frontmatter.tags ?? []).includes(tag),
-      ),
-    },
+  // Routed by slug, not by the raw tag: `ci/cd` would otherwise emit a page
+  // at a path this route's pattern cannot match.
+  return (await tagIndex()).map((group) => ({
+    params: { tag: group.slug },
+    props: { label: group.label, articles: group.articles },
   }));
 }
 
-const { tag } = Astro.params;
-const { articles } = Astro.props;
+const { label, articles } = Astro.props;
 ---
 
-<Base title={`#${tag}`}>
+<Base title={`#${label}`}>
   <h1 class="mb-6 text-xl font-bold">
-    #{tag}
+    #{label}
     <span class="text-base font-normal text-neutral-500"
       >({articles.length})</span
     >

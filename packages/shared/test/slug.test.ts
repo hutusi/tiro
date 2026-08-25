@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeUrl, slugForUrl } from "../src/slug.ts";
+import { normalizeUrl, slugForUrl, tagSlug } from "../src/slug.ts";
 
 describe("normalizeUrl", () => {
   test("strips fragments, tracking params, and trailing slashes", () => {
@@ -107,5 +107,37 @@ describe("slugForUrl", () => {
     const canonical = await slugForUrl("https://example.com/a");
     expect(await slugForUrl("https://example.com/a/")).toBe(canonical);
     expect(await slugForUrl("https://example.com/a//")).toBe(canonical);
+  });
+});
+
+describe("tagSlug", () => {
+  test("replaces characters that would break the route", () => {
+    expect(tagSlug("ci/cd")).toBe("ci-cd");
+    expect(tagSlug("machine learning")).toBe("machine-learning");
+    expect(tagSlug("C#")).toBe("c");
+    expect(tagSlug("100%")).toBe("100");
+  });
+
+  test("never produces a relative path segment", () => {
+    expect(tagSlug("..")).toMatch(/^tag-[0-9a-f]{8}$/);
+    expect(tagSlug(".hidden")).toBe("hidden");
+    expect(tagSlug("../../etc")).toBe("etc");
+  });
+
+  test("keeps non-ASCII tags distinct instead of collapsing them", () => {
+    expect(tagSlug("人工智能")).toBe("人工智能");
+    expect(tagSlug("人工智能")).not.toBe(tagSlug("机器学习"));
+  });
+
+  test("falls back to a stable hash when nothing is left", () => {
+    expect(tagSlug("///")).toMatch(/^tag-[0-9a-f]{8}$/);
+    expect(tagSlug("///")).toBe(tagSlug("///"));
+    expect(tagSlug("///")).not.toBe(tagSlug("..."));
+  });
+
+  test("is idempotent", () => {
+    for (const tag of ["ci/cd", "人工智能", "Machine Learning"]) {
+      expect(tagSlug(tagSlug(tag))).toBe(tagSlug(tag));
+    }
   });
 });
