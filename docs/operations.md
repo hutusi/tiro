@@ -40,6 +40,14 @@ endpoint works.
   docs' prefixed `ZHIPU/GLM-*` ids return `model_access_denied`.
 - The summary call needs a model supporting JSON mode
   (`response_format: json_object`); translation does not.
+- **Translation speed** is governed by `translation.batch_chars` (default
+  10000): chars of source text per LLM call. Bigger batches = fewer, faster
+  runs, but the translated output must fit the provider's per-request output
+  cap — raise cautiously; lower it if the log shows repeated
+  "batch marker mismatch" lines. A slow run's log now shows per-batch
+  progress and per-attempt summary failures; the process job is bounded by
+  `timeout-minutes: 30` (a killed run loses nothing — uncommitted articles
+  retry next run, though their LLM calls are re-billed).
 - Self-test a key/model without burning workflow runs:
 
   ```sh

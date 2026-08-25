@@ -20,6 +20,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 - The extension stores the *normalized* URL in frontmatter (previously the
   raw `location.href`), so tracking params never reach the vault or the
   public site's source links.
+- Translation batches grew from 2,500 to 10,000 source chars per LLM call
+  (~4× fewer calls on long articles) and became tunable via
+  `translation.batch_chars` in the vault's `tiro.yml`.
+- The processor logs per-batch translation progress and per-attempt summary
+  failures; the vault-template process job is bounded by
+  `timeout-minutes: 30`.
 
 ## [0.1.0] - 2026-08-24
 
