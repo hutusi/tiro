@@ -17,6 +17,9 @@ export const PROCESSOR_VERSION = "0.1.0";
 export interface PipelineDeps {
   chat: ChatFn;
   fetchImpl?: FetchLike;
+  /** Injectable alongside fetchImpl so tests stay off the network entirely —
+   * host validation resolves names, which is a second way out. */
+  resolveHost?: (hostname: string) => Promise<string[]>;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -93,6 +96,17 @@ export async function runPipeline(
       log(
         `processing failed for ${article.slug}, left pending: ${String(error)}`,
       );
+      // Images are downloaded before the LLM stages, so a failure here leaves
+      // files nothing references — and the workflow commits them regardless.
+      // Reaching this catch proves index.md was never rewritten (the only step
+      // after it cannot throw), so the parsed body is exactly what is on disk:
+      // still hotlinked, so this drops just this run's downloads and keeps
+      // every asset the committed article points at.
+      report.imagesPruned += await reconcileQuietly(
+        `${article.dirAbs}/assets`,
+        article.parsed.body,
+        log,
+      );
     }
   }
 
@@ -124,6 +138,9 @@ async function processOne(
     totalMaxBytes: config.images.total_max_bytes,
     stageTimeoutMs: config.images.stage_timeout_ms,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+    ...(deps.resolveHost !== undefined
+      ? { resolveHost: deps.resolveHost }
+      : {}),
     log,
   });
   report.imagesDownloaded += imageResult.downloaded;
@@ -200,13 +217,35 @@ async function processOne(
     },
   };
   await Bun.write(article.indexAbs, stringifyArticle(updated, body));
-  // Only now: everything above can throw, and the workflow commits whatever is
-  // on disk. Deleting against a body that was never written would drop files
-  // the committed article still points at.
-  report.imagesPruned += await reconcileAssets(
+  // The article is done the moment this lands. Recording it before cleaning up
+  // matters: reconciliation used to run first, so a failure there reported the
+  // article as "left pending" while it was already marked processed on disk —
+  // finished silently, failed loudly, and skipped by every later run.
+  report.processed.push(article.slug);
+
+  // Only now, and never fatally: everything above can throw, and the workflow
+  // commits whatever is on disk, so deleting against a body that was never
+  // written would drop files the committed article still points at.
+  report.imagesPruned += await reconcileQuietly(
     `${article.dirAbs}/assets`,
     body,
     log,
   );
-  report.processed.push(article.slug);
+}
+
+/** Reconciliation is housekeeping and must never change an article's outcome,
+ * the same rule the per-image fallback follows. A stale file left behind is a
+ * wasted byte; a thrown error here would rewrite history the caller has
+ * already committed to. */
+async function reconcileQuietly(
+  assetsDirAbs: string,
+  body: string,
+  log: (message: string) => void,
+): Promise<number> {
+  try {
+    return await reconcileAssets(assetsDirAbs, body, log);
+  } catch (error) {
+    log(`could not reconcile ${assetsDirAbs}: ${String(error)}`);
+    return 0;
+  }
 }

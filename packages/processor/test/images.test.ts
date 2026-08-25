@@ -514,3 +514,59 @@ describe("reconcileAssets keep-set breadth", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("reconcileAssets reference boundaries", () => {
+  const NAME = "abc123def456.png";
+
+  // Every one of these is a way a reference can end. A scan that has to guess
+  // the boundary gets a new deletion bug per punctuation mark, so the check
+  // asks the filesystem instead: does the body contain this exact filename?
+  const bodies: [label: string, body: string][] = [
+    [
+      "a comma-separated srcset",
+      `<img srcset="./assets/${NAME}, ./assets/b.png 2x">`,
+    ],
+    ["a srcset with a descriptor", `<img srcset="./assets/${NAME} 2x">`],
+    ["a mention ending a sentence", `Shown in ./assets/${NAME}.`],
+    ["a mention before a comma", `Both ./assets/${NAME}, and the other one.`],
+    ["a parenthesised mention", `(see ./assets/${NAME})`],
+    ["a reference before a tag", `<a href="./assets/${NAME}">fig</a>`],
+    ["a markdown image", `![x](./assets/${NAME})`],
+    ["a markdown image with a title", `![x](./assets/${NAME} "caption")`],
+    ["a plain link", `[dl](./assets/${NAME})`],
+    ["a semicolon", `See ./assets/${NAME}; also the other.`],
+  ];
+
+  for (const [label, body] of bodies) {
+    test(`keeps a file referenced by ${label}`, async () => {
+      const dir = tempAssetsDir();
+      writeFileSync(join(dir, NAME), PNG_BYTES);
+      expect(await reconcileAssets(dir, body)).toBe(0);
+      expect(readdirSync(dir)).toEqual([NAME]);
+      rmSync(dir, { recursive: true, force: true });
+    });
+  }
+
+  test("keeps a percent-encoded reference to a name with a space", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "my file.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, "![x](./assets/my%20file.png)")).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("keeps a name carrying a malformed escape", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "100%.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, "![x](./assets/100%.png)")).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("still deletes a file nothing references", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, NAME), PNG_BYTES);
+    writeFileSync(join(dir, "orphan999999.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, `![x](./assets/${NAME})`)).toBe(1);
+    expect(readdirSync(dir)).toEqual([NAME]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -20,13 +20,8 @@ const USER_AGENT =
 const MD_IMAGE_RE = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
 const HTML_IMG_RE = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/g;
 
-// Localized images look like this once the stage has run: matching them is
-// what lets reconciliation tell a live asset from a leftover of an older body.
-// Deliberately syntax-blind, unlike the two patterns above. Those drive the
-// rewrite, where matching image syntax exactly is the point; this one drives
-// deletion, where missing a reference destroys content. Stops at the first
-// character a filename cannot contain.
-const ANY_ASSET_RE = /\.\/assets\/([^\s"'()<>\]]+)/g;
+// How a localized image is spelled once the stage has rewritten it.
+const ASSET_PREFIX = "./assets/";
 
 export interface ImageStageOptions {
   body: string;
@@ -374,7 +369,7 @@ export async function processImages(
       const bytes = await readBodyCapped(res, cap);
       await Bun.write(`${assetsDirAbs}/${filename}`, bytes);
       totalBytes += bytes.byteLength;
-      replacements.set(url, `./assets/${filename}`);
+      replacements.set(url, `${ASSET_PREFIX}${filename}`);
     } catch (error) {
       failed += 1;
       log(`image kept as hotlink (${String(error)}): ${url}`);
@@ -394,37 +389,6 @@ export async function processImages(
     .replace(HTML_IMG_RE, rewriteMatch);
 
   return { body: rewritten, downloaded: replacements.size, failed };
-}
-
-/**
- * Asset filenames the body points at, in any syntax at all.
- *
- * This set decides what survives deletion, so it errs toward keeping. Scanning
- * only the two image patterns would drop a file referenced by `<img srcset>`,
- * a plain link, or prose — none of which the processor emits, but all of which
- * reach the vault through hand-edits and through the extension's raw-body
- * fallback, which preserves a source site's markup verbatim. Adding those two
- * syntaxes by name would only move the gap to the next one. Over-keeping costs
- * a stale file the next edit reclaims; over-deleting loses content.
- *
- * Percent-decoding is guarded and both forms are kept for the same reason.
- * `decodeURIComponent` throws outright on a malformed escape
- * (`./assets/100%.png`), which a body can genuinely carry — the same hazard
- * `safeDecodePathname` guards in `@tiro/shared`.
- */
-function referencedAssets(body: string): Set<string> {
-  const names = new Set<string>();
-  for (const match of body.matchAll(ANY_ASSET_RE)) {
-    const name = match[1];
-    if (name === undefined || name === "") continue;
-    names.add(name);
-    try {
-      names.add(decodeURIComponent(name));
-    } catch {
-      // Malformed escape: the raw form above is all we can match on.
-    }
-  }
-  return names;
 }
 
 /**
@@ -450,7 +414,6 @@ export async function reconcileAssets(
   body: string,
   log: (message: string) => void = () => {},
 ): Promise<number> {
-  const keep = referencedAssets(body);
   let entries: Dirent[];
   try {
     entries = await readdir(assetsDirAbs, { withFileTypes: true });
@@ -459,10 +422,31 @@ export async function reconcileAssets(
   }
   let pruned = 0;
   for (const entry of entries) {
-    if (!entry.isFile() || keep.has(entry.name)) continue;
+    if (!entry.isFile() || isReferenced(body, entry.name)) continue;
     await rm(`${assetsDirAbs}/${entry.name}`, { force: true });
     pruned += 1;
     log(`removed orphaned asset: ${entry.name}`);
   }
   return pruned;
+}
+
+/**
+ * Does `body` point at this file?
+ *
+ * Asked filename-first on purpose. Scanning the body for references means
+ * guessing where each one ends, and every guess is a new way to delete live
+ * content — a comma inside an `srcset`, a full stop closing a sentence.
+ * Searching for the name itself has no boundary to get wrong, and no
+ * `decodeURIComponent` to throw on `./assets/100%.png`.
+ *
+ * Both the literal and percent-encoded spellings count, since a body may
+ * escape a name the filesystem stores raw. A name that is a prefix of another
+ * (`a.png` beside `a.png.bak`) is kept when only the longer one is referenced:
+ * over-keeping costs a stale byte, over-deleting loses content.
+ */
+function isReferenced(body: string, name: string): boolean {
+  return (
+    body.includes(`${ASSET_PREFIX}${name}`) ||
+    body.includes(`${ASSET_PREFIX}${encodeURIComponent(name)}`)
+  );
 }
