@@ -93,6 +93,16 @@ pushes must stay deploy-free (the empty-glob guard fails any deploy in that
 window safely). The 0007 migration was
 `git mv articles/<year>/<slug> articles/<slug>` for each article.
 
+- **Preflight**: check that no slug appears under more than one year
+  (`ls -d articles/*/*/ | awk -F/ '{print $3}' | sort | uniq -d` must print
+  nothing) — `git mv` onto an existing target directory silently nests the
+  source into it instead of failing.
+- **Don't clip during the window.** The extension deploys by hand (rebuild +
+  reload), so the order is: land the code, migrate the vault, reload the
+  extension, then clip. An old extension against a migrated vault re-creates
+  year directories; a new extension against an unmigrated vault duplicates
+  the article at the flat path.
+
 ## Extension
 
 - Loaded unpacked from `apps/extension/dist`. After pulling extension

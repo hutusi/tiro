@@ -25,6 +25,15 @@ describe("fixture vault", () => {
     }
   });
 
+  test("contains no legacy year-nested articles", () => {
+    // The flat glob above would silently ignore a stale
+    // articles/<year>/<slug>/ fixture; enforce the flat layout explicitly.
+    const nested = Array.from(
+      new Bun.Glob("*/*/index.md").scanSync({ cwd: articlesDir }),
+    );
+    expect(nested).toEqual([]);
+  });
+
   for (const relPath of indexFiles) {
     const [slug] = relPath.split("/");
 

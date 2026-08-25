@@ -54,3 +54,5 @@ where identity and layout could disagree.
   not from paths.
 - Existing vaults migrate with `git mv articles/<year>/<slug> articles/<slug>`
   in a single commit, pushed immediately after the code lands on `main`.
+  Preflight: verify no slug appears under more than one year — `git mv` onto
+  an existing target directory nests the source into it instead of failing.
