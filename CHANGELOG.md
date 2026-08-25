@@ -62,16 +62,27 @@ versions follow the `0.x` line while Tiro is a personal system.
   RFC 6890's special-purpose ones — `100.64.0.0/10` (carrier-grade NAT) was
   previously accepted. DNS rebinding remains out of reach: `fetch` cannot be
   pinned to the checked address, and nothing downstream helps, since the
-  request is already sent by the time the content-type gate runs.
+  request is already sent by the time the content-type gate runs. IPv6
+  multicast (`ff02::1`) and the deprecated IPv4-compatible form
+  (`::127.0.0.1`, which the URL parser normalises to `::7f00:1`) were also
+  accepted, while IPv4 already rejected their counterparts.
 - Asset reconciliation ran before the summary and translation calls, so a
   provider failure committed asset changes with no matching body. It now runs
   after the article is written, and a malformed relative reference such as
   `./assets/100%.png` no longer throws out of the image stage — that escaped
   the per-image fallback and left the article pending on every retry.
-- Asset reconciliation only recognised markdown and `<img src>` references, so
-  a file reachable solely through `<img srcset>`, a link, or prose was deleted.
-  Any `./assets/` mention now keeps a file: over-keeping costs a stale byte,
-  over-deleting loses content.
+- Asset reconciliation deleted files that were plainly referenced: it scanned
+  the body for references, which meant guessing where each one ended, so a
+  comma inside an `srcset` or a full stop closing a sentence took the file with
+  it. The question is asked filename-first now — does the body contain this
+  exact name — which has no boundary to get wrong.
+- Reconciliation ran before the article was recorded as processed, so a failure
+  while cleaning up (an unwritable `assets/` is enough) reported the article as
+  "left pending" while it was already marked processed on disk, and every later
+  run skipped it. Cleanup can no longer change an article's outcome.
+- A run that failed after downloading images left those files behind for the
+  workflow to commit. They are now rolled back against the article's committed
+  body.
 - `images.stage_timeout_ms` did not cover DNS resolution, which happens before
   the request the abort signal bounds. With up to six lookups per image and the
   deadline only checked between images, one image could overrun the stage

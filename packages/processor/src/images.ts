@@ -93,25 +93,28 @@ function isPrivateIpv4(host: string): boolean {
 /**
  * Reject obviously non-public hosts so a malicious clipped page cannot point
  * the workflow at loopback/link-local/private services (e.g. cloud metadata).
- * Name-based, and applied to every redirect hop rather than only the URL in
- * the article — a public host answering 302 to 169.254.169.254 is the cheap
- * version of this attack. Deliberately no DNS resolution: on GitHub-hosted
- * runners, resolving every candidate to defeat rebinding costs more than the
- * residual risk is worth. Responses are additionally gated on a declared
- * image content type and a recognized extension.
+ * Applied to every redirect hop rather than only the URL the article names —
+ * a public host answering 302 to 169.254.169.254 is the cheap version of this
+ * attack — and to whatever each hop resolves to, since the name alone proves
+ * nothing (`assertPublicAddresses`).
  */
 function isForbiddenHost(hostname: string): boolean {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (PRIVATE_NAME_RE.test(host)) return true;
   if (isPrivateIpv4(host)) return true;
   if (host.includes(":")) {
-    // IPv6: loopback/unspecified, unique-local fc00::/7, link-local fe80::/10,
-    // and v4-mapped literals (never a legitimate public image URL).
+    // Unspecified, unique-local fc00::/7, link-local fe80::/10, multicast
+    // ff00::/8 — the counterpart of the IPv4 `a >= 224` arm, which this was
+    // missing — and both IPv4-in-IPv6 blocks, which are never a public image
+    // host. ::/96 covers loopback and the deprecated IPv4-compatible form:
+    // `https://[::127.0.0.1]/` is normalised to `[::7f00:1]` by the URL
+    // parser, so matching the dotted spelling would miss it entirely.
     return (
-      host === "::1" ||
       host === "::" ||
       /^f[cd]/.test(host) ||
       /^fe[89ab]/.test(host) ||
+      /^ff/.test(host) ||
+      /^::([0-9a-f]{1,4}:)?[0-9a-f]{1,4}$/.test(host) ||
       host.startsWith("::ffff:")
     );
   }

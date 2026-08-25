@@ -339,6 +339,46 @@ describe("processImages", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("rejects IPv6 literals that are not public either", async () => {
+    const dir = tempAssetsDir();
+    const hosts = [
+      "[ff02::1]", // multicast — IPv4 already rejected its a >= 224 counterpart
+      "[ff05::2]", // site-local multicast
+      "[::127.0.0.1]", // deprecated IPv4-compatible form wrapping loopback
+      "[::1]", // loopback
+      "[fc00::1]", // unique-local
+      "[fe80::1]", // link-local
+    ];
+    const body = hosts.map((h) => `![x](https://${h}/x.png)`).join("\n\n");
+    const reached: string[] = [];
+    const result = await processImages({
+      ...options(body, dir),
+      allowPrivateHosts: false,
+      fetchImpl: async (input) => {
+        reached.push(String(input));
+        return new Response(PNG_BYTES, {
+          headers: { "Content-Type": "image/png" },
+        });
+      },
+    });
+    expect(reached).toEqual([]);
+    expect(result.failed).toBe(hosts.length);
+    expect(result.body).toBe(body);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("still allows a public IPv6 literal", async () => {
+    const dir = tempAssetsDir();
+    const result = await processImages({
+      ...options("![x](https://[2606:4700::1111]/x.png)", dir),
+      allowPrivateHosts: false,
+      fetchImpl: async () =>
+        new Response(PNG_BYTES, { headers: { "Content-Type": "image/png" } }),
+    });
+    expect(result.downloaded).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("rejects literal addresses across the non-public ranges", async () => {
     const dir = tempAssetsDir();
     const hosts = [
