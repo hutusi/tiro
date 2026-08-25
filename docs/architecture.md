@@ -86,9 +86,14 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 - **Readability returns `null`** on SPAs/paywalls: fall back to capturing
   `document.body` with a `readability_failed` frontmatter flag.
 - **Hotlink-protected or oversized images**: per-image fallback to the
-  original URL; an image failure never fails the article.
-- **Contents API 1MB GET limit** breaks sha lookup for very large clips: fall
-  back to the Git Trees API.
+  original URL; an image failure never fails the article. Stage-wide caps
+  (`images.max_count`, `total_max_bytes`, `stage_timeout_ms`) stop an
+  image-heavy page from running the job past its `timeout-minutes`.
+- **Contents API 1MB GET limit** breaks the sha lookup for very large clips:
+  `findExistingIndex` is a single Contents GET, so re-clipping a page whose
+  stored `index.md` exceeds 1MB fails the clip rather than overwriting. Not
+  mitigated — a Markdown clip that large is not a case worth code. (A Git
+  Trees fallback would be the fix if it ever happens.)
 - **Workflow recursion**: pushes made with the default `GITHUB_TOKEN` do not
   retrigger workflows; the processing workflow also uses a concurrency group
   and rebase-retry pushes.

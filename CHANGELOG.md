@@ -27,7 +27,41 @@ versions follow the `0.x` line while Tiro is a personal system.
   failures; the vault-template process job is bounded by
   `timeout-minutes: 30`.
 
+### Added
+
+- `validate` now checks the invariants it claimed to gate: every directory
+  name is re-derived from its article's `url`, articles nested below
+  `articles/<slug>/` are reported instead of being silently skipped by every
+  glob, and translations that should not exist (no sibling `index.md`, or
+  beside an already-Chinese or `translation_failed` article) are flagged.
+- Stage-wide image caps (`images.max_count`, `images.total_max_bytes`,
+  `images.stage_timeout_ms`) so one image-heavy article cannot run the
+  process job past its `timeout-minutes`.
+
 ### Fixed
+
+- A provider failure during summarization (403, timeout, network) was
+  reported to the model as malformed JSON, retried, and finally written as an
+  excerpt with `processed_at` set — a wrong API key quietly degraded every
+  article instead of failing. Such errors now leave the article pending, the
+  way the translation stage already did.
+- A stale `zh.md` was never removed, so a re-clip that turned Chinese, or a
+  reprocess whose translation failed, left the previous translation rendering
+  against a body it was never translated from.
+- `translation.target` accepted any language while the artifact is always
+  `zh.md`; a value like `ja` or `zh-CN` made every article translate,
+  Chinese originals included. The schema now accepts only `zh`.
+- Tags went into URLs raw, so an ordinary LLM tag like `ci/cd` produced a
+  page at a path the route pattern cannot match (404 in `astro dev`) and
+  broken links everywhere it appeared. Tags and categories are now routed by
+  a slug, with the raw spelling kept as the label.
+- The article's original pane declared no language and inherited `zh-CN` from
+  the layout, so English text was announced as Chinese by screen readers.
+- `workflow_dispatch` inputs were interpolated into the processing job's
+  shell instead of passed as environment data.
+- The image stage accepted a response with no `Content-Type` at all, and
+  applied its non-public-host guard only to the URL the article named rather
+  than to each redirect hop.
 
 - Queued process runs checked out the vault at their trigger SHA, so they
   re-processed articles the previous run had just committed and then failed

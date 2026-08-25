@@ -58,13 +58,21 @@ jobs:
       - name: Run the processor
         working-directory: tiro
         env:
-          # Must match llm.api_key_env in config/tiro.yml.
+          # Must match llm.api_key_env in config/tiro.yml. If you rename it
+          # there, rename this key too — the processor looks up whatever name
+          # the config gives, and nothing here bridges the two.
           TIRO_LLM_API_KEY: ${{ secrets.TIRO_LLM_API_KEY }}
+          # Dispatch inputs reach the script as data, never as source. Actions
+          # substitutes ${{ }} into the run block before bash parses it, so an
+          # interpolated slug would execute in a job holding contents: write
+          # and the LLM key.
+          FORCE: ${{ inputs.force }}
+          SLUG: ${{ inputs.slug }}
         run: |
-          ARGS="--vault $GITHUB_WORKSPACE/vault"
-          if [ "${{ inputs.force }}" = "true" ]; then ARGS="$ARGS --force"; fi
-          if [ -n "${{ inputs.slug }}" ]; then ARGS="$ARGS --slug ${{ inputs.slug }}"; fi
-          bun run process -- $ARGS
+          args=(--vault "$GITHUB_WORKSPACE/vault")
+          if [ "$FORCE" = "true" ]; then args+=(--force); fi
+          if [ -n "$SLUG" ]; then args+=(--slug "$SLUG"); fi
+          bun run process -- "${args[@]}"
 
       # Pushes made with the default GITHUB_TOKEN do not retrigger workflows,
       # so committing back here cannot loop. The rebase-retry absorbs a clip
