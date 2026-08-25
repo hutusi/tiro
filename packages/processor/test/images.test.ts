@@ -610,3 +610,41 @@ describe("reconcileAssets reference boundaries", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("reconcileAssets reference encodings", () => {
+  // A reference and a filename can be spelled differently and still mean the
+  // same file. Enumerating spellings is how this function kept losing content,
+  // so both sides are compared after decoding.
+  const encodings: [label: string, name: string, body: string][] = [
+    ["a non-canonical escape", "a.png", "![x](./assets/%61.png)"],
+    ["an escaped space", "my file.png", "![x](./assets/my%20file.png)"],
+    [
+      "an escaped CJK name",
+      "中文.png",
+      "![x](./assets/%E4%B8%AD%E6%96%87.png)",
+    ],
+    ["a fully escaped name", "a.png", "![x](./assets/%61%2Epng)"],
+    ["no escaping at all", "plain.png", "![x](./assets/plain.png)"],
+    ["a malformed escape", "100%.png", "![x](./assets/100%.png)"],
+    ["a lone percent", "50%off.png", "![x](./assets/50%off.png)"],
+  ];
+
+  for (const [label, name, body] of encodings) {
+    test(`keeps a file referenced by ${label}`, async () => {
+      const dir = tempAssetsDir();
+      writeFileSync(join(dir, name), PNG_BYTES);
+      expect(await reconcileAssets(dir, body)).toBe(0);
+      expect(readdirSync(dir)).toEqual([name]);
+      rmSync(dir, { recursive: true, force: true });
+    });
+  }
+
+  test("still deletes a file no spelling in the body refers to", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, "a.png"), PNG_BYTES);
+    writeFileSync(join(dir, "b.png"), PNG_BYTES);
+    expect(await reconcileAssets(dir, "![x](./assets/%61.png)")).toBe(1);
+    expect(readdirSync(dir)).toEqual(["a.png"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

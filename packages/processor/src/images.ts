@@ -417,6 +417,7 @@ export async function reconcileAssets(
   body: string,
   log: (message: string) => void = () => {},
 ): Promise<number> {
+  const decodedBody = decodePercentRuns(body);
   let entries: Dirent[];
   try {
     entries = await readdir(assetsDirAbs, { withFileTypes: true });
@@ -425,7 +426,8 @@ export async function reconcileAssets(
   }
   let pruned = 0;
   for (const entry of entries) {
-    if (!entry.isFile() || isReferenced(body, entry.name)) continue;
+    if (!entry.isFile() || isReferenced(body, decodedBody, entry.name))
+      continue;
     await rm(`${assetsDirAbs}/${entry.name}`, { force: true });
     pruned += 1;
     log(`removed orphaned asset: ${entry.name}`);
@@ -434,22 +436,48 @@ export async function reconcileAssets(
 }
 
 /**
+ * Percent-decode each maximal run of escapes, leaving anything malformed
+ * exactly as written.
+ *
+ * Runs rather than single escapes, so a multi-byte name decodes as one unit
+ * (`%E4%B8%AD` -> `中`) instead of three separate failures. Total rather than
+ * throwing, because `./assets/100%.png` is a body a vault can genuinely hold —
+ * an unguarded decode of one wedged an article a few commits ago.
+ */
+function decodePercentRuns(text: string): string {
+  return text.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+}
+
+/**
  * Does `body` point at this file?
  *
  * Asked filename-first on purpose. Scanning the body for references means
  * guessing where each one ends, and every guess is a new way to delete live
  * content — a comma inside an `srcset`, a full stop closing a sentence.
- * Searching for the name itself has no boundary to get wrong, and no
- * `decodeURIComponent` to throw on `./assets/100%.png`.
+ * Searching for the name itself has no boundary to get wrong.
  *
- * Both the literal and percent-encoded spellings count, since a body may
- * escape a name the filesystem stores raw. A name that is a prefix of another
- * (`a.png` beside `a.png.bak`) is kept when only the longer one is referenced:
- * over-keeping costs a stale byte, over-deleting loses content.
+ * Compared against the decoded body as well as the raw one, because a
+ * reference and a filename can be spelled differently and still mean the same
+ * file: `%61.png` is a perfectly good way to write `a.png`. Listing the
+ * spellings this function happens to think of is what kept losing content —
+ * decoding turns an unbounded set into one comparison. The raw body still
+ * counts, for a name holding a `%` that no decoding would produce.
+ *
+ * A name that is a prefix of another (`a.png` beside `a.png.bak`) is kept when
+ * only the longer one is referenced: over-keeping costs a stale byte,
+ * over-deleting loses content.
  */
-function isReferenced(body: string, name: string): boolean {
-  return (
-    body.includes(`${ASSET_PREFIX}${name}`) ||
-    body.includes(`${ASSET_PREFIX}${encodeURIComponent(name)}`)
-  );
+function isReferenced(
+  body: string,
+  decodedBody: string,
+  name: string,
+): boolean {
+  const reference = `${ASSET_PREFIX}${name}`;
+  return body.includes(reference) || decodedBody.includes(reference);
 }
