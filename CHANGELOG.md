@@ -31,6 +31,9 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- The 440×280 small promotional tile the Web Store requires for publishing, and
+  16px of transparent padding on the 128px store icon per Chrome's listing
+  guidance (toolbar sizes stay full-bleed).
 - Web Store data-use declarations now cover the GitHub username (PII) and the
   clipped URL (web history). Google's definitions are broader than "what we send
   to our own servers" — they cover locally processed data, and since August 2026

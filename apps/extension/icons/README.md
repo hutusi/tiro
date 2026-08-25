@@ -13,16 +13,34 @@ the toolbar icon and the popup read as one thing.
 From the repo root, after editing `icon.svg` (macOS, headless Chrome — no
 extra toolchain):
 
+**The 128 is not rendered like the others.** It is the store and install icon,
+and Chrome's listing guidance asks for 96×96 of artwork centred in the 128×128
+canvas with 16px of transparent padding on each side. The toolbar sizes stay
+full-bleed, where padding would just make the icon look small.
+
 ```sh
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 tmp="$(mktemp -d)"
-for s in 16 32 48 128; do
+
+# Toolbar sizes: full bleed.
+for s in 16 32 48; do
   cat > "$tmp/icon-$s.html" <<HTML
 <!doctype html><meta charset="utf-8">
 <style>html,body{margin:0;padding:0;background:transparent}
 img{display:block;width:${s}px;height:${s}px}</style>
 <img src="file://$PWD/apps/extension/icons/icon.svg" alt="">
 HTML
+done
+
+# Store/install icon: 96 of artwork, 16 of transparent margin.
+cat > "$tmp/icon-128.html" <<HTML
+<!doctype html><meta charset="utf-8">
+<style>html,body{margin:0;padding:0;background:transparent}
+img{display:block;width:96px;height:96px;margin:16px}</style>
+<img src="file://$PWD/apps/extension/icons/icon.svg" alt="">
+HTML
+
+for s in 16 32 48 128; do
   "$CHROME" --headless --disable-gpu --hide-scrollbars \
     --default-background-color=00000000 --force-device-scale-factor=1 \
     --window-size=$s,$s \

@@ -1,0 +1,62 @@
+<!doctype html>
+<meta charset="utf-8" />
+<style>
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    width: 440px;
+    height: 280px;
+    overflow: hidden;
+  }
+  body {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+      sans-serif;
+    background:
+      radial-gradient(
+        360px 240px at 82% 18%,
+        rgba(31, 136, 61, 0.22),
+        transparent 62%
+      ),
+      radial-gradient(
+        300px 220px at 10% 92%,
+        rgba(31, 136, 61, 0.14),
+        transparent 62%
+      ),
+      #f6f8fa;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 34px;
+    box-sizing: border-box;
+  }
+  /* A promo tile is read at a glance and often at half size, so it carries the
+     mark and four words rather than a description. */
+  img {
+    width: 64px;
+    height: 64px;
+    border-radius: 15px;
+    margin-bottom: 20px;
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 30px;
+    letter-spacing: -0.02em;
+    color: #1f2328;
+  }
+  p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.4;
+    color: #57606a;
+  }
+  b {
+    color: #1f883d;
+  }
+</style>
+<!-- The SVG, not icon-128.png: that file carries the store listing's 16px
+     transparent padding, which would render the mark inset here. -->
+<img src="../icons/icon.svg" alt="" />
+<h1>Tiro Clipper</h1>
+<p>Save any page as Markdown,<br />straight into <b>your own</b> GitHub repo.</p>
