@@ -290,6 +290,61 @@ describe("processImages", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("rejects a name that resolves into carrier-grade NAT space", async () => {
+    const dir = tempAssetsDir();
+    let fetched = false;
+    const fetchImpl: FetchLike = async () => {
+      fetched = true;
+      return new Response(PNG_BYTES, {
+        headers: { "Content-Type": "image/png" },
+      });
+    };
+    const result = await processImages({
+      ...options("![x](https://cdn.example/x.png)", dir),
+      allowPrivateHosts: false,
+      // 100.64/10 is real infrastructure a resolver can answer with, unlike
+      // the documentation ranges.
+      resolveHost: async () => ["100.64.0.1"],
+      fetchImpl,
+    });
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(fetched).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("rejects literal addresses across the non-public ranges", async () => {
+    const dir = tempAssetsDir();
+    const hosts = [
+      "100.64.0.1", // carrier-grade NAT
+      "192.0.0.1", // IETF protocol assignments
+      "198.18.0.1", // benchmarking
+      "192.0.2.1", // TEST-NET-1
+      "198.51.100.1", // TEST-NET-2
+      "203.0.113.1", // TEST-NET-3
+      "240.0.0.1", // reserved
+    ];
+    const body = hosts.map((h) => `![x](https://${h}/x.png)`).join("\n\n");
+    const reached: string[] = [];
+    const result = await processImages({
+      ...options(body, dir),
+      allowPrivateHosts: false,
+      fetchImpl: async (input) => {
+        // A throwing fetch would also produce failed === hosts.length, so the
+        // assertion that matters is that no request was made at all.
+        reached.push(String(input));
+        return new Response(PNG_BYTES, {
+          headers: { "Content-Type": "image/png" },
+        });
+      },
+    });
+    expect(reached).toEqual([]);
+    expect(result.downloaded).toBe(0);
+    expect(result.failed).toBe(hosts.length);
+    expect(result.body).toBe(body);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("rejects a public name that resolves to a private address", async () => {
     const dir = tempAssetsDir();
     let fetched = false;

@@ -67,19 +67,30 @@ export function findImageUrls(body: string): string[] {
 
 const PRIVATE_NAME_RE = /^(localhost|.+\.localhost|.+\.local|.+\.internal)$/i;
 
+/** Non-public IPv4 space: the private ranges plus RFC 6890's special-purpose
+ * ones. 100.64/10 matters most of the additions — carrier-grade NAT is real
+ * infrastructure a resolver can genuinely answer with, not a documentation
+ * range. */
 function isPrivateIpv4(host: string): boolean {
   const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (m === null) return false;
   const a = Number(m[1]);
   const b = Number(m[2]);
+  const c = Number(m[3]);
   return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
+    a === 0 || // 0/8 "this network"
+    a === 10 || // 10/8 private
+    a === 127 || // loopback
+    (a === 100 && b >= 64 && b <= 127) || // 100.64/10 carrier-grade NAT
     (a === 169 && b === 254) || // link-local incl. cloud metadata endpoints
-    a >= 224 // multicast/reserved — never a public image host
+    (a === 172 && b >= 16 && b <= 31) || // 172.16/12 private
+    (a === 192 && b === 0 && c === 0) || // 192.0.0/24 protocol assignments
+    (a === 192 && b === 0 && c === 2) || // TEST-NET-1
+    (a === 192 && b === 168) || // 192.168/16 private
+    (a === 198 && (b === 18 || b === 19)) || // 198.18/15 benchmarking
+    (a === 198 && b === 51 && c === 100) || // TEST-NET-2
+    (a === 203 && b === 0 && c === 113) || // TEST-NET-3
+    a >= 224 // multicast and reserved, 240/4 included
   );
 }
 
@@ -132,8 +143,11 @@ async function resolveViaDns(hostname: string): Promise<string[]> {
  * This closes static mappings, which is the attack that needs no
  * infrastructure. It is not proof against DNS rebinding: `fetch` cannot be
  * pinned to the address checked here, so a name that answers differently on
- * the connection's own lookup still gets through. The content-type and
- * extension gates remain the backstop for that.
+ * the connection's own lookup still gets through, and nothing downstream
+ * prevents that — by the time the content-type and extension gates run, the
+ * request has already been sent. What those gates still do is keep the
+ * response out of the vault, so a rebind leaks nothing to the public site.
+ * The request itself is the residual risk.
  */
 async function assertPublicAddresses(
   hostname: string,

@@ -58,8 +58,16 @@ versions follow the `0.x` line while Tiro is a personal system.
   reach 3 bytes per character) with a hash suffix when truncated.
 - The image host guard checked hostname text only, so a public-looking name
   resolving into private space (`127.0.0.1.nip.io`) passed. Every redirect hop
-  is now resolved and its addresses checked. DNS rebinding remains out of
-  reach — `fetch` cannot be pinned to the checked address.
+  is now resolved and its addresses checked, against the private ranges plus
+  RFC 6890's special-purpose ones — `100.64.0.0/10` (carrier-grade NAT) was
+  previously accepted. DNS rebinding remains out of reach: `fetch` cannot be
+  pinned to the checked address, and nothing downstream helps, since the
+  request is already sent by the time the content-type gate runs.
+- Asset reconciliation ran before the summary and translation calls, so a
+  provider failure committed asset changes with no matching body. It now runs
+  after the article is written, and a malformed relative reference such as
+  `./assets/100%.png` no longer throws out of the image stage — that escaped
+  the per-image fallback and left the article pending on every retry.
 
 - A provider failure during summarization (403, timeout, network) was
   reported to the model as malformed JSON, retried, and finally written as an
