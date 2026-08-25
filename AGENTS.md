@@ -4,7 +4,7 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor, …) working in this 
 
 ## Project
 
-Tiro is a personal read-it-later tool and external knowledge base: a Chrome MV3 extension clips pages as Markdown into a separate content repo (`hutusi/tiro-vault`, private), a GitHub Actions workflow there summarizes/tags/translates them with an LLM, and an Astro site publishes the result at <https://tiro-36s.pages.dev/>. TypeScript + Bun workspaces
+Tiro is a personal read-it-later tool and external knowledge base: a Chrome MV3 extension clips pages as Markdown into a separate content repo (`hutusi/tiro-vault`, private), a GitHub Actions workflow there summarizes/tags/translates them with an LLM, and an Astro site publishes the result at <https://tiro.ainaive.com/>. TypeScript + Bun workspaces
 throughout; Astro 7 + Tailwind 4 for the site.
 
 Product decisions that look odd but are deliberate:

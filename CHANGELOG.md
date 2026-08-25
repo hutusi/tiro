@@ -9,6 +9,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- The site is published at <https://tiro.ainaive.com/> (Cloudflare Pages
+  custom domain). The generated `*.pages.dev` URL keeps working.
 - **Flat vault layout** (breaking, ADR 0007): articles moved from
   `articles/<year>/<slug>/` to `articles/<slug>/` — the path is now the
   identity, so a re-clip structurally cannot duplicate. Site URLs changed to

@@ -17,7 +17,7 @@ This monorepo holds all the code; content lives in a separate vault repo
 | `packages/shared` | The content contract: frontmatter schema, slug rules, block alignment, config schema |
 | `packages/processor` | LLM pipeline CLI, run by the vault's GitHub Actions workflow |
 | `apps/extension` | Chrome MV3 clipper (Readability + Turndown → GitHub Contents API) |
-| `apps/site` | Astro site, deployed to Cloudflare Pages |
+| `apps/site` | Astro site, deployed to Cloudflare Pages (<https://tiro.ainaive.com/>) |
 | `vault-template/` | Files to bootstrap a new `tiro-vault` repo |
 | `fixtures/vault` | A tiny fake vault for tests and local site development |
 | `docs/` | [Architecture](./docs/architecture.md), [ADRs](./docs/adr/), and the [operations runbook](./docs/operations.md) |

@@ -6,7 +6,7 @@ Day-2 operations for the running Tiro system.
 
 | Thing | Where |
 | --- | --- |
-| Live site | <https://tiro-36s.pages.dev/> (Cloudflare Pages project `tiro`, direct upload) |
+| Live site | <https://tiro.ainaive.com/> (Cloudflare Pages project `tiro`, direct upload) |
 | Content vault | <https://github.com/hutusi/tiro-vault> (private) |
 | Processing workflow | tiro-vault → Actions → "Process articles" |
 | Deploy workflow | tiro → Actions → "Deploy site" |
@@ -106,6 +106,21 @@ devDependencies — the action must log "using pre-installed wrangler".
   articles. Keep at least one article in the vault.
 - Deleting an article: remove its directory from the vault and push — the
   push triggers processing (a no-op) which triggers a redeploy.
+
+### Domain
+
+`tiro.ainaive.com` is a Pages **custom domain**, configured in the
+Cloudflare dashboard (Workers & Pages → `tiro` → Custom domains) — there is
+no `wrangler.toml` and the deploy is a direct upload, so no repo config
+controls it. Cloudflare owns the proxied `CNAME tiro → tiro-36s.pages.dev`
+record itself; don't hand-edit it.
+
+- **`ainaive.com` apex and `www` are a different site** (GitHub Pages,
+  `ainaive.github.io`). Never touch those records while working on Tiro.
+- `tiro-36s.pages.dev` still serves the same deployments; Cloudflare has no
+  way to retire it.
+- The domain is mirrored in `apps/site/astro.config.mjs` (`site:`) for
+  absolute-URL generation — keep the two in sync if the domain ever moves.
 
 ## Vault layout migrations
 
