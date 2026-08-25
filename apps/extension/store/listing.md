@@ -33,7 +33,10 @@ across machines, not for an audience.
 > - Readable Markdown with frontmatter, not an archived blob of HTML.
 > - Your repository, your token. There is no Tiro account and no Tiro server —
 >   the extension talks to api.github.com and nowhere else.
-> - Nothing is read in the background. The page is touched only when you click.
+> - Nothing is read in the background. A page is read only when you open the
+>   Tiro popup on it, to build the preview — and on first run, only after you
+>   agree to the disclosure the popup shows you. Close it without clipping and
+>   the result is discarded.
 > - No analytics, no tracking, no remote code.
 >
 > Setup takes a minute: open Settings, enter your GitHub username, the
@@ -54,7 +57,7 @@ across machines, not for an audience.
 | --- | --- |
 | `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. It is bundled with the extension; nothing is fetched or evaluated at runtime. |
-| `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip. Local to the machine. |
+| `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a record of their acceptance of the first-run disclosure. Local to the machine. |
 | `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. It is the only host the extension contacts. |
 
 ## Data use declarations

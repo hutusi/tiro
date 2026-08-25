@@ -153,6 +153,28 @@ window safely). The 0007 migration was
 - Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
   prefix), branch `main`, plus the extension PAT.
 
+### Data disclosure and the token
+
+Two decisions worth not relitigating:
+
+- **The popup reads the page when it opens**, not when you click Clip — that is
+  what builds the preview. The Web Store requires the disclosure and consent for
+  that to live *in the product UI* (a privacy page or store listing explicitly
+  does not count), so the popup gates the first extraction behind a one-time
+  panel. Acceptance is stored under its own `tiroDisclosure` key, not inside
+  `tiroConfig`, because the options page saves a freshly built config object and
+  would otherwise wipe it on every Save. If the disclosure ever changes what it
+  says about data handling, bump `DISCLOSURE_VERSION` in
+  `apps/extension/src/storage.ts` — that re-prompts existing users, which the
+  policy also requires.
+- **The PAT stays in `chrome.storage.local`**, in plaintext. `storage.session`
+  is cleared on every browser restart, which would mean re-pasting the token
+  daily; and any key the extension could use to encrypt it is reachable by
+  anything that has already compromised the profile. The real control is the
+  token itself: fine-grained, one repository, Contents RW, one per machine,
+  revocable in seconds. That trade is disclosed on the privacy page rather than
+  hidden.
+
 ### Installing on another computer
 
 No clone or toolchain needed — every `ext-v*` tag publishes a zip.

@@ -31,6 +31,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **First-run data disclosure in the extension popup**, gating the first page
+  read behind an explicit acceptance. The page is read when the popup opens (to
+  build the preview), not when you click Clip, and the Web Store requires that
+  disclosure and consent to be in the product UI rather than only in a privacy
+  policy. Re-prompts when `DISCLOSURE_VERSION` is bumped.
 - **Extension releases**: pushing an `ext-v<version>` tag builds the extension
   and attaches an installable zip to a GitHub Release, so other machines
   install it without a clone or a toolchain. The workflow refuses to publish
@@ -40,10 +45,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   `options_ui` form — the set of things a Chrome Web Store submission requires
   before it will accept the package. Listing copy and images are drafted in
   `apps/extension/store/`.
-- A privacy policy at `/privacy/`, bilingual, covering what the extension
-  stores (a GitHub token, locally) and that the site runs no tracking or
-  analytics, Cloudflare's ordinary request logs aside. The Web Store requires a
-  reachable policy URL for any extension handling authentication information.
+- A privacy policy at `/privacy/`, bilingual, covering when the extension reads
+  a page, what it stores (a GitHub token, locally), what a clip sends to GitHub,
+  and that the site runs no tracking or analytics, Cloudflare's ordinary request
+  logs aside. The Web Store requires a reachable policy URL for any extension
+  handling authentication information.
 - `validate` now checks the invariants it claimed to gate: every directory
   name is re-derived from its article's `url`, articles nested below
   `articles/<slug>/` are reported instead of being silently skipped by every
