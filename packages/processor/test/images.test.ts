@@ -384,6 +384,12 @@ describe("processImages", () => {
       "[fe80::1]", // link-local
       "[::1]", // loopback
       "[0:0:0:0:0:0:0:1]", // loopback, uncompressed spelling
+      "[64:ff9b:1::7f00:1]", // local-use NAT64 — the /96 rule missed this
+      "[100:0:0:1::1]", // dummy prefix, RFC 9780
+      "[3fff::1]", // documentation, RFC 9637
+      "[4000::1]", // unassigned — outside global unicast
+      "[c000::1]", // unassigned
+      "[1000::1]", // unassigned
     ];
     const body = hosts.map((h) => `![x](https://${h}/x.png)`).join("\n\n");
     const reached: string[] = [];

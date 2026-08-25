@@ -63,10 +63,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   previously accepted. DNS rebinding remains out of reach: `fetch` cannot be
   pinned to the checked address, and nothing downstream helps, since the
   request is already sent by the time the content-type gate runs. IPv6 is now
-  judged by numeric prefix against the full special-purpose list rather than by
-  how an address is spelled — multicast, site-local, 6to4, NAT64, Teredo and
-  the IPv4-in-IPv6 blocks were all accepted before, several of which can carry
-  a private IPv4 address.
+  accepted only inside global unicast (`2000::/3`) minus four documented
+  carve-outs, rather than checked against a list of non-public ranges that
+  could never be finished — multicast, site-local, 6to4, NAT64, Teredo and the
+  IPv4-in-IPv6 blocks were all accepted before, several of which can carry a
+  private IPv4 address.
 - Asset reconciliation ran before the summary and translation calls, so a
   provider failure committed asset changes with no matching body. It now runs
   after the article is written, and a malformed relative reference such as
@@ -76,9 +77,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   the body for references, which meant guessing where each one ended, so a
   comma inside an `srcset` or a full stop closing a sentence took the file with
   it. The question is asked filename-first now — does the body contain this
-  exact name — which has no boundary to get wrong. References are also compared
-  after percent-decoding, so a valid spelling like `./assets/%61.png` no longer
-  deletes `a.png`.
+  exact name — which has no boundary to get wrong, and compared after
+  percent-decoding. Only files shaped like the processor's own output (a 12-hex
+  digest plus a known extension) are eligible for deletion at all, so a file it
+  did not write can never be lost to a reference it failed to recognise.
 - Reconciliation ran before the article was recorded as processed, so a failure
   while cleaning up (an unwritable `assets/` is enough) reported the article as
   "left pending" while it was already marked processed on disk, and every later

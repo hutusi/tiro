@@ -116,44 +116,36 @@ function isForbiddenHost(hostname: string): boolean {
 }
 
 /**
- * Non-public IPv6 space, by numeric prefix rather than by how the address
- * happens to be spelled.
+ * Is this address outside publicly routable IPv6?
  *
- * String prefixes cannot express this. `2001:db8::/32` and `2001::/32` have to
- * be rejected while `2001:4860:4860::8888` keeps working, and `::` compression
- * gives one address several spellings — three rounds of review each found
- * another range a prefix test had missed. Expanding to hextets and masking
- * ends that.
+ * Stated as an allowlist, because the denylist could not be finished. IANA
+ * keeps adding special-purpose ranges — 100:0:0:1::/64 is RFC 9780, 2025 —
+ * and four consecutive rounds of review each found another one the table had
+ * missed. Enumerating a growing set will always lag it.
+ *
+ * Public IPv6 is allocated solely from 2000::/3, so everything else is
+ * unassigned or special-purpose and cannot be an image host. That one test
+ * covers ::/96, ::ffff:0:0/96, both NAT64 prefixes, both 100::/64 blocks,
+ * fc00::/7, fe80::/10, fec0::/10 and ff00::/8 at once — including ranges not
+ * yet written down.
+ *
+ * Only four carve-outs sit inside 2000::/3, and they are stable. Note that
+ * 2001::/23 has to be masked rather than prefix-matched, or it would swallow
+ * 2001:4860:4860::8888.
  *
  * A false reject costs one hotlinked image and never fails an article, while a
- * miss is an SSRF vector, so anything documented as special-purpose is in.
- * 6to4 and Teredo are deprecated and no image host lives there, but both embed
- * an IPv4 address, which is exactly the property being defended against.
+ * miss is an SSRF vector — so an address this cannot parse is refused too.
  */
 function isPrivateIpv6(host: string): boolean {
   const h = expandIpv6(host);
-  if (h === null) return true; // unparseable is not a public image host
-  const [h0, h1, h2, h3, h4, h5] = h as [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ];
-  const zero = (...parts: number[]): boolean => parts.every((p) => p === 0);
+  if (h === null) return true;
+  const [h0, h1] = h as [number, number];
+  if ((h0 & 0xe000) !== 0x2000) return true; // outside global unicast
   return (
-    zero(h0, h1, h2, h3, h4, h5) || // ::/96 — unspecified, loopback, v4-compatible
-    (zero(h0, h1, h2, h3, h4) && h5 === 0xffff) || // ::ffff:0:0/96 v4-mapped
-    (h0 === 0x0064 && h1 === 0xff9b && zero(h2, h3, h4, h5)) || // 64:ff9b::/96 NAT64
-    (h0 === 0x0100 && zero(h1, h2, h3)) || // 100::/64 discard-only
-    h0 === 0x2002 || // 2002::/16 6to4
-    (h0 === 0x2001 && h1 === 0x0000) || // 2001::/32 Teredo
+    (h0 === 0x2001 && (h1 & 0xfe00) === 0x0000) || // 2001::/23 IETF protocols
     (h0 === 0x2001 && h1 === 0x0db8) || // 2001:db8::/32 documentation
-    (h0 & 0xfe00) === 0xfc00 || // fc00::/7 unique-local
-    (h0 & 0xffc0) === 0xfe80 || // fe80::/10 link-local
-    (h0 & 0xffc0) === 0xfec0 || // fec0::/10 site-local, deprecated
-    (h0 & 0xff00) === 0xff00 // ff00::/8 multicast
+    h0 === 0x2002 || // 2002::/16 6to4 — embeds IPv4
+    (h0 === 0x3fff && (h1 & 0xf000) === 0x0000) // 3fff::/20 documentation
   );
 }
 
