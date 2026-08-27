@@ -152,6 +152,9 @@ window safely). The 0007 migration was
   `chrome://extensions`. Saved settings survive reloads.
 - Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
   prefix), branch `main`, plus the extension PAT.
+- `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
+  extension already claimed it, Chrome leaves it unassigned — rebind at
+  `chrome://extensions/shortcuts`.
 
 ### Data disclosure and the token
 

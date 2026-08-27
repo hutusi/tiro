@@ -24,6 +24,11 @@
     "page": "src/options/options.html",
     "open_in_tab": true
   },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+C" }
+    }
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
