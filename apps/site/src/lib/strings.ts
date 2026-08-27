@@ -2,6 +2,8 @@
 export const STRINGS = {
   siteTitle: "Tiro",
   siteTagline: "个人稍后读知识库",
+  siteDescription:
+    "个人稍后读知识库：剪藏网页为 Markdown，自动摘要、打标签并翻译成中文，双语对照阅读。",
   nav: { home: "首页", categories: "分类", tags: "标签", search: "搜索" },
   article: {
     original: "原文",
@@ -20,4 +22,11 @@ export const STRINGS = {
   },
   categories: { title: "分类" },
   tags: { title: "标签" },
+  notFound: {
+    title: "页面不存在",
+    hint: "这个地址没有对应的内容，可能已被移动或删除。",
+    home: "返回首页",
+    search: "搜索文章",
+  },
+  footer: { privacy: "隐私政策", rss: "RSS 订阅" },
 } as const;

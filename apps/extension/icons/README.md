@@ -68,3 +68,39 @@ So check the output rather than trusting the command:
 file apps/extension/public/icons/*.png   # expect exact 16/32/48/128 squares
 open apps/extension/public/icons/icon-16.png
 ```
+
+## Site assets
+
+The site reuses this mark; its copies live in `apps/site/public/` and are
+committed, not built:
+
+- `favicon.svg` — a copy of `icon.svg` with the `<title>` changed to "Tiro"
+  (the site is Tiro, the extension is Tiro Clipper). Edit both when the mark
+  changes.
+- `favicon-32.png` and `favicon.ico` — byte copies of
+  `../public/icons/icon-32.png`. The `.ico` holds PNG bytes: every current
+  browser accepts that at `/favicon.ico`, and it spares the repo an ico
+  toolchain for the one path browsers request blindly.
+- `apple-touch-icon.png` — 180×180, rendered with the same headless-Chrome
+  recipe but with `background:#1f883d` on the wrapper and the image at
+  180px: the rounded rect blends into the background, giving the full-bleed
+  square iOS expects (iOS applies its own corner mask; transparent corners
+  would go black).
+- `og.png` — the 1200×630 social card: white background, centered 160px
+  mark, "Tiro" and the tagline, same wrapper technique with
+  `--window-size=1200,630`. Render it on macOS (the tagline needs
+  PingFang SC).
+
+```sh
+tmp="$(mktemp -d)"
+cat > "$tmp/apple-touch-icon.html" <<HTML
+<!doctype html><meta charset="utf-8">
+<style>html,body{margin:0;padding:0;background:#1f883d}
+img{display:block;width:180px;height:180px}</style>
+<img src="file://$PWD/apps/site/public/favicon.svg" alt="">
+HTML
+"$CHROME" --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=1 --window-size=180,180 \
+  --screenshot=apps/site/public/apple-touch-icon.png \
+  "file://$tmp/apple-touch-icon.html"
+```
