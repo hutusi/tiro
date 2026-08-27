@@ -120,7 +120,11 @@ record itself; don't hand-edit it.
 - `tiro-36s.pages.dev` still serves the same deployments; Cloudflare has no
   way to retire it.
 - The domain is mirrored in `apps/site/astro.config.mjs` (`site:`) for
-  absolute-URL generation — keep the two in sync if the domain ever moves.
+  absolute-URL generation, and hardcoded in `apps/site/public/robots.txt`
+  (the `Sitemap:` line) — keep all three in sync if the domain ever moves.
+- `robots.txt` welcomes search engines and disallows AI-training crawlers
+  by user agent (the site republishes clipped third-party content). New
+  scrapers appear; extend the list as they do.
 
 ## Vault layout migrations
 
