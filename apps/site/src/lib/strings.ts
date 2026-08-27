@@ -22,4 +22,10 @@ export const STRINGS = {
   },
   categories: { title: "分类" },
   tags: { title: "标签" },
+  notFound: {
+    title: "页面不存在",
+    hint: "这个地址没有对应的内容，可能已被移动或删除。",
+    home: "返回首页",
+    search: "搜索文章",
+  },
 } as const;

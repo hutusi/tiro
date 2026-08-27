@@ -41,6 +41,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 - A sitemap (`/sitemap-index.xml`) and a `robots.txt` that welcomes search
   engines but disallows AI-training crawlers — the site republishes clipped
   third-party content, and feeding training sets is not ours to give.
+- A branded 404 page — links from before the flat-layout migration (ADR
+  0007, no redirects) landed on Cloudflare's default error page.
 - The 440×280 small promotional tile the Web Store requires for publishing, and
   16px of transparent padding on the 128px store icon per Chrome's listing
   guidance (toolbar sizes stay full-bleed).
