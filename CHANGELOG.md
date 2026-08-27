@@ -31,6 +31,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- The site has a favicon and touch icon (the extension's bookmark mark,
+  reused) and shows the logo next to the wordmark in the header.
 - The 440×280 small promotional tile the Web Store requires for publishing, and
   16px of transparent padding on the 128px store icon per Chrome's listing
   guidance (toolbar sizes stay full-bleed).
