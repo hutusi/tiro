@@ -31,6 +31,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- The popup tells you on open when the current page was already clipped
+  (再次剪藏将覆盖更新), from a local record of successful clips — checked
+  without any network request, so the "nothing is sent until you clip"
+  disclosure holds. Clip failures now explain themselves: an expired token
+  points at Settings, a wrong repo at the repository fields, instead of raw
+  API error text.
 - The 440×280 small promotional tile the Web Store requires for publishing, and
   16px of transparent padding on the 128px store icon per Chrome's listing
   guidance (toolbar sizes stay full-bleed).

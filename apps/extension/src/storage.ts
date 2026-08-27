@@ -59,3 +59,46 @@ export async function acceptDisclosure(acceptedAt: string): Promise<void> {
 export function needsDisclosure(state: DisclosureState): boolean {
   return state.version < DISCLOSURE_VERSION;
 }
+
+/** Local record of successful clips (slug → ISO timestamp), so the popup can
+ * hint "already clipped" on open without asking GitHub — the disclosure
+ * promises nothing is sent before the Clip click, and a popup-open probe
+ * would break that promise. Blind to clips made on other machines, which is
+ * acceptable for a hint: the clip flow still checks GitHub authoritatively
+ * and a re-clip safely overwrites either way. */
+export type ClipHistory = Record<string, string>;
+
+const HISTORY_KEY = "tiroClipHistory";
+const HISTORY_CAP = 500;
+
+/** Drop the oldest entries past the cap so the record never grows unbounded.
+ * Losing an old entry only costs its hint, nothing else. */
+export function pruneClipHistory(
+  history: ClipHistory,
+  cap = HISTORY_CAP,
+): ClipHistory {
+  const entries = Object.entries(history);
+  if (entries.length <= cap) return history;
+  entries.sort((a, b) => a[1].localeCompare(b[1]));
+  return Object.fromEntries(entries.slice(entries.length - cap));
+}
+
+async function loadClipHistory(): Promise<ClipHistory> {
+  const stored = await chrome.storage.local.get(HISTORY_KEY);
+  return (stored[HISTORY_KEY] ?? {}) as ClipHistory;
+}
+
+export async function recordClip(
+  slug: string,
+  clippedAt: string,
+): Promise<void> {
+  const history = await loadClipHistory();
+  history[slug] = clippedAt;
+  await chrome.storage.local.set({
+    [HISTORY_KEY]: pruneClipHistory(history),
+  });
+}
+
+export async function hasClipped(slug: string): Promise<boolean> {
+  return slug in (await loadClipHistory());
+}

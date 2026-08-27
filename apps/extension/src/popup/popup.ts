@@ -1,17 +1,21 @@
+import { slugForUrl } from "@tiro/shared";
 import { buildClipFile } from "../clip.ts";
 import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
 import { type ClipResultMessage, isClipResult } from "../messages.ts";
 import {
   acceptDisclosure,
+  hasClipped,
   isConfigComplete,
   loadConfig,
   loadDisclosure,
   needsDisclosure,
+  recordClip,
 } from "../storage.ts";
 
 const el = {
   status: document.getElementById("status") as HTMLDivElement,
+  already: document.getElementById("already") as HTMLDivElement,
   disclosure: document.getElementById("disclosure") as HTMLDivElement,
   accept: document.getElementById("accept") as HTMLButtonElement,
   preview: document.getElementById("preview") as HTMLDivElement,
@@ -65,6 +69,17 @@ async function main(): Promise<void> {
     return;
   }
   const tabId = tab.id;
+  const tabUrl = tab.url;
+
+  // Best-effort hint from the local clip record — no network involved, so it
+  // needs no disclosure and runs even before acceptance. The clip flow's own
+  // GitHub lookup stays the authority on overwrite-vs-create.
+  void slugForUrl(tabUrl)
+    .then(hasClipped)
+    .then((clipped) => {
+      el.already.hidden = !clipped;
+    })
+    .catch(() => {});
 
   async function extract(): Promise<void> {
     if (configured) setStatus("Reading page…");
@@ -97,6 +112,7 @@ async function main(): Promise<void> {
       el.clip.disabled = true;
       setStatus("Clipping…");
       try {
+        const clippedAt = new Date().toISOString();
         const file = await buildClipFile({
           url: payload.url,
           title: payload.title,
@@ -104,7 +120,7 @@ async function main(): Promise<void> {
           excerpt: payload.excerpt,
           author: payload.author,
           readabilityFailed: payload.readabilityFailed,
-          clippedAt: new Date().toISOString(),
+          clippedAt,
         });
         // The flat layout makes file.path deterministic; the lookup only
         // supplies the sha that turns the PUT into an overwrite.
@@ -119,6 +135,7 @@ async function main(): Promise<void> {
         setStatus(existing !== null ? "Updated existing clip." : "Clipped.");
         el.view.href = `https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${path}`;
         el.view.hidden = false;
+        await recordClip(file.slug, clippedAt);
       } catch (error) {
         console.error("clip failed:", error);
         setStatus(describeClipError(error), true);
