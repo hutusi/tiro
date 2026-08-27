@@ -22,7 +22,11 @@ const date = frontmatter.clipped_at.slice(0, 10);
 const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
 ---
 
-<Base title={frontmatter.title}>
+<Base
+  title={frontmatter.title}
+  description={frontmatter.summary ?? frontmatter.excerpt}
+  ogType="article"
+>
   <article data-pagefind-body>
     <header
       class="mb-8 border-b border-neutral-200 pb-6 dark:border-neutral-800"

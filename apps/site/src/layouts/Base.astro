@@ -4,10 +4,20 @@ import { STRINGS } from "../lib/strings.ts";
 
 interface Props {
   title?: string;
+  description?: string;
+  ogType?: "website" | "article";
 }
-const { title } = Astro.props;
+const { title, description, ogType = "website" } = Astro.props;
 const pageTitle =
   title === undefined ? STRINGS.siteTitle : `${title} · ${STRINGS.siteTitle}`;
+const rawDescription = description ?? STRINGS.siteDescription;
+// Long article summaries overflow social cards; ~200 chars is plenty.
+const metaDescription =
+  rawDescription.length > 200
+    ? `${rawDescription.slice(0, 197)}…`
+    : rawDescription;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = new URL("/og.png", Astro.site);
 const nav = [
   { href: "/", label: STRINGS.nav.home },
   { href: "/categories/", label: STRINGS.nav.categories },
@@ -25,6 +35,19 @@ const nav = [
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="description" content={metaDescription} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:site_name" content={STRINGS.siteTitle} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={metaDescription} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content="zh_CN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={metaDescription} />
+    <meta name="twitter:image" content={ogImage} />
     <script is:inline>
       const stored = localStorage.getItem("theme");
       if (

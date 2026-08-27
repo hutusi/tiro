@@ -86,6 +86,10 @@ committed, not built:
   180px: the rounded rect blends into the background, giving the full-bleed
   square iOS expects (iOS applies its own corner mask; transparent corners
   would go black).
+- `og.png` — the 1200×630 social card: white background, centered 160px
+  mark, "Tiro" and the tagline, same wrapper technique with
+  `--window-size=1200,630`. Render it on macOS (the tagline needs
+  PingFang SC).
 
 ```sh
 tmp="$(mktemp -d)"

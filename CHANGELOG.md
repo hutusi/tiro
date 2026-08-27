@@ -33,6 +33,9 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 - The site has a favicon and touch icon (the extension's bookmark mark,
   reused) and shows the logo next to the wordmark in the header.
+- Pages carry SEO and social meta: description (article pages use their LLM
+  summary), canonical URL, Open Graph and Twitter cards with a rendered
+  1200×630 site card.
 - The 440×280 small promotional tile the Web Store requires for publishing, and
   16px of transparent padding on the 128px store icon per Chrome's listing
   guidance (toolbar sizes stay full-bleed).
