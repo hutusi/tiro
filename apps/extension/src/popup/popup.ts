@@ -1,4 +1,5 @@
 import { buildClipFile } from "../clip.ts";
+import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
 import { type ClipResultMessage, isClipResult } from "../messages.ts";
 import {
@@ -119,7 +120,8 @@ async function main(): Promise<void> {
         el.view.href = `https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${path}`;
         el.view.hidden = false;
       } catch (error) {
-        setStatus(String(error), true);
+        console.error("clip failed:", error);
+        setStatus(describeClipError(error), true);
         el.clip.disabled = false;
       }
     })(result);

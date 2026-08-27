@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { encodeBase64Utf8, findExistingIndex, putFile } from "../src/github.ts";
+import {
+  encodeBase64Utf8,
+  findExistingIndex,
+  GitHubHttpError,
+  putFile,
+} from "../src/github.ts";
 import type { TiroExtensionConfig } from "../src/storage.ts";
 
 const config: TiroExtensionConfig = {
@@ -117,5 +122,21 @@ describe("putFile", () => {
         async () => new Response("nope", { status: 403 }),
       ),
     ).rejects.toThrow("403");
+  });
+
+  test("failures carry their HTTP status as a typed error", async () => {
+    // The popup maps statuses to friendly messages; that needs the number,
+    // not a string to parse back out of the message.
+    try {
+      await putFile(
+        config,
+        { path: "p", contentBase64: "QQ==", message: "m" },
+        async () => new Response("bad credentials", { status: 401 }),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitHubHttpError);
+      expect((error as GitHubHttpError).status).toBe(401);
+    }
   });
 });
