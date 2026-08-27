@@ -9,10 +9,15 @@ describe("describeClipError", () => {
     ).toBe("GitHub 令牌无效或已过期，请在设置中更新令牌。");
   });
 
-  test("404 points at the repository settings", () => {
-    expect(
-      describeClipError(new GitHubHttpError(404, "committing p failed: 404")),
-    ).toBe("找不到仓库或分支，请检查设置中的仓库名和分支。");
+  test("404 points at the repository settings and token access", () => {
+    // GitHub answers 404 for a private repo the token cannot access, so the
+    // message must name that cause too — the vault is private.
+    const message = describeClipError(
+      new GitHubHttpError(404, "committing p failed: 404"),
+    );
+    expect(message).toContain("仓库名");
+    expect(message).toContain("令牌");
+    expect(message).toContain("私有仓库");
   });
 
   test("403 names both permission and rate-limit causes", () => {

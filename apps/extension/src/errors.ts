@@ -9,7 +9,9 @@ export function describeClipError(error: unknown): string {
       case 401:
         return "GitHub 令牌无效或已过期，请在设置中更新令牌。";
       case 404:
-        return "找不到仓库或分支，请检查设置中的仓库名和分支。";
+        // GitHub deliberately answers 404 (not 403) for a private repo the
+        // token cannot access, so a wrong PAT scope looks identical to a typo.
+        return "找不到仓库或分支：请检查设置中的仓库名和分支，并确认令牌有权访问该仓库（无权访问的私有仓库也会返回 404）。";
       case 403:
         return "GitHub 拒绝了请求（403）：令牌权限不足或已触发频率限制，请稍后再试。";
       default:
