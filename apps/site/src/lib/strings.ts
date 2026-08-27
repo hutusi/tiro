@@ -28,4 +28,5 @@ export const STRINGS = {
     home: "返回首页",
     search: "搜索文章",
   },
+  footer: { privacy: "隐私政策", rss: "RSS 订阅" },
 } as const;

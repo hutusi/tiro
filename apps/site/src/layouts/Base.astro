@@ -114,8 +114,31 @@ const nav = [
     <main class="mx-auto max-w-6xl px-4 py-8">
       <slot />
     </main>
-    <footer class="mx-auto max-w-6xl px-4 py-10 text-sm text-neutral-500">
-      <a href="https://github.com/hutusi/tiro" class="hover:underline">Tiro</a>
+    <footer class="border-t border-neutral-200 dark:border-neutral-800">
+      <div
+        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-neutral-500"
+      >
+        <p class="flex flex-wrap items-center gap-x-2">
+          <span>{STRINGS.siteTitle} · {STRINGS.siteTagline}</span>
+          <span>·</span>
+          <span
+            ><a href="https://hutusi.com" class="hover:underline">hutusi</a> 出品</span
+          >
+          <span>·</span>
+          <span
+            ><a href="https://ainaive.com" class="hover:underline">AI Naive</a> 系列项目</span
+          >
+        </p>
+        <nav class="flex items-center gap-4">
+          <a href="https://github.com/hutusi/tiro" class="hover:underline"
+            >GitHub</a
+          >
+          <a href="/privacy/" class="hover:underline"
+            >{STRINGS.footer.privacy}</a
+          >
+          <a href="/rss.xml" class="hover:underline">{STRINGS.footer.rss}</a>
+        </nav>
+      </div>
     </footer>
     <script is:inline>
       document.getElementById("theme-toggle")?.addEventListener("click", () => {

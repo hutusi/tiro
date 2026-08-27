@@ -43,6 +43,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   third-party content, and feeding training sets is not ours to give.
 - A branded 404 page — links from before the flat-layout migration (ADR
   0007, no redirects) landed on Cloudflare's default error page.
+- A real footer: author ([hutusi.com](https://hutusi.com)) and
+  [AI Naive](https://ainaive.com) attribution, plus GitHub, privacy-policy
+  and RSS links. It was a single bare GitHub link before.
 - The 440×280 small promotional tile the Web Store requires for publishing, and
   16px of transparent padding on the 128px store icon per Chrome's listing
   guidance (toolbar sizes stay full-bleed).
