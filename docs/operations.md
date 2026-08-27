@@ -122,9 +122,12 @@ record itself; don't hand-edit it.
 - The domain is mirrored in `apps/site/astro.config.mjs` (`site:`) for
   absolute-URL generation, and hardcoded in `apps/site/public/robots.txt`
   (the `Sitemap:` line) — keep all three in sync if the domain ever moves.
-- `robots.txt` welcomes search engines and disallows AI-training crawlers
-  by user agent (the site republishes clipped third-party content). New
-  scrapers appear; extend the list as they do.
+- `robots.txt` welcomes search — traditional engines and AI search or
+  user-request agents alike (they cite with links) — and disallows
+  AI-training and bulk-scraping crawlers by user agent (the site republishes
+  clipped third-party content). The line is drawn by what the agent does
+  with the content, not who runs it; new scrapers appear, extend the list
+  as they do.
 
 ## Vault layout migrations
 

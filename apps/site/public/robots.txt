@@ -1,25 +1,22 @@
-# Search engines: welcome.
+# Search is welcome — traditional engines and AI search/user-request agents
+# alike (OAI-SearchBot, ChatGPT-User, Claude-SearchBot, Claude-Web,
+# PerplexityBot, Perplexity-User, meta-externalfetcher, …): they index or
+# fetch on a user's behalf and cite with links, which is what "findable"
+# means. They match the * group below.
 User-agent: *
 Allow: /
 
-# AI-training / bulk-scraping crawlers: no. The site republishes clipped
+# AI-training and bulk-scraping crawlers: no. The site republishes clipped
 # third-party articles and their machine translations; search indexing is
 # fine, feeding training sets is not ours to give.
 User-agent: GPTBot
-User-agent: ChatGPT-User
-User-agent: OAI-SearchBot
 User-agent: CCBot
 User-agent: ClaudeBot
-User-agent: Claude-Web
-User-agent: Claude-SearchBot
 User-agent: anthropic-ai
 User-agent: Google-Extended
 User-agent: Applebot-Extended
-User-agent: PerplexityBot
-User-agent: Perplexity-User
 User-agent: Bytespider
 User-agent: meta-externalagent
-User-agent: meta-externalfetcher
 User-agent: cohere-ai
 User-agent: Diffbot
 User-agent: Amazonbot
