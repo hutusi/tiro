@@ -37,6 +37,21 @@ versions follow the `0.x` line while Tiro is a personal system.
   disclosure holds. Clip failures now explain themselves: an expired token
   points at Settings, a wrong repo at the repository fields, instead of raw
   API error text. `Alt+Shift+C` opens the popup.
+- The site has a favicon and touch icon (the extension's bookmark mark,
+  reused) and shows the logo next to the wordmark in the header.
+- Pages carry SEO and social meta: description (article pages use their LLM
+  summary), canonical URL, Open Graph and Twitter cards with a rendered
+  1200×630 site card.
+- An RSS feed at `/rss.xml` — every clip with its summary and link, so the
+  vault is subscribable from any reader.
+- A sitemap (`/sitemap-index.xml`) and a `robots.txt` that welcomes search
+  engines but disallows AI-training crawlers — the site republishes clipped
+  third-party content, and feeding training sets is not ours to give.
+- A branded 404 page — links from before the flat-layout migration (ADR
+  0007, no redirects) landed on Cloudflare's default error page.
+- A real footer: author ([hutusi.com](https://hutusi.com)) and
+  [AI Naive](https://ainaive.com) attribution, plus GitHub, privacy-policy
+  and RSS links. It was a single bare GitHub link before.
 - The 440×280 small promotional tile the Web Store requires for publishing, and
   16px of transparent padding on the 128px store icon per Chrome's listing
   guidance (toolbar sizes stay full-bleed).
