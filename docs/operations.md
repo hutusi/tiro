@@ -172,7 +172,8 @@ Two decisions worth not relitigating:
   policy also requires.
 - **The "already clipped" hint is local-only by design.** The popup keeps a
   record of successful clips (`tiroClipHistory` in `chrome.storage.local`,
-  slug → timestamp, capped at 500) and checks it on open — it deliberately
+  `owner/repo#branch::slug` → timestamp, capped at 500 — scoped so a vault
+  change cannot surface another vault's clips) and checks it on open — it deliberately
   does *not* ask GitHub, because the disclosure promises nothing is sent
   before the Clip click. The hint is therefore blind to clips made on other
   machines; the clip flow itself still checks GitHub and reports

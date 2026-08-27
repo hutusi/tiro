@@ -7,6 +7,7 @@ import {
   needsDisclosure,
   pruneClipHistory,
   recordClip,
+  type TiroExtensionConfig,
 } from "../src/storage.ts";
 
 const accepted = (version: number): DisclosureState => ({
@@ -68,17 +69,50 @@ describe("clip history", () => {
     },
   };
 
+  const vault: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+
   test("remembers a recorded slug and not others", async () => {
-    await recordClip("example-com-post-12345678", "2026-08-27T00:00:00.000Z");
-    expect(await hasClipped("example-com-post-12345678")).toBe(true);
-    expect(await hasClipped("example-com-other-87654321")).toBe(false);
+    await recordClip(
+      vault,
+      "example-com-post-12345678",
+      "2026-08-27T00:00:00.000Z",
+    );
+    expect(await hasClipped(vault, "example-com-post-12345678")).toBe(true);
+    expect(await hasClipped(vault, "example-com-other-87654321")).toBe(false);
+  });
+
+  test("does not surface another vault's clips", async () => {
+    // Switching owner/repo/branch must not make old clips look present in
+    // the new destination.
+    expect(
+      await hasClipped(
+        { ...vault, repo: "other" },
+        "example-com-post-12345678",
+      ),
+    ).toBe(false);
+    expect(
+      await hasClipped(
+        { ...vault, branch: "dev" },
+        "example-com-post-12345678",
+      ),
+    ).toBe(false);
   });
 
   test("re-recording the same slug updates rather than duplicates", async () => {
-    await recordClip("example-com-post-12345678", "2026-08-28T00:00:00.000Z");
-    const history = store.tiroClipHistory as ClipHistory;
-    expect(history["example-com-post-12345678"]).toBe(
+    await recordClip(
+      vault,
+      "example-com-post-12345678",
       "2026-08-28T00:00:00.000Z",
     );
+    const history = store.tiroClipHistory as ClipHistory;
+    expect(history["o/r#main::example-com-post-12345678"]).toBe(
+      "2026-08-28T00:00:00.000Z",
+    );
+    expect(Object.keys(history)).toHaveLength(1);
   });
 });

@@ -88,17 +88,27 @@ async function loadClipHistory(): Promise<ClipHistory> {
   return (stored[HISTORY_KEY] ?? {}) as ClipHistory;
 }
 
+/** Entries are scoped to the destination vault, so switching owner, repo or
+ * branch cannot surface another vault's clips as hints. */
+function historyKey(config: TiroExtensionConfig, slug: string): string {
+  return `${config.owner}/${config.repo}#${config.branch}::${slug}`;
+}
+
 export async function recordClip(
+  config: TiroExtensionConfig,
   slug: string,
   clippedAt: string,
 ): Promise<void> {
   const history = await loadClipHistory();
-  history[slug] = clippedAt;
+  history[historyKey(config, slug)] = clippedAt;
   await chrome.storage.local.set({
     [HISTORY_KEY]: pruneClipHistory(history),
   });
 }
 
-export async function hasClipped(slug: string): Promise<boolean> {
-  return slug in (await loadClipHistory());
+export async function hasClipped(
+  config: TiroExtensionConfig,
+  slug: string,
+): Promise<boolean> {
+  return historyKey(config, slug) in (await loadClipHistory());
 }
