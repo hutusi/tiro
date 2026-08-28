@@ -35,8 +35,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   (再次剪藏将覆盖更新), from a local record of successful clips — checked
   without any network request, so the "nothing is sent until you clip"
   disclosure holds. Clip failures now explain themselves: an expired token
-  points at Settings, a wrong repo at the repository fields, instead of raw
-  API error text. `Alt+Shift+C` opens the popup.
+  points at Settings, a 404 at the repository fields and the token's access
+  to the (private) vault, instead of raw API error text. `Alt+Shift+C`
+  opens the popup.
 - The site has a favicon and touch icon (the extension's bookmark mark,
   reused) and shows the logo next to the wordmark in the header.
 - Pages carry SEO and social meta: description (article pages use their LLM

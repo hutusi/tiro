@@ -41,4 +41,12 @@ describe("describeClipError", () => {
     // slug derivation); those must not masquerade as network failures.
     expect(describeClipError(new Error("boom"))).toContain("boom");
   });
+
+  test("a TypeError from a plain bug is not called a network failure", () => {
+    // TypeError is also the classic programming-bug exception; only fetch's
+    // "Failed to fetch" means connectivity.
+    const message = describeClipError(new TypeError("x is not a function"));
+    expect(message).not.toContain("网络错误");
+    expect(message).toContain("x is not a function");
+  });
 });
