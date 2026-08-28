@@ -22,7 +22,7 @@ export function describeClipError(error: unknown): string {
   // whose message is exactly "Failed to fetch" in Chromium — the only
   // engine this extension runs in. Other TypeErrors are ordinary bugs and
   // must not masquerade as connectivity problems.
-  if (error instanceof TypeError && error.message.includes("Failed to fetch")) {
+  if (error instanceof TypeError && error.message === "Failed to fetch") {
     return "网络错误：无法连接 GitHub，请检查网络后重试。";
   }
   return `剪藏失败：${String(error)}`;

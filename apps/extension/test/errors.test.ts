@@ -49,4 +49,14 @@ describe("describeClipError", () => {
     expect(message).not.toContain("网络错误");
     expect(message).toContain("x is not a function");
   });
+
+  test("a near-match of fetch's message is not called a network failure", () => {
+    // Chromium's network failure is exactly "Failed to fetch"; a message
+    // that merely starts with it came from somewhere else.
+    const message = describeClipError(
+      new TypeError("Failed to fetch metadata"),
+    );
+    expect(message).not.toContain("网络错误");
+    expect(message).toContain("Failed to fetch metadata");
+  });
 });
