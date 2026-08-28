@@ -23,7 +23,10 @@ describe("describeClipError", () => {
   test("403 names both permission and rate-limit causes", () => {
     // GitHub uses 403 for both; the message must not send the user to
     // regenerate a token that is merely rate-limited.
-    expect(describeClipError(new GitHubHttpError(403, "x"))).toContain("403");
+    const message = describeClipError(new GitHubHttpError(403, "x"));
+    expect(message).toContain("403");
+    expect(message).toContain("权限不足");
+    expect(message).toContain("频率限制");
   });
 
   test("other statuses fall back to a retry message with the status", () => {
