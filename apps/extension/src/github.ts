@@ -2,6 +2,19 @@ import type { TiroExtensionConfig } from "./storage.ts";
 
 const API = "https://api.github.com";
 
+/** A GitHub API failure carrying its HTTP status, so the popup can tell the
+ * user what to do (fix the token, check the repo) instead of echoing raw
+ * error text. The status stays in the message for logs and tests. */
+export class GitHubHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GitHubHttpError";
+  }
+}
+
 export type FetchLike = (
   input: string | URL | Request,
   init?: RequestInit,
@@ -74,7 +87,12 @@ export async function findExistingIndex(
     { headers: headers(config) },
   );
   if (res.status === 404) return null; // first clip of this URL
-  if (!res.ok) throw new Error(`checking ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    throw new GitHubHttpError(
+      res.status,
+      `checking ${path} failed: ${res.status}`,
+    );
+  }
   const file = (await res.json()) as { sha: string };
   return { path, sha: file.sha };
 }
@@ -121,7 +139,8 @@ export async function putFile(
     res = await attempt(sha);
   }
   if (!res.ok) {
-    throw new Error(
+    throw new GitHubHttpError(
+      res.status,
       `committing ${options.path} failed: ${res.status} ${await res.text()}`,
     );
   }

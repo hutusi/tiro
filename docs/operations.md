@@ -159,6 +159,9 @@ window safely). The 0007 migration was
   `chrome://extensions`. Saved settings survive reloads.
 - Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
   prefix), branch `main`, plus the extension PAT.
+- `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
+  extension already claimed it, Chrome leaves it unassigned — rebind at
+  `chrome://extensions/shortcuts`.
 
 ### Data disclosure and the token
 
@@ -174,6 +177,15 @@ Two decisions worth not relitigating:
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
   policy also requires.
+- **The "already clipped" hint is local-only by design.** The popup keeps a
+  record of successful clips (`tiroClipHistory` in `chrome.storage.local`,
+  `owner/repo#branch::slug` → timestamp, capped at 500 — scoped so a vault
+  change cannot surface another vault's clips) and checks it on open — it deliberately
+  does *not* ask GitHub, because the disclosure promises nothing is sent
+  before the Clip click. The hint is therefore blind to clips made on other
+  machines; the clip flow itself still checks GitHub and reports
+  "Updated existing clip." Clearing the record (remove the key, or
+  reinstall) only costs the hints.
 - **The PAT stays in `chrome.storage.local`**, in plaintext. `storage.session`
   is cleared on every browser restart, which would mean re-pasting the token
   daily; and any key the extension could use to encrypt it is reachable by

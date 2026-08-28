@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tiro Clipper",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Clip the current page as Markdown into your Tiro vault on GitHub.",
   "homepage_url": "https://tiro.ainaive.com/",
   "icons": {
@@ -23,6 +23,11 @@
   "options_ui": {
     "page": "src/options/options.html",
     "open_in_tab": true
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+C" }
+    }
   },
   "background": {
     "service_worker": "background.js",

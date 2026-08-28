@@ -1,16 +1,21 @@
+import { slugForUrl } from "@tiro/shared";
 import { buildClipFile } from "../clip.ts";
+import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
 import { type ClipResultMessage, isClipResult } from "../messages.ts";
 import {
   acceptDisclosure,
+  hasClipped,
   isConfigComplete,
   loadConfig,
   loadDisclosure,
   needsDisclosure,
+  recordClip,
 } from "../storage.ts";
 
 const el = {
   status: document.getElementById("status") as HTMLDivElement,
+  already: document.getElementById("already") as HTMLDivElement,
   disclosure: document.getElementById("disclosure") as HTMLDivElement,
   accept: document.getElementById("accept") as HTMLButtonElement,
   preview: document.getElementById("preview") as HTMLDivElement,
@@ -64,6 +69,20 @@ async function main(): Promise<void> {
     return;
   }
   const tabId = tab.id;
+  const tabUrl = tab.url;
+
+  // Best-effort hint from the local clip record. Slug derivation and the
+  // lookup are both local, but it still waits for an accepted disclosure so
+  // the popup does nothing at all before consent. The clip flow's own GitHub
+  // lookup stays the authority on overwrite-vs-create.
+  const showAlreadyClippedHint = (): void => {
+    void slugForUrl(tabUrl)
+      .then((slug) => hasClipped(config, slug))
+      .then((clipped) => {
+        el.already.hidden = !clipped;
+      })
+      .catch(() => {});
+  };
 
   async function extract(): Promise<void> {
     if (configured) setStatus("Reading page…");
@@ -96,6 +115,7 @@ async function main(): Promise<void> {
       el.clip.disabled = true;
       setStatus("Clipping…");
       try {
+        const clippedAt = new Date().toISOString();
         const file = await buildClipFile({
           url: payload.url,
           title: payload.title,
@@ -103,7 +123,7 @@ async function main(): Promise<void> {
           excerpt: payload.excerpt,
           author: payload.author,
           readabilityFailed: payload.readabilityFailed,
-          clippedAt: new Date().toISOString(),
+          clippedAt,
         });
         // The flat layout makes file.path deterministic; the lookup only
         // supplies the sha that turns the PUT into an overwrite.
@@ -118,8 +138,15 @@ async function main(): Promise<void> {
         setStatus(existing !== null ? "Updated existing clip." : "Clipped.");
         el.view.href = `https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${path}`;
         el.view.hidden = false;
+        try {
+          await recordClip(config, file.slug, clippedAt);
+        } catch {
+          // The commit already succeeded; losing the hint record must not
+          // relabel the clip as failed.
+        }
       } catch (error) {
-        setStatus(String(error), true);
+        console.error("clip failed:", error);
+        setStatus(describeClipError(error), true);
         el.clip.disabled = false;
       }
     })(result);
@@ -141,6 +168,7 @@ async function main(): Promise<void> {
           await acceptDisclosure(new Date().toISOString());
           el.disclosure.hidden = true;
           el.clip.hidden = false;
+          showAlreadyClippedHint();
           await extract();
         })();
       },
@@ -149,6 +177,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  showAlreadyClippedHint();
   await extract();
 }
 

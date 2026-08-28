@@ -5,7 +5,7 @@
 // read English.
 import Base from "../layouts/Base.astro";
 
-const updated = "2026-08-26";
+const updated = "2026-08-28";
 ---
 
 <Base title="隐私政策">
@@ -35,6 +35,11 @@ const updated = "2026-08-26";
         也不会上传到除 GitHub 以外的任何服务器。
       </li>
       <li>以及一条记录：你在哪一刻同意了首次弹出的数据说明。</li>
+      <li>
+        还有一份本机的剪藏记录：每次成功剪藏后，记下该页面地址对应的标识
+        （slug）和时间，用于下次打开弹窗时提示「已剪藏过」。这份记录同样只存在
+        <code>chrome.storage.local</code> 中（最多保留 500 条）， 不会发送到任何地方。
+      </li>
     </ul>
 
     <h3>扩展何时读取页面</h3>
@@ -72,7 +77,10 @@ const updated = "2026-08-26";
 
     <h3>如何删除数据</h3>
     <ul>
-      <li>在设置页清空各字段，或直接卸载扩展，本机保存的配置随之删除。</li>
+      <li>
+        在设置页清空各字段可移除保存的配置；卸载扩展则会删除全部本地数据，
+        包括剪藏记录。
+      </li>
       <li>在 GitHub 的设置中撤销该令牌，即可立即失效。</li>
       <li>剪藏的文章保存在你自己的仓库里，由你自行删除。</li>
     </ul>
@@ -106,6 +114,13 @@ const updated = "2026-08-26";
         GitHub.
       </li>
       <li>A record of when you accepted the first-run disclosure.</li>
+      <li>
+        A local record of your clips: after each successful clip, the identifier
+        (slug) derived from the page's address and the time, used to show an
+        "already clipped" hint the next time the popup opens on that page. It
+        also lives only in <code>chrome.storage.local</code> (at most 500 entries)
+        and is never sent anywhere.
+      </li>
     </ul>
 
     <h3>When it reads a page</h3>
@@ -148,8 +163,9 @@ const updated = "2026-08-26";
     <h3>Deleting your data</h3>
     <ul>
       <li>
-        Clear the fields on the options page, or uninstall the extension — the
-        stored settings go with it.
+        Clear the fields on the options page to remove the stored settings;
+        uninstalling the extension deletes all local data, including the clip
+        record.
       </li>
       <li>
         Revoke the token in your GitHub settings to cut off access at once.
