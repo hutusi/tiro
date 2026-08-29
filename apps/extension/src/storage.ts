@@ -123,9 +123,9 @@ export async function recordClip(
   });
 }
 
-export async function hasClipped(
+export async function lastClippedAt(
   config: TiroExtensionConfig,
   slug: string,
-): Promise<boolean> {
-  return historyKey(config, slug) in (await loadClipHistory());
+): Promise<string | null> {
+  return (await loadClipHistory())[historyKey(config, slug)] ?? null;
 }

@@ -1,21 +1,22 @@
 import { GitHubHttpError } from "./github.ts";
+import type { Messages } from "./i18n.ts";
 
-/** Popup-facing failure text: what happened and what to do next. The raw
- * error keeps its detail for the console; the user gets an instruction, not
- * a stack trace. Chinese like the site — the popup's one real user reads it. */
-export function describeClipError(error: unknown): string {
+/** Popup-facing failure text: what happened and what to do next, in the
+ * popup's language. The raw error keeps its detail for the console; the user
+ * gets an instruction, not a stack trace. */
+export function describeClipError(error: unknown, m: Messages): string {
   if (error instanceof GitHubHttpError) {
     switch (error.status) {
       case 401:
-        return "GitHub 令牌无效或已过期，请在设置中更新令牌。";
+        return m.errTokenInvalid;
       case 404:
         // GitHub deliberately answers 404 (not 403) for a private repo the
         // token cannot access, so a wrong PAT scope looks identical to a typo.
-        return "找不到仓库或分支：请检查设置中的仓库名和分支，并确认令牌有权访问该仓库（无权访问的私有仓库也会返回 404）。";
+        return m.errRepoNotFound;
       case 403:
-        return "GitHub 拒绝了请求（403）：令牌权限不足或已触发频率限制，请稍后再试。";
+        return m.errForbidden;
       default:
-        return `GitHub 返回了 ${error.status}，请稍后重试。`;
+        return m.errHttp(error.status);
     }
   }
   // fetch signals network failure (offline, DNS, blocked) as a TypeError
@@ -23,7 +24,7 @@ export function describeClipError(error: unknown): string {
   // engine this extension runs in. Other TypeErrors are ordinary bugs and
   // must not masquerade as connectivity problems.
   if (error instanceof TypeError && error.message === "Failed to fetch") {
-    return "网络错误：无法连接 GitHub，请检查网络后重试。";
+    return m.errNetwork;
   }
-  return `剪藏失败：${String(error)}`;
+  return m.errClipFailed(String(error));
 }
