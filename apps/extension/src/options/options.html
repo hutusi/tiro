@@ -19,13 +19,15 @@
         margin: 14px 0 4px;
         font-weight: 600;
       }
-      input {
+      input,
+      select {
         width: 100%;
         box-sizing: border-box;
         padding: 6px 8px;
         border: 1px solid #d0d7de;
         border-radius: 6px;
         font-size: 14px;
+        background: #fff;
       }
       .hint {
         color: #57606a;
@@ -64,19 +66,25 @@
     </style>
   </head>
   <body>
-    <h1>Tiro Settings</h1>
-    <label for="owner">GitHub owner</label>
+    <h1 id="heading">Tiro Settings</h1>
+    <label id="label-owner" for="owner">GitHub owner</label>
     <input id="owner" placeholder="your GitHub username" autocomplete="off" />
-    <label for="repo">Vault repository</label>
+    <label id="label-repo" for="repo">Vault repository</label>
     <input id="repo" placeholder="your vault repository name" autocomplete="off" />
-    <label for="branch">Branch</label>
+    <label id="label-branch" for="branch">Branch</label>
     <input id="branch" placeholder="main" autocomplete="off" />
-    <label for="token">Fine-grained personal access token</label>
+    <label id="label-token" for="token">Fine-grained personal access token</label>
     <input id="token" type="password" autocomplete="off" />
-    <div class="hint">
+    <div id="token-hint" class="hint">
       Scope the token to the vault repository only, with Contents: Read and
       write. It is stored in chrome.storage.local on this machine.
     </div>
+    <label id="label-language" for="language">Language</label>
+    <select id="language">
+      <option value="auto">Auto (browser language)</option>
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
     <div class="row">
       <button id="save" type="button" class="primary">Save</button>
       <button id="test" type="button">Test connection</button>

@@ -4,6 +4,7 @@ import {
   findExistingIndex,
   GitHubHttpError,
   putFile,
+  testConnection,
 } from "../src/github.ts";
 import type { TiroExtensionConfig } from "../src/storage.ts";
 
@@ -31,6 +32,50 @@ describe("encodeBase64Utf8", () => {
     expect(encodeBase64Utf8(text)).toBe(
       Buffer.from(text, "utf8").toString("base64"),
     );
+  });
+});
+
+describe("testConnection", () => {
+  // Reasons, not prose: the options page phrases the outcome in the user's
+  // language, so the result must stay structured.
+  test("reports a reachable repository by its full name", async () => {
+    expect(
+      await testConnection(config, async () => json(200, { full_name: "o/r" })),
+    ).toEqual({ ok: true, fullName: "o/r" });
+  });
+
+  test("falls back to the configured name when the body has none", async () => {
+    expect(await testConnection(config, async () => json(200, {}))).toEqual({
+      ok: true,
+      fullName: "o/r",
+    });
+  });
+
+  test("distinguishes not-found, bad token, and other statuses", async () => {
+    expect(await testConnection(config, async () => json(404, {}))).toEqual({
+      ok: false,
+      reason: "not_found",
+    });
+    expect(await testConnection(config, async () => json(401, {}))).toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(await testConnection(config, async () => json(500, {}))).toEqual({
+      ok: false,
+      reason: "http",
+      status: 500,
+    });
+  });
+
+  test("a thrown fetch reads as a network failure with its detail", async () => {
+    const result = await testConnection(config, async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: "network",
+      detail: "TypeError: Failed to fetch",
+    });
   });
 });
 
