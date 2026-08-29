@@ -182,7 +182,8 @@ Two decisions worth not relitigating:
   `owner/repo#branch::slug` → timestamp, capped at 500 — scoped so a vault
   change cannot surface another vault's clips) and checks it on open: a match
   makes the status read "Already clipped \<date\> — clipping again updates
-  it." with a Re-clip button. It deliberately does *not* ask GitHub, because
+  it." with a "Re-clip to vault" button. It deliberately does *not* ask GitHub,
+  because
   the disclosure promises nothing is sent before the Clip click. The state is
   therefore blind to clips made on other machines; the clip flow itself still
   checks GitHub and reports "Updated existing clip." Clearing the record

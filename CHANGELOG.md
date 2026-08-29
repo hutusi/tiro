@@ -33,7 +33,7 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 - The popup tells you on open when the current page was already clipped —
   the status reads "Already clipped \<date\> — clipping again updates it."
-  and the button becomes **Re-clip** — from a local record of successful
+  and the button becomes **Re-clip to vault** — from a local record of successful
   clips, checked without any network request, so the "nothing is sent until
   you clip" disclosure holds. Clip failures now explain themselves: an expired token
   points at Settings, a 404 at the repository fields and the token's access

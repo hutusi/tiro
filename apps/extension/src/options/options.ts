@@ -89,16 +89,31 @@ function describeConnection(r: ConnectionTestResult): string {
 }
 
 async function init(): Promise<void> {
-  const config = await loadConfig();
-  input.owner.value = config.owner;
-  input.repo.value = config.repo;
-  input.branch.value = config.branch;
-  input.token.value = config.token;
-  savedLanguage = await loadLanguage();
-  languageSelect.value = savedLanguage;
-  const locale = await getLocale();
-  m = messages(locale);
-  applyText(locale);
+  // Interacting while the stored values are still loading would go wrong in
+  // both directions — a typed value or language pick clobbered by the late
+  // load, or Save persisting a still-empty config — so the form stays inert
+  // until the awaits settle.
+  const controls = [
+    ...Object.values(input),
+    languageSelect,
+    saveButton,
+    testButton,
+  ];
+  for (const control of controls) control.disabled = true;
+  try {
+    const config = await loadConfig();
+    input.owner.value = config.owner;
+    input.repo.value = config.repo;
+    input.branch.value = config.branch;
+    input.token.value = config.token;
+    savedLanguage = await loadLanguage();
+    languageSelect.value = savedLanguage;
+    const locale = await getLocale();
+    m = messages(locale);
+    applyText(locale);
+  } finally {
+    for (const control of controls) control.disabled = false;
+  }
 }
 
 languageSelect.addEventListener("change", () => {
