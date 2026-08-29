@@ -35,6 +35,7 @@ const updated = "2026-08-28";
         也不会上传到除 GitHub 以外的任何服务器。
       </li>
       <li>以及一条记录：你在哪一刻同意了首次弹出的数据说明。</li>
+      <li>你的界面语言选择（自动 / English / 中文）。</li>
       <li>
         还有一份本机的剪藏记录：每次成功剪藏后，记下该页面地址对应的标识
         （slug）和时间，用于下次打开弹窗时提示「已剪藏过」。这份记录同样只存在
@@ -114,10 +115,11 @@ const updated = "2026-08-28";
         GitHub.
       </li>
       <li>A record of when you accepted the first-run disclosure.</li>
+      <li>Your UI language choice (auto / English / 中文).</li>
       <li>
         A local record of your clips: after each successful clip, the identifier
         (slug) derived from the page's address and the time, used to show an
-        "already clipped" hint the next time the popup opens on that page. It
+        "already clipped" status the next time the popup opens on that page. It
         also lives only in <code>chrome.storage.local</code> (at most 500 entries)
         and is never sent anywhere.
       </li>
