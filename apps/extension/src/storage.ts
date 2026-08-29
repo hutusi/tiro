@@ -1,3 +1,5 @@
+import type { LanguageSetting } from "./i18n.ts";
+
 export interface TiroExtensionConfig {
   owner: string;
   repo: string;
@@ -24,6 +26,21 @@ export async function saveConfig(config: TiroExtensionConfig): Promise<void> {
 
 export function isConfigComplete(config: TiroExtensionConfig): boolean {
   return config.owner !== "" && config.repo !== "" && config.token !== "";
+}
+
+/** Kept under its own key for the same reason as the disclosure below: the
+ * options page saves a freshly built config object, which would silently drop
+ * a language preference nested inside it. */
+const LANGUAGE_KEY = "tiroLanguage";
+
+export async function loadLanguage(): Promise<LanguageSetting> {
+  const stored = await chrome.storage.local.get(LANGUAGE_KEY);
+  const value = stored[LANGUAGE_KEY];
+  return value === "en" || value === "zh" ? value : "auto";
+}
+
+export async function saveLanguage(setting: LanguageSetting): Promise<void> {
+  await chrome.storage.local.set({ [LANGUAGE_KEY]: setting });
 }
 
 /** Bump when the disclosure changes what it says about data handling: the Web

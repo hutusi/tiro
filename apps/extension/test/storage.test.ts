@@ -4,9 +4,11 @@ import {
   DISCLOSURE_VERSION,
   type DisclosureState,
   hasClipped,
+  loadLanguage,
   needsDisclosure,
   pruneClipHistory,
   recordClip,
+  saveLanguage,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
 
@@ -114,5 +116,19 @@ describe("clip history", () => {
       "2026-08-28T00:00:00.000Z",
     );
     expect(Object.keys(history)).toHaveLength(1);
+  });
+});
+
+describe("language setting", () => {
+  // Reuses the chrome.storage.local mock installed by the block above.
+  test("defaults to auto when nothing is stored", async () => {
+    expect(await loadLanguage()).toBe("auto");
+  });
+
+  test("round-trips an explicit choice", async () => {
+    await saveLanguage("zh");
+    expect(await loadLanguage()).toBe("zh");
+    await saveLanguage("auto");
+    expect(await loadLanguage()).toBe("auto");
   });
 });
