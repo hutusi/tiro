@@ -34,6 +34,7 @@ const result = document.getElementById("result") as HTMLDivElement;
 
 // Replaced in init() before any user interaction can reach a handler.
 let m = messages("en");
+let savedLanguage: LanguageSetting = "auto";
 
 function currentConfig() {
   return {
@@ -93,7 +94,8 @@ async function init(): Promise<void> {
   input.repo.value = config.repo;
   input.branch.value = config.branch;
   input.token.value = config.token;
-  languageSelect.value = await loadLanguage();
+  savedLanguage = await loadLanguage();
+  languageSelect.value = savedLanguage;
   const locale = await getLocale();
   m = messages(locale);
   applyText(locale);
@@ -104,11 +106,18 @@ languageSelect.addEventListener("change", () => {
   void saveLanguage(setting)
     .then(getLocale)
     .then((locale) => {
+      savedLanguage = setting;
       m = messages(locale);
       applyText(locale);
       // A result phrased in the previous language would be stale; clear it.
       result.textContent = "";
       result.className = "";
+    })
+    .catch((error: unknown) => {
+      // A selector showing a choice that did not stick would be a lie: put
+      // the stored value back and say what happened.
+      languageSelect.value = savedLanguage;
+      show(m.couldNotSave(String(error)), false);
     });
 });
 

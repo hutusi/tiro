@@ -13,6 +13,7 @@ import {
   needsDisclosure,
   recordClip,
 } from "../storage.ts";
+import { countWords } from "../words.ts";
 
 const el = {
   status: document.getElementById("status") as HTMLDivElement,
@@ -76,8 +77,10 @@ async function main(): Promise<void> {
     result = message.payload;
     el.preview.hidden = false;
     el.title.textContent = result.title;
-    const words = result.markdown.split(/\s+/).filter(Boolean).length;
-    el.meta.textContent = m.articleMeta(new URL(result.url).hostname, words);
+    el.meta.textContent = m.articleMeta(
+      new URL(result.url).hostname,
+      countWords(result.markdown),
+    );
     el.warning.hidden = !result.readabilityFailed;
     if (configured) {
       el.clip.disabled = false;
