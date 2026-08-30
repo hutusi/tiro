@@ -111,9 +111,15 @@ async function init(): Promise<void> {
     const locale = await getLocale();
     m = messages(locale);
     applyText(locale);
-  } finally {
-    for (const control of controls) control.disabled = false;
+  } catch (error) {
+    // The fields may still be empty — an enabled Save would let them
+    // overwrite a good stored config — so the form stays inert, but says
+    // why instead of sitting there dead. (m may still be the English
+    // default here; the locale read failed along with everything else.)
+    show(m.couldNotLoad(String(error)), false);
+    return;
   }
+  for (const control of controls) control.disabled = false;
 }
 
 languageSelect.addEventListener("change", () => {
