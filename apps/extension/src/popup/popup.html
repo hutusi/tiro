@@ -43,11 +43,6 @@
         font-size: 11px;
         margin-top: 6px;
       }
-      #already {
-        color: #57606a;
-        font-size: 12px;
-        margin-top: 4px;
-      }
       #disclosure {
         margin: 10px 0;
         padding: 10px;
@@ -111,17 +106,16 @@
   <body>
     <h1>Tiro</h1>
     <div id="status" role="status"></div>
-    <div id="already" hidden>已剪藏过，再次剪藏将覆盖更新。</div>
     <div id="disclosure" hidden>
-      <h2>Before Tiro reads this page</h2>
-      <p>
+      <h2 id="disclosure-title">Before Tiro reads this page</h2>
+      <p id="disclosure-body-1">
         To show you a preview, Tiro reads the open page in your browser — its
         article text, title, and address.
       </p>
-      <p>
-        None of it leaves your browser until you press <b>Clip to vault</b>,
-        which commits it to the GitHub repository you configured. Close this
-        popup without clipping and the result is discarded.
+      <p id="disclosure-body-2">
+        None of it leaves your browser until you press “Clip to vault”, which
+        commits it to the GitHub repository you configured. Close this popup
+        without clipping and the result is discarded.
       </p>
       <button id="accept" type="button">I understand — continue</button>
     </div>

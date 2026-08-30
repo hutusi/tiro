@@ -177,15 +177,22 @@ Two decisions worth not relitigating:
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
   policy also requires.
-- **The "already clipped" hint is local-only by design.** The popup keeps a
+- **The "already clipped" state is local-only by design.** The popup keeps a
   record of successful clips (`tiroClipHistory` in `chrome.storage.local`,
   `owner/repo#branch::slug` → timestamp, capped at 500 — scoped so a vault
-  change cannot surface another vault's clips) and checks it on open — it deliberately
-  does *not* ask GitHub, because the disclosure promises nothing is sent
-  before the Clip click. The hint is therefore blind to clips made on other
-  machines; the clip flow itself still checks GitHub and reports
-  "Updated existing clip." Clearing the record (remove the key, or
-  reinstall) only costs the hints.
+  change cannot surface another vault's clips) and checks it on open: a match
+  makes the status read "Already clipped \<date\> — clipping again updates
+  it." with a "Re-clip to vault" button. It deliberately does *not* ask GitHub,
+  because
+  the disclosure promises nothing is sent before the Clip click. The state is
+  therefore blind to clips made on other machines; the clip flow itself still
+  checks GitHub and reports "Updated existing clip." Clearing the record
+  (remove the key, or reinstall) only costs the already-clipped statuses.
+- **UI language follows the browser, overridable in Settings.** Chrome's
+  `_locales` system cannot honor a per-extension override, so the extension
+  ships its own en/zh message tables (`apps/extension/src/i18n.ts`). The
+  choice lives under its own `tiroLanguage` key (same wipe-on-Save rationale
+  as `tiroDisclosure`) and defaults to `auto` — the browser's UI language.
 - **The PAT stays in `chrome.storage.local`**, in plaintext. `storage.session`
   is cleared on every browser restart, which would mean re-pasting the token
   daily; and any key the extension could use to encrypt it is reachable by

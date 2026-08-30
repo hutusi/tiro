@@ -3,10 +3,12 @@ import {
   type ClipHistory,
   DISCLOSURE_VERSION,
   type DisclosureState,
-  hasClipped,
+  lastClippedAt,
+  loadLanguage,
   needsDisclosure,
   pruneClipHistory,
   recordClip,
+  saveLanguage,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
 
@@ -76,31 +78,33 @@ describe("clip history", () => {
     token: "t",
   };
 
-  test("remembers a recorded slug and not others", async () => {
+  test("remembers a recorded slug's timestamp and not others", async () => {
     await recordClip(
       vault,
       "example-com-post-12345678",
       "2026-08-27T00:00:00.000Z",
     );
-    expect(await hasClipped(vault, "example-com-post-12345678")).toBe(true);
-    expect(await hasClipped(vault, "example-com-other-87654321")).toBe(false);
+    expect(await lastClippedAt(vault, "example-com-post-12345678")).toBe(
+      "2026-08-27T00:00:00.000Z",
+    );
+    expect(await lastClippedAt(vault, "example-com-other-87654321")).toBeNull();
   });
 
   test("does not surface another vault's clips", async () => {
     // Switching owner/repo/branch must not make old clips look present in
     // the new destination.
     expect(
-      await hasClipped(
+      await lastClippedAt(
         { ...vault, repo: "other" },
         "example-com-post-12345678",
       ),
-    ).toBe(false);
+    ).toBeNull();
     expect(
-      await hasClipped(
+      await lastClippedAt(
         { ...vault, branch: "dev" },
         "example-com-post-12345678",
       ),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   test("re-recording the same slug updates rather than duplicates", async () => {
@@ -114,5 +118,19 @@ describe("clip history", () => {
       "2026-08-28T00:00:00.000Z",
     );
     expect(Object.keys(history)).toHaveLength(1);
+  });
+});
+
+describe("language setting", () => {
+  // Reuses the chrome.storage.local mock installed by the block above.
+  test("defaults to auto when nothing is stored", async () => {
+    expect(await loadLanguage()).toBe("auto");
+  });
+
+  test("round-trips an explicit choice", async () => {
+    await saveLanguage("zh");
+    expect(await loadLanguage()).toBe("zh");
+    await saveLanguage("auto");
+    expect(await loadLanguage()).toBe("auto");
   });
 });

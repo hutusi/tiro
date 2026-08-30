@@ -13,7 +13,9 @@ across machines, not for an audience.
 
 - **Name**: Tiro Clipper
 - **Category**: Productivity → Workflow & Planning
-- **Language**: English
+- **Language**: English (listing language; the extension UI itself is
+  bilingual — it follows the browser's UI language, en/zh, with an override
+  in Settings)
 - **Homepage**: <https://tiro.ainaive.com/>
 - **Privacy policy**: <https://tiro.ainaive.com/privacy/>
 
@@ -57,7 +59,7 @@ across machines, not for an audience.
 | --- | --- |
 | `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. It is bundled with the extension; nothing is fetched or evaluated at runtime. |
-| `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers an "already clipped" hint in the popup. All local to the machine. |
+| `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup. All local to the machine. |
 | `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. It is the only host the extension contacts. |
 
 ## Data use declarations
@@ -84,7 +86,7 @@ repository — a declaration that reads narrower than the code is a rejection.
   stored in the article's frontmatter, encoded in its directory name, and
   committed to the user's repository. A slug derived from that URL is also kept
   locally (with a timestamp, at most 500 entries) so the popup can show an
-  "already clipped" hint; that record never leaves the device. Google's
+  "already clipped" status; that record never leaves the device. Google's
   definition covers "the domains or URLs the browser interacts with" and
   publishes no carve-out for a URL the user deliberately saves, so this is
   declared rather than argued.

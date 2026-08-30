@@ -40,29 +40,32 @@ export function encodeBase64Utf8(text: string): string {
   return btoa(binary);
 }
 
+/** Structured so the options page can phrase the outcome in the user's
+ * language; prose does not belong in this layer. */
+export type ConnectionTestResult =
+  | { ok: true; fullName: string }
+  | { ok: false; reason: "not_found" | "unauthorized" }
+  | { ok: false; reason: "http"; status: number }
+  | { ok: false; reason: "network"; detail: string };
+
 export async function testConnection(
   config: TiroExtensionConfig,
   fetchImpl: FetchLike = fetch,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<ConnectionTestResult> {
   try {
     const res = await fetchImpl(`${API}/repos/${config.owner}/${config.repo}`, {
       headers: headers(config),
     });
-    if (res.status === 404)
-      return {
-        ok: false,
-        message: "Repository not found (check name and token scope)",
-      };
-    if (res.status === 401)
-      return { ok: false, message: "Token rejected (401)" };
-    if (!res.ok) return { ok: false, message: `GitHub returned ${res.status}` };
+    if (res.status === 404) return { ok: false, reason: "not_found" };
+    if (res.status === 401) return { ok: false, reason: "unauthorized" };
+    if (!res.ok) return { ok: false, reason: "http", status: res.status };
     const repo = (await res.json()) as { full_name?: string };
     return {
       ok: true,
-      message: `Connected to ${repo.full_name ?? "repository"}`,
+      fullName: repo.full_name ?? `${config.owner}/${config.repo}`,
     };
   } catch (error) {
-    return { ok: false, message: `Network error: ${String(error)}` };
+    return { ok: false, reason: "network", detail: String(error) };
   }
 }
 
