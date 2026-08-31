@@ -18,7 +18,8 @@
   --line: #e8e2d8;
   --line-strong: #d6cec1;
   --accent: #b4452f;
-  --accent-soft: #f6e3dc;
+  /* Light enough that accent-colored text on it clears 4.5:1 AA (4.74). */
+  --accent-soft: #f9ece7;
 }
 
 .dark {

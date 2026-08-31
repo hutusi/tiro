@@ -17,7 +17,7 @@ const tags = (await tagIndex()).sort(
           href={`/tags/${tag.slug}/`}
           class="rounded-full border border-line bg-surface-raised px-3 py-1 text-sm text-ink-muted transition-colors hover:border-line-strong hover:text-accent"
         >
-          #{tag.label} <span class="text-ink-faint">{tag.articles.length}</span>
+          #{tag.label} <span class="text-ink-muted">{tag.articles.length}</span>
         </a>
       ))
     }
