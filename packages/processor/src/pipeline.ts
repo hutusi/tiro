@@ -267,6 +267,7 @@ async function processOne(
       targetLang: config.translation.target,
       blocks: splitBlocks(body),
       batchChars: config.translation.batch_chars,
+      maxBlockChars: config.translation.max_block_chars,
       cache,
       deadline,
       callBudgetMs: config.llm.timeout_ms,

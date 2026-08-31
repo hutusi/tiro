@@ -18,6 +18,9 @@ export interface TranslateOptions {
   targetLang: string;
   blocks: readonly Block[];
   batchChars?: number;
+  /** Blocks longer than this are copied through untranslated — see the config
+   * schema for why a single oversized block cannot be handled any other way. */
+  maxBlockChars?: number;
   /** Checkpoint of blocks an earlier run already translated. Given one,
    * translation resumes instead of restarting, and flushes as it goes. */
   cache?: TranslationCache;
@@ -61,6 +64,7 @@ export async function translateBlocks(
     targetLang,
     blocks,
     batchChars = 10_000,
+    maxBlockChars = 20_000,
     cache,
     deadline = unboundedDeadline(),
     callBudgetMs = 0,
@@ -68,9 +72,18 @@ export async function translateBlocks(
   } = options;
 
   const translated: string[] = blocks.map((b) => b.text);
-  const translatable = blocks
+  const candidates = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => !isVerbatim(block));
+  const translatable = candidates.filter(
+    ({ block }) => block.text.length <= maxBlockChars,
+  );
+  const oversized = candidates.length - translatable.length;
+  if (oversized > 0) {
+    log(
+      `${oversized} block(s) over ${maxBlockChars} chars kept untranslated — too large to send as one request`,
+    );
+  }
 
   // Resume: anything an earlier run already translated is reused as-is and
   // never re-sent, so each run picks up where the last one stopped.
@@ -90,8 +103,14 @@ export async function translateBlocks(
   // Every translation lands in the checkpoint as well as the output, so an
   // abandoned run still hands its work to the next one.
   const record = (item: Todo, text: string): void => {
-    translated[item.index] = text;
-    cache?.set(item.block.text, text);
+    // Trimmed here rather than at the join, because the join also sees blocks
+    // that were never translated. Trimming those strips the leading indent off
+    // an *indented* code block, which then re-parses as a paragraph and fails
+    // the alignment gate — silently costing the article its whole translation
+    // even though the block was never sent anywhere. Verbatim means verbatim.
+    const cleaned = text.trim() || item.block.text;
+    translated[item.index] = cleaned;
+    cache?.set(item.block.text, cleaned);
   };
 
   /**
@@ -145,13 +164,21 @@ export async function translateBlocks(
         log(
           `translating batch ${b + 1}/${batches.length} (${batch.length} block(s))`,
         );
-        const results = await translateBatch(
-          chat,
-          model,
-          targetLang,
-          batch,
-          log,
-        );
+        let results: (string | undefined)[] | null;
+        try {
+          results = await translateBatch(chat, model, targetLang, batch, log);
+        } catch (error) {
+          // A batch that cannot complete gets the same treatment as one whose
+          // markers came back wrong: fall back to per-block. One slow or
+          // oversized request used to end the whole article, and with the
+          // checkpoint resuming at that same batch it would end every future
+          // run too. Per-block requests are far smaller and usually get
+          // through. Budget exhaustion is not a transport fault and must not be
+          // retried block by block — it has to stay a deferral.
+          if (error instanceof DeadlineExceededError) throw error;
+          log(`batch ${b + 1}/${batches.length} failed (${String(error)})`);
+          results = null;
+        }
         if (results === null) {
           log(
             `batch ${b + 1}/${batches.length} falling back to per-block translation`,
@@ -185,10 +212,7 @@ export async function translateBlocks(
   }
 
   const zhBody = joinBlocks(
-    blocks.map((b, i) => ({
-      ...b,
-      text: (translated[i] ?? b.text).trim() || b.text,
-    })),
+    blocks.map((b, i) => ({ ...b, text: translated[i] || b.text })),
   );
   const alignment = checkAlignment([...blocks], splitBlocks(zhBody));
   // The checkpoint is deliberately NOT discarded here. Both outcomes below are

@@ -32,6 +32,16 @@ export const TiroConfigSchema = z.object({
       // output is as long as the input, so batches beyond ~10-30K chars risk
       // truncated responses and slow, expensive batch retries.
       batch_chars: z.number().int().positive().default(10_000),
+      // A single top-level block is never split — it is the unit the 1:1
+      // alignment contract is built on — so a block bigger than this cannot be
+      // batched with anything and would be sent alone, expecting an equally
+      // large response. Past the provider's output cap that request never
+      // succeeds, and the article never gets translated at all. Above this
+      // size a block is copied through untranslated instead, exactly as code
+      // and images already are: one untranslated block beats no translation.
+      // (A 177-entry arXiv bibliography, 47K chars as one list, is the case
+      // this exists for — and not something worth translating anyway.)
+      max_block_chars: z.number().int().positive().default(20_000),
     })
     .prefault({}),
   images: z

@@ -40,6 +40,13 @@ translation:
   # provider's per-request output cap — raise cautiously (e.g. 20000-30000),
   # lower if you see "batch marker mismatch" lines in the workflow log.
   batch_chars: 10000
+  # A single top-level block is never split — it is the unit the 1:1 alignment
+  # contract is built on — so a block bigger than this is sent alone and expects
+  # an equally large response. Past the provider's output cap that request never
+  # succeeds and the article never gets translated at all, so above this size a
+  # block is copied through untranslated instead, as code and images already
+  # are. One untranslated block beats no translation.
+  max_block_chars: 20000
 
 processing:
   # Wall-clock budget for one run, and the reason the workflow's
