@@ -21,6 +21,8 @@ export interface DiscoverOptions {
  * marker (`tiro.processed_at` absent), never by push diffs — idempotent and
  * retry-safe (ADR 0002). Invalid articles are reported, not thrown, so one
  * bad file can't wedge the whole pipeline.
+ *
+ * Returned cheapest-first — see the sort below for why the order matters.
  */
 export async function discoverArticles(
   vaultDir: string,
@@ -55,6 +57,20 @@ export async function discoverArticles(
       invalid.push({ path: indexAbs, error: String(error) });
     }
   }
+
+  // Cheapest first. Translation cost is roughly linear in body length, and a
+  // run has a finite budget: under the old alphabetical order one 170 KB paper
+  // ran first on every push, consumed the entire budget without finishing, and
+  // starved every article behind it — articles that would each have taken two
+  // minutes sat unprocessed for days. Sorting by size cannot prevent a
+  // pathological article from failing, but it does confine the damage to that
+  // article. Slug breaks ties so the order stays deterministic; the comparison
+  // is codepoint-wise rather than locale-aware for the same reason.
+  pending.sort(
+    (a, b) =>
+      a.parsed.body.length - b.parsed.body.length ||
+      (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0),
+  );
 
   return { pending, invalid };
 }
