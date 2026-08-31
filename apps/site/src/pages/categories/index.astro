@@ -9,16 +9,16 @@ const categories = (await categoryIndex()).sort(
 ---
 
 <Base title={STRINGS.categories.title}>
-  <h1 class="mb-6 text-xl font-bold">{STRINGS.categories.title}</h1>
+  <h1 class="mb-8 font-serif text-2xl font-bold">{STRINGS.categories.title}</h1>
   <div class="flex flex-wrap gap-3">
     {
       categories.map((category) => (
         <a
           href={`/categories/${category.slug}/`}
-          class="rounded-lg border border-neutral-200 px-4 py-2 text-sm hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
+          class="rounded-lg border border-line bg-surface-raised px-4 py-2 text-sm transition-colors hover:border-line-strong hover:text-accent"
         >
           {category.label}{" "}
-          <span class="text-neutral-500">({category.articles.length})</span>
+          <span class="text-ink-muted">({category.articles.length})</span>
         </a>
       ))
     }
