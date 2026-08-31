@@ -431,3 +431,98 @@ describe("translateBlocks checkpointing", () => {
     expect(existsSync(path)).toBe(true); // and there really is progress saved
   });
 });
+
+describe("translateBlocks fidelity", () => {
+  test("an indented code block survives byte-identically", async () => {
+    // Regression: the join used to trim every block, including ones never sent
+    // anywhere. That strips the four-space indent off an indented code block,
+    // which re-parses as a paragraph and fails the alignment gate — so a real
+    // article lost its whole translation over a block nothing had touched.
+    const source = [
+      "A paragraph.",
+      "",
+      "    ![](./assets/cad4b351ef84.avif)",
+      "",
+      "Another paragraph.",
+    ].join("\n");
+    const src = splitBlocks(source);
+    expect(src[1]?.type).toBe("code"); // indented, not fenced
+
+    const zh = await translateBlocks({
+      chat: makeFakeChat(),
+      model: "m",
+      targetLang: "zh",
+      blocks: src,
+    });
+    expect(zh).not.toBeNull();
+    const out = splitBlocks(zh ?? "");
+    expect(out.map((b) => b.type)).toEqual(src.map((b) => b.type));
+    expect(out[1]?.text).toBe(src[1]?.text); // indent intact
+  });
+
+  test("a batch that fails in transport falls back to per-block", async () => {
+    // One slow or oversized batch used to end the article, and with the
+    // checkpoint resuming at that same batch it would end every later run too.
+    let batchAttempts = 0;
+    const fallback = makeFakeChat();
+    const chat: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      if (user.includes("<<<TIRO_BLOCK_")) {
+        batchAttempts += 1;
+        throw new Error("HTTP 502 from the provider");
+      }
+      return fallback(request);
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks,
+    });
+    expect(batchAttempts).toBeGreaterThan(0);
+    expect(zh).not.toBeNull();
+    expect(splitBlocks(zh ?? "")[1]?.text).toBe("中文：First paragraph.");
+  });
+
+  test("budget exhaustion is not retried block by block", async () => {
+    // The fallback must not apply to a deferral: retrying per-block would
+    // spend budget the run has already run out of.
+    const chat: ChatFn = async () => {
+      throw new DeadlineExceededError("a chat completions request", -1);
+    };
+    await expect(
+      translateBlocks({ chat, model: "m", targetLang: "zh", blocks }),
+    ).rejects.toThrow(DeadlineExceededError);
+  });
+
+  test("a block too large to send is kept untranslated rather than blocking", async () => {
+    // A single top-level block is never split — it is the unit alignment is
+    // built on — so an oversized one would be sent alone and never succeed.
+    // A 47K-char arXiv bibliography is the real case.
+    const huge = Array.from(
+      { length: 400 },
+      (_, i) => `-   Reference ${i}`,
+    ).join("\n");
+    const src = splitBlocks(`Intro paragraph.\n\n${huge}\n\nOutro paragraph.`);
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: makeFakeChat({
+        onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+      }),
+      model: "m",
+      targetLang: "zh",
+      blocks: src,
+      maxBlockChars: 2_000,
+    });
+
+    expect(zh).not.toBeNull();
+    const out = splitBlocks(zh ?? "");
+    expect(out.map((b) => b.type)).toEqual(src.map((b) => b.type));
+    // Passed through exactly, and never sent.
+    expect(out[1]?.text).toBe(src[1]?.text);
+    expect(seen.join("\n")).not.toContain("Reference 399");
+    // The surrounding blocks still translate.
+    expect(out[0]?.text).toBe("中文：Intro paragraph.");
+  });
+});

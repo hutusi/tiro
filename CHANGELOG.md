@@ -9,6 +9,22 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An indented code block no longer costs an article its whole translation.**
+  The block join trimmed every block, including ones never sent to the model.
+  That strips the four-space indent off an indented code block, which re-parses
+  as a paragraph, fails the 1:1 alignment gate, and drops the translation for
+  the entire article — over a block nothing had touched. Both LLM paths already
+  trimmed their own output, so the join-level trim was redundant as well as
+  harmful.
+- **A batch that fails in transport now falls back to per-block translation**,
+  the same as one whose markers came back wrong. A single slow batch used to end
+  the article; once checkpoints made the next run resume at exactly that batch,
+  it would have ended every later run too.
+- **A block too large to send is kept untranslated instead of blocking the
+  article** (`translation.max_block_chars`, default 20000). A top-level block is
+  never split, so an oversized one is sent alone and expects an equally large
+  response — past the provider's output cap it simply never succeeds. A 177-entry
+  arXiv bibliography, 47K chars as one list, is the case this exists for.
 - **One oversized article no longer starves the processing queue.** A 170 KB
   clip needed 14 sequential translation batches and could not finish inside the
   job's 30-minute cap; because translation kept no state, every retry restarted

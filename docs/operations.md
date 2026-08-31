@@ -56,6 +56,18 @@ endpoint works.
   cap — raise cautiously; lower it if the log shows repeated
   "batch marker mismatch" lines. A slow run's log shows per-batch progress and
   per-attempt summary failures.
+- **Oversized blocks.** `translation.max_block_chars` (default 20000) is not a
+  batching knob: a top-level block is the unit alignment is built on and is
+  never split, so a block bigger than this would be sent alone and expect an
+  equally large response. Above it the block is copied through untranslated and
+  the log says how many — look for `block(s) over N chars kept untranslated`.
+  The case it exists for is a long reference list (an arXiv bibliography ran to
+  47K chars as a single list), which is not worth translating anyway.
+- **A batch that fails in transport falls back to per-block**, the same as one
+  whose markers came back wrong — `batch N/M failed (…)` then
+  `falling back to per-block translation`. Slower, but a single slow batch no
+  longer ends the article, which mattered once checkpoints made the next run
+  resume at exactly that batch.
 - **Run budget and long articles** (ADR 0008). `processing.run_budget_ms`
   (default 50 min) is a wall-clock budget the processor enforces itself, sitting
   under the job's `timeout-minutes: 60`. Pending articles are processed
