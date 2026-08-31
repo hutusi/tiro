@@ -13,7 +13,11 @@ import {
 import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
 import { processImages, reconcileAssets } from "./images.ts";
 import { detectLang } from "./language.ts";
-import { loadTranslationCache, TRANSLATION_CACHE_FILE } from "./llm/cache.ts";
+import {
+  discardTranslationCache,
+  loadTranslationCache,
+  TRANSLATION_CACHE_FILE,
+} from "./llm/cache.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import { summarize } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
@@ -238,10 +242,14 @@ async function processOne(
     // it would make the one case that needs resuming — an article too long to
     // finish in a single run — impossible to retry. Changing the model in
     // tiro.yml invalidates it automatically; delete the file for a clean redo.
-    const cache = await loadTranslationCache(cacheAbs, {
-      target: config.translation.target,
-      model: modelFor(config, "translation"),
-    });
+    const cache = await loadTranslationCache(
+      cacheAbs,
+      {
+        target: config.translation.target,
+        model: modelFor(config, "translation"),
+      },
+      log,
+    );
     const zhBody = await translateBlocks({
       chat: deps.chat,
       model: modelFor(config, "translation"),
@@ -293,13 +301,6 @@ async function processOne(
     },
   };
   await Bun.write(article.indexAbs, stringifyArticle(updated, body));
-  // Only now is the article durable, so only now may the checkpoint go. Doing
-  // it when translation finished would open a window — zh.md and index.md still
-  // unwritten — where a kill loses all of the translated blocks and leaves the
-  // article pending anyway. Covers every branch above: a finished translation,
-  // a misaligned one (whose blocks must not be resumed, or the misalignment
-  // repeats forever), and an article that turned out to need none.
-  await rm(cacheAbs, { force: true });
   // The article is done the moment this lands. Recording it before cleaning up
   // matters: reconciliation used to run first, so a failure there reported the
   // article as "left pending" while it was already marked processed on disk —
@@ -309,6 +310,14 @@ async function processOne(
   // Only now, and never fatally: everything above can throw, and the workflow
   // commits whatever is on disk, so deleting against a body that was never
   // written would drop files the committed article still points at.
+  //
+  // The checkpoint goes here for the same reason, and only now is it safe to:
+  // dropping it when translation finished would open a window — zh.md and
+  // index.md still unwritten — where a kill loses every translated block and
+  // leaves the article pending anyway. One call covers every branch: a finished
+  // translation, a misaligned one (whose blocks must not be resumed, or the
+  // misalignment repeats forever), and an article that needed none.
+  await discardCheckpointQuietly(cacheAbs, log);
   report.imagesPruned += await reconcileQuietly(
     `${article.dirAbs}/assets`,
     body,
@@ -352,6 +361,23 @@ async function markPending(
     stringifyArticle({ ...frontmatter, tiro }, body),
   );
   log(`${article.slug}: forced reprocess deferred, returned to pending`);
+}
+
+/** Housekeeping, like reconciliation below, and never fatal for the same
+ * reason: by the time it runs the article is written and recorded, so a throw
+ * here would be caught by the caller and rewrite a success into a failure. That
+ * is not merely a wrong report — the handler reconciles assets against the
+ * pre-download body, which references none of the downloaded files, so every
+ * image would be deleted while the committed index.md still points at them. */
+async function discardCheckpointQuietly(
+  cacheAbs: string,
+  log: (message: string) => void,
+): Promise<void> {
+  try {
+    await discardTranslationCache(cacheAbs);
+  } catch (error) {
+    log(`could not remove checkpoint ${cacheAbs}: ${String(error)}`);
+  }
 }
 
 /** Reconciliation is housekeeping and must never change an article's outcome,

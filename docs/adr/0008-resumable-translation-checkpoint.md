@@ -55,6 +55,14 @@ hands its work to the next one.
   matters for the opposite reason: resuming from the very blocks that broke the
   contract would reproduce the failure on every future retry and make a
   recoverable fault permanent.
+- **Never the reason an article fails.** Reading it, writing it, and removing it
+  are all non-fatal: a checkpoint that cannot be loaded, flushed, or deleted
+  costs resumability and nothing else. Removal in particular runs *after* the
+  article is recorded as processed, never between the `index.md` write and the
+  record — a throw in that gap reaches the pipeline's per-article handler, which
+  reports a finished article as pending (it keeps `processed_at`, so it never
+  retries) and reconciles assets against the pre-download body, deleting every
+  image the just-committed `index.md` points at.
 - **Written atomically**, to a sibling `.tmp` that is then renamed over the
   target. `timeout-minutes` kills the job outright, and a kill partway through
   overwriting the live file leaves truncated JSON that the next run reads as

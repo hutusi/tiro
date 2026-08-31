@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -750,5 +751,51 @@ describe("run budget", () => {
         ).frontmatter,
       ),
     ).toBe(true);
+  });
+  test("a failing checkpoint cleanup cannot turn a finished article into a failure", async () => {
+    // The window: index.md is written and durable, but the article is not yet
+    // recorded. A throw here reaches the outer catch, which reports the article
+    // as pending — while it carries processed_at on disk, so it never retries —
+    // and reconciles assets against the pre-download body, which references
+    // none of the downloaded files. Every image would be deleted while the
+    // committed index.md still points at them.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    // rm() without `recursive` throws on a directory, so this is a real
+    // cleanup failure rather than a mocked one.
+    const cachePath = join(vault, "articles", RAW, TRANSLATION_CACHE_FILE);
+    mkdirSync(join(cachePath, "wedged"), { recursive: true });
+
+    const report = await runPipeline({ vaultDir: vault }, config, deps);
+
+    expect(report.errored).toEqual([]);
+    expect(report.processed).toEqual([RAW]);
+    // The article is finished, and its translation is still there.
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(frontmatter)).toBe(false);
+    expect(existsSync(join(vault, "articles", RAW, "zh.md"))).toBe(true);
+  });
+
+  test("an article already in the target language clears staging debris", async () => {
+    // It never loads a checkpoint, so nothing else would clean a killed run's
+    // .tmp — and the workflow's `git add -A` would commit it.
+    const vault = freshVault();
+    const CN = "example-cn-posts-ai-times-0d21367e";
+    const cachePath = join(vault, "articles", CN, TRANSLATION_CACHE_FILE);
+    writeFileSync(cachePath, '{"version":1}');
+    writeFileSync(`${cachePath}.tmp`, '{ "version": 1, "blocks": { "trunc');
+
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: CN },
+      config,
+      deps,
+    );
+
+    expect(report.processed).toEqual([CN]);
+    expect(existsSync(cachePath)).toBe(false);
+    expect(existsSync(`${cachePath}.tmp`)).toBe(false);
   });
 });

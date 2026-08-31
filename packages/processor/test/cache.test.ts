@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   statSync,
@@ -168,5 +169,21 @@ describe("loadTranslationCache", () => {
       );
       expect((await loadTranslationCache(path, header)).restored).toBe(0);
     }
+  });
+  test("an unwritable checkpoint path costs resumability, not the article", async () => {
+    // Same contract as a corrupt checkpoint on read: this is an optimisation.
+    // Throwing here would fail an article mid-translation over a file it does
+    // not need, and keep failing it while the path stays unwritable.
+    const path = cachePath();
+    mkdirSync(join(`${path}.tmp`, "wedged"), { recursive: true });
+    const logged: string[] = [];
+    const cache = await loadTranslationCache(path, header, (m) =>
+      logged.push(m),
+    );
+    cache.set("Hello.", "你好。");
+    await cache.flush(); // must not throw
+    expect(logged.join("\n")).toContain("could not write checkpoint");
+    // In-memory state still serves this run, it just will not survive it.
+    expect(cache.get("Hello.")).toBe("你好。");
   });
 });

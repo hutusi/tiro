@@ -31,6 +31,15 @@ export const TRANSLATION_CACHE_FILE = ".tiro-zh-cache.json";
  * workflow's `git add -A` commits. */
 const tmpPathFor = (pathAbs: string): string => `${pathAbs}.tmp`;
 
+/** Remove a checkpoint and any staging file beside it, without loading it
+ * first. The pipeline needs this on every branch — including an article that
+ * turned out to need no translation, which never loads a cache and so would
+ * otherwise leave a killed run's `.tmp` for `git add -A` to commit. */
+export async function discardTranslationCache(pathAbs: string): Promise<void> {
+  await rm(pathAbs, { force: true });
+  await rm(tmpPathFor(pathAbs), { force: true });
+}
+
 interface CacheFile {
   version: number;
   target: string;
@@ -62,6 +71,7 @@ function keyFor(blockText: string): string {
 export async function loadTranslationCache(
   pathAbs: string,
   header: CacheHeader,
+  log: (message: string) => void = () => {},
 ): Promise<TranslationCache> {
   let blocks: Record<string, string> = {};
   try {
@@ -93,7 +103,13 @@ export async function loadTranslationCache(
   }
   // A staging file here is debris from a run killed mid-write. The rename
   // below never happened, so it holds nothing the checkpoint does not.
-  await rm(tmpPathFor(pathAbs), { force: true });
+  // Non-fatal like everything else here: loading a checkpoint must never be
+  // the reason an article fails.
+  try {
+    await rm(tmpPathFor(pathAbs), { force: true });
+  } catch (error) {
+    log(`could not clear checkpoint staging file: ${String(error)}`);
+  }
 
   const restored = Object.keys(blocks).length;
   let dirty = false;
@@ -122,15 +138,23 @@ export async function loadTranslationCache(
       // for. rename(2) within a directory is atomic: readers see the old
       // checkpoint or the new one, never half of either.
       const tmpAbs = tmpPathFor(pathAbs);
-      await Bun.write(tmpAbs, `${JSON.stringify(file, null, 2)}\n`);
-      await rename(tmpAbs, pathAbs);
-      dirty = false;
+      try {
+        await Bun.write(tmpAbs, `${JSON.stringify(file, null, 2)}\n`);
+        await rename(tmpAbs, pathAbs);
+        dirty = false;
+      } catch (error) {
+        // Same contract as the loader above: the checkpoint is an optimisation,
+        // so a checkpoint that cannot be written costs resumability and nothing
+        // else. Letting it throw would fail an article mid-translation over a
+        // file it does not need — and leave it failing on every later run for
+        // as long as the path stays unwritable.
+        log(`could not write checkpoint ${pathAbs}: ${String(error)}`);
+      }
     },
     async discard() {
       blocks = {};
       dirty = false;
-      await rm(pathAbs, { force: true });
-      await rm(tmpPathFor(pathAbs), { force: true });
+      await discardTranslationCache(pathAbs);
     },
   };
 }
