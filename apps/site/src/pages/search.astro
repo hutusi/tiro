@@ -34,6 +34,12 @@ import { STRINGS } from "../lib/strings.ts";
     color: inherit;
     border-radius: 2px;
   }
+  /* Pagefind's stylesheet sets `outline: revert`, resurrecting the UA blue
+     focus ring past our layered base rule — reclaim it for the accent. */
+  #search input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 </style>
 
 <script is:inline>
