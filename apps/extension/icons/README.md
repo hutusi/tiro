@@ -93,6 +93,7 @@ committed, not built:
   PingFang SC).
 
 ```sh
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 tmp="$(mktemp -d)"
 cat > "$tmp/apple-touch-icon.html" <<HTML
 <!doctype html><meta charset="utf-8">
