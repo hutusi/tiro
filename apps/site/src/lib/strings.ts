@@ -30,3 +30,9 @@ export const STRINGS = {
   },
   footer: { privacy: "隐私政策", rss: "RSS 订阅" },
 } as const;
+
+/** "2026-08" → "2026 年 8 月" (spaces per CJK–Latin spacing convention). */
+export function monthLabel(month: string): string {
+  const [year, m] = month.split("-");
+  return `${year} 年 ${Number(m)} 月`;
+}
