@@ -55,6 +55,10 @@ export interface CacheHeader {
 export interface TranslationCache {
   /** Number of blocks restored from disk at load time. */
   readonly restored: number;
+  /** The error from the most recent failed write, or undefined while writes
+   * succeed. Set means this checkpoint holds no durable progress, so a caller
+   * about to rely on resuming from it must not pretend otherwise. */
+  readonly writeError: unknown;
   get(blockText: string): string | undefined;
   set(blockText: string, translation: string): void;
   /** Write pending entries. Called after every batch, so a hard kill costs at
@@ -113,9 +117,13 @@ export async function loadTranslationCache(
 
   const restored = Object.keys(blocks).length;
   let dirty = false;
+  let writeError: unknown;
 
   return {
     restored,
+    get writeError() {
+      return writeError;
+    },
     get(blockText) {
       return blocks[keyFor(blockText)];
     },
@@ -142,12 +150,14 @@ export async function loadTranslationCache(
         await Bun.write(tmpAbs, `${JSON.stringify(file, null, 2)}\n`);
         await rename(tmpAbs, pathAbs);
         dirty = false;
+        writeError = undefined;
       } catch (error) {
-        // Same contract as the loader above: the checkpoint is an optimisation,
-        // so a checkpoint that cannot be written costs resumability and nothing
-        // else. Letting it throw would fail an article mid-translation over a
-        // file it does not need — and leave it failing on every later run for
-        // as long as the path stays unwritable.
+        // Not thrown, but not forgotten either. Failing here would kill an
+        // article that may have no use for a checkpoint at all — one that fits
+        // in a single run never reads it back. But an article that does not fit
+        // depends on it entirely, so the failure is recorded and the caller
+        // must consult `writeError` before claiming a resumable stop.
+        writeError = error;
         log(`could not write checkpoint ${pathAbs}: ${String(error)}`);
       }
     },

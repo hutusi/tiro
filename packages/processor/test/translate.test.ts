@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { splitBlocks } from "@tiro/shared";
@@ -306,6 +306,55 @@ describe("translateBlocks checkpointing", () => {
         blocks: { [`${"a".repeat(64)}`]: 42 },
       }),
     );
+    const zh = await translateBlocks({
+      chat: makeFakeChat(),
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      cache: await loadTranslationCache(path, header),
+    });
+    expect(zh).not.toBeNull();
+    expect(splitBlocks(zh ?? "")[1]?.text).toBe("中文：First paragraph.");
+  });
+  test("refuses to call it a deferral when nothing could be checkpointed", async () => {
+    // The budget stop is the moment the run starts depending on the checkpoint.
+    // Reporting an orderly "resuming next run" with nothing on disk would have
+    // the next run repeat these same batches, and the one after that, while the
+    // log showed steady progress.
+    const path = cachePath();
+    mkdirSync(join(`${path}.tmp`, "wedged"), { recursive: true });
+
+    let clock = 0;
+    const deadline = createDeadline(100, () => clock);
+    const chat: ChatFn = async (request) => {
+      clock += 60;
+      return makeFakeChat()(request);
+    };
+
+    const error = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: manyBlocks,
+      batchChars: 1,
+      cache: await loadTranslationCache(path, header),
+      deadline,
+    }).catch((e) => e);
+
+    // A hard fault, not a budget deferral: the pipeline books the former as an
+    // error and never claims the article will resume.
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DeadlineExceededError);
+    expect(String(error)).toContain("cannot resume");
+    expect(String(error)).toContain("checkpoint could not be written");
+  });
+
+  test("an article that finishes in one run does not care that writes failed", async () => {
+    // The other half of the rule: a checkpoint is only load-bearing for work
+    // that has to survive the run. This article never reads it back, so an
+    // unwritable path must not fail it.
+    const path = cachePath();
+    mkdirSync(join(`${path}.tmp`, "wedged"), { recursive: true });
     const zh = await translateBlocks({
       chat: makeFakeChat(),
       model: "m",

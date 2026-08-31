@@ -55,11 +55,20 @@ hands its work to the next one.
   matters for the opposite reason: resuming from the very blocks that broke the
   contract would reproduce the failure on every future retry and make a
   recoverable fault permanent.
-- **Never the reason an article fails.** Reading it, writing it, and removing it
-  are all non-fatal: a checkpoint that cannot be loaded, flushed, or deleted
-  costs resumability and nothing else. Removal in particular runs *after* the
-  article is recorded as processed, never between the `index.md` write and the
-  record — a throw in that gap reaches the pipeline's per-article handler, which
+- **A checkpoint failure may cost only resumability — so it may be swallowed
+  only while resumability is not being relied on.** Reading, writing, and
+  removing are non-fatal, because an article that fits in one run never reads
+  its checkpoint back and must not be failed over a file it does not need. But
+  the budget stop is exactly where the run *does* rely on it: deferring an
+  article whose checkpoint could not be written promises a resumption that
+  cannot happen, and the next run repeats the identical batches while the log
+  reports orderly progress. So a deferral consults the recorded write error
+  first and surfaces a hard failure instead of a resumable stop. (An earlier
+  revision made writes flatly non-fatal on the grounds that a checkpoint "costs
+  resumability and nothing else" — self-refuting, since resumability is the
+  whole point for the only articles that need one.) Removal in particular runs
+  *after* the article is recorded as processed, never between the `index.md`
+  write and the record — a throw in that gap reaches the pipeline's per-article handler, which
   reports a finished article as pending (it keeps `processed_at`, so it never
   retries) and reconciles assets against the pre-download body, deleting every
   image the just-committed `index.md` points at.

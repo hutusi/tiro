@@ -185,5 +185,18 @@ describe("loadTranslationCache", () => {
     expect(logged.join("\n")).toContain("could not write checkpoint");
     // In-memory state still serves this run, it just will not survive it.
     expect(cache.get("Hello.")).toBe("你好。");
+    // Recorded, so a caller about to defer can tell there is nothing to resume
+    // from — swallowing this silently is what let an oversized article repeat
+    // the same batches every run while the log claimed progress.
+    expect(cache.writeError).toBeDefined();
+  });
+
+  test("writeError stays clear while writes succeed", async () => {
+    const path = cachePath();
+    const cache = await loadTranslationCache(path, header);
+    expect(cache.writeError).toBeUndefined();
+    cache.set("Hello.", "你好。");
+    await cache.flush();
+    expect(cache.writeError).toBeUndefined();
   });
 });

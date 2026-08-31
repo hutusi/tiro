@@ -130,8 +130,11 @@ export async function runPipeline(
       if (outOfBudget) {
         await markPending(article, options, log);
         report.skipped.push(article.slug);
+        // Naming the error matters: DeadlineExceededError carries the fault
+        // observed as the budget ran out, so a deferral actually caused by a
+        // 403 or a stuck provider says so here instead of reading as routine.
         log(
-          `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved`,
+          `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved: ${String(error)}`,
         );
       } else {
         // A hard failure (LLM outage, provider 403, disk error) must not kill

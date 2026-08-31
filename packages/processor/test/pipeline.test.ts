@@ -798,4 +798,67 @@ describe("run budget", () => {
     expect(existsSync(cachePath)).toBe(false);
     expect(existsSync(`${cachePath}.tmp`)).toBe(false);
   });
+  test("an unwritable checkpoint is reported as a fault, not as resumable progress", async () => {
+    // The reviewer's repro: two runs, identical LLM calls, no checkpoint — and
+    // both reporting an orderly deferral. The repetition is unavoidable with
+    // nowhere to persist to; claiming it is progress is not, and it is what
+    // hides a permanently stuck article behind a healthy-looking log.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    mkdirSync(
+      join(vault, "articles", BIG, `${TRANSLATION_CACHE_FILE}.tmp`, "x"),
+      {
+        recursive: true,
+      },
+    );
+
+    let clock = 0;
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+      log: (m) => logged.push(m),
+    });
+
+    expect(report.skipped).toEqual([]);
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.slug).toBe(BIG);
+    expect(report.errored[0]?.error).toContain("cannot resume");
+    // The false reassurance must be gone from the log entirely.
+    expect(logged.join("\n")).not.toContain("checkpoint saved");
+    expect(
+      needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+        ).frontmatter,
+      ),
+    ).toBe(true);
+  });
+
+  test("the budget-deferral log names what actually stopped the run", async () => {
+    // DeadlineExceededError carries the fault observed as the budget ran out;
+    // without it in the log that diagnosis lives only in the unit tests.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+      log: (m) => logged.push(m),
+    });
+
+    expect(report.skipped).toEqual([BIG]);
+    const line = logged.find((m) =>
+      m.includes("run budget exhausted mid-article"),
+    );
+    expect(line).toBeDefined();
+    expect(line).toContain("run budget exhausted before");
+  });
 });

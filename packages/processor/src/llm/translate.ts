@@ -90,6 +90,30 @@ export async function translateBlocks(
     cache?.set(item.block.text, text);
   };
 
+  /**
+   * Stop on the run budget — but only call it a deferral if the work will
+   * actually be there next time.
+   *
+   * A checkpoint that cannot be written is harmless right up to this line: an
+   * article that fits in one run never reads it back. Here it stops being
+   * harmless, because deferring is the moment the run starts depending on it.
+   * Reporting an orderly "resuming next run" with nothing persisted would have
+   * the next run repeat these same batches, and the one after that, while the
+   * log shows steady progress. Fail loudly instead — a plain Error, so the
+   * pipeline books it as the genuine fault it is rather than as a skip.
+   */
+  const stopIfOutOfBudget = (what: string): void => {
+    if (!deadline.expired(callBudgetMs)) return;
+    const writeError = cache?.writeError;
+    if (writeError !== undefined) {
+      throw new Error(
+        `run budget exhausted at ${what}, but the checkpoint could not be written, ` +
+          `so this article cannot resume and would repeat this work every run: ${String(writeError)}`,
+      );
+    }
+    deadline.check(callBudgetMs, what);
+  };
+
   // A sentinel collision in the source would corrupt batch parsing.
   const collision = todo.some(({ block }) =>
     block.text.includes(`<<<${MARKER}`),
@@ -98,7 +122,7 @@ export async function translateBlocks(
   if (collision) {
     log("sentinel collision in source; translating block-by-block");
     for (const item of todo) {
-      deadline.check(callBudgetMs, `block ${item.index}`);
+      stopIfOutOfBudget(`block ${item.index}`);
       record(item, await translateSingle(chat, model, targetLang, item.block));
       await cache?.flush();
     }
@@ -107,7 +131,7 @@ export async function translateBlocks(
     for (let b = 0; b < batches.length; b += 1) {
       const batch = batches[b];
       if (batch === undefined) continue;
-      deadline.check(callBudgetMs, `batch ${b + 1}/${batches.length}`);
+      stopIfOutOfBudget(`batch ${b + 1}/${batches.length}`);
       log(
         `translating batch ${b + 1}/${batches.length} (${batch.length} block(s))`,
       );
@@ -127,7 +151,7 @@ export async function translateBlocks(
         }
         // The per-block fallback is the slowest path in the pipeline, so
         // checkpoint each one rather than risk repeating them.
-        deadline.check(callBudgetMs, `block ${item.index}`);
+        stopIfOutOfBudget(`block ${item.index}`);
         record(
           item,
           await translateSingle(chat, model, targetLang, item.block),
