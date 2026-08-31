@@ -7,7 +7,34 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Fixed
+
+- **One oversized article no longer starves the processing queue.** A 170 KB
+  clip needed 14 sequential translation batches and could not finish inside the
+  job's 30-minute cap; because translation kept no state, every retry restarted
+  at batch 1, and because pending articles were processed alphabetically it ran
+  first on every push and consumed the whole budget. A 27 KB article clipped
+  alongside it never received a single LLM call. Four changes, together
+  (ADR 0008):
+  - translation is checkpointed per batch to `articles/<slug>/.tiro-zh-cache.json`
+    and resumes there, so successive runs converge instead of repeating;
+  - the processor enforces its own wall-clock budget
+    (`processing.run_budget_ms`, 50 min) and stops in time to commit, with
+    `timeout-minutes` raised to 60 as a backstop;
+  - `Commit results back` runs `if: always()`, so a killed job no longer
+    discards articles that did finish, and the deploy step now gates on a
+    commit landing rather than on job success;
+  - pending articles are processed cheapest-first, confining a pathological
+    article's cost to itself.
+- A timed-out LLM request is retried once instead of three times. A timeout has
+  already spent its full budget before it is observed, so one stuck call cost
+  over eight minutes of a thirty-minute job.
+
 ### Changed
+
+- `config/tiro.yml` gains `processing.run_budget_ms`, `llm.timeout_ms`, and
+  `llm.max_retries`. All default to current behaviour, so existing vault
+  configs keep working unchanged.
 
 - **Site redesign**: warm paper palette with a terracotta accent (replacing
   the stock neutrals and the green mark), self-hosted Source Serif 4 for

@@ -53,11 +53,12 @@ bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 
 1. **The content contract is shared by three independently shipping components** (extension writes, processor transforms, site reads). Schema/slug/path changes must keep all three in lockstep and bump `tiro.schema` when breaking (ADR 0002). `tiro.schema` versions the article *document* format, not the vault directory layout — layout changes migrate the vault atomically instead of bumping it (ADR 0007).
 2. **Slugs are deterministic from the URL** (normalized URL → slug + 8-hex SHA-256), and articles live flat at `articles/<slug>/` so the path itself is the identity (ADR 0007). Re-clipping must overwrite the same article, never duplicate — trailing-slash and tracking-param variants are one identity by design.
-3. **"Needs processing" = `tiro.processed_at` absent.** The processor is idempotent and retry-safe; never select work by push diffs.
+3. **"Needs processing" = `tiro.processed_at` absent.** The processor is idempotent and retry-safe; never select work by push diffs. Pending articles run cheapest-first under a self-enforced wall-clock budget (`processing.run_budget_ms`), so no single article can starve the queue (ADR 0008).
 4. **`zh.md` must be strictly 1:1 block-aligned** with the `index.md` body, code blocks byte-identical. A misaligned `zh.md` must never be written; the site falls back to stacked rendering rather than misaligned rows (ADR 0003).
 5. **All clipped HTML passes rehype-sanitize** in `apps/site/src/lib/render.ts` before reaching the public site. Never reintroduce `allowDangerousHtml` at the stringify stage; extend the sanitize schema instead if legitimate tags get stripped.
 6. **`@tiro/shared`'s root export stays browser-safe** (it is bundled into the extension). Anything touching `node:` APIs goes in a subpath export (`@tiro/shared/config`).
 7. **Per-article fault isolation in the processor:** a hard failure logs, leaves the article pending, and must never fail the workflow before its commit step. Per-image failures fall back to the hotlink; downloads are guarded (non-public-host rejection, streaming byte cap).
+8. **Long work must be resumable, and a stop must always be able to commit.** Translation checkpoints each batch to `articles/<slug>/.tiro-zh-cache.json`, so a run that ends early hands its work to the next one instead of repeating it; the processor's own budget must stay far enough below the workflow's `timeout-minutes` (by more than `llm.timeout_ms`) that it stops in time, and the commit step runs `if: always()`. Breaking any one of these puts an over-long article back in the state where no number of retries can finish it (ADR 0008).
 
 ## Toolchain notes
 
@@ -74,7 +75,7 @@ bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 Update whichever of these covers what you changed — in the same change:
 
 - [docs/architecture.md](docs/architecture.md) — system diagram, data flow, contract summary, credentials table, risk register. Tracks: pipeline stages, workflows, cross-repo wiring.
-- [docs/adr/](docs/adr/) — decision records 0001–0006. A reversed decision gets a superseding ADR, not a silent edit.
+- [docs/adr/](docs/adr/) — decision records 0001–0008. A reversed decision gets a superseding ADR, not a silent edit.
 - [docs/operations.md](docs/operations.md) — day-2 runbook. Tracks: secrets and PAT scopes, LLM config, reprocess/deploy procedures, failure signatures. Anything touching workflows, secrets, or config lands here.
 - [vault-template/README.md](vault-template/README.md) — vault bootstrap instructions. Tracks: vault layout, required secrets, manual operations.
 - `CHANGELOG.md` — release-worthy milestones under `[Unreleased]`; fine-grained history is the git log.
