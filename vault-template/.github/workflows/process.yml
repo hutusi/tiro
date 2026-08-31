@@ -27,10 +27,12 @@ permissions:
 jobs:
   process:
     runs-on: ubuntu-latest
-    # Bound a pathological run (default is 6h). Safe to kill mid-run:
-    # articles are selected by the frontmatter marker, so anything not yet
-    # committed back simply retries on the next run.
-    timeout-minutes: 30
+    # Backstop only. The processor stops itself first, at
+    # `processing.run_budget_ms` in config/tiro.yml (50 min by default), so it
+    # can flush its translation checkpoints and let the commit step run. This
+    # cap exists for the case where that fails; keep it comfortably above the
+    # budget, or a kill lands mid-article on every run.
+    timeout-minutes: 60
     steps:
       # ref: main, not the default trigger SHA — queued runs (concurrency
       # serializes them) would otherwise check out a vault that predates the
@@ -78,6 +80,12 @@ jobs:
       # so committing back here cannot loop. The rebase-retry absorbs a clip
       # that landed while this run was working.
       - name: Commit results back
+        id: commit
+        # always(): a job killed by timeout-minutes must still commit what it
+        # achieved. Without this the kill discarded every finished article and
+        # every translation checkpoint in the run, so a long article restarted
+        # from nothing on each retry and could never finish.
+        if: always()
         working-directory: vault
         run: |
           git config user.name "tiro-processor"
@@ -85,9 +93,11 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "No changes to commit"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git commit -m "process: summarize and translate new articles"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
           # -X theirs: if a concurrent commit touched the same article (e.g.
           # a re-clip mid-run), both sides are valid content — prefer this
           # run's version rather than failing and discarding the whole run.
@@ -100,7 +110,11 @@ jobs:
           git push
 
       - name: Trigger site deploy
-        if: success()
+        # Gate on a commit actually landing, not on job success: a run that
+        # committed real work and was then killed by timeout-minutes still has
+        # something to publish.
+        if: always() && steps.commit.outcome == 'success' && steps.commit.outputs.committed == 'true'
+
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.TIRO_DISPATCH_TOKEN }}

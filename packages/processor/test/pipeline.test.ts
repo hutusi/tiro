@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -16,7 +17,9 @@ import {
   parseArticle,
   splitBlocks,
 } from "@tiro/shared";
-import type { FetchLike } from "../src/llm/client.ts";
+import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
+import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
+import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
 import { makeFakeChat } from "./helpers.ts";
 
@@ -232,7 +235,7 @@ describe("hard failures", () => {
 
   test("a failing article stays pending while later articles still process", async () => {
     const vault = freshVault();
-    // Sorts after the RAW fixture, so the failure happens first.
+    // Which article fails is decided by body text below, not by order.
     const secondPath = join(vault, "articles", SECOND, "index.md");
     mkdirSync(join(vault, "articles", SECOND), { recursive: true });
     writeFileSync(secondPath, secondClip);
@@ -397,5 +400,538 @@ describe("asset reconciliation", () => {
     } finally {
       chmodSync(assets, 0o700);
     }
+  });
+});
+
+describe("run budget", () => {
+  const BIG = "zz-oversized-paper-aaaaaaaa";
+
+  /** Long article: 40 short paragraphs, so it needs many sequential calls. */
+  function bigClip(): string {
+    return [
+      "---",
+      'url: "https://example.net/oversized"',
+      'title: "Oversized Paper"',
+      'domain: "example.net"',
+      'clipped_at: "2026-08-23T09:00:00.000Z"',
+      "tiro:",
+      "  schema: 1",
+      "---",
+      "",
+      Array.from({ length: 40 }, (_, i) => `Paragraph ${i} of the paper.`).join(
+        "\n\n",
+      ),
+      "",
+    ].join("\n");
+  }
+
+  function withBigArticle(): string {
+    const vault = freshVault();
+    mkdirSync(join(vault, "articles", BIG), { recursive: true });
+    writeFileSync(join(vault, "articles", BIG, "index.md"), bigClip());
+    return vault;
+  }
+
+  /**
+   * Scaled-down budget arithmetic: one block per batch and a 50ms reserve per
+   * call, against a chat fake that bills 100ms. Keeps the real ratios (budget
+   * >> per-call reserve) without a test that sleeps.
+   */
+  async function tinyConfig(vault: string) {
+    const config = await loadVaultConfig(vault);
+    return {
+      ...config,
+      llm: { ...config.llm, timeout_ms: 50 },
+      translation: { ...config.translation, batch_chars: 1 },
+    };
+  }
+
+  function billingChat(bill: () => void): ChatFn {
+    const fake = makeFakeChat();
+    return async (request) => {
+      bill();
+      return fake(request);
+    };
+  }
+
+  test("stops cleanly mid-article, leaving it pending with its checkpoint", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      // ~15 calls' worth: enough to make real progress, nowhere near 40 blocks.
+      deadline: createDeadline(1500, () => clock),
+    });
+
+    // Budget exhaustion is an orderly stop, not a fault.
+    expect(report.errored).toEqual([]);
+    expect(report.skipped).toEqual([BIG]);
+    expect(report.processed).toEqual([]);
+
+    // Unmarked on disk, so the next run picks it up again...
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(frontmatter)).toBe(true);
+    // ...and no half-written translation was published.
+    expect(() => readFileSync(join(vault, "articles", BIG, "zh.md"))).toThrow();
+    // The checkpoint is what makes the next run cheaper instead of identical.
+    const checkpoint = JSON.parse(
+      readFileSync(
+        join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+        "utf8",
+      ),
+    );
+    expect(Object.keys(checkpoint.blocks).length).toBeGreaterThan(0);
+  });
+
+  test("a later run resumes the checkpoint and finishes the article", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+    const first = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+    });
+    expect(first.skipped).toEqual([BIG]);
+    const cached = Object.keys(
+      JSON.parse(
+        readFileSync(
+          join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+          "utf8",
+        ),
+      ).blocks,
+    ).length;
+
+    // Second run, full budget: it must not start over.
+    let calls = 0;
+    const second = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: () => {
+          calls += 1;
+        },
+      }),
+    });
+    expect(second.processed).toEqual([BIG]);
+    expect(second.translated).toEqual([BIG]);
+
+    const { body } = parseArticle(
+      readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+    );
+    const zh = readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8");
+    expect(checkAlignment(splitBlocks(body), splitBlocks(zh)).errors).toEqual(
+      [],
+    );
+    // A finished article drops its checkpoint.
+    expect(() =>
+      readFileSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
+    ).toThrow();
+    // Resumption is the point: the blocks the first run paid for are not
+    // bought twice. (+1 for this run's summary call.)
+    expect(calls).toBe(splitBlocks(body).length - cached + 1);
+  });
+
+  test("an exhausted budget defers articles instead of failing them", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("no article should reach the LLM");
+      },
+      deadline: createDeadline(0, () => 0),
+    });
+    expect(report.processed).toEqual([]);
+    expect(report.errored).toEqual([]);
+    expect(report.skipped).toContain(BIG);
+    expect(report.skipped).toContain(RAW);
+  });
+
+  test("a short article still lands when an oversized one is queued", async () => {
+    // The original bug in one test: an oversized article ran first on every
+    // push, spent the entire budget without finishing, and starved a short
+    // article clipped alongside it. Cheapest-first means the short one lands
+    // and only the oversized one waits for the next run.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+    });
+
+    expect(report.processed).toEqual([RAW]);
+    expect(report.translated).toEqual([RAW]);
+    expect(report.skipped).toEqual([BIG]);
+    expect(report.errored).toEqual([]);
+  });
+  test("a budget-deferred --force article returns to pending and a normal run finishes it", async () => {
+    // Forced discovery includes already-processed articles, so deferring one
+    // used to leave processed_at in place: the next ordinary run skipped it,
+    // despite the log promising it would resume, and a repeated --force just
+    // redid the cheapest articles again.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+
+    // Process everything normally first, so both articles carry the marker.
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    expect(
+      needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+        ).frontmatter,
+      ),
+    ).toBe(false);
+
+    // Forced redo that runs out of budget partway.
+    let clock = 0;
+    const forced = await runPipeline({ vaultDir: vault, force: true }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+    });
+    expect(forced.skipped).toContain(BIG);
+    expect(forced.errored).toEqual([]);
+
+    // The deferred article is genuinely pending again...
+    const deferred = parseArticle(
+      readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(deferred.frontmatter)).toBe(true);
+    // ...but keeps everything the earlier run produced, so it still renders.
+    expect(deferred.frontmatter.summary).toBeDefined();
+    expect(deferred.frontmatter.category).toBe("ai");
+    expect(
+      readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8"),
+    ).toContain("中文");
+
+    // An ordinary run — no --force — now picks it up, which is the whole point.
+    const followUp = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    expect(followUp.processed).toEqual([BIG]);
+  });
+
+  test("deferring an unforced article writes nothing", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    const before = readFileSync(
+      join(vault, "articles", BIG, "index.md"),
+      "utf8",
+    );
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("no article should reach the LLM");
+      },
+      deadline: createDeadline(0, () => 0),
+    });
+    expect(report.skipped).toContain(BIG);
+    // Pending articles have no marker to clear, so the file must be untouched.
+    expect(readFileSync(join(vault, "articles", BIG, "index.md"), "utf8")).toBe(
+      before,
+    );
+  });
+  test("a failure after translating but before index.md keeps the checkpoint", async () => {
+    // The window fix 3 closes: translation has finished and cost real money,
+    // but zh.md and index.md are not written yet. Discarding the checkpoint at
+    // the end of translation would lose all of it and leave the article
+    // pending — the exact loss the checkpoint exists to prevent.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    const indexPath = join(vault, "articles", BIG, "index.md");
+
+    let calls = 0;
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: () => {
+          calls += 1;
+        },
+      }),
+      now: () => {
+        // Throwing from the clock aborts processOne after translation has
+        // completed but before index.md is assembled and written.
+        if (calls > 0) throw new Error("disk gone");
+        return new Date("2026-08-22T12:00:00.000Z");
+      },
+    });
+
+    expect(report.errored).toHaveLength(1);
+    expect(report.processed).toEqual([]);
+    // Article still pending, and the translated blocks survived.
+    expect(
+      needsProcessing(
+        parseArticle(readFileSync(indexPath, "utf8")).frontmatter,
+      ),
+    ).toBe(true);
+    const checkpoint = JSON.parse(
+      readFileSync(
+        join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+        "utf8",
+      ),
+    );
+    expect(Object.keys(checkpoint.blocks).length).toBeGreaterThan(0);
+
+    // And the next run reuses them instead of paying again.
+    let secondCalls = 0;
+    const second = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: () => {
+          secondCalls += 1;
+        },
+      }),
+    });
+    expect(second.processed).toEqual([BIG]);
+    expect(secondCalls).toBeLessThan(calls);
+  });
+  test("a slow image stage cannot outrun the budget of an article it starts", async () => {
+    // The coverage the review asked for. processImages has its own five-minute
+    // stage limit and runs on real time, so before the clamp an article started
+    // with one LLM timeout left could sit in image downloads long past the run
+    // budget — and past the workflow timeout, whose kill skips the commit step.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+
+    // Honours the abort signal, as a real fetch does: with the stage clamped to
+    // what is left of the run this is cut short, unclamped it runs the full 3 s.
+    const slowImageFetch: FetchLike = async (_input, init) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve(new Response("offline", { status: 404 })),
+          3_000,
+        );
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
+
+    const started = Date.now();
+    const report = await runPipeline({ vaultDir: vault, slug: RAW }, config, {
+      ...deps,
+      fetchImpl: slowImageFetch,
+      chat: makeFakeChat(),
+      // Real clock: the image stage reads real time, so this is what it clamps
+      // against. Comfortably above llm.timeout_ms (50 ms) so the article starts
+      // and the image stage is what has to stop it.
+      deadline: createDeadline(400),
+    });
+    const elapsed = Date.now() - started;
+
+    // Clamped to the ~400 ms left, not the stage's own 5 min or the image's 3 s.
+    expect(elapsed).toBeLessThan(1_500);
+    // Stopped on budget rather than failing, and left for the next run.
+    expect(report.errored).toEqual([]);
+    expect(report.processed).toEqual([]);
+    expect(report.skipped).toEqual([RAW]);
+    expect(
+      needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+        ).frontmatter,
+      ),
+    ).toBe(true);
+  });
+  test("a failing checkpoint cleanup cannot turn a finished article into a failure", async () => {
+    // The window: index.md is written and durable, but the article is not yet
+    // recorded. A throw here reaches the outer catch, which reports the article
+    // as pending — while it carries processed_at on disk, so it never retries —
+    // and reconciles assets against the pre-download body, which references
+    // none of the downloaded files. Every image would be deleted while the
+    // committed index.md still points at them.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    // rm() without `recursive` throws on a directory, so this is a real
+    // cleanup failure rather than a mocked one.
+    const cachePath = join(vault, "articles", RAW, TRANSLATION_CACHE_FILE);
+    mkdirSync(join(cachePath, "wedged"), { recursive: true });
+
+    const report = await runPipeline({ vaultDir: vault }, config, deps);
+
+    expect(report.errored).toEqual([]);
+    expect(report.processed).toEqual([RAW]);
+    // The article is finished, and its translation is still there.
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(frontmatter)).toBe(false);
+    expect(existsSync(join(vault, "articles", RAW, "zh.md"))).toBe(true);
+  });
+
+  test("an article already in the target language clears staging debris", async () => {
+    // It never loads a checkpoint, so nothing else would clean a killed run's
+    // .tmp — and the workflow's `git add -A` would commit it.
+    const vault = freshVault();
+    const CN = "example-cn-posts-ai-times-0d21367e";
+    const cachePath = join(vault, "articles", CN, TRANSLATION_CACHE_FILE);
+    writeFileSync(cachePath, '{"version":1}');
+    writeFileSync(`${cachePath}.tmp`, '{ "version": 1, "blocks": { "trunc');
+
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: CN },
+      config,
+      deps,
+    );
+
+    expect(report.processed).toEqual([CN]);
+    expect(existsSync(cachePath)).toBe(false);
+    expect(existsSync(`${cachePath}.tmp`)).toBe(false);
+  });
+  test("an unwritable checkpoint is reported as a fault, not as resumable progress", async () => {
+    // The reviewer's repro: two runs, identical LLM calls, no checkpoint — and
+    // both reporting an orderly deferral. The repetition is unavoidable with
+    // nowhere to persist to; claiming it is progress is not, and it is what
+    // hides a permanently stuck article behind a healthy-looking log.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    mkdirSync(
+      join(vault, "articles", BIG, `${TRANSLATION_CACHE_FILE}.tmp`, "x"),
+      {
+        recursive: true,
+      },
+    );
+
+    let clock = 0;
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+      log: (m) => logged.push(m),
+    });
+
+    expect(report.skipped).toEqual([]);
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.slug).toBe(BIG);
+    expect(report.errored[0]?.error).toContain("cannot resume");
+    // The false reassurance must be gone from the log entirely.
+    expect(logged.join("\n")).not.toContain("checkpoint saved");
+    expect(
+      needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+        ).frontmatter,
+      ),
+    ).toBe(true);
+  });
+
+  test("the budget-deferral log names what actually stopped the run", async () => {
+    // DeadlineExceededError carries the fault observed as the budget ran out;
+    // without it in the log that diagnosis lives only in the unit tests.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+      log: (m) => logged.push(m),
+    });
+
+    expect(report.skipped).toEqual([BIG]);
+    const line = logged.find((m) =>
+      m.includes("run budget exhausted mid-article"),
+    );
+    expect(line).toBeDefined();
+    expect(line).toContain("run budget exhausted before");
+  });
+  test("the same when the budget dies inside a call, not before one", async () => {
+    // End to end on the reported symptom: a budget that runs out mid-request
+    // raises DeadlineExceededError from the chat client, which used to bypass
+    // the guard entirely and have the run log a resumable skip with nothing
+    // persisted.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    mkdirSync(
+      join(vault, "articles", BIG, `${TRANSLATION_CACHE_FILE}.tmp`, "x"),
+      {
+        recursive: true,
+      },
+    );
+
+    let calls = 0;
+    const healthy = makeFakeChat();
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      // 1 = summary, 2 = first batch (its flush fails), 3 = dies in flight.
+      chat: async (request) => {
+        calls += 1;
+        if (calls >= 3) {
+          throw new DeadlineExceededError("a chat completions request", -1);
+        }
+        return healthy(request);
+      },
+      log: (m) => logged.push(m),
+    });
+
+    expect(report.skipped).toEqual([]);
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.error).toContain("cannot resume");
+    expect(logged.join("\n")).not.toContain("checkpoint saved");
+  });
+  test("a deferral whose marker cannot be cleared is reported, not silently promised", async () => {
+    // markPending() writes from inside the per-article catch. An unguarded
+    // throw there escaped runPipeline entirely and abandoned every remaining
+    // article — invariant 7 says one article's failure must not cost the
+    // others. And since a forced deferral only resumes if its marker is
+    // cleared, a failed write must be booked as the failure it is rather than
+    // counted among the orderly skips.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const DONE = "example-com-posts-hello-ai-e8446b12"; // already processed
+    chmodSync(join(vault, "articles", DONE, "index.md"), 0o444);
+
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, force: true }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("no article should reach the LLM");
+      },
+      deadline: createDeadline(0, () => 0), // out of budget before article 1
+      log: (m) => logged.push(m),
+    });
+
+    // The run completed rather than throwing out of the loop...
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.slug).toBe(DONE);
+    expect(report.errored[0]?.error).toContain(
+      "could not be returned to pending",
+    );
+    // ...and the other articles were still deferred rather than abandoned.
+    expect(report.skipped.length).toBeGreaterThan(0);
+    expect(report.skipped).not.toContain(DONE);
+    // The summary counts what was actually deferred, not what was attempted:
+    // an article that cannot resume must not pad the "left pending" figure.
+    const summary = logged.find((m) =>
+      m.includes("left pending for the next run"),
+    );
+    expect(summary).toContain(`${report.skipped.length} article(s)`);
   });
 });

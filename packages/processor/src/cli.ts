@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
+import { createDeadline } from "./deadline.ts";
 import { type ChatFn, createChatClient } from "./llm/client.ts";
 import { loadVaultConfig, runPipeline } from "./pipeline.ts";
 import { validateVault } from "./validate.ts";
@@ -40,6 +41,11 @@ if (command === "validate") {
 async function run(vault: string): Promise<number> {
   const config = await loadVaultConfig(vault);
   const dryRun = values["dry-run"];
+  // One clock for the whole run, shared with the chat client: the pipeline
+  // decides what to start, the client makes sure nothing it starts outlives
+  // the budget. Two separate deadlines would let a request run past the one
+  // the pipeline is stopping against.
+  const deadline = createDeadline(config.processing.run_budget_ms);
 
   let chat: ChatFn = async () => {
     throw new Error("LLM client unavailable in dry-run");
@@ -52,7 +58,13 @@ async function run(vault: string): Promise<number> {
       );
       return 1;
     }
-    chat = createChatClient({ baseUrl: config.llm.base_url, apiKey });
+    chat = createChatClient({
+      baseUrl: config.llm.base_url,
+      apiKey,
+      timeoutMs: config.llm.timeout_ms,
+      maxRetries: config.llm.max_retries,
+      deadline,
+    });
   }
 
   const report = await runPipeline(
@@ -63,13 +75,14 @@ async function run(vault: string): Promise<number> {
       dryRun,
     },
     config,
-    { chat },
+    { chat, deadline },
   );
 
   console.log(
     `done: ${report.processed.length} processed, ${report.translated.length} translated, ` +
       `${report.imagesDownloaded} images downloaded (${report.imagesFailed} kept as hotlinks, ${report.imagesPruned} orphans removed), ` +
-      `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ${report.invalid.length} invalid`,
+      `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ` +
+      `${report.skipped.length} left for the next run, ${report.invalid.length} invalid`,
   );
   // Invalid articles are warnings here: exiting non-zero would fail the
   // workflow before its commit step, discarding the articles that DID
@@ -77,6 +90,14 @@ async function run(vault: string): Promise<number> {
   if (report.invalid.length > 0) {
     console.warn(
       `warning: ${report.invalid.length} invalid article(s) skipped — run 'tiro-process validate' for details`,
+    );
+  }
+  // Not a warning: the run budget doing its job is the designed outcome for
+  // an article too big to finish in one go. Its checkpoint is committed and
+  // the next run resumes it, so say so plainly rather than as a failure.
+  if (report.skipped.length > 0) {
+    console.log(
+      `budget reached; resuming next run: ${report.skipped.join(", ")}`,
     );
   }
   if (report.errored.length > 0) {

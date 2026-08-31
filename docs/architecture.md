@@ -41,7 +41,13 @@ flowchart LR
    - one LLM call for a structured summary, one category (from the taxonomy in
      `config/tiro.yml`), and free-form tags, written into frontmatter,
    - for non-Chinese articles, a block-aligned Chinese translation → `zh.md`,
+     batched and checkpointed so a long article resumes rather than restarts
+     (ADR 0008),
    - commit results back and fire a `repository_dispatch` to this repo.
+
+   Pending articles are processed cheapest-first, under a wall-clock budget
+   (`processing.run_budget_ms`) the processor enforces itself so it stops in
+   time to commit. Anything it does not reach stays pending for the next run.
 3. **Publish.** The deploy workflow checks out both repos, builds the Astro
    site from the vault content, indexes it with Pagefind, and deploys to
    Cloudflare Pages. The site is fully public.
@@ -57,7 +63,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   `articles/<slug>/` (ADR 0007), so the path itself guarantees a re-clip
   overwrites the same article and reprocesses it.
 - **Needs processing** = frontmatter lacks `tiro.processed_at`. Idempotent and
-  retry-safe; no dependence on push diffs.
+  retry-safe; no dependence on push diffs. An article too long to translate in
+  one run keeps a `.tiro-zh-cache.json` checkpoint beside it and resumes on the
+  next run (ADR 0008); the checkpoint is invisible to every reader, which glob
+  `index.md`/`zh.md` only.
 - **Translation alignment**: `zh.md` has strict 1:1 top-level-block alignment
   with the `index.md` body (code blocks byte-identical). The site zips the two
   block arrays for side-by-side rendering; misalignment falls back to stacked
@@ -97,6 +106,12 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 - **Workflow recursion**: pushes made with the default `GITHUB_TOKEN` do not
   retrigger workflows; the processing workflow also uses a concurrency group
   and rebase-retry pushes.
+- **An article too long to process in one run**: translation is checkpointed
+  per batch and the processor stops on its own budget with time left to commit,
+  so successive runs converge instead of each restarting from batch 1
+  (ADR 0008). `timeout-minutes` is a backstop above that budget, and the commit
+  step runs `if: always()` so even a kill keeps the run's work. Ordering pending
+  articles cheapest-first stops one such article from starving the rest.
 - **Expiring fine-grained PATs** (two of them): documented in the
   vault-template README; set a calendar reminder.
 - **Pagefind index only exists after a build**: the search UI degrades
