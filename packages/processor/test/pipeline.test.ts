@@ -908,12 +908,14 @@ describe("run budget", () => {
     const DONE = "example-com-posts-hello-ai-e8446b12"; // already processed
     chmodSync(join(vault, "articles", DONE, "index.md"), 0o444);
 
+    const logged: string[] = [];
     const report = await runPipeline({ vaultDir: vault, force: true }, config, {
       ...deps,
       chat: async () => {
         throw new Error("no article should reach the LLM");
       },
       deadline: createDeadline(0, () => 0), // out of budget before article 1
+      log: (m) => logged.push(m),
     });
 
     // The run completed rather than throwing out of the loop...
@@ -925,5 +927,11 @@ describe("run budget", () => {
     // ...and the other articles were still deferred rather than abandoned.
     expect(report.skipped.length).toBeGreaterThan(0);
     expect(report.skipped).not.toContain(DONE);
+    // The summary counts what was actually deferred, not what was attempted:
+    // an article that cannot resume must not pad the "left pending" figure.
+    const summary = logged.find((m) =>
+      m.includes("left pending for the next run"),
+    );
+    expect(summary).toContain(`${report.skipped.length} article(s)`);
   });
 });

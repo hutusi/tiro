@@ -111,11 +111,17 @@ export async function runPipeline(
     // image downloads and summary call and gets rolled back anyway. One LLM
     // round trip is the floor for making any progress at all.
     if (deadline.expired(config.llm.timeout_ms)) {
-      const remaining = pending.slice(i);
-      for (const deferred of remaining)
-        await deferArticle(deferred, options, report, log);
+      // Count what was actually deferred, not what was attempted: an article
+      // whose marker could not be cleared will not resume, and has already been
+      // booked as a failure. Counting it here would put the overstatement back
+      // in the summary after taking it out of the per-article line.
+      let deferredCount = 0;
+      for (const candidate of pending.slice(i)) {
+        if (await deferArticle(candidate, options, report, log))
+          deferredCount += 1;
+      }
       log(
-        `run budget exhausted; ${remaining.length} article(s) left pending for the next run`,
+        `run budget exhausted; ${deferredCount} article(s) left pending for the next run`,
       );
       break;
     }
@@ -159,12 +165,14 @@ export async function runPipeline(
         log,
       );
       if (outOfBudget) {
-        const rest = pending.slice(i + 1);
-        for (const deferred of rest)
-          await deferArticle(deferred, options, report, log);
-        if (rest.length > 0) {
+        let deferredCount = 0;
+        for (const candidate of pending.slice(i + 1)) {
+          if (await deferArticle(candidate, options, report, log))
+            deferredCount += 1;
+        }
+        if (deferredCount > 0) {
           log(
-            `${rest.length} further article(s) left pending for the next run`,
+            `${deferredCount} further article(s) left pending for the next run`,
           );
         }
         break;
