@@ -65,7 +65,10 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
         }
         {
           (frontmatter.tags ?? []).map((tag) => (
-            <a href={tagUrl(tag)} class="text-xs hover:text-accent">
+            <a
+              href={tagUrl(tag)}
+              class="text-xs hover:text-accent hover:underline focus-visible:underline"
+            >
               #{tag}
             </a>
           ))

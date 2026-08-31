@@ -49,7 +49,10 @@ const date = frontmatter.clipped_at.slice(0, 10);
     }
     {
       (frontmatter.tags ?? []).map((tag) => (
-        <a href={tagUrl(tag)} class="text-ink-muted hover:text-accent">
+        <a
+          href={tagUrl(tag)}
+          class="text-ink-muted hover:text-accent hover:underline focus-visible:underline"
+        >
           #{tag}
         </a>
       ))
