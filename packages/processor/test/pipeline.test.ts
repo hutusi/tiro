@@ -16,7 +16,9 @@ import {
   parseArticle,
   splitBlocks,
 } from "@tiro/shared";
-import type { FetchLike } from "../src/llm/client.ts";
+import { createDeadline } from "../src/deadline.ts";
+import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
+import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
 import { makeFakeChat } from "./helpers.ts";
 
@@ -232,7 +234,7 @@ describe("hard failures", () => {
 
   test("a failing article stays pending while later articles still process", async () => {
     const vault = freshVault();
-    // Sorts after the RAW fixture, so the failure happens first.
+    // Which article fails is decided by body text below, not by order.
     const secondPath = join(vault, "articles", SECOND, "index.md");
     mkdirSync(join(vault, "articles", SECOND), { recursive: true });
     writeFileSync(secondPath, secondClip);
@@ -397,5 +399,181 @@ describe("asset reconciliation", () => {
     } finally {
       chmodSync(assets, 0o700);
     }
+  });
+});
+
+describe("run budget", () => {
+  const BIG = "zz-oversized-paper-aaaaaaaa";
+
+  /** Long article: 40 short paragraphs, so it needs many sequential calls. */
+  function bigClip(): string {
+    return [
+      "---",
+      'url: "https://example.net/oversized"',
+      'title: "Oversized Paper"',
+      'domain: "example.net"',
+      'clipped_at: "2026-08-23T09:00:00.000Z"',
+      "tiro:",
+      "  schema: 1",
+      "---",
+      "",
+      Array.from({ length: 40 }, (_, i) => `Paragraph ${i} of the paper.`).join(
+        "\n\n",
+      ),
+      "",
+    ].join("\n");
+  }
+
+  function withBigArticle(): string {
+    const vault = freshVault();
+    mkdirSync(join(vault, "articles", BIG), { recursive: true });
+    writeFileSync(join(vault, "articles", BIG, "index.md"), bigClip());
+    return vault;
+  }
+
+  /**
+   * Scaled-down budget arithmetic: one block per batch and a 50ms reserve per
+   * call, against a chat fake that bills 100ms. Keeps the real ratios (budget
+   * >> per-call reserve) without a test that sleeps.
+   */
+  async function tinyConfig(vault: string) {
+    const config = await loadVaultConfig(vault);
+    return {
+      ...config,
+      llm: { ...config.llm, timeout_ms: 50 },
+      translation: { ...config.translation, batch_chars: 1 },
+    };
+  }
+
+  function billingChat(bill: () => void): ChatFn {
+    const fake = makeFakeChat();
+    return async (request) => {
+      bill();
+      return fake(request);
+    };
+  }
+
+  test("stops cleanly mid-article, leaving it pending with its checkpoint", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      // ~15 calls' worth: enough to make real progress, nowhere near 40 blocks.
+      deadline: createDeadline(1500, () => clock),
+    });
+
+    // Budget exhaustion is an orderly stop, not a fault.
+    expect(report.errored).toEqual([]);
+    expect(report.skipped).toEqual([BIG]);
+    expect(report.processed).toEqual([]);
+
+    // Unmarked on disk, so the next run picks it up again...
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(frontmatter)).toBe(true);
+    // ...and no half-written translation was published.
+    expect(() => readFileSync(join(vault, "articles", BIG, "zh.md"))).toThrow();
+    // The checkpoint is what makes the next run cheaper instead of identical.
+    const checkpoint = JSON.parse(
+      readFileSync(
+        join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+        "utf8",
+      ),
+    );
+    expect(Object.keys(checkpoint.blocks).length).toBeGreaterThan(0);
+  });
+
+  test("a later run resumes the checkpoint and finishes the article", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+    const first = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+    });
+    expect(first.skipped).toEqual([BIG]);
+    const cached = Object.keys(
+      JSON.parse(
+        readFileSync(
+          join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+          "utf8",
+        ),
+      ).blocks,
+    ).length;
+
+    // Second run, full budget: it must not start over.
+    let calls = 0;
+    const second = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: () => {
+          calls += 1;
+        },
+      }),
+    });
+    expect(second.processed).toEqual([BIG]);
+    expect(second.translated).toEqual([BIG]);
+
+    const { body } = parseArticle(
+      readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+    );
+    const zh = readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8");
+    expect(checkAlignment(splitBlocks(body), splitBlocks(zh)).errors).toEqual(
+      [],
+    );
+    // A finished article drops its checkpoint.
+    expect(() =>
+      readFileSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
+    ).toThrow();
+    // Resumption is the point: the blocks the first run paid for are not
+    // bought twice. (+1 for this run's summary call.)
+    expect(calls).toBe(splitBlocks(body).length - cached + 1);
+  });
+
+  test("an exhausted budget defers articles instead of failing them", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("no article should reach the LLM");
+      },
+      deadline: createDeadline(0, () => 0),
+    });
+    expect(report.processed).toEqual([]);
+    expect(report.errored).toEqual([]);
+    expect(report.skipped).toContain(BIG);
+    expect(report.skipped).toContain(RAW);
+  });
+
+  test("a short article still lands when an oversized one is queued", async () => {
+    // The original bug in one test: an oversized article ran first on every
+    // push, spent the entire budget without finishing, and starved a short
+    // article clipped alongside it. Cheapest-first means the short one lands
+    // and only the oversized one waits for the next run.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    let clock = 0;
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+    });
+
+    expect(report.processed).toEqual([RAW]);
+    expect(report.translated).toEqual([RAW]);
+    expect(report.skipped).toEqual([BIG]);
+    expect(report.errored).toEqual([]);
   });
 });

@@ -5,9 +5,15 @@ import {
   parseTiroConfig,
   type TiroConfig,
 } from "@tiro/shared/config";
+import {
+  createDeadline,
+  type Deadline,
+  DeadlineExceededError,
+} from "./deadline.ts";
 import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
 import { processImages, reconcileAssets } from "./images.ts";
 import { detectLang } from "./language.ts";
+import { loadTranslationCache, TRANSLATION_CACHE_FILE } from "./llm/cache.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import { summarize } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
@@ -21,6 +27,9 @@ export interface PipelineDeps {
    * host validation resolves names, which is a second way out. */
   resolveHost?: (hostname: string) => Promise<string[]>;
   now?: () => Date;
+  /** Run budget. Injectable so tests drive it directly instead of sleeping;
+   * production builds one from `config.processing.run_budget_ms`. */
+  deadline?: Deadline;
   log?: (message: string) => void;
 }
 
@@ -37,6 +46,9 @@ export interface PipelineReport {
   summaryFailed: string[];
   translationFailed: string[];
   errored: { slug: string; error: string }[];
+  /** Left for a later run because this one ran out of budget — not a failure:
+   * their translation checkpoints are on disk and the next run resumes them. */
+  skipped: string[];
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
@@ -62,11 +74,15 @@ export async function runPipeline(
     summaryFailed: [],
     translationFailed: [],
     errored: [],
+    skipped: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
     imagesPruned: 0,
   };
+
+  const deadline =
+    deps.deadline ?? createDeadline(config.processing.run_budget_ms);
 
   const { pending, invalid } = await discoverArticles(options.vaultDir, {
     ...(options.slug !== undefined ? { slug: options.slug } : {}),
@@ -77,7 +93,9 @@ export async function runPipeline(
     log(`invalid article skipped: ${bad.path}: ${bad.error}`);
   log(`${pending.length} article(s) to process`);
 
-  for (const article of pending) {
+  for (let i = 0; i < pending.length; i += 1) {
+    const article = pending[i];
+    if (article === undefined) continue;
     if (options.dryRun === true) {
       const lang =
         article.parsed.frontmatter.lang ??
@@ -85,17 +103,39 @@ export async function runPipeline(
       log(`[dry-run] would process ${article.slug} (lang=${lang})`);
       continue;
     }
-    try {
-      await processOne(article, config, deps, report, log);
-    } catch (error) {
-      // A hard failure (LLM outage, provider 403, disk error) must not kill
-      // the run: other articles still process, the workflow's commit step
-      // still runs for them, and this article stays unmarked so the next
-      // push retries it.
-      report.errored.push({ slug: article.slug, error: String(error) });
+    // Don't start what cannot finish: an article abandoned partway costs its
+    // image downloads and summary call and gets rolled back anyway. One LLM
+    // round trip is the floor for making any progress at all.
+    if (deadline.expired(config.llm.timeout_ms)) {
+      const remaining = pending.slice(i).map((a) => a.slug);
+      report.skipped.push(...remaining);
       log(
-        `processing failed for ${article.slug}, left pending: ${String(error)}`,
+        `run budget exhausted; ${remaining.length} article(s) left pending for the next run`,
       );
+      break;
+    }
+    try {
+      await processOne(article, config, deps, report, log, deadline);
+    } catch (error) {
+      // Budget exhaustion is an orderly stop, not a fault: the article's
+      // translation checkpoint is on disk, so the next run resumes it rather
+      // than starting over. Everything else is a genuine failure.
+      const outOfBudget = error instanceof DeadlineExceededError;
+      if (outOfBudget) {
+        report.skipped.push(article.slug);
+        log(
+          `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved`,
+        );
+      } else {
+        // A hard failure (LLM outage, provider 403, disk error) must not kill
+        // the run: other articles still process, the workflow's commit step
+        // still runs for them, and this article stays unmarked so the next
+        // push retries it.
+        report.errored.push({ slug: article.slug, error: String(error) });
+        log(
+          `processing failed for ${article.slug}, left pending: ${String(error)}`,
+        );
+      }
       // Images are downloaded before the LLM stages, so a failure here leaves
       // files nothing references — and the workflow commits them regardless.
       // Reaching this catch proves index.md was never rewritten (the only step
@@ -107,6 +147,16 @@ export async function runPipeline(
         article.parsed.body,
         log,
       );
+      if (outOfBudget) {
+        const remaining = pending.slice(i + 1).map((a) => a.slug);
+        report.skipped.push(...remaining);
+        if (remaining.length > 0) {
+          log(
+            `${remaining.length} further article(s) left pending for the next run`,
+          );
+        }
+        break;
+      }
     }
   }
 
@@ -119,6 +169,7 @@ async function processOne(
   deps: PipelineDeps,
   report: PipelineReport,
   log: (message: string) => void,
+  deadline: Deadline,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
@@ -168,13 +219,27 @@ async function processOne(
   // and the site joins the two by filename alone, with no lang or
   // translation_failed check to save it (ADR 0003).
   const zhAbs = `${article.dirAbs}/zh.md`;
+  const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
   if (lang !== config.translation.target) {
+    // Resume whatever an earlier run got through. `--force` deliberately does
+    // NOT clear this: the checkpoint is keyed by block source text, so a reuse
+    // is only ever the same input translated by the same model, and clearing
+    // it would make the one case that needs resuming — an article too long to
+    // finish in a single run — impossible to retry. Changing the model in
+    // tiro.yml invalidates it automatically; delete the file for a clean redo.
+    const cache = await loadTranslationCache(cacheAbs, {
+      target: config.translation.target,
+      model: modelFor(config, "translation"),
+    });
     const zhBody = await translateBlocks({
       chat: deps.chat,
       model: modelFor(config, "translation"),
       targetLang: config.translation.target,
       blocks: splitBlocks(body),
       batchChars: config.translation.batch_chars,
+      cache,
+      deadline,
+      callBudgetMs: config.llm.timeout_ms,
       log,
     });
     if (zhBody !== null) {
@@ -191,8 +256,10 @@ async function processOne(
     }
   } else {
     // Already in the target language, so by contract this article has no
-    // translation. A re-clip can move an article into this branch.
+    // translation. A re-clip can move an article into this branch, so clear a
+    // checkpoint left from when it was still being translated.
     await rm(zhAbs, { force: true });
+    await rm(cacheAbs, { force: true });
   }
 
   // Rebuild the failure markers from this run only — a --force reprocess

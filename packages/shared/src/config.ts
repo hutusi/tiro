@@ -13,6 +13,9 @@ export const TiroConfigSchema = z.object({
     summary_model: z.string().min(1).optional(),
     translation_model: z.string().min(1).optional(),
     api_key_env: z.string().min(1),
+    // Per-HTTP-request timeout, not per logical call: the client may retry.
+    timeout_ms: z.number().int().positive().default(120_000),
+    max_retries: z.number().int().min(0).default(3),
   }),
   categories: z.array(z.string().min(1)).min(1),
   translation: z
@@ -50,6 +53,25 @@ export const TiroConfigSchema = z.object({
         .positive()
         .default(100 * 1024 * 1024),
       stage_timeout_ms: z.number().int().positive().default(300_000),
+    })
+    .prefault({}),
+  processing: z
+    .object({
+      // Wall-clock budget for one processor run. The point is to stop the
+      // processor *before* the workflow's timeout-minutes kills it: a killed
+      // job cannot flush its translation checkpoint, so the run's work is
+      // discarded and redone from scratch next push — which is how a single
+      // 170 KB article stayed permanently unprocessed while starving every
+      // article queued behind it.
+      //
+      // Keep it under timeout-minutes by more than llm.timeout_ms: the budget
+      // is only checked between batches, so one in-flight request can overrun
+      // it by up to that much.
+      run_budget_ms: z
+        .number()
+        .int()
+        .positive()
+        .default(50 * 60 * 1000),
     })
     .prefault({}),
 });

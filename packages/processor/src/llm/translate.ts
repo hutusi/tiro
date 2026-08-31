@@ -4,6 +4,8 @@ import {
   joinBlocks,
   splitBlocks,
 } from "@tiro/shared";
+import { type Deadline, unboundedDeadline } from "../deadline.ts";
+import type { TranslationCache } from "./cache.ts";
 import type { ChatFn } from "./client.ts";
 
 export interface TranslateOptions {
@@ -12,6 +14,16 @@ export interface TranslateOptions {
   targetLang: string;
   blocks: readonly Block[];
   batchChars?: number;
+  /** Checkpoint of blocks an earlier run already translated. Given one,
+   * translation resumes instead of restarting, and flushes as it goes. */
+  cache?: TranslationCache;
+  /** Run budget. Checked before every LLM call so an over-budget run stops
+   * cleanly with its checkpoint intact instead of being killed mid-flight. */
+  deadline?: Deadline;
+  /** Headroom the deadline must still have for a call to be worth starting —
+   * normally the client's per-request timeout, so a call cannot overrun the
+   * budget by more than one request. */
+  callBudgetMs?: number;
   log?: (message: string) => void;
 }
 
@@ -31,6 +43,10 @@ function isVerbatim(block: Block): boolean {
  * which is slow but structurally unbreakable. Returns the translated body,
  * or null when the final alignment gate fails — the caller must then skip
  * writing zh.md entirely rather than ship a misaligned translation.
+ *
+ * With a `cache` this is resumable: finished blocks are checkpointed as they
+ * land, so a run that stops early (budget or crash) hands its work to the
+ * next one instead of discarding it (ADR 0008).
  */
 export async function translateBlocks(
   options: TranslateOptions,
@@ -41,13 +57,38 @@ export async function translateBlocks(
     targetLang,
     blocks,
     batchChars = 10_000,
+    cache,
+    deadline = unboundedDeadline(),
+    callBudgetMs = 0,
     log = () => {},
   } = options;
 
   const translated: string[] = blocks.map((b) => b.text);
-  const todo = blocks
+  const translatable = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => !isVerbatim(block));
+
+  // Resume: anything an earlier run already translated is reused as-is and
+  // never re-sent, so each run picks up where the last one stopped.
+  const todo: Todo[] = [];
+  for (const item of translatable) {
+    const cached = cache?.get(item.block.text);
+    if (cached === undefined) todo.push(item);
+    else translated[item.index] = cached;
+  }
+  const resumed = translatable.length - todo.length;
+  if (resumed > 0) {
+    log(
+      `resuming from checkpoint: ${resumed}/${translatable.length} block(s) already translated`,
+    );
+  }
+
+  // Every translation lands in the checkpoint as well as the output, so an
+  // abandoned run still hands its work to the next one.
+  const record = (item: Todo, text: string): void => {
+    translated[item.index] = text;
+    cache?.set(item.block.text, text);
+  };
 
   // A sentinel collision in the source would corrupt batch parsing.
   const collision = todo.some(({ block }) =>
@@ -56,14 +97,17 @@ export async function translateBlocks(
 
   if (collision) {
     log("sentinel collision in source; translating block-by-block");
-    for (const { block, index } of todo) {
-      translated[index] = await translateSingle(chat, model, targetLang, block);
+    for (const item of todo) {
+      deadline.check(callBudgetMs, `block ${item.index}`);
+      record(item, await translateSingle(chat, model, targetLang, item.block));
+      await cache?.flush();
     }
   } else {
     const batches = packBatches(todo, batchChars);
     for (let b = 0; b < batches.length; b += 1) {
       const batch = batches[b];
       if (batch === undefined) continue;
+      deadline.check(callBudgetMs, `batch ${b + 1}/${batches.length}`);
       log(
         `translating batch ${b + 1}/${batches.length} (${batch.length} block(s))`,
       );
@@ -77,10 +121,20 @@ export async function translateBlocks(
         const item = batch[i];
         const result = results?.[i];
         if (item === undefined) continue;
-        translated[item.index] =
-          result ??
-          (await translateSingle(chat, model, targetLang, item.block));
+        if (result !== undefined) {
+          record(item, result);
+          continue;
+        }
+        // The per-block fallback is the slowest path in the pipeline, so
+        // checkpoint each one rather than risk repeating them.
+        deadline.check(callBudgetMs, `block ${item.index}`);
+        record(
+          item,
+          await translateSingle(chat, model, targetLang, item.block),
+        );
+        await cache?.flush();
       }
+      await cache?.flush();
     }
   }
 
@@ -91,6 +145,11 @@ export async function translateBlocks(
     })),
   );
   const alignment = checkAlignment([...blocks], splitBlocks(zhBody));
+  // Both outcomes below are terminal for this attempt, so the checkpoint has
+  // done its job. It must go on misalignment too: the offending block is among
+  // these, so resuming from them would reproduce the same failure on every
+  // retry and make it permanent.
+  await cache?.discard();
   if (!alignment.ok) {
     log(
       `translation misaligned, refusing to write zh.md: ${alignment.errors.join("; ")}`,

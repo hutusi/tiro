@@ -52,7 +52,12 @@ async function run(vault: string): Promise<number> {
       );
       return 1;
     }
-    chat = createChatClient({ baseUrl: config.llm.base_url, apiKey });
+    chat = createChatClient({
+      baseUrl: config.llm.base_url,
+      apiKey,
+      timeoutMs: config.llm.timeout_ms,
+      maxRetries: config.llm.max_retries,
+    });
   }
 
   const report = await runPipeline(
@@ -69,7 +74,8 @@ async function run(vault: string): Promise<number> {
   console.log(
     `done: ${report.processed.length} processed, ${report.translated.length} translated, ` +
       `${report.imagesDownloaded} images downloaded (${report.imagesFailed} kept as hotlinks, ${report.imagesPruned} orphans removed), ` +
-      `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ${report.invalid.length} invalid`,
+      `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ` +
+      `${report.skipped.length} left for the next run, ${report.invalid.length} invalid`,
   );
   // Invalid articles are warnings here: exiting non-zero would fail the
   // workflow before its commit step, discarding the articles that DID
@@ -77,6 +83,14 @@ async function run(vault: string): Promise<number> {
   if (report.invalid.length > 0) {
     console.warn(
       `warning: ${report.invalid.length} invalid article(s) skipped — run 'tiro-process validate' for details`,
+    );
+  }
+  // Not a warning: the run budget doing its job is the designed outcome for
+  // an article too big to finish in one go. Its checkpoint is committed and
+  // the next run resumes it, so say so plainly rather than as a failure.
+  if (report.skipped.length > 0) {
+    console.log(
+      `budget reached; resuming next run: ${report.skipped.join(", ")}`,
     );
   }
   if (report.errored.length > 0) {
