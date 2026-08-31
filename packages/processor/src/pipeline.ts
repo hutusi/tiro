@@ -107,8 +107,10 @@ export async function runPipeline(
     // image downloads and summary call and gets rolled back anyway. One LLM
     // round trip is the floor for making any progress at all.
     if (deadline.expired(config.llm.timeout_ms)) {
-      const remaining = pending.slice(i).map((a) => a.slug);
-      report.skipped.push(...remaining);
+      const remaining = pending.slice(i);
+      for (const deferred of remaining)
+        await markPending(deferred, options, log);
+      report.skipped.push(...remaining.map((a) => a.slug));
       log(
         `run budget exhausted; ${remaining.length} article(s) left pending for the next run`,
       );
@@ -122,6 +124,7 @@ export async function runPipeline(
       // than starting over. Everything else is a genuine failure.
       const outOfBudget = error instanceof DeadlineExceededError;
       if (outOfBudget) {
+        await markPending(article, options, log);
         report.skipped.push(article.slug);
         log(
           `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved`,
@@ -148,7 +151,9 @@ export async function runPipeline(
         log,
       );
       if (outOfBudget) {
-        const remaining = pending.slice(i + 1).map((a) => a.slug);
+        const rest = pending.slice(i + 1);
+        for (const deferred of rest) await markPending(deferred, options, log);
+        const remaining = rest.map((a) => a.slug);
         report.skipped.push(...remaining);
         if (remaining.length > 0) {
           log(
@@ -304,6 +309,44 @@ async function processOne(
     body,
     log,
   );
+}
+
+/**
+ * Return a budget-deferred article to the pending pool.
+ *
+ * Only `--force` runs need this. Forced discovery includes articles that are
+ * already processed, so deferring one left its `tiro.processed_at` in place and
+ * the next ordinary run skipped it — while the log promised it would resume.
+ * Worse, a repeated `--force` without `--slug` re-selected the same cheapest
+ * articles, so a whole-vault redo could never reach the expensive ones.
+ *
+ * Clearing the marker makes `--force` mean "these need reprocessing" and hands
+ * the rest to the ordinary pending flow, which is what invariant 3 already
+ * describes. Everything else stays: summary, tags, lang, and zh.md are intact,
+ * so the article keeps rendering exactly as before until a later run redoes it.
+ *
+ * Writes `parsed.body`, not any body this run derived: reaching here means
+ * index.md was never rewritten and this run's image downloads are being rolled
+ * back, so the on-disk body must stay the one already committed.
+ */
+async function markPending(
+  article: DiscoveredArticle,
+  options: PipelineOptions,
+  log: (message: string) => void,
+): Promise<void> {
+  if (options.force !== true) return; // unforced articles have no marker
+  const { frontmatter, body } = article.parsed;
+  if (frontmatter.tiro.processed_at === undefined) return;
+  const {
+    processed_at: _processedAt,
+    processor_version: _processorVersion,
+    ...tiro
+  } = frontmatter.tiro;
+  await Bun.write(
+    article.indexAbs,
+    stringifyArticle({ ...frontmatter, tiro }, body),
+  );
+  log(`${article.slug}: forced reprocess deferred, returned to pending`);
 }
 
 /** Reconciliation is housekeeping and must never change an article's outcome,

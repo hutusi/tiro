@@ -81,6 +81,18 @@ because its `await chat(...)` sits outside its retry `try` — a budget error
 propagates rather than being mistaken for a bad response and buried in the
 excerpt fallback.
 
+**A budget-deferred `--force` article returns to the pending pool.** Forced
+discovery includes already-processed articles, so deferring one left its
+`tiro.processed_at` in place: the next ordinary run skipped it, while the log
+promised it would resume, and a repeated `--force` without `--slug` re-selected
+the same cheapest articles so a whole-vault redo could never reach the expensive
+ones. Clearing the marker on deferral makes `--force` mean "these need
+reprocessing" and hands the remainder to the ordinary pending flow — invariant 3
+rather than a second, parallel notion of progress. Summary, tags, lang and
+`zh.md` all stay, so the article renders unchanged until a later run redoes it,
+and `validate` is unaffected (it exempts marker-less articles and checks a
+present `zh.md` on its own terms).
+
 **Cheapest article first** (`discoverArticles` sorts by body length, slug
 breaking ties). This cannot stop a pathological article from failing, but it
 confines the damage to that article instead of everything queued behind it.

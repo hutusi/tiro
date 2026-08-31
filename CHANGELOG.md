@@ -29,6 +29,10 @@ versions follow the `0.x` line while Tiro is a personal system.
 - A timed-out LLM request is retried once instead of three times. A timeout has
   already spent its full budget before it is observed, so one stuck call cost
   over eight minutes of a thirty-minute job.
+- A `--force` article deferred by the run budget now returns to pending, so an
+  ordinary run finishes it. Previously it kept its `processed_at`, so the next
+  run skipped it despite the log saying it would resume — and a repeated
+  no-slug `--force` re-did the cheapest articles instead of advancing.
 - The run budget now binds every stage, retry, and HTTP request rather than
   being checked only between articles and batches. Between two checks a single
   article could spend 5 minutes on images, 24 on summary retries and 16 on one

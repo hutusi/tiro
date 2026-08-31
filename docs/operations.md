@@ -70,6 +70,10 @@ endpoint works.
     way. Overrun past the budget is therefore at most one already-clamped
     request, so the gap to `timeout-minutes` only needs to cover that. Raise
     both together.
+  - A `--force` article the budget defers has its `processed_at` cleared and
+    returns to pending, so an ordinary run finishes it — expect a
+    marker-stripping commit for it. Its summary, tags and `zh.md` are untouched,
+    so the site keeps rendering it meanwhile.
   - A checkpoint is dropped automatically when the article finishes, when its
     translation misaligns, and when `llm.model` or `translation.target` changes.
     Delete the file by hand for a genuinely clean retranslation — `--force`

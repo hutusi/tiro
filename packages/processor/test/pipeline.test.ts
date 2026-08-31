@@ -576,4 +576,77 @@ describe("run budget", () => {
     expect(report.skipped).toEqual([BIG]);
     expect(report.errored).toEqual([]);
   });
+  test("a budget-deferred --force article returns to pending and a normal run finishes it", async () => {
+    // Forced discovery includes already-processed articles, so deferring one
+    // used to leave processed_at in place: the next ordinary run skipped it,
+    // despite the log promising it would resume, and a repeated --force just
+    // redid the cheapest articles again.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+
+    // Process everything normally first, so both articles carry the marker.
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    expect(
+      needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+        ).frontmatter,
+      ),
+    ).toBe(false);
+
+    // Forced redo that runs out of budget partway.
+    let clock = 0;
+    const forced = await runPipeline({ vaultDir: vault, force: true }, config, {
+      ...deps,
+      chat: billingChat(() => {
+        clock += 100;
+      }),
+      deadline: createDeadline(1500, () => clock),
+    });
+    expect(forced.skipped).toContain(BIG);
+    expect(forced.errored).toEqual([]);
+
+    // The deferred article is genuinely pending again...
+    const deferred = parseArticle(
+      readFileSync(join(vault, "articles", BIG, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(deferred.frontmatter)).toBe(true);
+    // ...but keeps everything the earlier run produced, so it still renders.
+    expect(deferred.frontmatter.summary).toBeDefined();
+    expect(deferred.frontmatter.category).toBe("ai");
+    expect(
+      readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8"),
+    ).toContain("中文");
+
+    // An ordinary run — no --force — now picks it up, which is the whole point.
+    const followUp = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    expect(followUp.processed).toEqual([BIG]);
+  });
+
+  test("deferring an unforced article writes nothing", async () => {
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    const before = readFileSync(
+      join(vault, "articles", BIG, "index.md"),
+      "utf8",
+    );
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("no article should reach the LLM");
+      },
+      deadline: createDeadline(0, () => 0),
+    });
+    expect(report.skipped).toContain(BIG);
+    // Pending articles have no marker to clear, so the file must be untouched.
+    expect(readFileSync(join(vault, "articles", BIG, "index.md"), "utf8")).toBe(
+      before,
+    );
+  });
 });
