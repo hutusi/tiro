@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { splitBlocks } from "@tiro/shared";
@@ -291,5 +291,29 @@ describe("translateBlocks checkpointing", () => {
     expect(zh).not.toBeNull();
     expect(sent).toBe(manyBlocks.length - firstRun);
     expect(splitBlocks(zh ?? "")).toHaveLength(manyBlocks.length);
+  });
+  test("a checkpoint with a non-string entry translates from scratch, not crashes", async () => {
+    // End of the path the cache-level guard closes: before it, this threw
+    // TypeError out of the join below, which left the article pending and
+    // re-threw from the same file on every later run.
+    const path = cachePath();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        target: "zh",
+        model: "m",
+        blocks: { [`${"a".repeat(64)}`]: 42 },
+      }),
+    );
+    const zh = await translateBlocks({
+      chat: makeFakeChat(),
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      cache: await loadTranslationCache(path, header),
+    });
+    expect(zh).not.toBeNull();
+    expect(splitBlocks(zh ?? "")[1]?.text).toBe("中文：First paragraph.");
   });
 });

@@ -76,7 +76,14 @@ export async function loadTranslationCache(
       raw.target === header.target &&
       raw.model === header.model &&
       typeof raw.blocks === "object" &&
-      raw.blocks !== null
+      raw.blocks !== null &&
+      // Values too, not just the shape. `{"<hash>": 42}` is valid JSON and
+      // clears every other guard, but a non-string reaches the join in
+      // translateBlocks as `translated[i].trim()` and throws — which escapes
+      // processOne, leaves the article pending, and then throws again on every
+      // later run from the very same file. A checkpoint that cannot be trusted
+      // has to read as absent, never as a fault.
+      Object.values(raw.blocks).every((v) => typeof v === "string")
     ) {
       blocks = { ...(raw.blocks as Record<string, string>) };
     }

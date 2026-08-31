@@ -703,4 +703,52 @@ describe("run budget", () => {
     expect(second.processed).toEqual([BIG]);
     expect(secondCalls).toBeLessThan(calls);
   });
+  test("a slow image stage cannot outrun the budget of an article it starts", async () => {
+    // The coverage the review asked for. processImages has its own five-minute
+    // stage limit and runs on real time, so before the clamp an article started
+    // with one LLM timeout left could sit in image downloads long past the run
+    // budget — and past the workflow timeout, whose kill skips the commit step.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+
+    // Honours the abort signal, as a real fetch does: with the stage clamped to
+    // what is left of the run this is cut short, unclamped it runs the full 3 s.
+    const slowImageFetch: FetchLike = async (_input, init) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve(new Response("offline", { status: 404 })),
+          3_000,
+        );
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
+
+    const started = Date.now();
+    const report = await runPipeline({ vaultDir: vault, slug: RAW }, config, {
+      ...deps,
+      fetchImpl: slowImageFetch,
+      chat: makeFakeChat(),
+      // Real clock: the image stage reads real time, so this is what it clamps
+      // against. Comfortably above llm.timeout_ms (50 ms) so the article starts
+      // and the image stage is what has to stop it.
+      deadline: createDeadline(400),
+    });
+    const elapsed = Date.now() - started;
+
+    // Clamped to the ~400 ms left, not the stage's own 5 min or the image's 3 s.
+    expect(elapsed).toBeLessThan(1_500);
+    // Stopped on budget rather than failing, and left for the next run.
+    expect(report.errored).toEqual([]);
+    expect(report.processed).toEqual([]);
+    expect(report.skipped).toEqual([RAW]);
+    expect(
+      needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+        ).frontmatter,
+      ),
+    ).toBe(true);
+  });
 });

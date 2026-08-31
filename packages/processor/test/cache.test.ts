@@ -132,4 +132,41 @@ describe("loadTranslationCache", () => {
     expect(existsSync(path)).toBe(false);
     expect(existsSync(`${path}.tmp`)).toBe(false);
   });
+  test("rejects a checkpoint whose entries are not all strings", async () => {
+    // Valid JSON that clears every structural guard. A non-string value would
+    // reach translateBlocks' join as `translated[i].trim()` and throw, which
+    // escapes processOne and leaves the article pending — then throws again on
+    // every later run from the same file, so the failure never clears.
+    const path = cachePath();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 1,
+        target: "zh",
+        model: "m",
+        blocks: { good: "你好。", bad: 42 },
+      }),
+    );
+    const cache = await loadTranslationCache(path, header);
+    // Whole checkpoint rejected, not filtered: one wrong entry means it is not
+    // a checkpoint worth resuming from, same as a header mismatch.
+    expect(cache.restored).toBe(0);
+    expect(cache.get("good")).toBeUndefined();
+  });
+
+  test("rejects null and nested-object entries too", async () => {
+    for (const bad of [null, { nested: true }, ["a"]]) {
+      const path = cachePath();
+      writeFileSync(
+        path,
+        JSON.stringify({
+          version: 1,
+          target: "zh",
+          model: "m",
+          blocks: { k: bad },
+        }),
+      );
+      expect((await loadTranslationCache(path, header)).restored).toBe(0);
+    }
+  });
 });

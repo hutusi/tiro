@@ -62,6 +62,13 @@ hands its work to the next one.
   added for. `rename(2)` within a directory is atomic, so a reader sees the old
   checkpoint or the new one and never half of either. Staging debris is cleared
   on load and on discard, since the workflow's `git add -A` would commit it.
+- **Validated whole, or not used at all.** A checkpoint is restored only if it
+  parses, matches the header, *and* every entry is a string. `{"<hash>": 42}` is
+  valid JSON that clears a structural check, but a non-string reaches the join
+  in `translateBlocks` as `translated[i].trim()` and throws — escaping
+  `processOne`, leaving the article pending, and throwing again from the same
+  file on every later run. Anything less than wholly trustworthy has to read as
+  absent, never as a fault, or the optimisation becomes a permanent failure.
 - **Header-guarded.** A checkpoint written for a different model or target
   language is dropped whole rather than merged. This doubles as the operator's
   "retranslate it properly" lever: change the model in `tiro.yml` and stale work
