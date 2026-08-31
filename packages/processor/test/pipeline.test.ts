@@ -896,4 +896,34 @@ describe("run budget", () => {
     expect(report.errored[0]?.error).toContain("cannot resume");
     expect(logged.join("\n")).not.toContain("checkpoint saved");
   });
+  test("a deferral whose marker cannot be cleared is reported, not silently promised", async () => {
+    // markPending() writes from inside the per-article catch. An unguarded
+    // throw there escaped runPipeline entirely and abandoned every remaining
+    // article — invariant 7 says one article's failure must not cost the
+    // others. And since a forced deferral only resumes if its marker is
+    // cleared, a failed write must be booked as the failure it is rather than
+    // counted among the orderly skips.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const DONE = "example-com-posts-hello-ai-e8446b12"; // already processed
+    chmodSync(join(vault, "articles", DONE, "index.md"), 0o444);
+
+    const report = await runPipeline({ vaultDir: vault, force: true }, config, {
+      ...deps,
+      chat: async () => {
+        throw new Error("no article should reach the LLM");
+      },
+      deadline: createDeadline(0, () => 0), // out of budget before article 1
+    });
+
+    // The run completed rather than throwing out of the loop...
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.slug).toBe(DONE);
+    expect(report.errored[0]?.error).toContain(
+      "could not be returned to pending",
+    );
+    // ...and the other articles were still deferred rather than abandoned.
+    expect(report.skipped.length).toBeGreaterThan(0);
+    expect(report.skipped).not.toContain(DONE);
+  });
 });

@@ -113,8 +113,7 @@ export async function runPipeline(
     if (deadline.expired(config.llm.timeout_ms)) {
       const remaining = pending.slice(i);
       for (const deferred of remaining)
-        await markPending(deferred, options, log);
-      report.skipped.push(...remaining.map((a) => a.slug));
+        await deferArticle(deferred, options, report, log);
       log(
         `run budget exhausted; ${remaining.length} article(s) left pending for the next run`,
       );
@@ -128,14 +127,16 @@ export async function runPipeline(
       // than starting over. Everything else is a genuine failure.
       const outOfBudget = error instanceof DeadlineExceededError;
       if (outOfBudget) {
-        await markPending(article, options, log);
-        report.skipped.push(article.slug);
-        // Naming the error matters: DeadlineExceededError carries the fault
-        // observed as the budget ran out, so a deferral actually caused by a
-        // 403 or a stuck provider says so here instead of reading as routine.
-        log(
-          `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved: ${String(error)}`,
-        );
+        // Only claim the reassuring outcome if the deferral actually held;
+        // deferArticle books it as a failure otherwise. Naming the error
+        // matters too: DeadlineExceededError carries the fault observed as the
+        // budget ran out, so a deferral actually caused by a 403 or a stuck
+        // provider says so here instead of reading as routine.
+        if (await deferArticle(article, options, report, log)) {
+          log(
+            `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved: ${String(error)}`,
+          );
+        }
       } else {
         // A hard failure (LLM outage, provider 403, disk error) must not kill
         // the run: other articles still process, the workflow's commit step
@@ -159,12 +160,11 @@ export async function runPipeline(
       );
       if (outOfBudget) {
         const rest = pending.slice(i + 1);
-        for (const deferred of rest) await markPending(deferred, options, log);
-        const remaining = rest.map((a) => a.slug);
-        report.skipped.push(...remaining);
-        if (remaining.length > 0) {
+        for (const deferred of rest)
+          await deferArticle(deferred, options, report, log);
+        if (rest.length > 0) {
           log(
-            `${remaining.length} further article(s) left pending for the next run`,
+            `${rest.length} further article(s) left pending for the next run`,
           );
         }
         break;
@@ -326,6 +326,42 @@ async function processOne(
     body,
     log,
   );
+}
+
+/**
+ * Book an article as deferred to the next run.
+ *
+ * Deferral is a promise that the work will be picked up again, and for a forced
+ * article that promise rests entirely on clearing its marker. If that write
+ * fails the article will not resume, so it is booked as the failure it is
+ * rather than counted among the orderly skips — the same rule the checkpoint
+ * follows.
+ *
+ * Guarding the write matters for a second reason: every caller is already
+ * inside the per-article catch, where an unguarded throw escaped `runPipeline`
+ * altogether and abandoned every remaining article. One article's failure must
+ * never cost the others.
+ */
+async function deferArticle(
+  article: DiscoveredArticle,
+  options: PipelineOptions,
+  report: PipelineReport,
+  log: (message: string) => void,
+): Promise<boolean> {
+  try {
+    await markPending(article, options, log);
+    report.skipped.push(article.slug);
+    return true;
+  } catch (error) {
+    report.errored.push({
+      slug: article.slug,
+      error: `deferred, but could not be returned to pending: ${String(error)}`,
+    });
+    log(
+      `${article.slug}: deferred, but its marker could not be cleared, so it will not resume: ${String(error)}`,
+    );
+    return false;
+  }
 }
 
 /**

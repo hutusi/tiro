@@ -131,6 +131,13 @@ because its `await chat(...)` sits outside its retry `try` — a budget error
 propagates rather than being mistaken for a bad response and buried in the
 excerpt fallback.
 
+**A deferral is only booked as one if it will actually hold.** Clearing a forced
+article's marker is a write, and it happens inside the per-article error handler,
+so it gets the same two rules as the checkpoint: a failure is reported rather
+than promised (the article will not resume without it, so it belongs in
+`errored`, not among the orderly skips), and it never escapes the handler — an
+unguarded throw there abandoned every remaining article, against invariant 7.
+
 **A budget-deferred `--force` article returns to the pending pool.** Forced
 discovery includes already-processed articles, so deferring one left its
 `tiro.processed_at` in place: the next ordinary run skipped it, while the log
