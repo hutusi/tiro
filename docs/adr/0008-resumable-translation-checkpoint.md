@@ -61,12 +61,25 @@ hands its work to the next one.
   impossible to retry.
 
 **A run budget the processor enforces itself** (`processing.run_budget_ms`,
-50 min). Checked before each article and before each batch, with headroom for
-one in-flight request (`llm.timeout_ms`). On expiry it throws, the article is
-left pending with its checkpoint intact, and the run returns normally. The
-workflow's `timeout-minutes` rises to 60 and becomes a backstop rather than the
-primary limit — the difference between a clean stop that commits and a kill that
-does not.
+50 min), as one absolute deadline that binds *every* stage, retry, and HTTP
+request. On expiry it throws, the article is left pending with its checkpoint
+intact, and the run returns normally. The workflow's `timeout-minutes` rises to
+60 and becomes a backstop rather than the primary limit — the difference between
+a clean stop that commits and a kill that does not.
+
+Checking the deadline only between articles and between batches is not enough,
+and the gap is much larger than it looks. Between two checks one article can
+spend `images.stage_timeout_ms` (300 s) on its own independent stage deadline,
+then three summary attempts of up to four HTTP requests each (24 min), then a
+translation batch that calls the model twice on a marker mismatch (16 min) —
+roughly 40 minutes past a deadline whose headroom is ten. So the deadline is
+also handed to the chat client: no request starts without budget left, and each
+request's timeout is clamped to `min(timeout_ms, remaining)`, the same idiom the
+image stage already applies to its own deadline. Overrun drops to at most one
+in-flight, already-clamped request. `summarize` needs no check of its own
+because its `await chat(...)` sits outside its retry `try` — a budget error
+propagates rather than being mistaken for a bad response and buried in the
+excerpt fallback.
 
 **Cheapest article first** (`discoverArticles` sorts by body length, slug
 breaking ties). This cannot stop a pathological article from failing, but it

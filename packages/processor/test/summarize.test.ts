@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DeadlineExceededError } from "../src/deadline.ts";
 import type { ChatFn } from "../src/llm/client.ts";
 import { summarize } from "../src/llm/summarize.ts";
 
@@ -133,5 +134,20 @@ describe("summarize", () => {
     };
     await summarize({ ...baseOptions, chat });
     expect(seen).toEqual(["system", "user", "assistant", "user"]);
+  });
+  test("propagates a run-budget error instead of falling back to the excerpt", async () => {
+    // Load-bearing and easy to break: `await chat(...)` sits outside the try on
+    // purpose. If it were moved inside, an exhausted budget would be read as a
+    // bad response, retried twice more, and buried in a silent excerpt
+    // fallback — the article would be marked processed with no real summary.
+    let calls = 0;
+    const chat: ChatFn = async () => {
+      calls += 1;
+      throw new DeadlineExceededError("a chat completions request", -1);
+    };
+    await expect(summarize({ ...baseOptions, chat })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+    expect(calls).toBe(1); // not 3 — the retry loop must not swallow it
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { createChatClient } from "../src/llm/client.ts";
 
 function jsonResponse(content: string): Response {
@@ -142,5 +143,80 @@ describe("createChatClient", () => {
     });
     expect(await chat({ model: "m", messages: [] })).toBe("ok");
     expect(calls).toBe(4);
+  });
+  test("refuses to start a request once the run budget is gone", async () => {
+    // Without this the budget is advisory: the pipeline stops scheduling work,
+    // but a call already in flight keeps spending time the run does not have.
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      deadline: createDeadline(0, () => 0),
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse("ok");
+      },
+      sleep: noSleep,
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+    expect(calls).toBe(0);
+  });
+
+  test("clamps a request's timeout to the budget that is left", async () => {
+    let clock = 0;
+    const seen: number[] = [];
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      timeoutMs: 120_000,
+      // Far less than timeoutMs remains, so the request must not be allowed
+      // the full 120 s — that gap is exactly how a run overran its budget.
+      deadline: createDeadline(5_000, () => clock),
+      fetchImpl: async (_input, init) => {
+        // AbortSignal.timeout(n) is not introspectable, so assert on the
+        // clamp's inputs via the deadline instead: advance past the budget and
+        // confirm the next attempt is refused rather than granted 120 s.
+        seen.push(init?.signal === undefined ? -1 : 1);
+        clock += 6_000;
+        return new Response("boom", { status: 500 });
+      },
+      sleep: noSleep,
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+    // One attempt made, the retry refused because the budget went negative.
+    expect(seen).toEqual([1]);
+  });
+
+  test("a deadline error is not retried as a transport fault", async () => {
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 3,
+      deadline: createDeadline(-1, () => 0),
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse("ok");
+      },
+      sleep: noSleep,
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+    expect(calls).toBe(0);
+  });
+
+  test("no deadline means the previous unbounded behaviour is unchanged", async () => {
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => jsonResponse("ok"),
+      sleep: noSleep,
+    });
+    expect(await chat({ model: "m", messages: [] })).toBe("ok");
   });
 });

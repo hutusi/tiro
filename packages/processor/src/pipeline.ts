@@ -187,7 +187,13 @@ async function processOne(
     timeoutMs: config.images.timeout_ms,
     maxCount: config.images.max_count,
     totalMaxBytes: config.images.total_max_bytes,
-    stageTimeoutMs: config.images.stage_timeout_ms,
+    // The stage has its own cap, but it must also fit inside what is left of
+    // the run: unclamped, an image-heavy article could spend five minutes past
+    // a budget the run had already exhausted.
+    stageTimeoutMs: Math.min(
+      config.images.stage_timeout_ms,
+      Math.max(0, deadline.remainingMs()),
+    ),
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
     ...(deps.resolveHost !== undefined
       ? { resolveHost: deps.resolveHost }

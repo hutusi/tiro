@@ -1,3 +1,5 @@
+import { type Deadline, DeadlineExceededError } from "../deadline.ts";
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -26,6 +28,11 @@ export interface ChatClientOptions {
   apiKey: string;
   timeoutMs?: number;
   maxRetries?: number;
+  /** The run's absolute budget. Without it `timeoutMs` bounds one request but
+   * nothing bounds a logical call: retries multiply it, and the caller's own
+   * retry loops multiply it again. Given one, no request starts without budget
+   * left and none may outlive it. */
+  deadline?: Deadline;
   fetchImpl?: FetchLike;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -78,6 +85,7 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
     apiKey,
     timeoutMs = 120_000,
     maxRetries = 3,
+    deadline,
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   } = options;
@@ -93,6 +101,15 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
             3000,
         );
       }
+      // Outside the try, so an exhausted budget cannot be mistaken for a
+      // retryable transport fault and burn the very time it is out of.
+      const remainingMs = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
+      if (remainingMs <= 0) {
+        throw new DeadlineExceededError(
+          "a chat completions request",
+          remainingMs,
+        );
+      }
       try {
         const res = await fetchImpl(endpoint, {
           method: "POST",
@@ -101,7 +118,9 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(timeoutMs),
+          // Clamped so a request cannot outlive the run's budget — the same
+          // idiom the image stage uses against its own stage deadline.
+          signal: AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
         });
         if (!res.ok) throw new ChatHttpError(res.status, await res.text());
         const payload = (await res.json()) as {

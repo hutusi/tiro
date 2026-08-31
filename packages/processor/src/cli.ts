@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
+import { createDeadline } from "./deadline.ts";
 import { type ChatFn, createChatClient } from "./llm/client.ts";
 import { loadVaultConfig, runPipeline } from "./pipeline.ts";
 import { validateVault } from "./validate.ts";
@@ -40,6 +41,11 @@ if (command === "validate") {
 async function run(vault: string): Promise<number> {
   const config = await loadVaultConfig(vault);
   const dryRun = values["dry-run"];
+  // One clock for the whole run, shared with the chat client: the pipeline
+  // decides what to start, the client makes sure nothing it starts outlives
+  // the budget. Two separate deadlines would let a request run past the one
+  // the pipeline is stopping against.
+  const deadline = createDeadline(config.processing.run_budget_ms);
 
   let chat: ChatFn = async () => {
     throw new Error("LLM client unavailable in dry-run");
@@ -57,6 +63,7 @@ async function run(vault: string): Promise<number> {
       apiKey,
       timeoutMs: config.llm.timeout_ms,
       maxRetries: config.llm.max_retries,
+      deadline,
     });
   }
 
@@ -68,7 +75,7 @@ async function run(vault: string): Promise<number> {
       dryRun,
     },
     config,
-    { chat },
+    { chat, deadline },
   );
 
   console.log(

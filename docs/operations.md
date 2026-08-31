@@ -64,9 +64,12 @@ endpoint works.
   resumes on the next instead of restarting — successive runs converge. Nothing
   needs doing when a run reports `budget reached; resuming next run: <slug>`:
   the next push, or a manual dispatch, picks it up.
-  - The gap between the budget and `timeout-minutes` must stay larger than
-    `llm.timeout_ms`: the budget is only checked between batches, so one
-    in-flight request can overrun it by that much. Raise both together.
+  - The budget binds every stage, retry, and HTTP request: the chat client
+    refuses to start a call with no budget left and clamps each request to
+    `min(llm.timeout_ms, remaining)`, and the image stage is clamped the same
+    way. Overrun past the budget is therefore at most one already-clamped
+    request, so the gap to `timeout-minutes` only needs to cover that. Raise
+    both together.
   - A checkpoint is dropped automatically when the article finishes, when its
     translation misaligns, and when `llm.model` or `translation.target` changes.
     Delete the file by hand for a genuinely clean retranslation — `--force`
