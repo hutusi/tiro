@@ -10,6 +10,11 @@ llm:
   # summary_model: qwen-max
   # translation_model: qwen-mt-plus
   api_key_env: TIRO_LLM_API_KEY
+  # Per HTTP request, not per logical call — the client retries. A timed-out
+  # request is only ever retried once (a timeout has already spent its full
+  # budget), so one stuck call costs at most 2x this.
+  timeout_ms: 120000
+  max_retries: 3
 
 # The LLM picks exactly one category per article from this list.
 categories:
@@ -35,6 +40,17 @@ translation:
   # provider's per-request output cap — raise cautiously (e.g. 20000-30000),
   # lower if you see "batch marker mismatch" lines in the workflow log.
   batch_chars: 10000
+
+processing:
+  # Wall-clock budget for one run, and the reason the workflow's
+  # timeout-minutes is 60: the processor must stop itself with room to spare so
+  # it can flush its translation checkpoints and let the commit step run. A run
+  # killed by the job cap commits nothing.
+  #
+  # An article that runs out of budget keeps its checkpoint
+  # (articles/<slug>/.tiro-zh-cache.json) and resumes on the next run instead
+  # of restarting, so very long articles finish across several runs.
+  run_budget_ms: 3000000 # 50 min
 
 images:
   max_bytes: 10485760 # 10 MB per image; larger ones stay hotlinked
