@@ -32,6 +32,14 @@ export interface ChatClientOptions {
 
 const RETRY_DELAYS_MS = [500, 1500, 3000];
 
+/** Attempts a single logical call may spend on timeouts. Unlike a 429 or a
+ * connection reset, a timeout has already burned `timeoutMs` of wall clock
+ * before it is even observed, so the default `maxRetries` of 3 turns one stuck
+ * request into 4x the timeout — over eight minutes of a run's budget spent on
+ * a call that was never going to land. Two attempts, then give up and let the
+ * article retry on a later run. */
+const TIMEOUT_ATTEMPT_LIMIT = 2;
+
 class ChatHttpError extends Error {
   constructor(
     readonly status: number,
@@ -48,6 +56,16 @@ function retryable(error: unknown): boolean {
     return error.status === 429 || error.status >= 500;
   // Network errors / timeouts surface as TypeError or AbortError-ish objects.
   return !(error instanceof SyntaxError);
+}
+
+/** `AbortSignal.timeout` rejects with a DOMException named "TimeoutError";
+ * matching on the name keeps this working across runtimes. */
+function isTimeout(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "TimeoutError"
+  );
 }
 
 /**
@@ -67,6 +85,7 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
 
   return async function chat(request: ChatRequest): Promise<string> {
     let lastError: unknown;
+    let timeouts = 0;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       if (attempt > 0) {
         await sleep(
@@ -95,7 +114,13 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         return content;
       } catch (error) {
         lastError = error;
-        if (!retryable(error) || attempt === maxRetries) throw error;
+        if (isTimeout(error)) timeouts += 1;
+        if (
+          !retryable(error) ||
+          timeouts >= TIMEOUT_ATTEMPT_LIMIT ||
+          attempt === maxRetries
+        )
+          throw error;
       }
     }
     throw lastError;
