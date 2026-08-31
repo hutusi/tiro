@@ -95,11 +95,21 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
     let lastError: unknown;
     let timeouts = 0;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      if (attempt > 0) {
-        await sleep(
-          RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ??
-            3000,
+      // Checked before the backoff, not after: sleeping 3s to then discover
+      // there were 100ms left would overshoot the budget by the sleep itself.
+      const beforeSleep = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
+      if (beforeSleep <= 0) {
+        throw new DeadlineExceededError(
+          "a chat completions request",
+          beforeSleep,
+          { cause: lastError },
         );
+      }
+      if (attempt > 0) {
+        const backoff =
+          RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ??
+          3000;
+        await sleep(Math.min(backoff, beforeSleep));
       }
       // Outside the try, so an exhausted budget cannot be mistaken for a
       // retryable transport fault and burn the very time it is out of.
@@ -108,6 +118,7 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         throw new DeadlineExceededError(
           "a chat completions request",
           remainingMs,
+          { cause: lastError },
         );
       }
       try {
@@ -133,6 +144,17 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         return content;
       } catch (error) {
         lastError = error;
+        // Before any retry limit: what the caller does next is decided by the
+        // budget, not by the shape of the error. A request clamped to the last
+        // of the budget dies as a TimeoutError, and letting that escape had the
+        // pipeline read an orderly stop as a fault — which for a forced article
+        // meant its marker survived and the next ordinary run skipped it.
+        const left = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
+        if (left <= 0) {
+          throw new DeadlineExceededError("a chat completions retry", left, {
+            cause: error,
+          });
+        }
         if (isTimeout(error)) timeouts += 1;
         if (
           !retryable(error) ||

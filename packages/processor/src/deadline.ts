@@ -15,8 +15,19 @@ export class DeadlineExceededError extends Error {
   constructor(
     what: string,
     readonly remainingMs: number,
+    /** The fault observed as the budget ran out, when there was one. Named in
+     * the message so a deferral caused by a 403 or a parse error still says so
+     * instead of hiding behind "budget". */
+    options?: { cause?: unknown },
   ) {
-    super(`run budget exhausted before ${what} (${remainingMs}ms remaining)`);
+    const because =
+      options?.cause === undefined
+        ? ""
+        : `; last error: ${String(options.cause)}`;
+    super(
+      `run budget exhausted before ${what} (${remainingMs}ms remaining${because})`,
+      options,
+    );
     this.name = "DeadlineExceededError";
   }
 }

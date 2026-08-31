@@ -94,7 +94,18 @@ roughly 40 minutes past a deadline whose headroom is ten. So the deadline is
 also handed to the chat client: no request starts without budget left, and each
 request's timeout is clamped to `min(timeout_ms, remaining)`, the same idiom the
 image stage already applies to its own deadline. Overrun drops to at most one
-in-flight, already-clamped request. `summarize` needs no check of its own
+in-flight, already-clamped request.
+
+Budget exhaustion is then classified by the deadline, never by the shape of the
+last error. A request clamped to the last of the budget dies as a `TimeoutError`,
+and letting that reach the pipeline had an orderly stop read as a fault — which
+for a `--force` article meant its marker survived and the next ordinary run
+skipped it, reopening the bug above through a different door. So the client
+converts any error into `DeadlineExceededError` once the budget is gone, naming
+the original in the message and keeping it as `cause` so a deferral caused by a
+403 still says 403. Retry backoff is clamped to the remaining budget too:
+sleeping three seconds to then discover there were a hundred milliseconds left
+overshoots by the sleep itself. `summarize` needs no check of its own
 because its `await chat(...)` sits outside its retry `try` — a budget error
 propagates rather than being mistaken for a bad response and buried in the
 excerpt fallback.

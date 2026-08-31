@@ -219,4 +219,106 @@ describe("createChatClient", () => {
     });
     expect(await chat({ model: "m", messages: [] })).toBe("ok");
   });
+  const timeoutError = () => {
+    const e = new Error("The operation timed out.");
+    e.name = "TimeoutError";
+    return e;
+  };
+
+  test("a request that exhausts the budget defers, it does not look like a fault", async () => {
+    // The clamp means the last request of a run dies as a TimeoutError. If that
+    // escapes, the pipeline reads an orderly stop as a failure — and for a
+    // forced article that means its marker survives and the next ordinary run
+    // skips it, reopening the bug the --force fix closed.
+    let clock = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 0, // the reviewer's first repro: no retries left to take
+      deadline: createDeadline(100, () => clock),
+      fetchImpl: async () => {
+        clock += 100; // the clamped request spends the rest of the budget
+        throw timeoutError();
+      },
+      sleep: noSleep,
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+  });
+
+  test("the same on the second-timeout path, with default retries", async () => {
+    let clock = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 3,
+      deadline: createDeadline(200, () => clock),
+      fetchImpl: async () => {
+        clock += 100;
+        throw timeoutError();
+      },
+      sleep: noSleep,
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+  });
+
+  test("names the underlying fault so a deferral is still diagnosable", async () => {
+    let clock = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 0,
+      deadline: createDeadline(100, () => clock),
+      fetchImpl: async () => {
+        clock += 100;
+        return new Response("forbidden", { status: 403 });
+      },
+      sleep: noSleep,
+    });
+    // Converting unconditionally keeps budget classification honest, but the
+    // real cause must not vanish behind the word "budget": it has to be both.
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    expect(error).toBeInstanceOf(DeadlineExceededError);
+    expect(String(error)).toContain("403");
+    expect(String((error as Error).cause)).toContain("403");
+  });
+
+  test("a timeout with budget left still surfaces as a timeout", async () => {
+    // No over-conversion: only an exhausted budget reclassifies an error.
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      deadline: createDeadline(60_000, () => 0),
+      fetchImpl: async () => {
+        throw timeoutError();
+      },
+      sleep: noSleep,
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      "The operation timed out.",
+    );
+  });
+
+  test("retry backoff cannot outlast the budget it is waiting on", async () => {
+    let clock = 0;
+    const slept: number[] = [];
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      deadline: createDeadline(100, () => clock),
+      fetchImpl: async () => new Response("boom", { status: 500 }),
+      sleep: async (ms) => {
+        slept.push(ms);
+        clock += ms;
+      },
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+    // The first backoff is 500ms, but only 100ms of budget remained.
+    expect(slept).toEqual([100]);
+  });
 });
