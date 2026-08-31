@@ -28,6 +28,9 @@ const nav = [
   { href: "/tags/", label: STRINGS.nav.tags },
   { href: "/search/", label: STRINGS.nav.search },
 ];
+const path = Astro.url.pathname;
+const isActive = (href: string): boolean =>
+  href === "/" ? path === "/" : path.startsWith(href);
 ---
 
 <!doctype html>
@@ -68,26 +71,23 @@ const nav = [
       }
     </script>
   </head>
-  <body
-    class="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100"
-  >
-    <header class="border-b border-neutral-200 dark:border-neutral-800">
+  <body class="min-h-screen bg-surface text-ink">
+    <header class="border-b border-line">
       <div
-        class="mx-auto flex max-w-6xl items-center justify-between px-4 py-4"
+        class="mx-auto flex max-w-6xl items-center justify-between px-4 py-5"
       >
-        <a
-          href="/"
-          class="inline-flex items-center gap-2 text-lg font-bold tracking-tight"
-        >
+        <a href="/" class="inline-flex items-center gap-2 tracking-tight">
           <svg class="h-6 w-6" viewBox="0 0 128 128" aria-hidden="true">
-            <rect width="128" height="128" rx="28" fill="#1f883d"></rect>
+            <rect width="128" height="128" rx="28" class="fill-accent"></rect>
             <path
               fill="#ffffff"
               d="M46 30 H82 a6 6 0 0 1 6 6 V98 a3 3 0 0 1 -4.8 2.4 L64 86 L44.8 100.4 A3 3 0 0 1 40 98 V36 a6 6 0 0 1 6 -6 Z"
             ></path>
           </svg>
-          {STRINGS.siteTitle}
-          <span class="hidden text-sm font-normal text-neutral-500 sm:inline"
+          <span class="font-serif text-xl font-semibold"
+            >{STRINGS.siteTitle}</span
+          >
+          <span class="hidden text-sm font-normal text-ink-muted sm:inline"
             >{STRINGS.siteTagline}</span
           >
         </a>
@@ -96,7 +96,12 @@ const nav = [
             nav.map((item) => (
               <a
                 href={item.href}
-                class="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                aria-current={isActive(item.href) ? "page" : undefined}
+                class={
+                  isActive(item.href)
+                    ? "font-medium text-accent"
+                    : "text-ink-muted hover:text-ink"
+                }
               >
                 {item.label}
               </a>
@@ -106,41 +111,74 @@ const nav = [
             id="theme-toggle"
             type="button"
             aria-label="切换深色模式"
-            class="rounded-md border border-neutral-300 px-2 py-1 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
+            class="rounded-md border border-line px-2 py-1.5 text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
           >
-            <span class="dark:hidden">🌙</span><span class="hidden dark:inline"
-              >☀️</span
+            <svg
+              class="h-4 w-4 dark:hidden"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
             >
+              <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>
+            </svg>
+            <svg
+              class="hidden h-4 w-4 dark:block"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="4"></circle>
+              <path
+                d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.4-11.4 1.4-1.4"
+              ></path>
+            </svg>
           </button>
         </nav>
       </div>
     </header>
-    <main class="mx-auto max-w-6xl px-4 py-8">
+    <main class="mx-auto max-w-6xl px-4 py-10">
       <slot />
     </main>
-    <footer class="border-t border-neutral-200 dark:border-neutral-800">
+    <footer class="border-t border-line">
       <div
-        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-neutral-500"
+        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-ink-muted"
       >
         <p class="flex flex-wrap items-center gap-x-2">
           <span>{STRINGS.siteTitle} · {STRINGS.siteTagline}</span>
           <span>·</span>
           <span
-            ><a href="https://hutusi.com" class="hover:underline">hutusi</a> 出品</span
+            ><a
+              href="https://hutusi.com"
+              class="hover:text-accent hover:underline">hutusi</a
+            > 出品</span
           >
           <span>·</span>
           <span
-            ><a href="https://ainaive.com" class="hover:underline">AI Naive</a> 系列项目</span
+            ><a
+              href="https://ainaive.com"
+              class="hover:text-accent hover:underline">AI Naive</a
+            > 系列项目</span
           >
         </p>
         <nav aria-label="页脚导航" class="flex items-center gap-4">
-          <a href="https://github.com/hutusi/tiro" class="hover:underline"
-            >GitHub</a
+          <a
+            href="https://github.com/hutusi/tiro"
+            class="hover:text-accent hover:underline">GitHub</a
           >
-          <a href="/privacy/" class="hover:underline"
+          <a href="/privacy/" class="hover:text-accent hover:underline"
             >{STRINGS.footer.privacy}</a
           >
-          <a href="/rss.xml" class="hover:underline">{STRINGS.footer.rss}</a>
+          <a href="/rss.xml" class="hover:text-accent hover:underline"
+            >{STRINGS.footer.rss}</a
+          >
         </nav>
       </div>
     </footer>
