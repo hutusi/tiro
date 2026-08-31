@@ -649,4 +649,58 @@ describe("run budget", () => {
       before,
     );
   });
+  test("a failure after translating but before index.md keeps the checkpoint", async () => {
+    // The window fix 3 closes: translation has finished and cost real money,
+    // but zh.md and index.md are not written yet. Discarding the checkpoint at
+    // the end of translation would lose all of it and leave the article
+    // pending — the exact loss the checkpoint exists to prevent.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    const indexPath = join(vault, "articles", BIG, "index.md");
+
+    let calls = 0;
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: () => {
+          calls += 1;
+        },
+      }),
+      now: () => {
+        // Throwing from the clock aborts processOne after translation has
+        // completed but before index.md is assembled and written.
+        if (calls > 0) throw new Error("disk gone");
+        return new Date("2026-08-22T12:00:00.000Z");
+      },
+    });
+
+    expect(report.errored).toHaveLength(1);
+    expect(report.processed).toEqual([]);
+    // Article still pending, and the translated blocks survived.
+    expect(
+      needsProcessing(
+        parseArticle(readFileSync(indexPath, "utf8")).frontmatter,
+      ),
+    ).toBe(true);
+    const checkpoint = JSON.parse(
+      readFileSync(
+        join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+        "utf8",
+      ),
+    );
+    expect(Object.keys(checkpoint.blocks).length).toBeGreaterThan(0);
+
+    // And the next run reuses them instead of paying again.
+    let secondCalls = 0;
+    const second = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: () => {
+          secondCalls += 1;
+        },
+      }),
+    });
+    expect(second.processed).toEqual([BIG]);
+    expect(secondCalls).toBeLessThan(calls);
+  });
 });

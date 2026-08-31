@@ -184,7 +184,11 @@ describe("translateBlocks checkpointing", () => {
     expect(seen.join("\n")).not.toContain("First paragraph.");
   });
 
-  test("drops the checkpoint once the article is fully translated", async () => {
+  test("keeps the checkpoint after translating — the caller owns dropping it", async () => {
+    // Deliberate: zh.md and index.md are still unwritten at this point, and a
+    // kill in that window would lose every translated block while leaving the
+    // article pending. The pipeline drops it once index.md lands; see the
+    // run-budget suite in pipeline.test.ts for the other half.
     const path = cachePath();
     const cache = await loadTranslationCache(path, header);
     const zh = await translateBlocks({
@@ -195,12 +199,10 @@ describe("translateBlocks checkpointing", () => {
       cache,
     });
     expect(zh).not.toBeNull();
-    expect(existsSync(path)).toBe(false);
+    expect(existsSync(path)).toBe(true);
   });
 
-  test("drops the checkpoint on misalignment so a retry is not doomed", async () => {
-    // Keeping it would resume from the very blocks that broke alignment and
-    // reproduce the same failure on every future --force retry.
+  test("keeps the checkpoint on misalignment too", async () => {
     const chat: ChatFn = async () => "翻译。\n\n多出来的一段。";
     const path = cachePath();
     const cache = await loadTranslationCache(path, header);
@@ -212,7 +214,10 @@ describe("translateBlocks checkpointing", () => {
       cache,
     });
     expect(zh).toBeNull();
-    expect(existsSync(path)).toBe(false);
+    // The pipeline still writes index.md on this path (marking
+    // translation_failed) and clears it there, so the misaligned blocks are
+    // not resumed and the failure cannot become permanent.
+    expect(existsSync(path)).toBe(true);
   });
 
   test("stops on the run budget and leaves finished batches on disk", async () => {
@@ -286,6 +291,5 @@ describe("translateBlocks checkpointing", () => {
     expect(zh).not.toBeNull();
     expect(sent).toBe(manyBlocks.length - firstRun);
     expect(splitBlocks(zh ?? "")).toHaveLength(manyBlocks.length);
-    expect(existsSync(path)).toBe(false);
   });
 });

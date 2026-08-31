@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { rename, rm } from "node:fs/promises";
 
 /**
  * Checkpoint of already-translated blocks for one article (ADR 0008).
@@ -25,6 +25,11 @@ const CACHE_VERSION = 1;
  * processor-internal state, deliberately not part of the shared content
  * contract in `@tiro/shared/paths`. */
 export const TRANSLATION_CACHE_FILE = ".tiro-zh-cache.json";
+
+/** Staging path for the atomic write below. Cleaned up on load and on discard:
+ * a crash between writing it and renaming it would otherwise leave litter the
+ * workflow's `git add -A` commits. */
+const tmpPathFor = (pathAbs: string): string => `${pathAbs}.tmp`;
 
 interface CacheFile {
   version: number;
@@ -79,6 +84,9 @@ export async function loadTranslationCache(
     // Absent or corrupt checkpoint just means no resume, never a failure:
     // this is an optimisation, and the article translates fine without it.
   }
+  // A staging file here is debris from a run killed mid-write. The rename
+  // below never happened, so it holds nothing the checkpoint does not.
+  await rm(tmpPathFor(pathAbs), { force: true });
 
   const restored = Object.keys(blocks).length;
   let dirty = false;
@@ -100,13 +108,22 @@ export async function loadTranslationCache(
         model: header.model,
         blocks,
       };
-      await Bun.write(pathAbs, `${JSON.stringify(file, null, 2)}\n`);
+      // Write-then-rename, not write-in-place. `timeout-minutes` kills the job
+      // outright, and a kill partway through overwriting the live file leaves
+      // truncated JSON that the next run reads as absent — so the article
+      // starts from batch 1, in precisely the scenario the checkpoint exists
+      // for. rename(2) within a directory is atomic: readers see the old
+      // checkpoint or the new one, never half of either.
+      const tmpAbs = tmpPathFor(pathAbs);
+      await Bun.write(tmpAbs, `${JSON.stringify(file, null, 2)}\n`);
+      await rename(tmpAbs, pathAbs);
       dirty = false;
     },
     async discard() {
       blocks = {};
       dirty = false;
       await rm(pathAbs, { force: true });
+      await rm(tmpPathFor(pathAbs), { force: true });
     },
   };
 }

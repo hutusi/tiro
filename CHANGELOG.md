@@ -29,6 +29,14 @@ versions follow the `0.x` line while Tiro is a personal system.
 - A timed-out LLM request is retried once instead of three times. A timeout has
   already spent its full budget before it is observed, so one stuck call cost
   over eight minutes of a thirty-minute job.
+- The translation checkpoint is no longer discarded until `index.md` has been
+  written. It used to go as soon as translation returned, so a failure while
+  writing `zh.md`/`index.md` lost every translated block and left the article
+  pending anyway.
+- Checkpoint writes are atomic (write to a sibling file, then rename). A kill
+  partway through overwriting the live file left truncated JSON, which the next
+  run read as "no checkpoint" and restarted from batch 1 — the one situation the
+  checkpoint was added for.
 - A `--force` article deferred by the run budget now returns to pending, so an
   ordinary run finishes it. Previously it kept its `processed_at`, so the next
   run skipped it despite the log saying it would resume — and a repeated

@@ -145,11 +145,11 @@ export async function translateBlocks(
     })),
   );
   const alignment = checkAlignment([...blocks], splitBlocks(zhBody));
-  // Both outcomes below are terminal for this attempt, so the checkpoint has
-  // done its job. It must go on misalignment too: the offending block is among
-  // these, so resuming from them would reproduce the same failure on every
-  // retry and make it permanent.
-  await cache?.discard();
+  // The checkpoint is deliberately NOT discarded here. Both outcomes below are
+  // terminal for this attempt, but neither is durable yet: the caller still has
+  // to write zh.md and index.md, and a kill in that window would lose every
+  // translated block while leaving the article pending — the exact loss the
+  // checkpoint exists to prevent. The caller drops it once index.md lands.
   if (!alignment.ok) {
     log(
       `translation misaligned, refusing to write zh.md: ${alignment.errors.join("; ")}`,

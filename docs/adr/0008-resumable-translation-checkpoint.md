@@ -47,10 +47,21 @@ hands its work to the next one.
   edits one paragraph keeps every other block's translation, and reuse is safe
   by construction: a cached translation is only ever returned for byte-identical
   input. Index keys would silently misapply translations across an edit.
-- **Discarded on both terminal outcomes** — success *and* misalignment. Keeping
-  it after a misalignment would resume from the very blocks that broke the
-  contract and reproduce the failure on every future retry, making a recoverable
-  fault permanent.
+- **Discarded on both terminal outcomes** — success *and* misalignment — but
+  only once `index.md` has been written with its marker, not when translation
+  returns. Between those two points sit the `zh.md` and `index.md` writes; a
+  kill there would lose every translated block *and* leave the article pending,
+  which is the loss the checkpoint exists to prevent. Discarding on misalignment
+  matters for the opposite reason: resuming from the very blocks that broke the
+  contract would reproduce the failure on every future retry and make a
+  recoverable fault permanent.
+- **Written atomically**, to a sibling `.tmp` that is then renamed over the
+  target. `timeout-minutes` kills the job outright, and a kill partway through
+  overwriting the live file leaves truncated JSON that the next run reads as
+  absent — restarting from batch 1 in precisely the situation the checkpoint was
+  added for. `rename(2)` within a directory is atomic, so a reader sees the old
+  checkpoint or the new one and never half of either. Staging debris is cleared
+  on load and on discard, since the workflow's `git add -A` would commit it.
 - **Header-guarded.** A checkpoint written for a different model or target
   language is dropped whole rather than merged. This doubles as the operator's
   "retranslate it properly" lever: change the model in `tiro.yml` and stale work

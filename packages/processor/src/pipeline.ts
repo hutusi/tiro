@@ -267,10 +267,8 @@ async function processOne(
     }
   } else {
     // Already in the target language, so by contract this article has no
-    // translation. A re-clip can move an article into this branch, so clear a
-    // checkpoint left from when it was still being translated.
+    // translation. A re-clip can move an article into this branch.
     await rm(zhAbs, { force: true });
-    await rm(cacheAbs, { force: true });
   }
 
   // Rebuild the failure markers from this run only — a --force reprocess
@@ -295,6 +293,13 @@ async function processOne(
     },
   };
   await Bun.write(article.indexAbs, stringifyArticle(updated, body));
+  // Only now is the article durable, so only now may the checkpoint go. Doing
+  // it when translation finished would open a window — zh.md and index.md still
+  // unwritten — where a kill loses all of the translated blocks and leaves the
+  // article pending anyway. Covers every branch above: a finished translation,
+  // a misaligned one (whose blocks must not be resumed, or the misalignment
+  // repeats forever), and an article that turned out to need none.
+  await rm(cacheAbs, { force: true });
   // The article is done the moment this lands. Recording it before cleaning up
   // matters: reconciliation used to run first, so a failure there reported the
   // article as "left pending" while it was already marked processed on disk —
