@@ -114,7 +114,6 @@ jobs:
         # committed real work and was then killed by timeout-minutes still has
         # something to publish.
         if: always() && steps.commit.outcome == 'success' && steps.commit.outputs.committed == 'true'
-
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
