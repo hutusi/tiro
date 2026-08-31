@@ -4,7 +4,11 @@ import {
   joinBlocks,
   splitBlocks,
 } from "@tiro/shared";
-import { type Deadline, unboundedDeadline } from "../deadline.ts";
+import {
+  type Deadline,
+  DeadlineExceededError,
+  unboundedDeadline,
+} from "../deadline.ts";
 import type { TranslationCache } from "./cache.ts";
 import type { ChatFn } from "./client.ts";
 
@@ -91,27 +95,29 @@ export async function translateBlocks(
   };
 
   /**
-   * Stop on the run budget — but only call it a deferral if the work will
-   * actually be there next time.
+   * Decide, in one place, whether a budget stop is honestly resumable.
    *
-   * A checkpoint that cannot be written is harmless right up to this line: an
-   * article that fits in one run never reads it back. Here it stops being
-   * harmless, because deferring is the moment the run starts depending on it.
-   * Reporting an orderly "resuming next run" with nothing persisted would have
-   * the next run repeat these same batches, and the one after that, while the
-   * log shows steady progress. Fail loudly instead — a plain Error, so the
-   * pipeline books it as the genuine fault it is rather than as a skip.
+   * A checkpoint that cannot be written is harmless until the run depends on
+   * it, and deferring is that dependency: reporting "resuming next run" with
+   * nothing persisted has the next run repeat these same batches, and the one
+   * after that, while the log shows steady progress.
+   *
+   * The budget can end the work in two ways — the check before a call, or the
+   * deadline expiring inside one, which the chat client raises. Guarding only
+   * the first left the second reporting a resumable skip with nothing saved, so
+   * both funnel through here instead. A plain Error, so the pipeline books it
+   * as the genuine fault it is rather than as a skip; the original is kept as
+   * `cause` and quoted, since it names the batch that was reached.
    */
-  const stopIfOutOfBudget = (what: string): void => {
-    if (!deadline.expired(callBudgetMs)) return;
+  const asHardFailureIfUnsaved = (error: unknown): unknown => {
+    if (!(error instanceof DeadlineExceededError)) return error;
     const writeError = cache?.writeError;
-    if (writeError !== undefined) {
-      throw new Error(
-        `run budget exhausted at ${what}, but the checkpoint could not be written, ` +
-          `so this article cannot resume and would repeat this work every run: ${String(writeError)}`,
-      );
-    }
-    deadline.check(callBudgetMs, what);
+    if (writeError === undefined) return error;
+    return new Error(
+      `${String(error)}; the checkpoint could not be written (${String(writeError)}), ` +
+        "so this article cannot resume and would repeat this work every run",
+      { cause: error },
+    );
   };
 
   // A sentinel collision in the source would corrupt batch parsing.
@@ -119,47 +125,63 @@ export async function translateBlocks(
     block.text.includes(`<<<${MARKER}`),
   );
 
-  if (collision) {
-    log("sentinel collision in source; translating block-by-block");
-    for (const item of todo) {
-      stopIfOutOfBudget(`block ${item.index}`);
-      record(item, await translateSingle(chat, model, targetLang, item.block));
-      await cache?.flush();
-    }
-  } else {
-    const batches = packBatches(todo, batchChars);
-    for (let b = 0; b < batches.length; b += 1) {
-      const batch = batches[b];
-      if (batch === undefined) continue;
-      stopIfOutOfBudget(`batch ${b + 1}/${batches.length}`);
-      log(
-        `translating batch ${b + 1}/${batches.length} (${batch.length} block(s))`,
-      );
-      const results = await translateBatch(chat, model, targetLang, batch, log);
-      if (results === null) {
-        log(
-          `batch ${b + 1}/${batches.length} falling back to per-block translation`,
-        );
-      }
-      for (let i = 0; i < batch.length; i += 1) {
-        const item = batch[i];
-        const result = results?.[i];
-        if (item === undefined) continue;
-        if (result !== undefined) {
-          record(item, result);
-          continue;
-        }
-        // The per-block fallback is the slowest path in the pipeline, so
-        // checkpoint each one rather than risk repeating them.
-        stopIfOutOfBudget(`block ${item.index}`);
+  try {
+    if (collision) {
+      log("sentinel collision in source; translating block-by-block");
+      for (const item of todo) {
+        deadline.check(callBudgetMs, `block ${item.index}`);
         record(
           item,
           await translateSingle(chat, model, targetLang, item.block),
         );
         await cache?.flush();
       }
-      await cache?.flush();
+    } else {
+      const batches = packBatches(todo, batchChars);
+      for (let b = 0; b < batches.length; b += 1) {
+        const batch = batches[b];
+        if (batch === undefined) continue;
+        deadline.check(callBudgetMs, `batch ${b + 1}/${batches.length}`);
+        log(
+          `translating batch ${b + 1}/${batches.length} (${batch.length} block(s))`,
+        );
+        const results = await translateBatch(
+          chat,
+          model,
+          targetLang,
+          batch,
+          log,
+        );
+        if (results === null) {
+          log(
+            `batch ${b + 1}/${batches.length} falling back to per-block translation`,
+          );
+        }
+        for (let i = 0; i < batch.length; i += 1) {
+          const item = batch[i];
+          const result = results?.[i];
+          if (item === undefined) continue;
+          if (result !== undefined) {
+            record(item, result);
+            continue;
+          }
+          // The per-block fallback is the slowest path in the pipeline, so
+          // checkpoint each one rather than risk repeating them.
+          deadline.check(callBudgetMs, `block ${item.index}`);
+          record(
+            item,
+            await translateSingle(chat, model, targetLang, item.block),
+          );
+          await cache?.flush();
+        }
+        await cache?.flush();
+      }
     }
+  } catch (error) {
+    // Every way the budget can end this work arrives here — the checks above
+    // and a deadline that expired inside a call — so the resumable-or-not
+    // question is answered once, in one place.
+    throw asHardFailureIfUnsaved(error);
   }
 
   const zhBody = joinBlocks(

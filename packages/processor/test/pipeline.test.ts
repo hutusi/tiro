@@ -17,7 +17,7 @@ import {
   parseArticle,
   splitBlocks,
 } from "@tiro/shared";
-import { createDeadline } from "../src/deadline.ts";
+import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
@@ -860,5 +860,40 @@ describe("run budget", () => {
     );
     expect(line).toBeDefined();
     expect(line).toContain("run budget exhausted before");
+  });
+  test("the same when the budget dies inside a call, not before one", async () => {
+    // End to end on the reported symptom: a budget that runs out mid-request
+    // raises DeadlineExceededError from the chat client, which used to bypass
+    // the guard entirely and have the run log a resumable skip with nothing
+    // persisted.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    mkdirSync(
+      join(vault, "articles", BIG, `${TRANSLATION_CACHE_FILE}.tmp`, "x"),
+      {
+        recursive: true,
+      },
+    );
+
+    let calls = 0;
+    const healthy = makeFakeChat();
+    const logged: string[] = [];
+    const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      // 1 = summary, 2 = first batch (its flush fails), 3 = dies in flight.
+      chat: async (request) => {
+        calls += 1;
+        if (calls >= 3) {
+          throw new DeadlineExceededError("a chat completions request", -1);
+        }
+        return healthy(request);
+      },
+      log: (m) => logged.push(m),
+    });
+
+    expect(report.skipped).toEqual([]);
+    expect(report.errored).toHaveLength(1);
+    expect(report.errored[0]?.error).toContain("cannot resume");
+    expect(logged.join("\n")).not.toContain("checkpoint saved");
   });
 });

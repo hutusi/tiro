@@ -365,4 +365,69 @@ describe("translateBlocks checkpointing", () => {
     expect(zh).not.toBeNull();
     expect(splitBlocks(zh ?? "")[1]?.text).toBe("中文：First paragraph.");
   });
+  test("a deadline that expires inside a call is caught by the same guard", async () => {
+    // The hole: the pre-call check knew about the failed write, but a budget
+    // that runs out *during* a request raises DeadlineExceededError from the
+    // chat client and used to sail straight past. The pipeline then reported a
+    // resumable skip and "checkpoint saved" with nothing on disk. Two places
+    // were answering one question and only one of them had the facts.
+    const path = cachePath();
+    mkdirSync(join(`${path}.tmp`, "wedged"), { recursive: true });
+
+    let calls = 0;
+    const healthy = makeFakeChat();
+    const chat: ChatFn = async (request) => {
+      calls += 1;
+      // First batch lands, so a flush is attempted and fails; the next request
+      // dies in flight, exactly as a clamped request does at the budget edge.
+      if (calls > 1) {
+        throw new DeadlineExceededError("a chat completions request", -1);
+      }
+      return healthy(request);
+    };
+
+    const error = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: manyBlocks,
+      batchChars: 1,
+      cache: await loadTranslationCache(path, header),
+      // Deliberately unexpired: only the in-flight path can be what converts.
+    }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DeadlineExceededError);
+    expect(String(error)).toContain("cannot resume");
+    // The original still names the batch that was reached.
+    expect((error as Error).cause).toBeInstanceOf(DeadlineExceededError);
+  });
+
+  test("an in-flight deadline with a healthy checkpoint stays a deferral", async () => {
+    // No over-conversion: with work actually persisted, this is the ordinary
+    // resumable stop and must keep its type so the pipeline defers rather than
+    // reporting a fault.
+    const path = cachePath();
+    let calls = 0;
+    const healthy = makeFakeChat();
+    const chat: ChatFn = async (request) => {
+      calls += 1;
+      if (calls > 1) {
+        throw new DeadlineExceededError("a chat completions request", -1);
+      }
+      return healthy(request);
+    };
+
+    const error = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: manyBlocks,
+      batchChars: 1,
+      cache: await loadTranslationCache(path, header),
+    }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(DeadlineExceededError);
+    expect(existsSync(path)).toBe(true); // and there really is progress saved
+  });
 });

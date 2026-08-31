@@ -63,7 +63,11 @@ hands its work to the next one.
   article whose checkpoint could not be written promises a resumption that
   cannot happen, and the next run repeats the identical batches while the log
   reports orderly progress. So a deferral consults the recorded write error
-  first and surfaces a hard failure instead of a resumable stop. (An earlier
+  first and surfaces a hard failure instead of a resumable stop — decided in one
+  place, because the budget can end the work two ways (the check before a call,
+  and the deadline expiring inside one, which the chat client raises) and a
+  guard on only the first left the second reporting a resumable skip with
+  nothing saved. (An earlier
   revision made writes flatly non-fatal on the grounds that a checkpoint "costs
   resumability and nothing else" — self-refuting, since resumability is the
   whole point for the only articles that need one.) Removal in particular runs
