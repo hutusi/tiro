@@ -9,6 +9,15 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **One bad block no longer costs an article its whole translation.** Each
+  translation is now verified on its own before the body is joined, and a block
+  whose translation no longer parses as one block of the same type is replaced
+  by its original. An arXiv paper lost all 364 blocks over 8 of them: Turndown
+  converting MathML left paragraphs ending in a lone `=`, which markdown reads
+  as a setext heading, so the model translated the prose and sensibly dropped
+  the stray line. The same paper now publishes with ~4% of its blocks left in
+  English. `checkAlignment` stays as the backstop for join-time interactions
+  that per-block checks cannot see.
 - **An indented code block no longer costs an article its whole translation.**
   The block join trimmed every block, including ones never sent to the model.
   That strips the four-space indent off an indented code block, which re-parses

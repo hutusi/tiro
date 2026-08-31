@@ -76,12 +76,14 @@ describe("translateBlocks", () => {
     expect(splitBlocks(zh ?? "")[1]?.text).toBe("中文：First paragraph.");
   });
 
-  test("returns null when the translation breaks alignment", async () => {
+  test("repairs a block whose translation changed shape, keeping the rest", async () => {
+    // A translation that splits one block into two used to reject the whole
+    // article. Now that block alone reverts to the original — one untranslated
+    // block instead of no translation at all.
     const chat: ChatFn = async (request) => {
       const user =
         request.messages.find((m) => m.role === "user")?.content ?? "";
       if (user.includes("<<<TIRO_BLOCK_")) {
-        // Marker-valid response whose first block splits into two paragraphs.
         const matches = [...user.matchAll(/<<<TIRO_BLOCK_(\d+)>>>/g)];
         return matches
           .map((m) => `<<<TIRO_BLOCK_${m[1]}>>>\n翻译。\n\n多出来的一段。`)
@@ -89,11 +91,43 @@ describe("translateBlocks", () => {
       }
       return "翻译。\n\n多出来的一段。";
     };
+    const logs: string[] = [];
     const zh = await translateBlocks({
       chat,
       model: "m",
       targetLang: "zh",
       blocks,
+      log: (m) => logs.push(m),
+    });
+    expect(zh).not.toBeNull();
+    const out = splitBlocks(zh ?? "");
+    expect(out.map((b) => b.text)).toEqual(blocks.map((b) => b.text));
+    expect(logs.join("\n")).toContain("reverted to the original");
+  });
+
+  test("the alignment gate still refuses a body that only breaks once joined", async () => {
+    // Per-block checks cannot see interactions between blocks. Two lists with
+    // different bullets are two blocks; translations that normalise the bullet
+    // each parse as one list alone, but merge into a single list when joined.
+    // The gate stays as the backstop for that.
+    const twoLists = splitBlocks("- alpha\n\n* beta");
+    expect(twoLists.map((b) => b.type)).toEqual(["list", "list"]);
+    const chat: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      if (user.includes("<<<TIRO_BLOCK_")) {
+        const matches = [...user.matchAll(/<<<TIRO_BLOCK_(\d+)>>>/g)];
+        return matches
+          .map((m) => `<<<TIRO_BLOCK_${m[1]}>>>\n-   译文`)
+          .join("\n");
+      }
+      return "-   译文";
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: twoLists,
     });
     expect(zh).toBeNull();
   });
@@ -203,14 +237,16 @@ describe("translateBlocks checkpointing", () => {
   });
 
   test("keeps the checkpoint on misalignment too", async () => {
-    const chat: ChatFn = async () => "翻译。\n\n多出来的一段。";
+    // Uses the join-merge case, since a per-block shape change is now repaired
+    // rather than fatal.
+    const chat: ChatFn = async () => "-   译文";
     const path = cachePath();
     const cache = await loadTranslationCache(path, header);
     const zh = await translateBlocks({
       chat,
       model: "m",
       targetLang: "zh",
-      blocks,
+      blocks: splitBlocks("- alpha\n\n* beta"),
       cache,
     });
     expect(zh).toBeNull();

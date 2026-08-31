@@ -211,8 +211,34 @@ export async function translateBlocks(
     throw asHardFailureIfUnsaved(error);
   }
 
+  // Check each translation on its own before joining, and keep the original
+  // wherever the shape changed. Building the body out of blocks that have each
+  // been verified makes alignment hold by construction, so one bad block costs
+  // one untranslated block instead of the article's entire translation.
+  //
+  // The case this exists for is not a model failure. Turndown converting arXiv
+  // MathML can leave a paragraph whose last line is a lone "=" or "-", which
+  // markdown reads as a setext heading; the model translates the prose and
+  // sensibly drops the stray line, so the block comes back a paragraph. Eight
+  // such blocks out of 364 used to reject the whole article, and no prompt can
+  // fix a source that means something other than it looks like.
+  let reverted = 0;
+  const finalText = blocks.map((b, i) => {
+    const candidate = translated[i] || b.text;
+    if (candidate === b.text) return b.text;
+    const reparsed = splitBlocks(candidate);
+    if (reparsed.length === 1 && reparsed[0]?.type === b.type) return candidate;
+    reverted += 1;
+    return b.text;
+  });
+  if (reverted > 0) {
+    log(
+      `${reverted} block(s) reverted to the original: the translation changed their markdown shape`,
+    );
+  }
+
   const zhBody = joinBlocks(
-    blocks.map((b, i) => ({ ...b, text: translated[i] || b.text })),
+    blocks.map((b, i) => ({ ...b, text: finalText[i] ?? b.text })),
   );
   const alignment = checkAlignment([...blocks], splitBlocks(zhBody));
   // The checkpoint is deliberately NOT discarded here. Both outcomes below are

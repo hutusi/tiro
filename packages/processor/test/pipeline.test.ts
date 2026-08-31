@@ -164,18 +164,41 @@ describe("failure markers", () => {
 
   test("translation failure marks translation_failed but still processes", async () => {
     const vault = freshVault();
+    // A per-block shape change is repaired now, so forcing a real translation
+    // failure takes the join-merge case: two lists with different bullets are
+    // two blocks, and a translation that normalises the bullet merges them.
+    writeFileSync(
+      join(vault, "articles", RAW_SLUG, "index.md"),
+      [
+        "---",
+        'url: "https://example.org/blog/raw-clip"',
+        'title: "Raw Clip"',
+        'domain: "example.org"',
+        'clipped_at: "2026-08-23T09:00:00.000Z"',
+        "tiro:",
+        "  schema: 1",
+        "---",
+        "",
+        "- alpha",
+        "",
+        "* beta",
+        "",
+      ].join("\n"),
+    );
     const config = await loadVaultConfig(vault);
-    // Batch responses carry no markers, and per-block fallbacks split into
-    // two paragraphs — every path ends misaligned, so zhBody is null.
-    const report = await runPipeline({ vaultDir: vault }, config, {
-      ...deps,
-      chat: async (request) => {
-        if (request.response_format?.type === "json_object") {
-          return JSON.stringify({ summary: "s", category: "ai", tags: [] });
-        }
-        return "第一段。\n\n第二段。";
+    const report = await runPipeline(
+      { vaultDir: vault, slug: RAW_SLUG },
+      config,
+      {
+        ...deps,
+        chat: async (request) => {
+          if (request.response_format?.type === "json_object") {
+            return JSON.stringify({ summary: "s", category: "ai", tags: [] });
+          }
+          return "-   译文";
+        },
       },
-    });
+    );
     expect(report.processed).toEqual([RAW_SLUG]);
     expect(report.translationFailed).toEqual([RAW_SLUG]);
     const { frontmatter } = parseArticle(
@@ -301,16 +324,34 @@ describe("stale translations", () => {
     const vault = freshVault();
     const zhPath = join(vault, "articles", RAW, "zh.md");
     writeFileSync(zhPath, "过时的译文。\n");
+    writeFileSync(
+      join(vault, "articles", RAW, "index.md"),
+      [
+        "---",
+        'url: "https://example.org/blog/raw-clip"',
+        'title: "Raw Clip"',
+        'domain: "example.org"',
+        'clipped_at: "2026-08-23T09:00:00.000Z"',
+        "tiro:",
+        "  schema: 1",
+        "---",
+        "",
+        "- alpha",
+        "",
+        "* beta",
+        "",
+      ].join("\n"),
+    );
     const config = await loadVaultConfig(vault);
 
-    // Same misaligning chat as the translation-failure test above.
-    const report = await runPipeline({ vaultDir: vault }, config, {
+    // Same join-merge chat as the translation-failure test above.
+    const report = await runPipeline({ vaultDir: vault, slug: RAW }, config, {
       ...deps,
       chat: async (request) => {
         if (request.response_format?.type === "json_object") {
           return JSON.stringify({ summary: "s", category: "ai", tags: [] });
         }
-        return "第一段。\n\n第二段。";
+        return "-   译文";
       },
     });
 
