@@ -9,6 +9,14 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **Site redesign**: warm paper palette with a terracotta accent (replacing
+  the stock neutrals and the green mark), self-hosted Source Serif 4 for
+  titles and article prose (CJK falls back to system serifs), refined cards,
+  a segmented reader toggle, and Pagefind search themed to match both color
+  schemes (dark-mode search was previously unstyled). The full mark moved
+  with it: extension icons, popup/options primary buttons, PNG favicons,
+  the touch icon, and a rebuilt `og.png` social card are all terracotta.
+
 - The site is published at <https://tiro.ainaive.com/> (Cloudflare Pages
   custom domain). The generated `*.pages.dev` URL keeps working.
 - **Flat vault layout** (breaking, ADR 0007): articles moved from

@@ -4,13 +4,43 @@ import { STRINGS } from "../lib/strings.ts";
 ---
 
 <Base title={STRINGS.search.title}>
-  <h1 class="mb-6 text-xl font-bold">{STRINGS.search.title}</h1>
+  <h1 class="mb-8 font-serif text-2xl font-bold">{STRINGS.search.title}</h1>
   <link rel="stylesheet" href="/pagefind/pagefind-ui.css" />
   <div id="search" class="mx-auto max-w-2xl"></div>
-  <p id="search-notice" hidden class="text-sm text-neutral-500">
+  <p id="search-notice" hidden class="text-sm text-ink-muted">
     {STRINGS.search.devNotice}
   </p>
 </Base>
+
+<!-- Global: Pagefind injects its DOM at runtime, out of reach of Astro's
+     scoped selectors. Its stock CSS defines every variable once on :root
+     with light values only, so overriding on #search with our raw tokens
+     both restyles it and fixes dark mode (the tokens flip with .dark). -->
+<style is:global>
+  #search {
+    --pagefind-ui-scale: 0.85;
+    --pagefind-ui-primary: var(--accent);
+    --pagefind-ui-text: var(--ink);
+    --pagefind-ui-background: var(--surface-raised);
+    --pagefind-ui-border: var(--line);
+    --pagefind-ui-tag: var(--accent-soft);
+    --pagefind-ui-border-width: 1px;
+    --pagefind-ui-border-radius: 8px;
+    --pagefind-ui-image-border-radius: 8px;
+    --pagefind-ui-font: var(--font-sans, system-ui, sans-serif);
+  }
+  #search mark {
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
+    color: inherit;
+    border-radius: 2px;
+  }
+  /* Pagefind's stylesheet sets `outline: revert`, resurrecting the UA blue
+     focus ring past our layered base rule — reclaim it for the accent. */
+  #search input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+</style>
 
 <script is:inline>
   const script = document.createElement("script");

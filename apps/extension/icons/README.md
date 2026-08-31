@@ -5,8 +5,8 @@ manifest and the Web Store listing load. Vite copies `public/` into `dist/`
 on the first build pass, so the PNGs need no build wiring.
 
 A bookmark, not a wordmark: at 16 px in the toolbar a letterform is mud. The
-green is `#1f883d` — the same Primer green as the popup's primary button, so
-the toolbar icon and the popup read as one thing.
+terracotta is `#b4452f` — the site's accent and the popup's primary button
+color, so the toolbar icon, the popup and the site read as one thing.
 
 ## Regenerating the PNGs
 
@@ -82,20 +82,22 @@ committed, not built:
   browser accepts that at `/favicon.ico`, and it spares the repo an ico
   toolchain for the one path browsers request blindly.
 - `apple-touch-icon.png` — 180×180, rendered with the same headless-Chrome
-  recipe but with `background:#1f883d` on the wrapper and the image at
+  recipe but with `background:#b4452f` on the wrapper and the image at
   180px: the rounded rect blends into the background, giving the full-bleed
   square iOS expects (iOS applies its own corner mask; transparent corners
   would go black).
-- `og.png` — the 1200×630 social card: white background, centered 160px
-  mark, "Tiro" and the tagline, same wrapper technique with
+- `og.png` — the 1200×630 social card: the site's paper background, centered
+  160px mark, "Tiro" in Source Serif 4 (loaded straight from the site's
+  node_modules via @font-face) and the tagline, same wrapper technique with
   `--window-size=1200,630`. Render it on macOS (the tagline needs
   PingFang SC).
 
 ```sh
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 tmp="$(mktemp -d)"
 cat > "$tmp/apple-touch-icon.html" <<HTML
 <!doctype html><meta charset="utf-8">
-<style>html,body{margin:0;padding:0;background:#1f883d}
+<style>html,body{margin:0;padding:0;background:#b4452f}
 img{display:block;width:180px;height:180px}</style>
 <img src="file://$PWD/apps/site/public/favicon.svg" alt="">
 HTML
@@ -103,4 +105,30 @@ HTML
   --force-device-scale-factor=1 --window-size=180,180 \
   --screenshot=apps/site/public/apple-touch-icon.png \
   "file://$tmp/apple-touch-icon.html"
+
+cat > "$tmp/og.html" <<HTML
+<!doctype html><meta charset="utf-8">
+<style>
+@font-face {
+  font-family: "Source Serif 4";
+  font-weight: 700;
+  src: url("file://$PWD/apps/site/node_modules/@fontsource/source-serif-4/files/source-serif-4-latin-700-normal.woff2") format("woff2");
+}
+html,body{margin:0;padding:0;background:#faf8f5}
+body{width:1200px;height:630px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:28px}
+img{display:block;width:160px;height:160px}
+h1{margin:0;font:700 96px/1 "Source Serif 4","Songti SC",serif;
+  letter-spacing:-0.02em;color:#1f1b16}
+p{margin:0;font:400 34px/1 -apple-system,"PingFang SC",sans-serif;
+  color:#6f6659}
+</style>
+<img src="file://$PWD/apps/site/public/favicon.svg" alt="">
+<h1>Tiro</h1>
+<p>个人稍后读知识库</p>
+HTML
+"$CHROME" --headless --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=1 --window-size=1200,630 \
+  --screenshot=apps/site/public/og.png \
+  "file://$tmp/og.html"
 ```

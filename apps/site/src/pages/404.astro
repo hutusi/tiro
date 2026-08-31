@@ -7,19 +7,19 @@ const t = STRINGS.notFound;
 
 <Base title={t.title}>
   <div class="mx-auto max-w-md py-24 text-center">
-    <p class="text-6xl font-bold text-neutral-300 dark:text-neutral-700">404</p>
-    <h1 class="mt-4 text-xl font-bold">{t.title}</h1>
-    <p class="mt-2 text-sm text-neutral-500">{t.hint}</p>
+    <p class="font-serif text-6xl font-bold text-ink-faint">404</p>
+    <h1 class="mt-4 font-serif text-xl font-bold">{t.title}</h1>
+    <p class="mt-2 text-sm text-ink-muted">{t.hint}</p>
     <div class="mt-8 flex justify-center gap-4 text-sm">
       <a
         href="/"
-        class="rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        class="rounded-md border border-line px-4 py-2 transition-colors hover:border-line-strong hover:text-accent"
       >
         {t.home}
       </a>
       <a
         href="/search/"
-        class="rounded-md border border-neutral-300 px-4 py-2 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        class="rounded-md border border-line px-4 py-2 transition-colors hover:border-line-strong hover:text-accent"
       >
         {t.search}
       </a>

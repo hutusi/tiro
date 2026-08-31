@@ -48,7 +48,7 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 bun run --cwd apps/extension build
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=2 --window-size=560,425 \
+  --force-device-scale-factor=2 --window-size=560,500 \
   --screenshot="apps/extension/store/options-ui.png" \
   "file://$PWD/apps/extension/dist/src/options/options.html"
 
@@ -66,7 +66,10 @@ bun run --cwd apps/extension build
 Confirm the sizes afterwards — the store rejects anything off by a pixel:
 
 ```sh
-file apps/extension/store/*.png   # expect 1280x800 and 440x280
+file apps/extension/store/*.png
+# expect 1280x800 (screenshot) and 440x280 (promo tile) — the store uploads.
+# options-ui.png is 1120x1000: the 2x intermediate capture the screenshot
+# composition embeds, never uploaded itself.
 ```
 
 Notes that will save you a confused half hour:
@@ -74,8 +77,9 @@ Notes that will save you a confused half hour:
 - The options page renders over `file://` because its CSS is inline; only its
   JS is external, and that JS would fail outside an extension context anyway.
   The empty-state form is exactly what should be in the listing.
-- `--window-size` is the crop, not a scale. Raising the height re-introduces
-  the dead space under the Save button that 425 was chosen to trim.
+- `--window-size` is the crop, not a scale. 500 is tuned to end just under the
+  Save row — raising it re-introduces dead space, and the old 425 now crops
+  the buttons away entirely (the Language select added in 0.4.0 grew the page).
 - Chrome writes a screenshot whether or not the page loaded, so look at the
   result. A "This site can't be reached" listing image is a real failure mode
   (a system proxy can swallow `http://127.0.0.1`, which is why these use
