@@ -5,8 +5,8 @@ manifest and the Web Store listing load. Vite copies `public/` into `dist/`
 on the first build pass, so the PNGs need no build wiring.
 
 A bookmark, not a wordmark: at 16 px in the toolbar a letterform is mud. The
-green is `#1f883d` — the same Primer green as the popup's primary button, so
-the toolbar icon and the popup read as one thing.
+terracotta is `#b4452f` — the site's accent and the popup's primary button
+color, so the toolbar icon, the popup and the site read as one thing.
 
 ## Regenerating the PNGs
 
