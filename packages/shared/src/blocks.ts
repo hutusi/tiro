@@ -26,6 +26,24 @@ export const VERBATIM_BLOCK_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * True when a paragraph's entire content is one inline-math node — i.e. the
+ * author wrote `$$E = mc^2$$` on a single line. micromark needs the `$$`
+ * fences on their own lines to produce a `math` block, so on one line it is
+ * inline math inside a paragraph and the block-type check above misses it.
+ * The translator needs to know: it is notation, not prose, whatever mdast
+ * calls the block it landed in.
+ */
+export function isInlineMathOnlyParagraph(text: string): boolean {
+  if (!text.startsWith("$")) return false;
+  const [node] = (parser.parse(text) as Root).children;
+  return (
+    node?.type === "paragraph" &&
+    node.children.length === 1 &&
+    node.children[0]?.type === "inlineMath"
+  );
+}
+
+/**
  * Split a markdown body (frontmatter already stripped — see parseArticle)
  * into its top-level blocks. Block text is sliced from the source by mdast
  * offsets, never re-stringified, so untouched blocks stay byte-identical —

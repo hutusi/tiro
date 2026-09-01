@@ -53,6 +53,50 @@ describe("translateBlocks", () => {
     expect(seen.join("\n")).not.toContain("only an image");
   });
 
+  test("never sends math to the model and copies it byte-identically", async () => {
+    const mathBody = [
+      "Einstein's result.",
+      "",
+      "$$",
+      "E = mc^2 \\qquad \\text{for } m \\in \\mathbb{R}",
+      "$$",
+      "",
+      "$$F = ma$$",
+      "",
+      "Closing paragraph.",
+      "",
+    ].join("\n");
+    const mathBlocks = splitBlocks(mathBody);
+    // The lone `$$F = ma$$` line is a paragraph holding one inline-math node,
+    // not a math block — the case a type check alone would miss.
+    expect(mathBlocks.map((b) => b.type)).toEqual([
+      "paragraph",
+      "math",
+      "paragraph",
+      "paragraph",
+    ]);
+
+    const seen: string[] = [];
+    const chat = makeFakeChat({
+      onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+    });
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: mathBlocks,
+    });
+    expect(zh).not.toBeNull();
+    const zhBlocks = splitBlocks(zh ?? "");
+    expect(zhBlocks.map((b) => b.type)).toEqual(mathBlocks.map((b) => b.type));
+    expect(zhBlocks[1]?.text).toBe(mathBlocks[1]?.text);
+    expect(zhBlocks[2]?.text).toBe("$$F = ma$$");
+    const sent = seen.join("\n");
+    expect(sent).not.toContain("mc^2");
+    expect(sent).not.toContain("F = ma");
+    expect(sent).toContain("Einstein's result.");
+  });
+
   test("falls back to per-block translation on repeated marker mismatch", async () => {
     let batchCalls = 0;
     const fallback = makeFakeChat();

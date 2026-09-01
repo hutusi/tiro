@@ -223,6 +223,17 @@ async function processOne(
   report.imagesDownloaded += imageResult.downloaded;
   report.imagesFailed += imageResult.failed;
   const body = imageResult.body;
+  const blocks = splitBlocks(body);
+
+  // Articles clipped before the extension learned to recognise math carry no
+  // has_math flag. A top-level `$$…$$` block is unambiguous — nothing writes
+  // one by accident — so fill the flag in from the body and let those articles
+  // render properly without a re-clip. Inline `$` is deliberately not
+  // consulted: guessing from it is exactly what the flag exists to avoid
+  // (ADR 0009).
+  const hasMath =
+    frontmatter.has_math ??
+    (blocks.some((b) => b.type === "math") ? true : undefined);
 
   const summary = await summarize({
     chat: deps.chat,
@@ -265,7 +276,7 @@ async function processOne(
       chat: deps.chat,
       model: modelFor(config, "translation"),
       targetLang: config.translation.target,
-      blocks: splitBlocks(body),
+      blocks,
       batchChars: config.translation.batch_chars,
       maxBlockChars: config.translation.max_block_chars,
       cache,
@@ -301,6 +312,7 @@ async function processOne(
   const updated = {
     ...frontmatter,
     lang,
+    ...(hasMath !== undefined ? { has_math: hasMath } : {}),
     summary: summary.summary,
     category: summary.category,
     tags: summary.tags,

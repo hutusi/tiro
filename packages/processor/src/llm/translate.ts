@@ -1,8 +1,10 @@
 import {
   type Block,
   checkAlignment,
+  isInlineMathOnlyParagraph,
   joinBlocks,
   splitBlocks,
+  VERBATIM_BLOCK_TYPES,
 } from "@tiro/shared";
 import {
   type Deadline,
@@ -34,13 +36,25 @@ export interface TranslateOptions {
   log?: (message: string) => void;
 }
 
-const VERBATIM_TYPES = new Set(["code", "thematicBreak", "html"]);
+// Seeded from the alignment contract so this can never be the smaller set:
+// anything checkAlignment demands back byte-identical must never be sent to
+// the model in the first place. The extras are blocks with no prose to
+// translate at all.
+const VERBATIM_TYPES = new Set([
+  ...VERBATIM_BLOCK_TYPES,
+  "thematicBreak",
+  "html",
+]);
 const IMAGE_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 const MARKER = "TIRO_BLOCK";
 
 function isVerbatim(block: Block): boolean {
   if (VERBATIM_TYPES.has(block.type)) return true;
-  return block.type === "paragraph" && IMAGE_ONLY_RE.test(block.text.trim());
+  if (block.type !== "paragraph") return false;
+  const text = block.text.trim();
+  // Single-line `$$E = mc^2$$` is a paragraph holding one inline-math node,
+  // not a math block, so the type check above never catches it.
+  return IMAGE_ONLY_RE.test(text) || isInlineMathOnlyParagraph(text);
 }
 
 /**
@@ -283,7 +297,7 @@ function batchSystemPrompt(targetLang: string): string {
     "Rules:",
     "- Translate each block independently; never merge, split, reorder, or drop blocks.",
     "- Preserve markdown structure: a heading stays a heading of the same level, a list stays a list with the same items, a table keeps its rows and columns.",
-    "- Keep inline code spans, URLs, and proper nouns unchanged.",
+    "- Keep inline code spans, URLs, proper nouns, and LaTeX math ($...$ or $$...$$) unchanged, including every backslash and brace.",
     "- Reproduce each block's marker line exactly as given, followed by that block's translation.",
     "- Output nothing before the first marker and nothing after the last block's translation.",
   ].join("\n");
@@ -342,7 +356,7 @@ async function translateSingle(
 ): Promise<string> {
   const system = [
     `You translate one markdown block into the language "${targetLang}".`,
-    "Preserve the markdown structure and keep inline code spans, URLs, and proper nouns unchanged.",
+    "Preserve the markdown structure and keep inline code spans, URLs, proper nouns, and LaTeX math ($...$ or $$...$$) unchanged, including every backslash and brace.",
     "Respond with the translated block only — no commentary, no fences.",
   ].join("\n");
   const raw = await chat({
