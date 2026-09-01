@@ -385,6 +385,28 @@ describe("normalizeBlockMath", () => {
     }
   });
 
+  test("recovers a formula the unclosed fence had swallowed", () => {
+    // The fence runs to the end of the block, so the first parse cannot see
+    // the formula below it — only escaping the malformed opener and looking
+    // again reveals it. Escaping every opener in one pass would take the
+    // formula's delimiters with it and render `$$O(n)$$` literally.
+    expect(normalizeBlockMath("- $$ — price\n\n  $$O(n)$$")).toBe(
+      "- \\$\\$ — price\n\n  $$O(n)$$",
+    );
+    expect(normalizeBlockMath("> $$ — price\n>\n> $$O(n)$$")).toBe(
+      "> \\$\\$ — price\n>\n> $$O(n)$$",
+    );
+    // Recovery only reaches what is still ambiguous. Where the hidden formula
+    // is *displayed*, its opening fence is a delimiter-only line, so the
+    // parser pairs it with the price line as that fence's close — a fair
+    // reading of genuinely ambiguous source — and only the delimiter left
+    // dangling at the end is escaped. Pinned because it looks like a miss and
+    // is not: the previous implementation did exactly the same.
+    expect(normalizeBlockMath("- $$ — price\n\n  $$\n  E=mc^2\n  $$")).toBe(
+      "- $$ — price\n\n  $$\n  E=mc^2\n  \\$\\$",
+    );
+  });
+
   test("leaves a formula preceded by any inline node alone", () => {
     // A `$$` that is not at a paragraph's start is not opening anything.
     // Asking instead whether earlier *text* appeared on the line only caught

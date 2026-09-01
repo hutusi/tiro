@@ -158,6 +158,16 @@ export function mathRanges(
  * Renderers only. This rewrites text, so it must never touch what
  * `splitBlocks` slices or the byte-identity contract breaks.
  */
+/**
+ * Escaping the outermost unclosed opener and parsing again is what discovers a
+ * formula the fence had swallowed, so it is worth doing for real content, where
+ * a cascade is one or two deep. It costs a parse per step though, and a block
+ * that is nothing but openers would pay one per line — quadratic, and measured
+ * at ~7.8s for 1000 lines. Past this many steps, escape every opener at once
+ * instead and accept that a formula hidden that deep is not recoverable.
+ */
+const MAX_ESCAPE_PASSES = 8;
+
 /** Escape a run of delimiters at `start`, whole. */
 function escapeFenceAt(text: string, start: number): string {
   // The whole run, not two characters: escaping "$$$" as "\$\$$" would leave
@@ -285,18 +295,36 @@ export function normalizeBlockMath(text: string): string {
   // Most blocks have no dollar at all; skip parsing them twice over.
   if (!text.includes("$")) return text;
 
-  // One pass, not a reparse per cascade step. An unclosed fence swallows
-  // everything after it, so a loop that escapes the outermost and parses again
-  // was both quadratic and — far worse — a second implementation that kept
-  // disagreeing with this one. Every opener a paragraph can hold is visible
-  // here at once.
-  const ranges = mathRanges(text, { singleDollar: true });
-  if (ranges.some((range) => !range.terminated)) {
-    return escapeRemainingOpeners(
-      text,
-      ranges.filter((range) => range.terminated),
-    );
+  let out = text;
+  // An unclosed fence swallows everything after it, so one parse cannot see
+  // what is inside it. Escaping just the openers it *can* see and looking
+  // again is what recovers a formula the fence had hidden — in
+  // "- $$ — price" followed by "$$O(n)$$", the second only becomes visible
+  // once the first is neutralised. Both steps read positions from the parser;
+  // the difference between them is how much they escape, not where they think
+  // a fence can start.
+  for (let pass = 0; ; pass += 1) {
+    const ranges = mathRanges(out, { singleDollar: true });
+    const unterminated = ranges.filter((range) => !range.terminated);
+    if (unterminated.length === 0) break;
+    if (pass >= MAX_ESCAPE_PASSES) {
+      out = escapeRemainingOpeners(
+        out,
+        ranges.filter((range) => range.terminated),
+      );
+      break;
+    }
+    let next = out;
+    // Back to front, so earlier offsets stay valid.
+    for (const range of [...unterminated].reverse()) {
+      next = escapeFenceAt(next, range.start);
+    }
+    // Each pass escapes at least one run and escaping never creates one, so
+    // this converges; the no-progress check is belt and braces.
+    if (next === out) break;
+    out = next;
   }
+  if (out !== text) return out;
 
   const trimmed = text.trim();
   if (trimmed.startsWith("$$") && isInlineMathOnlyParagraph(trimmed)) {
