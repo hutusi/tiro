@@ -285,3 +285,63 @@ describe("dollar signs", () => {
     expect(markdown).toBe("It costs $5 to $10.");
   });
 });
+
+describe("display math in nested contexts", () => {
+  const display = (tex: string) =>
+    `<div class="katex-display"><span class="katex"><span class="katex-mathml">` +
+    `<math display="block"><semantics>` +
+    `<annotation encoding="application/x-tex">${tex}</annotation>` +
+    `</semantics></math></span></span></div>`;
+
+  function toMarkdown(html: string): string {
+    const doc = docFrom(html);
+    prepareForClipping(doc);
+    return htmlToMarkdown(doc.body.innerHTML).markdown;
+  }
+
+  test("stays a block at the top level", () => {
+    expect(toMarkdown(`<p>Before.</p>${display("E=mc^2")}<p>After.</p>`)).toBe(
+      "Before.\n\n$$\nE=mc^2\n$$\n\nAfter.",
+    );
+  });
+
+  test("degrades to inline inside a table cell", () => {
+    // A block here would have its newlines turned into <br> by the GFM cell
+    // rule, and KaTeX would then typeset the literal string "<br>O(n^2)<br>".
+    const md = toMarkdown(
+      "<table><thead><tr><th>V</th><th>C</th></tr></thead><tbody><tr>" +
+        `<td>${display("O(n^2)")}</td><td>slow</td></tr></tbody></table>`,
+    );
+    expect(md).toContain("| $O(n^2)$ | slow |");
+    expect(md).not.toContain("<br>");
+  });
+
+  test("degrades to inline inside a list item", () => {
+    // The markdown would render fine, but the enclosing block is a `list`,
+    // not a `math`, so it is not verbatim and the formula would be sent to
+    // the translator. Inline math is protected wherever it appears.
+    expect(
+      toMarkdown(
+        `<ul><li>First ${display("a^2+b^2")}</li><li>Second</li></ul>`,
+      ),
+    ).toBe("-   First $a^2+b^2$\n-   Second");
+  });
+
+  test("does not fragment a heading", () => {
+    expect(toMarkdown(`<h2>Energy ${display("E=mc^2")}</h2>`)).toBe(
+      "## Energy $E=mc^2$",
+    );
+  });
+
+  test("keeps both formulas when they share one display wrapper", () => {
+    const formula = (tex: string) =>
+      `<span class="katex"><span class="katex-mathml"><math><semantics>` +
+      `<annotation encoding="application/x-tex">${tex}</annotation>` +
+      `</semantics></math></span></span>`;
+    const md = toMarkdown(
+      `<div class="katex-display">${formula("A")}${formula("B")}</div>`,
+    );
+    expect(md).toContain("A");
+    expect(md).toContain("B");
+  });
+});

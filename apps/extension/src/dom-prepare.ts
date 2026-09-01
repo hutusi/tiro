@@ -85,8 +85,12 @@ function replaceMath(doc: Document, element: Element): void {
   // that changes the document's block structure (ADR 0003).
   const display = isDisplay(element);
   // Replace the display wrapper rather than the formula inside it, or the
-  // wrapper survives as an empty block.
-  const target = element.closest(".katex-display") ?? element;
+  // wrapper survives as an empty block — but only when this formula is the
+  // whole of it. Taking a wrapper that holds two formulas would delete the
+  // sibling, and the `isConnected` check below would then skip it silently.
+  const wrapper = element.closest(".katex-display");
+  const target =
+    wrapper !== null && wrapper.children.length === 1 ? wrapper : element;
   if (tex === null) {
     target.remove();
     return;
@@ -232,6 +236,17 @@ export function prepareForClipping(doc: Document): void {
 }
 
 /**
+ * Contexts where a top-level block cannot live. Display math written as its
+ * own `$$` block would either be mangled (a table cell turns the newlines
+ * into `<br>`, which KaTeX then typesets literally) or escape the protection
+ * that makes math safe: nested inside a list or blockquote the enclosing
+ * block is a `list`, not a `math`, so it is not verbatim and the formula goes
+ * to the translator. Inline math is protected wherever it appears, so nested
+ * display math degrades to inline rather than to either of those.
+ */
+const BLOCK_HOSTILE = "td, th, li, blockquote, h1, h2, h3, h4, h5, h6";
+
+/**
  * The other half of the marker contract: how a recovered formula becomes
  * markdown. It has to be a Turndown *rule* rather than plain text, because
  * Turndown escapes `\` and `_` in text nodes and would turn `\sqrt{d_k}`
@@ -242,10 +257,12 @@ export const mathTurndownRule: TurndownService.Rule = {
   replacement: (_content, node) => {
     const tex = (node.textContent ?? "").trim();
     if (tex === "") return "";
+    const element = node as Element;
+    const display =
+      element.getAttribute(MATH_ATTR) === "display" &&
+      element.closest?.(BLOCK_HOSTILE) == null;
     // The blank lines make display math its own top-level block; without them
     // it would be inline math inside the surrounding paragraph.
-    return (node as Element).getAttribute(MATH_ATTR) === "display"
-      ? `\n\n$$\n${tex}\n$$\n\n`
-      : `$${tex}$`;
+    return display ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`;
   },
 };
