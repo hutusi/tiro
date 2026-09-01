@@ -181,6 +181,18 @@ describe("renderBlockHtml", () => {
     }
   });
 
+  test("leaves a clipped raw <pre> unescaped through the linear pass", () => {
+    // Raw <pre> is a supported clipped-code shape, so backslashes leaking into
+    // one are visible to the reader.
+    const lines = ["- item"];
+    for (let i = 0; i < 12; i += 1) lines.push(`  $$ tier ${i}`);
+    lines.push("", "  <pre>", "  $$ is the shell PID", "  </pre>");
+    const html = renderBlockHtml(lines.join("\n"), "s");
+    const code = html.slice(html.indexOf("<pre"), html.indexOf("</pre>"));
+    expect(code.replace(/<[^>]+>/g, "")).toContain("$$ is the shell PID");
+    expect(html).not.toContain("\\$\\$ is the shell");
+  });
+
   test("keeps every item of a deeply nested list of fences", () => {
     const source = Array.from(
       { length: 12 },

@@ -187,14 +187,20 @@ const FENCE_LINE =
   /^([ \t]*(?:>[ \t]*)*(?:[-*+][ \t]+|\d{1,9}[.)][ \t]+)?)(\$\$+)/;
 
 /**
- * Source ranges of code in a fragment, read with the math-free parser.
+ * Source ranges of ordinary prose in a fragment, read with the math-free
+ * parser.
  *
- * It has to be the math-free one: this runs when an unclosed fence has
+ * Deliberately an allowlist. Naming the places a delimiter must be left alone
+ * — fenced code, then indented code, then inline code, then raw `<pre>` — is
+ * open-ended, and each omission corrupts something visible: a shell snippet
+ * gains a literal `\$\$`. Escaping only what the parser calls text closes the
+ * question instead, and a node type nobody thought of is protected by default.
+ *
+ * It has to be the math-free parser: this runs when an unclosed fence has
  * swallowed the rest of the block, so the parser that sees the math cannot see
- * the code fence *inside* it, and would let the escape corrupt a shell snippet
- * into a visible `\$\$`.
+ * the code *inside* it.
  */
-function codeRanges(text: string): { start: number; end: number }[] {
+function proseRanges(text: string): { start: number; end: number }[] {
   const found: { start: number; end: number }[] = [];
   const walk = (node: unknown): void => {
     const n = node as {
@@ -202,7 +208,7 @@ function codeRanges(text: string): { start: number; end: number }[] {
       children?: unknown[];
       position?: { start: { offset?: number }; end: { offset?: number } };
     };
-    if (n.type === "code" || n.type === "inlineCode") {
+    if (n.type === "text") {
       const start = n.position?.start.offset;
       const end = n.position?.end.offset;
       if (start !== undefined && end !== undefined) found.push({ start, end });
@@ -215,9 +221,9 @@ function codeRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
- * Escape every line-initial delimiter run that is neither part of a formula
- * which did close nor inside code, in a single pass. Blunter than reparsing —
- * it cannot discover a valid formula that an outer unclosed fence was hiding —
+ * Escape every line-initial delimiter run that sits in prose and is not part of
+ * a formula which did close, in a single pass. Blunter than reparsing — it
+ * cannot discover a valid formula that an outer unclosed fence was hiding —
  * but it is linear and it always terminates, which is what the pathological
  * case needs.
  */
@@ -225,7 +231,7 @@ function escapeRemainingOpeners(
   text: string,
   keep: readonly MathRange[],
 ): string {
-  const protectedRanges = codeRanges(text);
+  const prose = proseRanges(text);
   const lines = text.split("\n");
   const out: string[] = [];
   let offset = 0;
@@ -234,9 +240,9 @@ function escapeRemainingOpeners(
     const start = offset + (match?.[1]?.length ?? 0);
     const covered = (r: { start: number; end: number }) =>
       start >= r.start && start < r.end;
-    const leaveAlone =
-      match === null || keep.some(covered) || protectedRanges.some(covered);
-    out.push(leaveAlone ? line : escapeFenceAt(line, start - offset));
+    const escapable =
+      match !== null && prose.some(covered) && !keep.some(covered);
+    out.push(escapable ? escapeFenceAt(line, start - offset) : line);
     offset += line.length + 1;
   }
   return out.join("\n");

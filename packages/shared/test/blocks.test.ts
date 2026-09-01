@@ -359,6 +359,35 @@ describe("normalizeBlockMath", () => {
     }
   });
 
+  test("never escapes inside anything the parser does not call prose", () => {
+    // Naming the shapes to protect is open-ended — fenced, then indented, then
+    // inline, then raw <pre> — and each omission puts visible backslashes into
+    // someone's snippet. Escaping only text closes it, so this covers the
+    // literal shapes together, including ones no review has reported.
+    const cascade = (tail: string[]) => {
+      const lines = ["- item"];
+      for (let i = 0; i < 12; i += 1) lines.push(`  $$ tier ${i}`);
+      return [...lines, "", ...tail].join("\n");
+    };
+    const shapes: [string[], string][] = [
+      [["  <pre>", "  $$ is the shell PID", "  </pre>"], "$$ is the shell PID"],
+      [["  ```sh", "  $$ is the shell PID", "  ```"], "$$ is the shell PID"],
+      [["      $$ indented code"], "$$ indented code"],
+      [["  <div>", "  $$ raw html", "  </div>"], "$$ raw html"],
+    ];
+    for (const [tail, preserved] of shapes) {
+      const normalized = normalizeBlockMath(cascade(tail));
+      expect(normalized).toContain(preserved);
+      expect(normalized).not.toContain(`\\$\\${preserved.slice(1)}`);
+      // The prose fences around it must still all be dealt with.
+      expect(
+        mathRanges(normalized, { singleDollar: true }).filter(
+          (r) => !r.terminated,
+        ),
+      ).toEqual([]);
+    }
+  });
+
   test("never escapes inside code, even on the linear pass", () => {
     // The math parser cannot see a code fence swallowed by an unclosed one, so
     // the linear pass reads structure with the math-free parser instead —
