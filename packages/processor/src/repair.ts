@@ -46,19 +46,20 @@ function outsideVerbatim(body: string, transform: (prose: string) => string) {
   const out: string[] = [];
   let cursor = 0;
   for (const range of verbatimRanges(body)) {
-    if (!ownsItsLines(body, range)) continue;
-    if (range.start > cursor) {
-      out.push(transform(body.slice(cursor, range.start)));
+    const whole = wholeLinesAround(body, range);
+    if (whole === null || whole.start < cursor) continue;
+    if (whole.start > cursor) {
+      out.push(transform(body.slice(cursor, whole.start)));
     }
-    out.push(body.slice(range.start, range.end));
-    cursor = range.end;
+    out.push(body.slice(whole.start, whole.end));
+    cursor = whole.end;
   }
   if (cursor < body.length) out.push(transform(body.slice(cursor)));
   return out.join("");
 }
 
 /**
- * Whether a range has its lines to itself, ignoring indentation and quoting.
+ * The whole lines a range sits on, or null if it shares them with prose.
  *
  * Every transform reads whole lines, so cutting the text at something that
  * begins mid-line hands them a fragment. The `<br>` between two cells of a
@@ -66,19 +67,34 @@ function outsideVerbatim(body: string, transform: (prose: string) => string) {
  * splitting there left `promoteTableHeaders` looking at half a row, which it
  * duly mangled. Inline code and inline math have the same shape.
  *
- * Leaving those in place costs nothing: a line with prose on it is not a bare
- * `|  |  |` or a bare `N.  (n)`, so no line transform matches it either way.
+ * Only markup that opens a block may precede one: indentation, blockquote
+ * markers, and list markers. That last is not optional — Turndown writes code
+ * inside an `<li>` as `-   ``` `, opener on the marker line, so a rule that
+ * demanded whitespace left every fenced block in every list unprotected, and
+ * the line transforms rewrote the code inside them.
+ *
+ * Returning the *expanded* span rather than the range itself is what keeps the
+ * marker out of the transforms' reach, and makes the invariant total: every gap
+ * handed to a transform is a whole number of lines.
+ *
+ * Leaving a mid-line range in place costs nothing: a line with prose on it is
+ * not a bare `|  |  |` or a bare `N.  (n)`, so no line transform matches it.
  */
-function ownsItsLines(
+function wholeLinesAround(
   body: string,
   range: { start: number; end: number },
-): boolean {
+): { start: number; end: number } | null {
   const lineStart = body.lastIndexOf("\n", range.start - 1) + 1;
   const before = body.slice(lineStart, range.start);
   const lineEnd = body.indexOf("\n", range.end);
-  const after = body.slice(range.end, lineEnd === -1 ? body.length : lineEnd);
-  return /^[\s>]*$/.test(before) && after.trim() === "";
+  const end = lineEnd === -1 ? body.length : lineEnd;
+  const after = body.slice(range.end, end);
+  if (!BLOCK_OPENING_PREFIX.test(before) || after.trim() !== "") return null;
+  return { start: lineStart, end };
 }
+
+/** Indentation, quoting and list markers — the markup that can open a block. */
+const BLOCK_OPENING_PREFIX = /^[\s>]*(?:(?:[-*+]|\d+[.)])[\s>]*)*$/;
 
 /**
  * Flatten a link title that spans lines.

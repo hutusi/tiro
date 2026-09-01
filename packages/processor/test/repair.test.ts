@@ -154,6 +154,26 @@ describe("repairBody", () => {
     expect(repairBody(body)).toBe("$$E=mc^2$$\n\n1.  Content.\n");
   });
 
+  test("leaves a fence that shares its line with a list marker alone", () => {
+    // Turndown writes code inside an <li> as `-   ```` — opener on the marker
+    // line — so a rule demanding whitespace before a fence left every fenced
+    // block in every list unprotected, and the line transforms rewrote the
+    // code inside them.
+    const body =
+      "-   ```\n    1.  (1)\n    |     |     |\n    | --- | --- |\n    | a | b |\n    ```";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("leaves a fence in an ordered list item alone", () => {
+    const body = "1.  ```\n    1.  (1)\n    ```";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("leaves a fence in a blockquote alone", () => {
+    const body = "> ```\n> 1.  (1)\n> ```";
+    expect(repairBody(body)).toBe(body);
+  });
+
   test("leaves an indented code block alone", () => {
     const body = "text\n\n    1.  (1)\n\nmore";
     expect(repairBody(body)).toBe(body);
