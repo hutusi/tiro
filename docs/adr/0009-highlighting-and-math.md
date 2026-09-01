@@ -142,6 +142,16 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   standard markdown — it renders as a literal `$` anywhere — which is why it was
   preferred over writing inline math as `$$x$$`, a form that would have made the
   gate unnecessary but would render as a display block in every other tool.
-- Math that a page renders without shipping its TeX source (some MathJax v3
-  configurations) is dropped. Converting presentation MathML back to LaTeX would
-  recover it and is deliberately deferred.
+- Math that a page renders without shipping its TeX source is dropped, and the
+  reader sees a sentence with a hole in it rather than glyph soup. Verified
+  against MathJax 4.1.3 on mathjax.org: with the assistive-MathML extension off,
+  which is the default, an `mjx-container` holds only rendered CHTML glyphs plus
+  SSML speech and Braille. There is no `<math>`, no `annotation`, no `alttext`
+  and no `math/tex` script anywhere in the page, so converting presentation
+  MathML back to LaTeX — the obvious remedy — has nothing to convert. The TeX
+  genuinely does not exist in the document; only re-fetching the source the page
+  was built from would recover it.
+- MathJax **v2** is the opposite case and works: it keeps the TeX in a
+  `script[type="math/tex"]` beside the rendering. Verified on ProofWiki, where
+  those scripts are built client-side and so are invisible to anything that only
+  fetches HTML.

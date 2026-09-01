@@ -148,7 +148,11 @@ the flag by hand only if you keep it too.
   this should not happen — if it does, escape the `$$` as `\$\$`.
 - **The clipper missed the math entirely** (the source page ships no LaTeX,
   only rendered glyphs): the formulas are gone from the markdown, and the flag
-  cannot bring them back. Re-clip if the page has since changed; otherwise fix
+  cannot bring them back. MathJax v4 in its default configuration is the case
+  to expect — it keeps no TeX in the page at all — and the symptom is prose
+  with a gap in it, like "the quadratic formula is and it solves any
+  quadratic". Nothing marks the article, so it is worth a glance after clipping
+  a page you know had formulas. Re-clip if the page has since changed; otherwise fix
   the markdown by hand.
 
 Both panes of a translated article render with the same setting, so a formula
