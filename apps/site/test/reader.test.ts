@@ -181,6 +181,16 @@ describe("renderBlockHtml", () => {
     }
   });
 
+  test("keeps every item of a deeply nested list of fences", () => {
+    const source = Array.from(
+      { length: 12 },
+      (_, i) => `${"  ".repeat(i)}- $$ tier ${i}`,
+    ).join("\n");
+    const html = renderBlockHtml(source, "s");
+    expect(html).toContain("tier 11");
+    expect(html).not.toContain("katex");
+  });
+
   test("renders a trailing lone $$ as text, not a blank formula", () => {
     const html = renderBlockHtml("Some text\n\n$$", "s");
     expect(html).toContain("$$");

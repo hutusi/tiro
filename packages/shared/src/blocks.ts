@@ -178,25 +178,65 @@ function escapeFenceAt(text: string, start: number): string {
 }
 
 /**
- * Escape every line-initial delimiter run that is not part of a formula which
- * did close, in a single pass. Blunter than reparsing — it cannot discover a
- * valid formula that an outer unclosed fence was hiding — but it is linear and
- * it always terminates, which is what the pathological case needs.
+ * What micromark skips before deciding a line opens a fence: indentation,
+ * blockquote markers, and a list marker. Matching only whitespace and `>` left
+ * a fence inside a list item unescaped, so a list nested deeper than the pass
+ * limit kept one live opener that then hid the item.
+ */
+const FENCE_LINE =
+  /^([ \t]*(?:>[ \t]*)*(?:[-*+][ \t]+|\d{1,9}[.)][ \t]+)?)(\$\$+)/;
+
+/**
+ * Source ranges of code in a fragment, read with the math-free parser.
+ *
+ * It has to be the math-free one: this runs when an unclosed fence has
+ * swallowed the rest of the block, so the parser that sees the math cannot see
+ * the code fence *inside* it, and would let the escape corrupt a shell snippet
+ * into a visible `\$\$`.
+ */
+function codeRanges(text: string): { start: number; end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    if (n.type === "code" || n.type === "inlineCode") {
+      const start = n.position?.start.offset;
+      const end = n.position?.end.offset;
+      if (start !== undefined && end !== undefined) found.push({ start, end });
+      return;
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(proseParser.parse(text) as Root);
+  return found;
+}
+
+/**
+ * Escape every line-initial delimiter run that is neither part of a formula
+ * which did close nor inside code, in a single pass. Blunter than reparsing —
+ * it cannot discover a valid formula that an outer unclosed fence was hiding —
+ * but it is linear and it always terminates, which is what the pathological
+ * case needs.
  */
 function escapeRemainingOpeners(
   text: string,
   keep: readonly MathRange[],
 ): string {
+  const protectedRanges = codeRanges(text);
   const lines = text.split("\n");
   const out: string[] = [];
   let offset = 0;
   for (const line of lines) {
-    const match = /^([ \t>]*)(\$\$+)/.exec(line);
+    const match = FENCE_LINE.exec(line);
     const start = offset + (match?.[1]?.length ?? 0);
-    const inFormula = keep.some((r) => start >= r.start && start < r.end);
-    out.push(
-      match === null || inFormula ? line : escapeFenceAt(line, start - offset),
-    );
+    const covered = (r: { start: number; end: number }) =>
+      start >= r.start && start < r.end;
+    const leaveAlone =
+      match === null || keep.some(covered) || protectedRanges.some(covered);
+    out.push(leaveAlone ? line : escapeFenceAt(line, start - offset));
     offset += line.length + 1;
   }
   return out.join("\n");

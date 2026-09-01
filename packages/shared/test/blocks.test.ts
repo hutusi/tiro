@@ -325,6 +325,57 @@ describe("normalizeBlockMath", () => {
     expect(normalized).toContain("tier 999");
   });
 
+  test("escapes fences in lists nested past the reparse limit", () => {
+    // Each level's opener is only revealed once the one above it is escaped,
+    // so a list deeper than MAX_ESCAPE_PASSES falls to the linear pass — which
+    // matched only whitespace and `>`, leaving the deepest opener live to hide
+    // its item. Depths either side of the limit, and well past it.
+    for (const depth of [8, 9, 10, 30]) {
+      const source = Array.from(
+        { length: depth },
+        (_, i) => `${"  ".repeat(i)}- $$ tier ${i}`,
+      ).join("\n");
+      const normalized = normalizeBlockMath(source);
+      expect(
+        mathRanges(normalized, { singleDollar: true }).filter(
+          (r) => !r.terminated,
+        ),
+      ).toEqual([]);
+      expect(normalized).toContain(`tier ${depth - 1}`);
+    }
+  });
+
+  test("handles ordered and blockquoted list markers too", () => {
+    for (const build of [
+      (i: number) => `${"   ".repeat(i)}${i + 1}. $$ t${i}`,
+      (i: number) => `> ${"  ".repeat(i)}- $$ t${i}`,
+    ]) {
+      const source = Array.from({ length: 12 }, (_, i) => build(i)).join("\n");
+      expect(
+        mathRanges(normalizeBlockMath(source), { singleDollar: true }).filter(
+          (r) => !r.terminated,
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  test("never escapes inside code, even on the linear pass", () => {
+    // The math parser cannot see a code fence swallowed by an unclosed one, so
+    // the linear pass reads structure with the math-free parser instead —
+    // otherwise a shell snippet gains a visible `\\$\\$`.
+    const lines = ["- item"];
+    for (let i = 0; i < 12; i += 1) lines.push(`  $$ tier ${i}`);
+    lines.push("", "  ```sh", "  $$ is the shell PID", "  ```");
+    const normalized = normalizeBlockMath(lines.join("\n"));
+    expect(normalized).toContain("  $$ is the shell PID");
+    expect(normalized).not.toContain("\\$\\$ is the shell");
+    expect(
+      mathRanges(normalized, { singleDollar: true }).filter(
+        (r) => !r.terminated,
+      ),
+    ).toEqual([]);
+  });
+
   test("treats a lone trailing $$ as delimiters, not an empty formula", () => {
     // One line cannot be both opener and closer, but testing only the last
     // line said it was — so the delimiters rendered as a blank display block.
