@@ -17,7 +17,20 @@ import { rename, rm } from "node:fs/promises";
  * input that produced it.
  */
 
-const CACHE_VERSION = 1;
+/**
+ * Bumped to 2: checkpoints written before figure captions were masked can hold
+ * a translation whose image path or href the model rewrote.
+ *
+ * Skipping such a block at resume is not enough on its own. The forged-sentinel
+ * filter only recognises captions containing "TIROMATH", while the builds that
+ * leaked also corrupted ordinary captions — any caption with a link, and any
+ * caption whose attributes contained a bare `>`. Those entries look perfectly
+ * well-formed on the way back in, so nothing downstream can tell them from a
+ * good translation. Dropping every checkpoint from an older build is the only
+ * remedy that covers them, and it costs one re-translation of an article that
+ * had not finished anyway.
+ */
+export const CACHE_VERSION = 2;
 
 /** Lives beside the article it belongs to. Dot-prefixed and JSON so it cannot
  * be mistaken for content: every reader in the system globs for `index.md` or

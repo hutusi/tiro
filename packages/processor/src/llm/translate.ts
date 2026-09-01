@@ -177,18 +177,50 @@ export async function translateBlocks(
     );
   }
 
+  // A source that already contains a math token would have unmaskMath put a
+  // formula where the author wrote prose. Vanishingly unlikely, but the cost
+  // of being wrong is a corrupted paragraph, so refuse to mask that block.
+  //
+  // Refusing to mask means sending the block as written, which is right for a
+  // paragraph — every character of it was going to the model anyway. It is
+  // wrong for a figure, whose markup is masked precisely so the model never
+  // sees it: unmasking there hands over the image path and every href, and a
+  // rewritten one publishes, because an html block is compared by type. So a
+  // figure is dropped instead, and keeps its original language.
+  //
+  // This runs before the checkpoint is consulted, not after. A dropped figure
+  // must not come back through the cache either: a checkpoint written by an
+  // earlier build holds whatever that build produced, and restoring it
+  // publishes a rewritten image path with no model call to notice.
+  let forgedFigures = 0;
+  const maskable = translatable.flatMap((item) => {
+    const forged =
+      item.formulas.length > 0 && item.block.text.includes("TIROMATH");
+    if (!forged) return [item];
+    if (FIGURE_CAPTION_RE.test(item.block.text.trim())) {
+      forgedFigures += 1;
+      return [];
+    }
+    return [{ ...item, masked: item.block.text, formulas: [] }];
+  });
+  if (forgedFigures > 0) {
+    log(
+      `${forgedFigures} figure(s) left untranslated — their caption contains the masking sentinel`,
+    );
+  }
+
   // Resume: anything an earlier run already translated is reused as-is and
   // never re-sent, so each run picks up where the last one stopped.
-  let todo: Todo[] = [];
-  for (const item of translatable) {
+  const todo: Todo[] = [];
+  for (const item of maskable) {
     const cached = cache?.get(item.block.text);
     if (cached === undefined) todo.push(item);
     else translated[item.index] = cached;
   }
-  const resumed = translatable.length - todo.length;
+  const resumed = maskable.length - todo.length;
   if (resumed > 0) {
     log(
-      `resuming from checkpoint: ${resumed}/${translatable.length} block(s) already translated`,
+      `resuming from checkpoint: ${resumed}/${maskable.length} block(s) already translated`,
     );
   }
 
@@ -239,32 +271,6 @@ export async function translateBlocks(
   const collision = todo.some(({ block }) =>
     block.text.includes(`<<<${MARKER}`),
   );
-  // A source that already contains a math token would have unmaskMath put a
-  // formula where the author wrote prose. Vanishingly unlikely, but the cost
-  // of being wrong is a corrupted paragraph, so refuse to mask that block.
-  //
-  // Refusing to mask means sending the block as written, which is right for a
-  // paragraph — every character of it was going to the model anyway. It is
-  // wrong for a figure, whose markup is masked precisely so the model never
-  // sees it: unmasking there hands over the image path and every href, and a
-  // rewritten one publishes, because an html block is compared by type. So a
-  // figure is dropped instead, and keeps its original language.
-  let forgedFigures = 0;
-  todo = todo.flatMap((item) => {
-    const forged =
-      item.formulas.length > 0 && item.block.text.includes("TIROMATH");
-    if (!forged) return [item];
-    if (FIGURE_CAPTION_RE.test(item.block.text.trim())) {
-      forgedFigures += 1;
-      return [];
-    }
-    return [{ ...item, masked: item.block.text, formulas: [] }];
-  });
-  if (forgedFigures > 0) {
-    log(
-      `${forgedFigures} figure(s) left untranslated — their caption contains the masking sentinel`,
-    );
-  }
 
   try {
     if (collision) {

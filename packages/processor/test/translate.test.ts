@@ -953,6 +953,37 @@ describe("figure captions", () => {
     expect(zh ?? "").toContain("中文");
   });
 
+  test("does not restore a cached translation for a skipped figure", async () => {
+    // The filter has to run before the checkpoint is consulted. A checkpoint
+    // written by an earlier build holds whatever that build produced, and
+    // restoring it publishes a rewritten image path with no model call to
+    // notice it happening.
+    const forged =
+      '<figure><img src="./assets/secret.png" alt="x"><figcaption>About TIROMATH tokens $x$ and <a href="https://real.example/page">this</a></figcaption></figure>';
+    const poisoned =
+      '<figure><img src="./assets/evil.png" alt="x"><figcaption>关于 <a href="https://hallucinated.example/page">这个</a></figcaption></figure>';
+    let calls = 0;
+    const zh = await translateBlocks({
+      chat: async () => {
+        calls += 1;
+        return "";
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(forged),
+      singleDollarMath: true,
+      cache: {
+        get: (text: string) => (text === forged ? poisoned : undefined),
+        set: () => {},
+        flush: async () => {},
+      } as unknown as Parameters<typeof translateBlocks>[0]["cache"],
+    });
+    expect(calls).toBe(0);
+    expect(zh ?? "").not.toContain("evil.png");
+    expect(zh ?? "").not.toContain("hallucinated");
+    expect(zh?.trim()).toBe(forged);
+  });
+
   test("leaves other raw HTML blocks verbatim", async () => {
     const raw = "<div class='promo'>Subscribe now</div>";
     const zh = await translateBlocks({

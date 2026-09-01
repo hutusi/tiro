@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CACHE_VERSION,
   loadTranslationCache,
   TRANSLATION_CACHE_FILE,
 } from "../src/llm/cache.ts";
@@ -70,7 +71,7 @@ describe("loadTranslationCache", () => {
     // And it recovers: the next flush overwrites the garbage.
     cache.set("Hello.", "你好。");
     await cache.flush();
-    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(1);
+    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(CACHE_VERSION);
   });
 
   test("discard removes the file", async () => {
@@ -103,7 +104,7 @@ describe("loadTranslationCache", () => {
 
     const reread = await loadTranslationCache(path, header);
     expect(reread.restored).toBe(800);
-    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(1);
+    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(CACHE_VERSION);
     // The staging file must not survive a successful write.
     expect(existsSync(`${path}.tmp`)).toBe(false);
   });
