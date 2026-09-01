@@ -56,6 +56,39 @@ describe("splitBlocks", () => {
     expect(blocks).toHaveLength(1);
   });
 
+  test("keeps display math with a blank line as one block", () => {
+    // Without remark-math this split into two half-delimited paragraphs:
+    // unrenderable block-by-block, and two broken fragments to the
+    // translator. The blank line inside is the whole point of the case.
+    const body = [
+      "$$",
+      "\\begin{aligned}",
+      "a &= b",
+      "",
+      "c &= d",
+      "\\end{aligned}",
+      "$$",
+    ].join("\n");
+    const blocks = splitBlocks(body);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.type).toBe("math");
+    expect(blocks[0]?.text).toBe(body);
+  });
+
+  test("reads single-line $$…$$ as a paragraph, not a math block", () => {
+    // micromark needs the fences on their own lines for flow math; on one
+    // line it is *inline* math inside a paragraph. The processor has to
+    // treat such a paragraph as verbatim, so pin the behaviour here.
+    expect(splitBlocks("$$E = mc^2$$").map((b) => b.type)).toEqual([
+      "paragraph",
+    ]);
+  });
+
+  test("leaves prose containing dollar amounts as one paragraph", () => {
+    const blocks = splitBlocks("It costs $5 to $10 depending on the plan.");
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
   test("returns an empty array for an empty body", () => {
     expect(splitBlocks("")).toEqual([]);
     expect(splitBlocks("\n\n")).toEqual([]);
@@ -105,5 +138,21 @@ describe("checkAlignment", () => {
     const result = checkAlignment(original, translated);
     expect(result.ok).toBe(false);
     expect(result.errors[0]).toContain("code block was altered");
+  });
+
+  test("rejects an altered math block", () => {
+    const mathBody = "Before.\n\n$$\nE = mc^2\n$$\n\nAfter.";
+    const mathOriginal = splitBlocks(mathBody);
+    expect(mathOriginal.map((b) => b.type)).toEqual([
+      "paragraph",
+      "math",
+      "paragraph",
+    ]);
+    const translated = mathOriginal.map((b) =>
+      b.type === "math" ? { ...b, text: "$$\nE = mc^{2}\n$$" } : b,
+    );
+    const result = checkAlignment(mathOriginal, translated);
+    expect(result.ok).toBe(false);
+    expect(result.errors[0]).toContain("math block was altered");
   });
 });

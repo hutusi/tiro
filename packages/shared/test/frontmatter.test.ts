@@ -32,6 +32,25 @@ describe("frontmatter schemas", () => {
     ).toBe(false);
   });
 
+  test("round-trips the optional has_math flag", () => {
+    const parsed = ClipFrontmatterSchema.parse({
+      ...validClip,
+      has_math: true,
+    });
+    expect(parsed.has_math).toBe(true);
+  });
+
+  test("accepts an article with no has_math — the field is additive", () => {
+    // Why this matters: `has_math` arriving without a tiro.schema bump is only
+    // safe because old articles validate unchanged and unknown keys are
+    // stripped rather than rejected (ADR 0009).
+    const parsed = ArticleFrontmatterSchema.parse(validClip);
+    expect(parsed.has_math).toBeUndefined();
+    expect(
+      ArticleFrontmatterSchema.parse({ ...validClip, unknown_field: 1 }),
+    ).not.toHaveProperty("unknown_field");
+  });
+
   test("normalizes YAML Date objects to ISO strings", () => {
     const parsed = ArticleFrontmatterSchema.parse({
       ...validClip,

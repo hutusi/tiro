@@ -25,6 +25,14 @@ export const ClipFrontmatterSchema = z.object({
     .preprocess((v) => (v instanceof Date ? v.toISOString() : v), z.string())
     .optional(),
   readability_failed: z.boolean().optional(),
+  /**
+   * The clipper found real math in the page DOM. The site uses it to decide
+   * whether `$…$` is a math delimiter: on for these articles, off everywhere
+   * else so that "it costs $5 to $10" is prose, not a formula. Optional, so
+   * articles clipped before math support simply lack it (ADR 0009) — they
+   * still get `$$…$$`, which is unambiguous.
+   */
+  has_math: z.boolean().optional(),
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
   }),

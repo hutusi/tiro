@@ -68,9 +68,15 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   next run (ADR 0008); the checkpoint is invisible to every reader, which glob
   `index.md`/`zh.md` only.
 - **Translation alignment**: `zh.md` has strict 1:1 top-level-block alignment
-  with the `index.md` body (code blocks byte-identical). The site zips the two
-  block arrays for side-by-side rendering; misalignment falls back to stacked
-  rendering, and the processor never writes a misaligned `zh.md`.
+  with the `index.md` body (`code` and `math` blocks byte-identical). The site
+  zips the two block arrays for side-by-side rendering; misalignment falls back
+  to stacked rendering, and the processor never writes a misaligned `zh.md`.
+  The shared parser runs remark-math, so `$$…$$` is a single `math` block even
+  with blank lines inside, the way a fenced code block already is (ADR 0009).
+- **Math is declared, not guessed**: the optional `has_math` flag records that
+  the clipper found math in the page DOM. Only those articles read `$…$` as a
+  delimiter; everywhere else the site renders `$$…$$` alone, so prose dollar
+  amounts are never mistaken for formulas (ADR 0009).
 - **LLM access is provider-configurable**: an OpenAI-compatible
   chat-completions endpoint configured in `config/tiro.yml` (`base_url`,
   `model`, `api_key_env`). Default: Aliyun Bailian + `qwen-plus`.

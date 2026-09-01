@@ -1,5 +1,6 @@
 import type { Root } from "mdast";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
@@ -10,7 +11,19 @@ export interface Block {
   text: string;
 }
 
-const parser = unified().use(remarkParse).use(remarkGfm);
+const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
+
+/**
+ * Block types a translation must reproduce byte-for-byte. Code is obvious;
+ * `$$…$$` math is the same kind of content — a notation the model has no
+ * business rewriting, where a single altered character changes the meaning
+ * or stops parsing altogether. Exported so the processor can guarantee it
+ * never sends to the LLM anything `checkAlignment` will demand back unchanged.
+ */
+export const VERBATIM_BLOCK_TYPES: ReadonlySet<string> = new Set([
+  "code",
+  "math",
+]);
 
 /**
  * Split a markdown body (frontmatter already stripped — see parseArticle)
@@ -18,6 +31,11 @@ const parser = unified().use(remarkParse).use(remarkGfm);
  * offsets, never re-stringified, so untouched blocks stay byte-identical —
  * the translation alignment contract (ADR 0003) depends on this. mdast
  * guarantees that blank lines inside fenced code do not split a block.
+ *
+ * remark-math is part of the parser so `$$…$$` is one `math` block for the
+ * same reason: without it, display math containing a blank line splits into
+ * two half-delimited paragraphs, which the site (rendering block by block)
+ * can never typeset and the translator sees as two broken fragments.
  */
 export function splitBlocks(body: string): Block[] {
   const tree = parser.parse(body) as Root;
@@ -49,7 +67,7 @@ export interface AlignmentResult {
 /**
  * Verify the 1:1 alignment contract between an original body's blocks and a
  * translation's blocks: equal count, equal type per index, and byte-identical
- * code blocks (translators must copy them verbatim).
+ * code and math blocks (translators must copy them verbatim).
  */
 export function checkAlignment(
   original: readonly Block[],
@@ -69,8 +87,11 @@ export function checkAlignment(
       errors.push(
         `block ${i}: type mismatch (original "${block.type}", translated "${other.type}")`,
       );
-    } else if (block.type === "code" && block.text !== other.text) {
-      errors.push(`block ${i}: code block was altered by translation`);
+    } else if (
+      VERBATIM_BLOCK_TYPES.has(block.type) &&
+      block.text !== other.text
+    ) {
+      errors.push(`block ${i}: ${block.type} block was altered by translation`);
     }
   });
   return { ok: errors.length === 0, errors };
