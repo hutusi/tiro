@@ -335,16 +335,24 @@ function repairLf(body: string): string {
 }
 
 /**
- * Every line ends `\r\n` and no stray `\r` appears anywhere.
+ * Every line ends `\r\n` — no line ends with a bare `\n`.
  *
- * Deliberately strict, because normalize-then-restore is only exactly
- * invertible when the endings are uniform. A lone `\r` — plausible inside a
- * code block in an article about line endings — sends the body down the direct
- * path rather than having its bytes rewritten. A mixed-ending body, which
- * nothing in Tiro produces, is then repaired on its LF-terminated lines only.
+ * A bare `\n` is the only thing that disqualifies a body, because it is the
+ * only thing normalize-then-restore cannot survive: restoring turns every `\n`
+ * into `\r\n`, so a body that mixed the two would come back changed on lines
+ * the repair never touched. Such a body takes the direct path and is repaired
+ * on its LF-terminated lines only; nothing in Tiro produces one.
+ *
+ * A lone `\r` is *not* disqualifying, though it reads like it should be.
+ * `replaceAll("\r\n", "\n")` cannot consume one, and the restore cannot
+ * manufacture one, so it passes through untouched — verified by property test
+ * over every combination of `\r`, `\r\n` and text. Excluding it cost real
+ * repairs: an otherwise-CRLF article with a carriage return inside a code fence
+ * skipped normalization, and the two transforms that anchor on `\n` silently
+ * did nothing.
  */
 function isUniformlyCrlf(body: string): boolean {
-  return body.includes("\r\n") && !/(?<!\r)\n|\r(?!\n)/.test(body);
+  return body.includes("\r\n") && !/(?<!\r)\n/.test(body);
 }
 
 export interface RepairedArticle {

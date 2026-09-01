@@ -266,6 +266,25 @@ describe("CRLF articles", () => {
     expect(/(?<!\r)\n/.test(out)).toBe(false);
   });
 
+  test("normalizes despite a lone CR inside a code fence", () => {
+    // A carriage return can legitimately sit inside fenced code — an article
+    // about line endings would have one. Treating it as disqualifying sent an
+    // otherwise-CRLF body down the direct path, where the two transforms that
+    // anchor on "\n" silently did nothing.
+    //
+    // Built here rather than as a corpus fixture on purpose: the repo has no
+    // .gitattributes, so a file whose whole point is one exotic byte is at the
+    // mercy of the next checkout's core.autocrlf, and a regression test a
+    // checkout can normalize into passing is worse than none.
+    const body =
+      '**Notes**\r\n\r\n\\[\r\n\r\n1\\] A note.\r\n\r\n```\r\nprintf "a\rb"\r\n```\r\n';
+    const out = repairBody(body);
+    expect(out).toContain("\\[1\\] A note.");
+    // The fence, carriage return included, must come back byte for byte.
+    expect(out).toContain('```\r\nprintf "a\rb"\r\n```');
+    expect(/(?<!\r)\n/.test(out)).toBe(false);
+  });
+
   test("finds the body of a CRLF article", async () => {
     // The frontmatter pattern used to accept only LF, so the YAML was read as
     // prose, entered the block list, and the article was refused as misaligned.
