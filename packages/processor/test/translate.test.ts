@@ -860,6 +860,51 @@ describe("figure captions", () => {
     expect(zh ?? "").toContain("<figcaption>译文</figcaption>");
   });
 
+  test("masks tags whose attributes contain a bare '>'", async () => {
+    // `/<[^>]+>/` reads the first `>` as the tag's end, cutting the tag
+    // mid-attribute and leaving the href in the text sent to the model. The
+    // clipper escapes this (innerHTML writes &gt;), but the processor also
+    // runs over vault HTML nobody generated.
+    const tricky =
+      '<figure><img src="./assets/a.png" alt="x"><figcaption>See <a title="1 > 0" href="https://real.example/page">this</a></figcaption></figure>';
+    const sent: string[] = [];
+    const rewriter: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      sent.push(user);
+      return user.replace(/real\.example/g, "hallucinated.example");
+    };
+    const zh = await translateBlocks({
+      chat: rewriter,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(tricky),
+    });
+    expect(sent.join("")).not.toContain("real.example");
+    expect(zh ?? "").toContain('href="https://real.example/page"');
+    expect(zh ?? "").not.toContain("hallucinated");
+  });
+
+  test("skips a caption whose markup cannot be masked, leaving it as-is", async () => {
+    // An unterminated tag cannot be tokenised, and sending the block whole
+    // would hand the model the markup this masking exists to hide.
+    const broken =
+      '<figure><img src="./assets/a.png" alt="x"><figcaption>See <a href="https://real.example/page" this</figcaption></figure>';
+    const sent: string[] = [];
+    const chat: ChatFn = async (request) => {
+      sent.push(request.messages.at(-1)?.content ?? "");
+      return tokenPreservingChat(request);
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(broken),
+    });
+    expect(sent.join("")).not.toContain("real.example");
+    expect(zh?.trim()).toBe(broken);
+  });
+
   test("leaves other raw HTML blocks verbatim", async () => {
     const raw = "<div class='promo'>Subscribe now</div>";
     const zh = await translateBlocks({

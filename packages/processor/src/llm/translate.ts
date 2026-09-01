@@ -66,8 +66,50 @@ const MARKER = "TIRO_BLOCK";
 const FIGURE_CAPTION_RE =
   /^(<figure>(?:<a\b[^>]*>)?<img\b[^>]*>(?:<\/a>)?<figcaption>)([\s\S]*)(<\/figcaption><\/figure>)$/;
 
-/** Any tag inside a caption — masked so the model sees prose and nothing else. */
-const HTML_TAG_RE = /<[^>]+>/g;
+/**
+ * Split a caption into its text and its tags, quote-aware.
+ *
+ * A `/<[^>]+>/` scan reads the first `>` as the tag's end, so
+ * `<a title="1 > 0" href="…">` is cut mid-attribute and the href is left in
+ * the text handed to the model — which then rewrites it. The clipper escapes
+ * that case (`innerHTML` serialisation writes `&gt;`), but the processor also
+ * runs over vault HTML nobody generated, so the parse cannot assume canonical
+ * input.
+ *
+ * Returns null when a tag never closes. That is the safe direction: the caller
+ * drops the block from translation rather than fall back to sending it whole,
+ * and an English caption is a much smaller loss than an invented URL.
+ */
+function maskTags(
+  text: string,
+  firstToken: number,
+): { masked: string; tags: string[] } | null {
+  let masked = "";
+  let cursor = 0;
+  const tags: string[] = [];
+  for (;;) {
+    const open = text.indexOf("<", cursor);
+    if (open === -1) return { masked: masked + text.slice(cursor), tags };
+    masked += text.slice(cursor, open);
+    let end = open + 1;
+    let quote = "";
+    while (end < text.length) {
+      const char = text[end] ?? "";
+      if (quote !== "") {
+        if (char === quote) quote = "";
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === ">") {
+        break;
+      }
+      end += 1;
+    }
+    if (end >= text.length) return null; // unterminated tag
+    masked += MATH_TOKEN(firstToken + tags.length);
+    tags.push(text.slice(open, end + 1));
+    cursor = end + 1;
+  }
+}
 
 function isVerbatim(block: Block): boolean {
   // A figure's caption is prose and was translated when it was a paragraph;
@@ -118,10 +160,13 @@ export async function translateBlocks(
   const candidates = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => !isVerbatim(block))
-    .map((item) => ({
-      ...item,
-      ...maskBlock(item.block.text, singleDollarMath),
-    }));
+    // flatMap, not map: a block whose markup cannot be masked safely is
+    // dropped here and stays in its original language. Translating it anyway
+    // would mean handing the model markup to rewrite.
+    .flatMap((item) => {
+      const masked = maskBlock(item.block.text, singleDollarMath);
+      return masked === null ? [] : [{ ...item, ...masked }];
+    });
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
   );
@@ -413,20 +458,17 @@ function maskBlock(text: string, singleDollar: boolean) {
   // somewhere the page never linked, and nothing downstream can tell — an
   // html block is compared by type, so a hallucinated URL passes every gate
   // and publishes. Masking leaves the model exactly the prose to translate.
-  const tags: string[] = [];
-  const body = inner.masked.replace(HTML_TAG_RE, (tag) => {
-    const token = MATH_TOKEN(inner.formulas.length + tags.length);
-    tags.push(tag);
-    return token;
-  });
-  const formulas = [...inner.formulas, ...tags];
+  const tagged = maskTags(inner.masked, inner.formulas.length);
+  if (tagged === null) return null;
+  const formulas = [...inner.formulas, ...tagged.tags];
   // The scaffold's two tokens must still fit inside the padded token width.
-  if (formulas.length + 2 > MAX_MASKED) {
-    return { masked: text, formulas: [] };
-  }
+  // Skipping is the only safe answer: returning the block unmasked would send
+  // the whole figure — image path and hrefs included — which is the leak this
+  // masking exists to prevent, arriving through a different door.
+  if (formulas.length + 2 > MAX_MASKED) return null;
   const first = formulas.length;
   return {
-    masked: `${MATH_TOKEN(first)}${body}${MATH_TOKEN(first + 1)}`,
+    masked: `${MATH_TOKEN(first)}${tagged.masked}${MATH_TOKEN(first + 1)}`,
     formulas: [...formulas, open, close],
   };
 }
