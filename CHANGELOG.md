@@ -7,7 +7,40 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Syntax highlighting and LaTeX rendering.** Code blocks are highlighted with
+  Shiki and formulas typeset with KaTeX, both at build time — no client-side
+  JavaScript. Both run *after* rehype-sanitize, as trusted generators over
+  already-scrubbed text, so the sanitize allowlist stays as narrow as it was
+  rather than widening to admit the classes and inline styles they emit — which
+  would have admitted them from clipped markup too, on a fully public site
+  (ADR 0009).
+- **The clipper now captures math instead of destroying it.** It recovers each
+  formula's LaTeX source before Readability runs — KaTeX and MathJax
+  annotations, arXiv's `<math alttext>`, MathJax v2 script tags — and deletes
+  the rendered duplicate. This is the upstream half of the arXiv failure below:
+  no amount of downstream repair can typeset math the clipper already flattened
+  into glyphs.
+- **Fences arrive with their language.** Turndown reads a fence's language only
+  from a `language-*` class, so GitHub, Rouge, Pandoc, SyntaxHighlighter and
+  `data-lang` markup all clipped as bare fences. Those are normalized at clip
+  time, line-number gutters are dropped, and Chroma's line-number table is
+  unwrapped to its code block.
+- **Inline `$…$` is read as math only for articles that have it** — recorded as
+  `has_math` by the clipper, so an article about pricing does not render
+  "$5 to $10" as a formula. `$$…$$` is unambiguous and renders everywhere,
+  including for articles clipped before this existed.
+
 ### Fixed
+
+- **Display math containing a blank line is one block again.** The shared
+  parser had no math extension, so `$$…$$` was a paragraph — and a paragraph
+  ends at a blank line. An `aligned` environment written across one therefore
+  split into two half-delimited blocks, which the site (rendering block by
+  block) could never typeset and the translator saw as two broken fragments.
+  `math` blocks are now protected byte-for-byte across translation, the way
+  code blocks already were.
 
 - **One bad block no longer costs an article its whole translation.** Each
   translation is now verified on its own before the body is joined, and a block
