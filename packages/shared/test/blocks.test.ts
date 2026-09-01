@@ -308,7 +308,7 @@ describe("normalizeBlockMath", () => {
   });
 
   test("stays fast when a block is nothing but openers", () => {
-    // Reparsing per cascade step is quadratic: 1000 such lines took ~7.8s,
+    // Reparsing per cascade step was quadratic: 1000 such lines took ~7.8s,
     // and this runs at site-build time on clipped content.
     const source = Array.from({ length: 1000 }, (_, i) => `$$ tier ${i}`).join(
       "\n",
@@ -325,11 +325,10 @@ describe("normalizeBlockMath", () => {
     expect(normalized).toContain("tier 999");
   });
 
-  test("escapes fences in lists nested past the reparse limit", () => {
-    // Each level's opener is only revealed once the one above it is escaped,
-    // so a list deeper than MAX_ESCAPE_PASSES falls to the linear pass — which
-    // matched only whitespace and `>`, leaving the deepest opener live to hide
-    // its item. Depths either side of the limit, and well past it.
+  test("escapes fences in lists nested to any depth", () => {
+    // Every level's opener has to be found in the one pass, however deep the
+    // nesting goes — a missed one renders as an empty formula and hides its
+    // item.
     for (const depth of [8, 9, 10, 30]) {
       const source = Array.from(
         { length: depth },
@@ -386,6 +385,39 @@ describe("normalizeBlockMath", () => {
     }
   });
 
+  test("leaves a formula preceded by any inline node alone", () => {
+    // A `$$` that is not at a paragraph's start is not opening anything.
+    // Asking instead whether earlier *text* appeared on the line only caught
+    // inline nodes that happen to contain one, so links and emphasis were safe
+    // by luck while inline code, images and inline HTML had their formula's
+    // first delimiter escaped and rendered with visible backslashes.
+    const cascade = (tail: string) =>
+      [...Array.from({ length: 9 }, (_, i) => `$$ tier ${i}`), "", tail].join(
+        "\n",
+      );
+    for (const tail of [
+      "`complexity`$$O(n)$$",
+      "![alt](x.png)$$O(n)$$",
+      "<span></span>$$O(n)$$",
+      "[t](u)$$O(n)$$",
+      "**a**$$O(n)$$",
+    ]) {
+      expect(normalizeBlockMath(cascade(tail))).toContain(tail);
+    }
+  });
+
+  test("still protects inline code that spans a newline", () => {
+    // The continuation branch reaches it, so only the prose allowlist keeps
+    // its delimiters intact.
+    const source = [
+      ...Array.from({ length: 9 }, (_, i) => `$$ tier ${i}`),
+      "",
+      "`a",
+      "$$ b`",
+    ].join("\n");
+    expect(normalizeBlockMath(source)).toContain("$$ b`");
+  });
+
   test("leaves a mid-line $$ in prose alone", () => {
     // A text node can also start mid-line, after emphasis or a link, and
     // `**a**$$ x` is prose rather than a fence — escaping it would put visible
@@ -427,9 +459,9 @@ describe("normalizeBlockMath", () => {
     }
   });
 
-  test("never escapes inside code, even on the linear pass", () => {
+  test("never escapes inside code", () => {
     // The math parser cannot see a code fence swallowed by an unclosed one, so
-    // the linear pass reads structure with the math-free parser instead —
+    // structure is read with the math-free parser instead —
     // otherwise a shell snippet gains a visible `\\$\\$`.
     const lines = ["- item"];
     for (let i = 0; i < 12; i += 1) lines.push(`  $$ tier ${i}`);

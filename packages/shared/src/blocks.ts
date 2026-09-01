@@ -158,16 +158,6 @@ export function mathRanges(
  * Renderers only. This rewrites text, so it must never touch what
  * `splitBlocks` slices or the byte-identity contract breaks.
  */
-/**
- * Escaping reparses, and an unclosed fence hides the ones inside it, so the
- * work is one parse per cascade step. Cheap for real content — a cascade is
- * one or two deep — but a block that is nothing but `$$` openers costs a parse
- * per line, which is quadratic and measurable: 500 such lines took ~1.8s and
- * 1000 took ~7.8s. Past this many steps, stop reparsing and escape every
- * remaining opener in one linear pass.
- */
-const MAX_ESCAPE_PASSES = 8;
-
 /** Escape a run of delimiters at `start`, whole. */
 function escapeFenceAt(text: string, start: number): string {
   // The whole run, not two characters: escaping "$$$" as "\$\$$" would leave
@@ -212,19 +202,54 @@ function proseRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
+ * Source ranges of the paragraphs in a fragment.
+ *
+ * This is the answer to "could a fence open here?". A paragraph begins exactly
+ * where prose begins *after* every container, however many and in whatever
+ * order, so `- > $$` and `- 1. > - $$` start one at the `$$` itself while
+ * `` `complexity`$$… `` starts one at the backtick. Asking the parser removes
+ * the need to know Markdown's container grammar, or to guess what came earlier
+ * on the line.
+ */
+function paragraphRanges(text: string): { start: number; end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    if (n.type === "paragraph") {
+      const start = n.position?.start.offset;
+      const end = n.position?.end.offset;
+      if (start !== undefined && end !== undefined) found.push({ start, end });
+      return;
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(proseParser.parse(text) as Root);
+  return found;
+}
+
+/**
  * Escape every delimiter run that opens a line of prose and is not part of a
  * formula which did close, in a single pass. Blunter than reparsing — it
  * cannot discover a valid formula that an outer unclosed fence was hiding —
  * but it is linear and it always terminates, which is what the pathological
  * case needs.
  *
- * Candidates come from the parser, not from a pattern for container markers.
- * A text node begins exactly where prose begins *after* every container, so
- * `- > $$`, `> - > $$` and `1. > $$` need no grammar here at all — spelling
- * that grammar out is what let compound containers slip past. Only a
- * continuation line inside one paragraph needs a pattern, and there the prefix
- * can only be indentation and blockquote markers: a list marker would end the
- * paragraph and start a new node.
+ * Candidates come from the parser, not from a pattern of my own. A paragraph
+ * starts where prose starts after every container, so compound prefixes need
+ * no grammar here; and a `$$` that is not at a paragraph's start, nor after a
+ * newline inside one, is not opening anything — which is what keeps
+ * `` `complexity`$$O(n)$$ `` and `![alt](x)$$O(n)$$` intact. Asking instead
+ * whether earlier *text* appeared on the line only caught inline constructs
+ * that happen to contain text, so links and emphasis worked and inline code,
+ * images and inline HTML did not.
+ *
+ * The one pattern left is a continuation line inside a single paragraph, where
+ * the prefix can be nothing but indentation and blockquote markers: a list
+ * marker would end the paragraph and start a new one.
  */
 function escapeRemainingOpeners(
   text: string,
@@ -233,23 +258,17 @@ function escapeRemainingOpeners(
   const prose = proseRanges(text);
   const targets = new Set<number>();
 
-  for (const range of prose) {
-    const slice = text.slice(range.start, range.end);
+  for (const paragraph of paragraphRanges(text)) {
+    const slice = text.slice(paragraph.start, paragraph.end);
     for (const match of slice.matchAll(/(^|\n[ \t>]*)(\$\$+)/g)) {
-      const lead = match[1] ?? "";
-      const offset = range.start + (match.index ?? 0) + lead.length;
-      if (lead === "") {
-        // The node starts here — but a node can also start mid-line, after
-        // emphasis or a link, and `**a**$$ x` is prose rather than a fence.
-        // Nothing else on the line may have come first.
-        const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
-        const interrupted = prose.some(
-          (other) =>
-            other !== range && other.start < offset && other.end > lineStart,
-        );
-        if (interrupted) continue;
-      }
-      if (keep.some((r) => offset >= r.start && offset < r.end)) continue;
+      const offset =
+        paragraph.start + (match.index ?? 0) + (match[1] ?? "").length;
+      const covered = (r: { start: number; end: number }) =>
+        offset >= r.start && offset < r.end;
+      // Prose only, so code and raw HTML keep their delimiters — including
+      // inline code spanning a newline, which the continuation branch reaches.
+      if (!prose.some(covered)) continue;
+      if (keep.some((r) => covered({ start: r.start, end: r.end }))) continue;
       targets.add(offset);
     }
   }
@@ -266,33 +285,18 @@ export function normalizeBlockMath(text: string): string {
   // Most blocks have no dollar at all; skip parsing them twice over.
   if (!text.includes("$")) return text;
 
-  let out = text;
-  // Until none are left, not once. An unclosed fence swallows everything after
-  // it, so the parse that finds it cannot also see the fences hiding inside
-  // it: escaping "$$ — moderate\n$$$ — premium" reveals a second opener on the
-  // line below, which would then eat "premium" on its own.
-  for (let pass = 0; ; pass += 1) {
-    const ranges = mathRanges(out, { singleDollar: true });
-    const unterminated = ranges.filter((range) => !range.terminated);
-    if (unterminated.length === 0) break;
-    if (pass >= MAX_ESCAPE_PASSES) {
-      out = escapeRemainingOpeners(
-        out,
-        ranges.filter((range) => range.terminated),
-      );
-      break;
-    }
-    let next = out;
-    // Back to front, so earlier offsets stay valid.
-    for (const range of [...unterminated].reverse()) {
-      next = escapeFenceAt(next, range.start);
-    }
-    // Each pass escapes at least one run and escaping never creates one, so
-    // this converges; the no-progress check is belt and braces.
-    if (next === out) break;
-    out = next;
+  // One pass, not a reparse per cascade step. An unclosed fence swallows
+  // everything after it, so a loop that escapes the outermost and parses again
+  // was both quadratic and — far worse — a second implementation that kept
+  // disagreeing with this one. Every opener a paragraph can hold is visible
+  // here at once.
+  const ranges = mathRanges(text, { singleDollar: true });
+  if (ranges.some((range) => !range.terminated)) {
+    return escapeRemainingOpeners(
+      text,
+      ranges.filter((range) => range.terminated),
+    );
   }
-  if (out !== text) return out;
 
   const trimmed = text.trim();
   if (trimmed.startsWith("$$") && isInlineMathOnlyParagraph(trimmed)) {

@@ -181,7 +181,7 @@ describe("renderBlockHtml", () => {
     }
   });
 
-  test("leaves a clipped raw <pre> unescaped through the linear pass", () => {
+  test("leaves a clipped raw <pre> unescaped", () => {
     // Raw <pre> is a supported clipped-code shape, so backslashes leaking into
     // one are visible to the reader.
     const lines = ["- item"];
@@ -191,6 +191,17 @@ describe("renderBlockHtml", () => {
     const code = html.slice(html.indexOf("<pre"), html.indexOf("</pre>"));
     expect(code.replace(/<[^>]+>/g, "")).toContain("$$ is the shell PID");
     expect(html).not.toContain("\\$\\$ is the shell");
+  });
+
+  test("typesets a formula that follows inline code", () => {
+    const source = [
+      ...Array.from({ length: 9 }, (_, i) => `$$ tier ${i}`),
+      "",
+      "`complexity`$$O(n)$$",
+    ].join("\n");
+    const html = renderBlockHtml(source, "s", { inlineMath: true });
+    expect(html).toContain("katex");
+    expect(html).not.toContain("$$O(n)$$");
   });
 
   test("keeps text behind alternating containers", () => {
