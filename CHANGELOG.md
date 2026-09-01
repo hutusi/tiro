@@ -18,6 +18,17 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **The clipper no longer writes markdown that cannot be parsed.** Four Turndown
+  defects, all of them visible on the published site. A link title containing
+  newlines — arXiv writes a whole section path into one — left the link
+  unterminated, and the lines it swallowed arrived as prose; one of them a lone
+  `=`, which markdown reads as a setext heading, so a paragraph published as a
+  giant `<h1>`. A link wrapping a block element got that element's blank lines
+  inside its brackets, so every captioned Substack image published as a literal
+  `[`, an image, and a bare CDN URL. A table with no `<thead>` gained a
+  synthesized empty header row, with its real headings still rendered as data.
+  And LaTeXML's own list-item labels survived beside the marker the list already
+  supplied, so arXiv enumerations published as numbered lists of bare numbers.
 - **The two reader columns no longer paint on top of each other.** Each pane is
   a `minmax(0, 1fr)` grid track with `overflow: visible`, so anything wider than
   the column neither scrolled nor clipped — it crossed the gap and overprinted
