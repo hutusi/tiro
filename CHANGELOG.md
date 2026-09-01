@@ -9,6 +9,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Articles record the clipper that wrote them** — `tiro.clipper_version`,
+  alongside the existing `tiro.processor_version`. Optional, so articles clipped
+  before it simply lack it and the document format is unchanged. It answers
+  per-article what previously took comparing `clipped_at` against the
+  extension's git history: which clip predates a given clipper fix, and so needs
+  re-clipping.
 - **`tiro-process repair`** rewrites clip-time markdown defects already in the
   vault — a code fix only ever helps the next clip. It edits `index.md` and
   `zh.md` together or not at all — staged writes then renames, so a failure

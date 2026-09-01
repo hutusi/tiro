@@ -85,6 +85,40 @@ describe("parseArticle / stringifyArticle", () => {
     expect(back.body).toBe(body);
   });
 
+  test("preserves clipper_version through a processor round-trip", () => {
+    // The trap this guards: zod strips keys an object does not name, and the
+    // processor reparses and rewrites frontmatter on every run — so a field the
+    // clipper records but ArticleFrontmatterSchema omits is not merely
+    // unvalidated, it is deleted the first time the article is processed.
+    const clipped = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      tiro: { schema: 1, clipper_version: "0.7.0" },
+    });
+    expect(clipped.tiro.clipper_version).toBe("0.7.0");
+
+    // What the processor does: parse what is on disk, add its own markers,
+    // write it back.
+    const processed = parseArticle(
+      stringifyArticle(
+        {
+          ...clipped,
+          tiro: {
+            ...clipped.tiro,
+            processed_at: "2026-08-22T11:00:00.000Z",
+            processor_version: "0.1.0",
+          },
+        },
+        "Body.\n",
+      ),
+    );
+    expect(processed.frontmatter.tiro).toEqual({
+      schema: 1,
+      clipper_version: "0.7.0",
+      processed_at: "2026-08-22T11:00:00.000Z",
+      processor_version: "0.1.0",
+    });
+  });
+
   test("parses an unquoted YAML timestamp (js-yaml Date) into a string", () => {
     const text = [
       "---",

@@ -13,6 +13,23 @@ const isoDatetime = z.preprocess(
   z.iso.datetime({ offset: true }),
 );
 
+/**
+ * Which clipper wrote the article, mirroring `processor_version` below.
+ *
+ * Declared on both schemas deliberately. Zod strips keys an object does not
+ * name, and the processor round-trips frontmatter through
+ * `ArticleFrontmatterSchema` on every run — so a field the write side records
+ * and the read side omits is not merely unvalidated, it is deleted the first
+ * time the article is processed.
+ *
+ * Optional, so articles clipped before this existed simply lack it, and the
+ * document format is unchanged for anything that reads it (no `tiro.schema`
+ * bump). What it buys is answering "which clipper produced this?" per article
+ * rather than by comparing `clipped_at` against the git history of the
+ * extension — which is how the arXiv equation regression had to be traced.
+ */
+const clipperVersion = z.string().optional();
+
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
@@ -35,6 +52,7 @@ export const ClipFrontmatterSchema = z.object({
   has_math: z.boolean().optional(),
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
+    clipper_version: clipperVersion,
   }),
 });
 export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
@@ -47,6 +65,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
   tags: z.array(z.string()).optional(),
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
+    clipper_version: clipperVersion,
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),

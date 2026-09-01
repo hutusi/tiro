@@ -9,6 +9,7 @@ const input = {
   excerpt: "A short excerpt.",
   author: "Jane Doe",
   clippedAt: "2026-08-22T10:00:00.000Z",
+  clipperVersion: "0.7.0",
 };
 
 describe("buildClipFile", () => {
@@ -25,8 +26,16 @@ describe("buildClipFile", () => {
     expect(frontmatter.clipped_at).toBe(input.clippedAt);
     expect(frontmatter.excerpt).toBe(input.excerpt);
     expect(frontmatter.author).toBe(input.author);
-    expect(frontmatter.tiro).toEqual({ schema: 1 });
+    expect(frontmatter.tiro).toEqual({ schema: 1, clipper_version: "0.7.0" });
     expect(body).toBe("# Hello\n\nA paragraph.\n");
+  });
+
+  test("omits the clipper version when it is unavailable", async () => {
+    // `chrome.runtime.getManifest()` is the only source, and an article with no
+    // version recorded is better than one claiming an empty string.
+    const file = await buildClipFile({ ...input, clipperVersion: "" });
+    expect(parseArticle(file.content).frontmatter.tiro).toEqual({ schema: 1 });
+    expect(file.content).not.toContain("clipper_version:");
   });
 
   test("falls back to the domain when the title is empty", async () => {

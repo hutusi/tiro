@@ -18,6 +18,12 @@ export interface ClipInput {
   hasMath?: boolean;
   /** ISO timestamp; injected so tests are deterministic. */
   clippedAt: string;
+  /**
+   * The extension's own version, recorded so an article says what produced it.
+   * Injected rather than read from the manifest here for the same reason
+   * `clippedAt` is: this function stays pure and testable.
+   */
+  clipperVersion: string;
 }
 
 export interface ClipFile {
@@ -52,7 +58,12 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       : {}),
     ...(input.readabilityFailed === true ? { readability_failed: true } : {}),
     ...(input.hasMath === true ? { has_math: true } : {}),
-    tiro: { schema: TIRO_SCHEMA_VERSION },
+    tiro: {
+      schema: TIRO_SCHEMA_VERSION,
+      ...(input.clipperVersion !== ""
+        ? { clipper_version: input.clipperVersion }
+        : {}),
+    },
   });
 
   const slug = await slugForUrl(input.url);

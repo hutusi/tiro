@@ -88,6 +88,15 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   to stacked rendering, and the processor never writes a misaligned `zh.md`.
   The shared parser runs remark-math, so `$$…$$` is a single `math` block even
   with blank lines inside, the way a fenced code block already is (ADR 0009).
+- **Each article records what produced it**: `tiro.clipper_version` alongside
+  `tiro.processor_version`, both optional so articles predating either simply
+  lack them. Answering "which clipper wrote this?" per article beats comparing
+  `clipped_at` against the extension's git history, which is how the arXiv
+  equation regression had to be traced. Note that both must be named on
+  `ArticleFrontmatterSchema`, not just the clip schema: zod strips keys an
+  object does not name, and the processor reparses and rewrites frontmatter on
+  every run, so an unnamed field is deleted the first time an article is
+  processed.
 - **Math is declared, not guessed**: the optional `has_math` flag records that
   the clipper escaped every literal `$` in the article's prose, so every bare
   `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;
