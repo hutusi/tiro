@@ -502,6 +502,22 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).toContain("Ours");
   });
 
+  test("drops a LaTeXML list item's own rendered marker", () => {
+    // LaTeXML numbers <ol> items itself and writes the label into the item, so
+    // Turndown emits the <ol>'s marker and the label both — `1.  (1)` with the
+    // item's text pushed into a paragraph below it. 43 items in one paper read
+    // as a numbered list of bare numbers.
+    const { markdown } = convert(
+      '<ol class="ltx_enumerate">' +
+        '<li class="ltx_item"><span class="ltx_tag ltx_tag_item">(1)</span>' +
+        '<div class="ltx_para"><p>Residual activation functions.</p></div></li>' +
+        "</ol>",
+    );
+    expect(markdown).not.toContain("(1)");
+    expect(markdown).toContain("1.  Residual activation functions.");
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["list"]);
+  });
+
   test("fences a <pre> that has no <code> inside", () => {
     // Sphinx and docutils — so Python's own documentation and most of its
     // ecosystem — emit `<pre>` with only spans in it. Turndown's fenced rule

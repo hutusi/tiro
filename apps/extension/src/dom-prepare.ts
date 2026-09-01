@@ -330,6 +330,24 @@ function normalizeLinkTitles(doc: Document): void {
 }
 
 /**
+ * Drop a list item's own rendered marker.
+ *
+ * LaTeXML numbers `<ol>` items itself, writing the label into the item as
+ * `<span class="ltx_tag_item">(1)</span>` — the `<ol>` supplies a marker too,
+ * so Turndown emits both: `1.  (1)`, with the item's actual text pushed into a
+ * paragraph below. The list reads as a numbered list of bare numbers. 43 items
+ * in one paper look like this.
+ *
+ * Scoped to `ltx_tag_item` rather than every `ltx_tag`: the equation and
+ * section variants carry numbers that nothing else reproduces.
+ */
+function stripRedundantListMarkers(doc: Document): void {
+  for (const tag of Array.from(doc.querySelectorAll("li > .ltx_tag_item"))) {
+    tag.remove();
+  }
+}
+
+/**
  * Give a headerless table a header row taken from its own first row.
  *
  * GFM has no way to write a table without one, so the Turndown plugin
@@ -382,6 +400,7 @@ export function prepareForClipping(doc: Document): void {
   unwrapEquationTables(doc);
   normalizeMath(doc);
   recoverCodeBlocks(doc);
+  stripRedundantListMarkers(doc);
   // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
   // line-number gutters). Promoting headers first would rewrite the very cells
   // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
