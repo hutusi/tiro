@@ -376,8 +376,12 @@ async function writePairAtomically(
   try {
     for (const write of writes) {
       const tmpAbs = `${write.pathAbs}.tmp`;
-      await Bun.write(tmpAbs, write.contents);
+      // Recorded before the write, not after: a write that fails partway — a
+      // full disk is the obvious way — can still have created the file, and a
+      // path only added on success is a path cleanup never sees. `rm` with
+      // `force` on one that was never created costs nothing.
       staged.push(tmpAbs);
+      await Bun.write(tmpAbs, write.contents);
     }
     for (const [i, write] of writes.entries()) {
       const tmpAbs = staged[i];
