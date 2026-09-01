@@ -124,6 +124,26 @@ so re-runs are always safe no-ops for finished articles.
   have one and stays block-aligned with it. Exits non-zero on any of these —
   `run` only warns, so this is the only thing that fails on a violation.
 
+### Math rendering
+
+The site reads `$…$` as a math delimiter only for articles whose frontmatter
+says `has_math: true`, which the clipper sets when it finds math in the page
+DOM. Everywhere else only `$$…$$` typesets, so prose like "it costs $5 to $10"
+is never mistaken for a formula (ADR 0009).
+
+- **An article's inline math is not typeset**: add `has_math: true` to its
+  frontmatter in the vault and push — no reprocessing needed, the flag is read
+  at site build time.
+- **Prose is being typeset as a formula**: set `has_math: false`. Block-level
+  `$$…$$` still renders; nothing else will.
+- **The clipper missed the math entirely** (the source page ships no LaTeX,
+  only rendered glyphs): the formulas are gone from the markdown, and the flag
+  cannot bring them back. Re-clip if the page has since changed; otherwise fix
+  the markdown by hand.
+
+Both panes of a translated article render with the same setting, so a formula
+in the original is a formula in the translation.
+
 ### Failure markers
 
 | Marker | Meaning | Fix |
@@ -318,3 +338,6 @@ permanent extension ID, unrelated to the unpacked one.
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |
 | Several articles pending while only one is ever attempted | pre-ADR-0008 alphabetical ordering starved the rest | fixed: articles now run cheapest-first under a budget |
+| Site build logs `shiki: no grammar for "x"` | a fence whose language is outside the curated grammar list in `apps/site/src/lib/highlight.ts` | harmless — the block renders as plain text. Add the grammar there if the language is worth supporting |
+| A red formula on the page, `katex-error` in the HTML | the clipped LaTeX does not parse | by design: KaTeX never fails the build. Hover the formula for KaTeX's own message, then fix the markdown in the vault |
+| A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |

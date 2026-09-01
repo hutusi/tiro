@@ -93,6 +93,44 @@ describe("renderBlockHtml", () => {
     expect(html).toContain("ab");
   });
 
+  test("typesets display math without the has_math flag", () => {
+    // `$$…$$` is unambiguous, so it renders for every article — including
+    // ones clipped before the extension knew about math.
+    const html = renderBlockHtml("$$\nE = mc^2\n$$", "s");
+    expect(html).toContain("katex-display");
+    expect(html).toContain("<math");
+    expect(html).not.toContain("$$");
+  });
+
+  test("leaves prose dollar amounts alone by default", () => {
+    const html = renderBlockHtml("It costs $5 to $10 today.", "s");
+    expect(html).toBe("<p>It costs $5 to $10 today.</p>");
+  });
+
+  test("typesets inline math only when the article declares it", () => {
+    expect(renderBlockHtml("a $x^2$ b", "s")).toBe("<p>a $x^2$ b</p>");
+    const html = renderBlockHtml("a $x^2$ b", "s", { inlineMath: true });
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain("katex-display");
+  });
+
+  test("renders broken TeX as an error instead of failing the build", () => {
+    const html = renderBlockHtml("$$\n\\frac{1}\n$$", "s");
+    expect(html).toContain("katex-error");
+  });
+
+  test("math markup does not reopen the sanitizer", () => {
+    // The schema gains exactly two class markers; a clipped <math> element and
+    // a script inside a formula must still be stripped before KaTeX runs.
+    const html = renderBlockHtml(
+      '<math><mi onclick="alert(1)">x</mi></math><script>alert(2)</script>',
+      "s",
+    );
+    expect(html).not.toContain("<math");
+    expect(html).not.toContain("onclick");
+    expect(html).not.toContain("alert(");
+  });
+
   test("renders GFM tables", () => {
     const html = renderBlockHtml("| a | b |\n| --- | --- |\n| 1 | 2 |", "s");
     expect(html).toContain("<table>");

@@ -146,6 +146,22 @@
   border: 1px solid var(--line);
 }
 
+/* Paired mode renders into a column roughly half the usual prose width, so a
+ * wide formula has to scroll inside its own box rather than widen the row. */
+.prose :where(.katex-display) {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25rem;
+}
+/* katex.min.css is a separate stylesheet and may load after this one; the
+ * doubled class outranks its own `.katex-display > .katex { text-align:center }`
+ * so the overflow box above can actually scroll instead of centring a clipped
+ * formula. */
+.prose :where(.katex-display) > .katex.katex {
+  display: inline-block;
+  text-align: initial;
+}
+
 .prose :where(img) {
   border-radius: 0.5rem;
   margin-inline: auto;
