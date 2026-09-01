@@ -31,6 +31,7 @@ import r from "@shikijs/langs/r";
 import ruby from "@shikijs/langs/ruby";
 import rust from "@shikijs/langs/rust";
 import scala from "@shikijs/langs/scala";
+import shellsession from "@shikijs/langs/shellsession";
 import sql from "@shikijs/langs/sql";
 import swift from "@shikijs/langs/swift";
 import toml from "@shikijs/langs/toml";
@@ -49,6 +50,27 @@ import { visit } from "unist-util-visit";
 const THEME = "github-dark-dimmed";
 /** Shiki special-cases this one — it needs no grammar. */
 const FALLBACK_LANG = "plaintext";
+/**
+ * Also special-cased by Shiki, so they render correctly but are absent from
+ * `getLoadedLanguages()`. Without this they warn on every build, which trains
+ * you to ignore the warning when it means something.
+ */
+const PLAIN_ALIASES = new Set(["plaintext", "text", "txt", "plain"]);
+/** Fence infos in common use that Shiki does not register itself. */
+const LANG_ALIASES = new Map([
+  ["shell-session", "shellsession"],
+  ["sh-session", "shellsession"],
+  ["command-line", "shellsession"],
+  ["dockerfile", "docker"],
+  ["golang", "go"],
+  ["node", "javascript"],
+  ["obj-c", "objective-c"],
+  ["objc", "objective-c"],
+  ["proto3", "proto"],
+  ["protobuf", "proto"],
+  ["shell-script", "shellscript"],
+  ["vim", "viml"],
+]);
 
 /**
  * Grammars are imported rather than lazily bundled because the highlighter has
@@ -97,6 +119,7 @@ const highlighter = createHighlighterCoreSync({
     ruby,
     rust,
     scala,
+    shellsession,
     sql,
     swift,
     toml,
@@ -124,6 +147,9 @@ function languageFor(info: string | undefined): string {
   if (info === undefined || info === "") return FALLBACK_LANG;
   const lang = info.toLowerCase();
   if (loaded.has(lang)) return lang;
+  if (PLAIN_ALIASES.has(lang)) return FALLBACK_LANG;
+  const alias = LANG_ALIASES.get(lang);
+  if (alias !== undefined && loaded.has(alias)) return alias;
   if (!unsupported.has(lang)) {
     unsupported.add(lang);
     console.warn(`shiki: no grammar for "${lang}"; rendering as plain text`);
@@ -150,7 +176,11 @@ function codeText(node: Element): string {
   let text = "";
   for (const child of node.children) {
     if (child.type === "text") text += child.value;
-    else if (child.type === "element") text += codeText(child);
+    else if (child.type !== "element") continue;
+    // A <br> has no children, so recursing alone would fuse the lines it
+    // separates into one — `let a=1let b=2`.
+    else if (child.tagName === "br") text += "\n";
+    else text += codeText(child);
   }
   return text;
 }
@@ -184,9 +214,13 @@ export function rehypeShiki() {
       const info = classes
         .find((name) => name.startsWith("language-"))
         ?.slice("language-".length);
+      // Read the whole <pre>, not just the <code> the language came from: the
+      // replacement below discards the <pre>, so anything beside that first
+      // child — a second <code>, or text before it, both reachable through
+      // clipped raw HTML — would be dropped silently.
       // remark-rehype terminates the code text with a newline; passing it
       // through would give every block a trailing blank line.
-      const text = codeText(code).replace(/\n$/, "");
+      const text = codeText(node).replace(/\n$/, "");
       const highlighted = highlighter.codeToHast(text, {
         lang: languageFor(info),
         theme: THEME,

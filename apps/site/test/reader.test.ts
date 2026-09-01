@@ -68,6 +68,44 @@ describe("renderBlockHtml", () => {
     expect(html.match(/class="line"/g)).toHaveLength(1);
   });
 
+  test("keeps every child of a <pre>, not just the first <code>", () => {
+    // The replacement discards the <pre>, so reading only the <code> the
+    // language came from drops anything beside it — both shapes reachable
+    // through clipped raw HTML.
+    expect(
+      renderBlockHtml(
+        '<pre><code class="language-js">let a=1</code><code>SECOND</code></pre>',
+        "s",
+      ),
+    ).toContain("SECOND");
+    expect(renderBlockHtml("<pre>PREFIX<code>x</code></pre>", "s")).toContain(
+      "PREFIX",
+    );
+  });
+
+  test("treats <br> in clipped code as a line break", () => {
+    const html = renderBlockHtml(
+      '<pre><code class="language-js">let a=1<br>let b=2</code></pre>',
+      "s",
+    );
+    expect(html).not.toContain("1let");
+    expect(html.match(/class="line"/g)).toHaveLength(2);
+  });
+
+  test("does not warn about languages Shiki handles without a grammar", () => {
+    const warn = console.warn;
+    const warnings: unknown[] = [];
+    console.warn = (...args: unknown[]) => warnings.push(args);
+    try {
+      for (const lang of ["text", "plaintext", "console", "golang", "objc"]) {
+        renderBlockHtml(`\`\`\`${lang}\nx\n\`\`\``, "s");
+      }
+    } finally {
+      console.warn = warn;
+    }
+    expect(warnings).toEqual([]);
+  });
+
   test("keeps the code of a clip that shipped its own highlighting", () => {
     // Sanitization strips these spans' attributes but keeps the elements, so
     // reading only direct text children would render an empty block.
