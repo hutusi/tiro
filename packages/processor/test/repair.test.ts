@@ -202,6 +202,41 @@ describe("repairBody", () => {
   });
 });
 
+describe("CRLF articles", () => {
+  test("repairs a CRLF body without mixing line endings", () => {
+    // parseArticle accepts CRLF, so an article with it is contract-valid.
+    const lf =
+      "|     |     |\n| --- | --- |\n| A | B |\n\n1.  (1)\n    \n    Content.\n";
+    const crlf = lf.replace(/\n/g, "\r\n");
+    const out = repairBody(crlf);
+    expect(out).toBe("| A | B |\r\n| --- | --- |\r\n\r\n1.  Content.\r\n");
+    // No bare LF anywhere: a repair must not leave a file half-converted.
+    expect(/(?<!\r)\n/.test(out)).toBe(false);
+  });
+
+  test("finds the body of a CRLF article", async () => {
+    // The frontmatter pattern used to accept only LF, so the YAML was read as
+    // prose, entered the block list, and the article was refused as misaligned.
+    const vault = freshVault();
+    const index = join(vault, "articles", EN, "index.md");
+    const zh = join(vault, "articles", EN, "zh.md");
+    const broken = "\n\n|     |     |\n| --- | --- |\n| Paper | Idea |\n";
+    writeFileSync(
+      index,
+      (readFileSync(index, "utf8") + broken).replace(/\n/g, "\r\n"),
+    );
+    writeFileSync(
+      zh,
+      (readFileSync(zh, "utf8") + broken).replace(/\n/g, "\r\n"),
+    );
+
+    const report = await repairVault(vault, { slug: EN });
+    expect(report.refused).toEqual([]);
+    expect(report.repaired).toHaveLength(1);
+    expect(readFileSync(index, "utf8")).not.toMatch(/^\|\s+\|\s+\|\r?$/m);
+  });
+});
+
 describe("repairVault", () => {
   test("reports nothing to do for an already-clean vault", async () => {
     const vault = freshVault();

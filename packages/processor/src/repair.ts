@@ -1,6 +1,7 @@
 import { rename, rm } from "node:fs/promises";
 import {
   checkAlignment,
+  frontmatterLength,
   splitBlocks,
   translationPath,
   verbatimRanges,
@@ -199,7 +200,7 @@ export function promoteTableHeaders(body: string): string {
 
 /** `1.  (1)` / `2.  (b)` — a marker the list already supplies. */
 const DUPLICATE_MARKER =
-  /^([ \t]*(?:\d+\.|[-*+])[ \t]+)\((?:\d+|[a-z]|[ivx]+)\)[ \t]*$/i;
+  /^([ \t]*(?:\d+\.|[-*+])[ \t]+)\((?:\d+|[a-z]|[ivx]+)\)[ \t\r]*$/i;
 
 /**
  * Pull a list item's text up onto its marker line.
@@ -232,7 +233,11 @@ export function liftDuplicateListMarkers(body: string): string {
       out.push(line);
       continue;
     }
-    out.push(`${marker[1]}${first.trim()}`);
+    // Keep the lifted line's own ending: splitting on "\n" leaves the "\r" of a
+    // CRLF file on the line, and trimming it away would mix endings in a file
+    // that had one kind throughout.
+    const eol = first.endsWith("\r") ? "\r" : "";
+    out.push(`${marker[1]}${first.trim()}${eol}`);
     i = j;
   }
   return out.join("\n");
@@ -391,19 +396,12 @@ async function writePairAtomically(
 
 /** Frontmatter is YAML, not markdown — repair the body and leave it alone. */
 function repairFile(text: string): string {
-  const end = frontmatterEnd(text);
+  const end = frontmatterLength(text);
   if (end === null) return repairBody(text);
   return text.slice(0, end) + repairBody(text.slice(end));
 }
 
 function bodyOf(text: string): string {
-  const end = frontmatterEnd(text);
+  const end = frontmatterLength(text);
   return end === null ? text : text.slice(end);
-}
-
-/** Offset just past the closing `---` of a frontmatter block, if there is one. */
-function frontmatterEnd(text: string): number | null {
-  if (!text.startsWith("---\n")) return null;
-  const close = text.indexOf("\n---\n", 3);
-  return close === -1 ? null : close + "\n---\n".length;
 }
