@@ -7,7 +7,54 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Syntax highlighting and LaTeX rendering.** Code blocks are highlighted with
+  Shiki and formulas typeset with KaTeX, both at build time — no client-side
+  JavaScript. Both run *after* rehype-sanitize, as trusted generators over
+  already-scrubbed text, so the sanitize allowlist stays as narrow as it was
+  rather than widening to admit the classes and inline styles they emit — which
+  would have admitted them from clipped markup too, on a fully public site
+  (ADR 0009).
+- **The clipper now captures math instead of destroying it.** It recovers each
+  formula's LaTeX source before Readability runs — KaTeX and MathJax
+  annotations, arXiv's `<math alttext>`, MathJax v2 script tags — and deletes
+  the rendered duplicate. This is the upstream half of the arXiv failure below:
+  no amount of downstream repair can typeset math the clipper already flattened
+  into glyphs.
+- **Fences arrive with their language.** Turndown reads a fence's language only
+  from a `language-*` class, so GitHub, Rouge, Pandoc, SyntaxHighlighter and
+  `data-lang` markup all clipped as bare fences. Those are normalized at clip
+  time, line-number gutters are dropped, and Chroma's line-number table is
+  unwrapped to its code block.
+- **Inline `$…$` is read as math only where the dollars are curated.** The
+  clipper escapes every literal `$` in the prose of an article it recovered
+  maths from, and records `has_math` to say so — so an article that is both a
+  maths article and a pricing article renders both correctly. `$$…$$` is
+  unambiguous and renders everywhere, including for articles clipped before
+  this existed.
+- **The translator never sees LaTeX.** Inline formulas are replaced by opaque
+  tokens before a block is sent and restored afterwards; a token that does not
+  round-trip reverts the block. A prompt is not a guarantee, and a mangled
+  formula passes every structural gate — it still parses as a paragraph, so
+  alignment is satisfied and wrong mathematics would publish silently.
+
 ### Fixed
+
+- **An unclosed `$$` no longer swallows the rest of an article.** micromark
+  runs an unterminated math fence to end of document, exactly as it does an
+  unterminated code fence, so a prose line beginning `$$` — "$$ is the shell's
+  PID", "$$10 for the basic plan" — turned everything after it into one
+  verbatim block: never translated, rendered as a single red error, and silent,
+  because both sides parsed identically and alignment passed. A fence that
+  never closed is now re-read as prose.
+- **Display math containing a blank line is one block again.** The shared
+  parser had no math extension, so `$$…$$` was a paragraph — and a paragraph
+  ends at a blank line. An `aligned` environment written across one therefore
+  split into two half-delimited blocks, which the site (rendering block by
+  block) could never typeset and the translator saw as two broken fragments.
+  `math` blocks are now protected byte-for-byte across translation, the way
+  code blocks already were.
 
 - **One bad block no longer costs an article its whole translation.** Each
   translation is now verified on its own before the body is joined, and a block
@@ -31,9 +78,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   it would have ended every later run too.
 - **A block too large to send is kept untranslated instead of blocking the
   article** (`translation.max_block_chars`, default 20000). A top-level block is
-  never split, so an oversized one is sent alone and expects an equally large
-  response — past the provider's output cap it simply never succeeds. A 177-entry
-  arXiv bibliography, 47K chars as one list, is the case this exists for.
+  never split, so an oversized one used to be sent alone and expect an equally
+  large response — past the provider's output cap that simply never succeeded,
+  and the article went with it. Such a block is now left out of the batch and
+  passes through in its original language. A 177-entry arXiv bibliography, 47K
+  chars as one list, is the case this exists for.
 - **One oversized article no longer starves the processing queue.** A 170 KB
   clip needed 14 sequential translation batches and could not finish inside the
   job's 30-minute cap; because translation kept no state, every retry restarted

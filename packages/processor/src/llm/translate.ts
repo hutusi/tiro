@@ -1,8 +1,11 @@
 import {
   type Block,
   checkAlignment,
+  isInlineMathOnlyParagraph,
   joinBlocks,
+  mathRanges,
   splitBlocks,
+  VERBATIM_BLOCK_TYPES,
 } from "@tiro/shared";
 import {
   type Deadline,
@@ -31,16 +34,35 @@ export interface TranslateOptions {
    * normally the client's per-request timeout, so a call cannot overrun the
    * budget by more than one request. */
   callBudgetMs?: number;
+  /**
+   * Whether `$…$` is math in this article — frontmatter `has_math`. Must match
+   * how the site will render it: masking single dollars in an article that
+   * never declared them curated would hide "5 to " out of "costs $5 to $10"
+   * and leave the price untranslated.
+   */
+  singleDollarMath?: boolean;
   log?: (message: string) => void;
 }
 
-const VERBATIM_TYPES = new Set(["code", "thematicBreak", "html"]);
+// Seeded from the alignment contract so this can never be the smaller set:
+// anything checkAlignment demands back byte-identical must never be sent to
+// the model in the first place. The extras are blocks with no prose to
+// translate at all.
+const VERBATIM_TYPES = new Set([
+  ...VERBATIM_BLOCK_TYPES,
+  "thematicBreak",
+  "html",
+]);
 const IMAGE_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 const MARKER = "TIRO_BLOCK";
 
 function isVerbatim(block: Block): boolean {
   if (VERBATIM_TYPES.has(block.type)) return true;
-  return block.type === "paragraph" && IMAGE_ONLY_RE.test(block.text.trim());
+  if (block.type !== "paragraph") return false;
+  const text = block.text.trim();
+  // Single-line `$$E = mc^2$$` is a paragraph holding one inline-math node,
+  // not a math block, so the type check above never catches it.
+  return IMAGE_ONLY_RE.test(text) || isInlineMathOnlyParagraph(text);
 }
 
 /**
@@ -68,13 +90,20 @@ export async function translateBlocks(
     cache,
     deadline = unboundedDeadline(),
     callBudgetMs = 0,
+    singleDollarMath = false,
     log = () => {},
   } = options;
 
   const translated: string[] = blocks.map((b) => b.text);
+  // Filter first: masking every block would parse code and top-level math only
+  // to discard the result.
   const candidates = blocks
     .map((block, index) => ({ block, index }))
-    .filter(({ block }) => !isVerbatim(block));
+    .filter(({ block }) => !isVerbatim(block))
+    .map((item) => ({
+      ...item,
+      ...maskMath(item.block.text, singleDollarMath),
+    }));
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
   );
@@ -108,7 +137,11 @@ export async function translateBlocks(
     // an *indented* code block, which then re-parses as a paragraph and fails
     // the alignment gate — silently costing the article its whole translation
     // even though the block was never sent anywhere. Verbatim means verbatim.
-    const cleaned = text.trim() || item.block.text;
+    // Restored before anything else sees it: the checkpoint is keyed on the
+    // original text and must hold a real translation, or a resumed run reads
+    // the tokens back out and publishes TIROMATH0 into zh.md.
+    const restored = unmaskMath(text.trim(), item.formulas);
+    const cleaned = restored?.trim() || item.block.text;
     translated[item.index] = cleaned;
     cache?.set(item.block.text, cleaned);
   };
@@ -143,6 +176,15 @@ export async function translateBlocks(
   const collision = todo.some(({ block }) =>
     block.text.includes(`<<<${MARKER}`),
   );
+  // A source that already contains a math token would have unmaskMath put a
+  // formula where the author wrote prose. Vanishingly unlikely, but the cost
+  // of being wrong is a corrupted paragraph, so refuse to mask that block.
+  for (const item of todo) {
+    if (item.formulas.length > 0 && item.block.text.includes("TIROMATH")) {
+      item.masked = item.block.text;
+      item.formulas = [];
+    }
+  }
 
   try {
     if (collision) {
@@ -151,7 +193,7 @@ export async function translateBlocks(
         deadline.check(callBudgetMs, `block ${item.index}`);
         record(
           item,
-          await translateSingle(chat, model, targetLang, item.block),
+          await translateSingle(chat, model, targetLang, item.masked),
         );
         await cache?.flush();
       }
@@ -197,7 +239,7 @@ export async function translateBlocks(
           deadline.check(callBudgetMs, `block ${item.index}`);
           record(
             item,
-            await translateSingle(chat, model, targetLang, item.block),
+            await translateSingle(chat, model, targetLang, item.masked),
           );
           await cache?.flush();
         }
@@ -223,17 +265,33 @@ export async function translateBlocks(
   // such blocks out of 364 used to reject the whole article, and no prompt can
   // fix a source that means something other than it looks like.
   let reverted = 0;
+  const mathOf = (text: string): string =>
+    mathRanges(text, { singleDollar: singleDollarMath })
+      .filter((r) => r.terminated)
+      .map((r) => r.value)
+      .sort()
+      .join("\u0000");
   const finalText = blocks.map((b, i) => {
     const candidate = translated[i] || b.text;
     if (candidate === b.text) return b.text;
     const reparsed = splitBlocks(candidate);
-    if (reparsed.length === 1 && reparsed[0]?.type === b.type) return candidate;
-    reverted += 1;
-    return b.text;
+    if (reparsed.length !== 1 || reparsed[0]?.type !== b.type) {
+      reverted += 1;
+      return b.text;
+    }
+    // Masking means the formulas should come back untouched; a difference here
+    // is the model having invented or destroyed one — most plausibly by
+    // dropping the backslash from an escaped `\$`, which would turn a price
+    // into a formula in the translated pane alone.
+    if (mathOf(candidate) !== mathOf(b.text)) {
+      reverted += 1;
+      return b.text;
+    }
+    return candidate;
   });
   if (reverted > 0) {
     log(
-      `${reverted} block(s) reverted to the original: the translation changed their markdown shape`,
+      `${reverted} block(s) reverted to the original: the translation changed their markdown shape or their math`,
     );
   }
 
@@ -258,6 +316,79 @@ export async function translateBlocks(
 interface Todo {
   block: Block;
   index: number;
+  /** `block.text` with each formula replaced by a token — what gets sent. */
+  masked: string;
+  /** The formulas, in the order their tokens appear. */
+  formulas: string[];
+}
+
+/**
+ * Opaque and markdown-inert, and deliberately unlike the batch protocol's
+ * `<<<TIRO_BLOCK_n>>>` so the two can never be confused for one another.
+ *
+ * Zero-padded to a fixed width so no token can ever be a prefix of another.
+ * Unpadded, `TIROMATH1` is a prefix of `TIROMATH10`, so the uniqueness check
+ * in `unmaskMath` saw a duplicate and reverted the block — every paragraph
+ * with eleven or more formulas silently stayed in English, which in dense
+ * mathematical prose is a common paragraph rather than a rare one.
+ */
+const TOKEN_DIGITS = 4;
+const MAX_MASKED = 10 ** TOKEN_DIGITS;
+const MATH_TOKEN = (i: number) =>
+  `TIROMATH${String(i).padStart(TOKEN_DIGITS, "0")}`;
+
+/**
+ * Replace every inline formula with a token.
+ *
+ * The prompt asking the model to leave LaTeX alone was the only thing
+ * protecting it, and a mangled formula passes every structural gate: the block
+ * still parses as a paragraph, so alignment is satisfied and wrong mathematics
+ * publishes silently. Backslashes and braces are exactly what a translation
+ * pass rewrites. The model cannot mangle what it never sees.
+ */
+function maskMath(text: string, singleDollar: boolean) {
+  // Only closed fences: an unclosed `$$` is prose (see normalizeBlockMath),
+  // and hiding it from the model would leave that text untranslated.
+  const ranges = mathRanges(text, { singleDollar })
+    .filter((r) => r.terminated)
+    .sort((a, b) => a.start - b.start);
+  // Beyond the token width the padding stops guaranteeing distinct tokens.
+  // Leaving such a block unmasked is the safe direction: it falls back to the
+  // protection that existed before, rather than to a wrong substitution.
+  if (ranges.length === 0 || ranges.length > MAX_MASKED) {
+    return { masked: text, formulas: [] };
+  }
+  let masked = "";
+  let cursor = 0;
+  const formulas: string[] = [];
+  for (const range of ranges) {
+    masked += text.slice(cursor, range.start) + MATH_TOKEN(formulas.length);
+    formulas.push(text.slice(range.start, range.end));
+    cursor = range.end;
+  }
+  return { masked: masked + text.slice(cursor), formulas };
+}
+
+/**
+ * Put the formulas back. Returns null when the tokens did not survive — the
+ * caller then keeps the original block, so a model that mangled a token costs
+ * one untranslated paragraph rather than one wrong formula.
+ */
+function unmaskMath(text: string, formulas: readonly string[]): string | null {
+  let out = text;
+  for (let i = 0; i < formulas.length; i += 1) {
+    const token = MATH_TOKEN(i);
+    const first = out.indexOf(token);
+    if (first === -1 || out.indexOf(token, first + token.length) !== -1) {
+      return null; // dropped, or duplicated into a second formula
+    }
+    // A callback, never the string: `$$`, `$&`, `` $` `` and `$'` are all
+    // replacement syntax, and all of them occur in LaTeX. Passing the formula
+    // directly restored `$$O(n)$$` as `$O(n)$`, and `$a$&$b$` as
+    // `$aTIROMATH0000$b$` — the token put back into the text by `$&`.
+    out = out.replace(token, () => formulas[i] ?? "");
+  }
+  return out;
 }
 
 function packBatches(todo: readonly Todo[], batchChars: number): Todo[][] {
@@ -265,13 +396,13 @@ function packBatches(todo: readonly Todo[], batchChars: number): Todo[][] {
   let current: Todo[] = [];
   let size = 0;
   for (const item of todo) {
-    if (current.length > 0 && size + item.block.text.length > batchChars) {
+    if (current.length > 0 && size + item.masked.length > batchChars) {
       batches.push(current);
       current = [];
       size = 0;
     }
     current.push(item);
-    size += item.block.text.length;
+    size += item.masked.length;
   }
   if (current.length > 0) batches.push(current);
   return batches;
@@ -283,7 +414,7 @@ function batchSystemPrompt(targetLang: string): string {
     "Rules:",
     "- Translate each block independently; never merge, split, reorder, or drop blocks.",
     "- Preserve markdown structure: a heading stays a heading of the same level, a list stays a list with the same items, a table keeps its rows and columns.",
-    "- Keep inline code spans, URLs, and proper nouns unchanged.",
+    "- Keep inline code spans, URLs, proper nouns, and LaTeX math ($...$ or $$...$$) unchanged, including every backslash and brace.",
     "- Reproduce each block's marker line exactly as given, followed by that block's translation.",
     "- Output nothing before the first marker and nothing after the last block's translation.",
   ].join("\n");
@@ -297,7 +428,7 @@ async function translateBatch(
   log: (message: string) => void,
 ): Promise<(string | undefined)[] | null> {
   const input = batch
-    .map((item, i) => `<<<${MARKER}_${i}>>>\n${item.block.text}`)
+    .map((item, i) => `<<<${MARKER}_${i}>>>\n${item.masked}`)
     .join("\n");
   const messages = [
     { role: "system" as const, content: batchSystemPrompt(targetLang) },
@@ -338,18 +469,18 @@ async function translateSingle(
   chat: ChatFn,
   model: string,
   targetLang: string,
-  block: Block,
+  blockText: string,
 ): Promise<string> {
   const system = [
     `You translate one markdown block into the language "${targetLang}".`,
-    "Preserve the markdown structure and keep inline code spans, URLs, and proper nouns unchanged.",
+    "Preserve the markdown structure and keep inline code spans, URLs, proper nouns, and LaTeX math ($...$ or $$...$$) unchanged, including every backslash and brace.",
     "Respond with the translated block only — no commentary, no fences.",
   ].join("\n");
   const raw = await chat({
     model,
     messages: [
       { role: "system", content: system },
-      { role: "user", content: block.text },
+      { role: "user", content: blockText },
     ],
   });
   return raw.trim();

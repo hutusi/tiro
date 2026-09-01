@@ -14,6 +14,8 @@ export interface ClipInput {
   excerpt?: string;
   author?: string;
   readabilityFailed?: boolean;
+  /** The page carried real math, so the site may read `$…$` as a delimiter. */
+  hasMath?: boolean;
   /** ISO timestamp; injected so tests are deterministic. */
   clippedAt: string;
 }
@@ -49,6 +51,7 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       ? { author: input.author }
       : {}),
     ...(input.readabilityFailed === true ? { readability_failed: true } : {}),
+    ...(input.hasMath === true ? { has_math: true } : {}),
     tiro: { schema: TIRO_SCHEMA_VERSION },
   });
 

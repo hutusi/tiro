@@ -53,6 +53,50 @@ describe("translateBlocks", () => {
     expect(seen.join("\n")).not.toContain("only an image");
   });
 
+  test("never sends math to the model and copies it byte-identically", async () => {
+    const mathBody = [
+      "Einstein's result.",
+      "",
+      "$$",
+      "E = mc^2 \\qquad \\text{for } m \\in \\mathbb{R}",
+      "$$",
+      "",
+      "$$F = ma$$",
+      "",
+      "Closing paragraph.",
+      "",
+    ].join("\n");
+    const mathBlocks = splitBlocks(mathBody);
+    // The lone `$$F = ma$$` line is a paragraph holding one inline-math node,
+    // not a math block — the case a type check alone would miss.
+    expect(mathBlocks.map((b) => b.type)).toEqual([
+      "paragraph",
+      "math",
+      "paragraph",
+      "paragraph",
+    ]);
+
+    const seen: string[] = [];
+    const chat = makeFakeChat({
+      onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+    });
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: mathBlocks,
+    });
+    expect(zh).not.toBeNull();
+    const zhBlocks = splitBlocks(zh ?? "");
+    expect(zhBlocks.map((b) => b.type)).toEqual(mathBlocks.map((b) => b.type));
+    expect(zhBlocks[1]?.text).toBe(mathBlocks[1]?.text);
+    expect(zhBlocks[2]?.text).toBe("$$F = ma$$");
+    const sent = seen.join("\n");
+    expect(sent).not.toContain("mc^2");
+    expect(sent).not.toContain("F = ma");
+    expect(sent).toContain("Einstein's result.");
+  });
+
   test("falls back to per-block translation on repeated marker mismatch", async () => {
     let batchCalls = 0;
     const fallback = makeFakeChat();
@@ -560,5 +604,148 @@ describe("translateBlocks fidelity", () => {
     expect(seen.join("\n")).not.toContain("Reference 399");
     // The surrounding blocks still translate.
     expect(out[0]?.text).toBe("中文：Intro paragraph.");
+  });
+});
+
+describe("inline math through translation", () => {
+  const mathBlocks = splitBlocks("The variance $d_k$ grows as $O(n^2)$ here.");
+
+  test("never shows the model the LaTeX, and puts it back verbatim", () => {
+    return (async () => {
+      const seen: string[] = [];
+      const zh = await translateBlocks({
+        chat: makeFakeChat({
+          onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+        }),
+        model: "m",
+        targetLang: "zh",
+        blocks: mathBlocks,
+        singleDollarMath: true,
+      });
+      const sent = seen.join("\n");
+      expect(sent).not.toContain("d_k");
+      expect(sent).not.toContain("O(n^2)");
+      expect(sent).toContain("TIROMATH0");
+      expect(zh).toContain("$d_k$");
+      expect(zh).toContain("$O(n^2)$");
+    })();
+  });
+
+  test("reverts the block when the model mangles a formula", async () => {
+    // The exact case a reviewer reproduced: $E=mc^2$ came back as $E=mc^3$,
+    // passed alignment because the block was still a paragraph, and published.
+    const blocks = splitBlocks("Einstein showed $E=mc^2$ holds.");
+    const chat: ChatFn = async (request) => {
+      const user = request.messages.at(-1)?.content ?? "";
+      const marker = user.match(/<<<TIRO_BLOCK_\d+>>>/)?.[0] ?? "";
+      // A model that ignored the mask and wrote its own formula.
+      return `${marker}\n爱因斯坦证明 $E=mc^3$ 成立。`;
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      singleDollarMath: true,
+    });
+    expect(zh).not.toContain("mc^3");
+    expect(zh?.trim()).toBe("Einstein showed $E=mc^2$ holds.");
+  });
+
+  test("reverts when the model unescapes a literal dollar into a formula", async () => {
+    const blocks = splitBlocks("It costs \\$5 to \\$10 with $x$ users.");
+    const chat: ChatFn = async (request) => {
+      const user = request.messages.at(-1)?.content ?? "";
+      const marker = user.match(/<<<TIRO_BLOCK_\d+>>>/)?.[0] ?? "";
+      return `${marker}\n费用为 $5 到 $10，有 TIROMATH0 位用户。`;
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      singleDollarMath: true,
+    });
+    expect(zh?.trim()).toBe("It costs \\$5 to \\$10 with $x$ users.");
+  });
+
+  test("leaves prose dollars alone when the article did not declare math", async () => {
+    // singleDollarMath off: "$5 to $" is not a formula, so nothing is masked
+    // and the price paragraph translates normally.
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: makeFakeChat({
+        onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+      }),
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks("The API costs $5 to $10 per month."),
+      singleDollarMath: false,
+    });
+    expect(seen.join("\n")).not.toContain("TIROMATH");
+    expect(zh).toContain("中文");
+  });
+});
+
+describe("token substitution", () => {
+  /** A model that translates the prose and leaves every token untouched. */
+  const echoTokens: ChatFn = async (request) => {
+    const user = request.messages.at(-1)?.content ?? "";
+    return user.replace(
+      /(<<<TIRO_BLOCK_\d+>>>\n)([\s\S]*?)(?=<<<TIRO_BLOCK_|$)/g,
+      (_m, marker, body) => `${marker}译:${body}`,
+    );
+  };
+
+  test("survives more than ten formulas in one block", async () => {
+    // TIROMATH1 is a prefix of TIROMATH10 unless the tokens are padded, so the
+    // uniqueness check saw a duplicate and reverted the whole paragraph.
+    const formulas = Array.from({ length: 11 }, (_, i) => `$x_{${i}}$`);
+    const text = `Given ${formulas.join(" and ")} we conclude.`;
+    const zh = await translateBlocks({
+      chat: echoTokens,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(text),
+      singleDollarMath: true,
+    });
+    expect(zh).toContain("译:");
+    for (const formula of formulas) expect(zh).toContain(formula);
+  });
+
+  test("restores formulas containing replacement syntax literally", async () => {
+    // $$, $&, $` and $' are all String.replace syntax and all occur in LaTeX.
+    for (const formula of ["$$O(n)$$", "$a$&$b$", "$x`y$"]) {
+      const zh = await translateBlocks({
+        chat: echoTokens,
+        model: "m",
+        targetLang: "zh",
+        blocks: splitBlocks(`Given ${formula} we conclude.`),
+        singleDollarMath: true,
+      });
+      expect(zh).toContain(formula);
+      expect(zh).not.toContain("TIROMATH");
+    }
+  });
+
+  test("masks display math nested in a list", async () => {
+    // The block is a `list`, so it is not verbatim; without the walker seeing
+    // one level down, the formula went to the model raw.
+    const seen: string[] = [];
+    const source = "- First item\n\n  $$\n  E=mc^2\n  $$\n\n- Second item";
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        seen.push(request.messages.at(-1)?.content ?? "");
+        return echoTokens(request);
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(source),
+      singleDollarMath: true,
+    });
+    expect(seen.join("\n")).not.toContain("E=mc^2");
+    expect(seen.join("\n")).toContain("TIROMATH0000");
+    expect(zh).toContain("$$\n  E=mc^2\n  $$");
+    expect(splitBlocks(zh ?? "").map((b) => b.type)).toEqual(["list"]);
   });
 });

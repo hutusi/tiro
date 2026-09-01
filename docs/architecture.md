@@ -29,10 +29,19 @@ flowchart LR
 
 ## Data flow
 
-1. **Clip.** The Chrome extension extracts the current page (Readability),
-   converts it to Markdown (Turndown), assembles frontmatter, and commits a
-   single `index.md` into the vault via the GitHub Contents API. Images stay
-   hotlinked (absolute URLs) at this stage.
+1. **Clip.** The Chrome extension repairs the page DOM, extracts it
+   (Readability), converts it to Markdown (Turndown), assembles frontmatter,
+   and commits a single `index.md` into the vault via the GitHub Contents API.
+   Images stay hotlinked (absolute URLs) at this stage.
+
+   The repair pass (`apps/extension/src/dom-prepare.ts`) runs on a clone
+   *before* Readability, which prunes low-text subtrees it cannot be asked to
+   give back. It recovers each formula's LaTeX source (KaTeX/MathJax
+   annotation, then arXiv's `<math alttext>`, then MathJax v2's
+   `math/tex` script), deletes the visual duplicate, escapes literal dollars so
+   the recovered delimiters are the only bare ones left, and records `has_math`;
+   and it normalizes however the page marked up its code languages into the
+   `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
    - detect language (CJK-codepoint ratio, no LLM call),
@@ -52,6 +61,12 @@ flowchart LR
    site from the vault content, indexes it with Pagefind, and deploys to
    Cloudflare Pages. The site is fully public.
 
+   Rendering is one unified pipeline (`apps/site/src/lib/render.ts`). Shiki
+   and KaTeX run *after* rehype-sanitize, as trusted generators over
+   already-scrubbed text, so the allowlist never has to admit the classes and
+   inline styles they emit — which would admit them from clipped markup too
+   (ADR 0009).
+
 ## The content contract
 
 `packages/shared` is the single source of truth shared by all three
@@ -68,9 +83,17 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   next run (ADR 0008); the checkpoint is invisible to every reader, which glob
   `index.md`/`zh.md` only.
 - **Translation alignment**: `zh.md` has strict 1:1 top-level-block alignment
-  with the `index.md` body (code blocks byte-identical). The site zips the two
-  block arrays for side-by-side rendering; misalignment falls back to stacked
-  rendering, and the processor never writes a misaligned `zh.md`.
+  with the `index.md` body (`code` and `math` blocks byte-identical). The site
+  zips the two block arrays for side-by-side rendering; misalignment falls back
+  to stacked rendering, and the processor never writes a misaligned `zh.md`.
+  The shared parser runs remark-math, so `$$…$$` is a single `math` block even
+  with blank lines inside, the way a fenced code block already is (ADR 0009).
+- **Math is declared, not guessed**: the optional `has_math` flag records that
+  the clipper escaped every literal `$` in the article's prose, so every bare
+  `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;
+  everywhere else the site renders `$$…$$` alone, so prose dollar amounts are
+  never mistaken for formulas. Only the clipper may set it — it is the one
+  component that sees the DOM and can tell a price from a formula (ADR 0009).
 - **LLM access is provider-configurable**: an OpenAI-compatible
   chat-completions endpoint configured in `config/tiro.yml` (`base_url`,
   `model`, `api_key_env`). Default: Aliyun Bailian + `qwen-plus`.

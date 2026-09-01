@@ -155,6 +155,7 @@ async function main(): Promise<void> {
           excerpt: payload.excerpt,
           author: payload.author,
           readabilityFailed: payload.readabilityFailed,
+          hasMath: payload.hasMath,
           clippedAt: nowIso,
         });
         // The flat layout makes file.path deterministic; the lookup only

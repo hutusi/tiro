@@ -10,6 +10,7 @@ const valid: ClipResultMessage = {
     author: "",
     markdown: "# t",
     readabilityFailed: false,
+    hasMath: false,
   },
 };
 

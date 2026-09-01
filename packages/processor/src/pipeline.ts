@@ -223,6 +223,7 @@ async function processOne(
   report.imagesDownloaded += imageResult.downloaded;
   report.imagesFailed += imageResult.failed;
   const body = imageResult.body;
+  const blocks = splitBlocks(body);
 
   const summary = await summarize({
     chat: deps.chat,
@@ -265,12 +266,15 @@ async function processOne(
       chat: deps.chat,
       model: modelFor(config, "translation"),
       targetLang: config.translation.target,
-      blocks: splitBlocks(body),
+      blocks,
       batchChars: config.translation.batch_chars,
       maxBlockChars: config.translation.max_block_chars,
       cache,
       deadline,
       callBudgetMs: config.llm.timeout_ms,
+      // Match how the site will render this article, or masking would hide
+      // "5 to " out of "costs $5 to $10" and leave the price untranslated.
+      singleDollarMath: frontmatter.has_math === true,
       log,
     });
     if (zhBody !== null) {

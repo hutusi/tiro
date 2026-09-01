@@ -1,6 +1,6 @@
-import { gfm } from "@joplin/turndown-plugin-gfm";
 import { Readability } from "@mozilla/readability";
-import TurndownService from "turndown";
+import { prepareForClipping } from "./dom-prepare.ts";
+import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipResultMessage } from "./messages.ts";
 
 /**
@@ -12,6 +12,14 @@ import type { ClipResultMessage } from "./messages.ts";
 (() => {
   // Readability destructively mutates its input; always parse a clone.
   const clone = document.cloneNode(true) as Document;
+  // Recover math and code languages first — Readability prunes low-text
+  // subtrees, and a formula it drops cannot be recovered afterwards. The
+  // clone, never the live page: this rewrites the nodes it touches.
+  prepareForClipping(clone);
+  // Snapshot before Readability, which consumes the clone. Serializing always
+  // costs less than a second cloneNode, and the fallback needs the prepared
+  // DOM as much as the happy path does.
+  const preparedBody = clone.body?.innerHTML ?? document.body.innerHTML;
   let article: ReturnType<Readability["parse"]> = null;
   try {
     article = new Readability(clone).parse();
@@ -22,17 +30,11 @@ import type { ClipResultMessage } from "./messages.ts";
   const readabilityFailed = article?.content == null || article.content === "";
   // Readability resolves relative URLs to absolute ones; the raw-body
   // fallback does not, which is one reason the failure is flagged.
-  const html = readabilityFailed
-    ? document.body.innerHTML
-    : (article?.content ?? "");
+  const html = readabilityFailed ? preparedBody : (article?.content ?? "");
 
-  const turndown = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-    bulletListMarker: "-",
-  });
-  turndown.use(gfm);
-  const markdown = turndown.turndown(html);
+  // hasMath comes from the HTML actually being converted, so a formula
+  // Readability discarded with the page furniture cannot set the flag.
+  const { markdown, hasMath } = htmlToMarkdown(html);
 
   const message: ClipResultMessage = {
     type: "tiro-clip-result",
@@ -43,6 +45,7 @@ import type { ClipResultMessage } from "./messages.ts";
       author: (article?.byline ?? "").trim(),
       markdown,
       readabilityFailed,
+      hasMath,
     },
   };
   chrome.runtime.sendMessage(message).catch(() => {
