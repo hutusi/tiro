@@ -34,6 +34,12 @@ const CLOSING_FENCE_LINE = /^[ \t>]*\$\$+[ \t]*$/;
 
 function isTerminatedFence(source: string): boolean {
   const lines = source.replace(/\s+$/, "").split("\n");
+  // A closed fence needs an opener line and a closer line. On one line there
+  // is only an opener that reached the end of its input — the opener itself
+  // looks like a delimiter-only line, so testing the last line alone called a
+  // trailing lone "$$" a formula and rendered it as an empty display block,
+  // swallowing the delimiters the author actually wrote.
+  if (lines.length < 2) return false;
   return CLOSING_FENCE_LINE.test(lines[lines.length - 1] ?? "");
 }
 
@@ -152,27 +158,77 @@ export function mathRanges(
  * Renderers only. This rewrites text, so it must never touch what
  * `splitBlocks` slices or the byte-identity contract breaks.
  */
+/**
+ * Escaping reparses, and an unclosed fence hides the ones inside it, so the
+ * work is one parse per cascade step. Cheap for real content — a cascade is
+ * one or two deep — but a block that is nothing but `$$` openers costs a parse
+ * per line, which is quadratic and measurable: 500 such lines took ~1.8s and
+ * 1000 took ~7.8s. Past this many steps, stop reparsing and escape every
+ * remaining opener in one linear pass.
+ */
+const MAX_ESCAPE_PASSES = 8;
+
+/** Escape a run of delimiters at `start`, whole. */
+function escapeFenceAt(text: string, start: number): string {
+  // The whole run, not two characters: escaping "$$$" as "\$\$$" would leave
+  // a stray delimiter behind.
+  const fence = /^\$+/.exec(text.slice(start))?.[0] ?? "$$";
+  const escaped = fence.replace(/\$/g, () => "\\$");
+  return `${text.slice(0, start)}${escaped}${text.slice(start + fence.length)}`;
+}
+
+/**
+ * Escape every line-initial delimiter run that is not part of a formula which
+ * did close, in a single pass. Blunter than reparsing — it cannot discover a
+ * valid formula that an outer unclosed fence was hiding — but it is linear and
+ * it always terminates, which is what the pathological case needs.
+ */
+function escapeRemainingOpeners(
+  text: string,
+  keep: readonly MathRange[],
+): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    const match = /^([ \t>]*)(\$\$+)/.exec(line);
+    const start = offset + (match?.[1]?.length ?? 0);
+    const inFormula = keep.some((r) => start >= r.start && start < r.end);
+    out.push(
+      match === null || inFormula ? line : escapeFenceAt(line, start - offset),
+    );
+    offset += line.length + 1;
+  }
+  return out.join("\n");
+}
+
 export function normalizeBlockMath(text: string): string {
+  // Most blocks have no dollar at all; skip parsing them twice over.
+  if (!text.includes("$")) return text;
+
   let out = text;
   // Until none are left, not once. An unclosed fence swallows everything after
   // it, so the parse that finds it cannot also see the fences hiding inside
   // it: escaping "$$ — moderate\n$$$ — premium" reveals a second opener on the
-  // line below, which would then eat "premium" on its own. Each pass escapes
-  // at least one run of delimiters, so the text runs out of them and this
-  // terminates; the no-progress check is belt and braces.
-  for (;;) {
-    const unterminated = mathRanges(out, { singleDollar: true }).filter(
-      (range) => !range.terminated,
-    );
+  // line below, which would then eat "premium" on its own.
+  for (let pass = 0; ; pass += 1) {
+    const ranges = mathRanges(out, { singleDollar: true });
+    const unterminated = ranges.filter((range) => !range.terminated);
     if (unterminated.length === 0) break;
+    if (pass >= MAX_ESCAPE_PASSES) {
+      out = escapeRemainingOpeners(
+        out,
+        ranges.filter((range) => range.terminated),
+      );
+      break;
+    }
     let next = out;
     // Back to front, so earlier offsets stay valid.
     for (const range of [...unterminated].reverse()) {
-      // The whole run, not two characters: escaping "$$$" as "\$\$$" leaves a
-      // stray delimiter behind.
-      const fence = /^\$+/.exec(out.slice(range.start, range.end))?.[0] ?? "$$";
-      next = `${next.slice(0, range.start)}${fence.replace(/\$/g, () => "\\$")}${next.slice(range.start + fence.length)}`;
+      next = escapeFenceAt(next, range.start);
     }
+    // Each pass escapes at least one run and escaping never creates one, so
+    // this converges; the no-progress check is belt and braces.
     if (next === out) break;
     out = next;
   }

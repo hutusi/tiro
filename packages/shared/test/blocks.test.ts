@@ -307,6 +307,32 @@ describe("normalizeBlockMath", () => {
     }
   });
 
+  test("stays fast when a block is nothing but openers", () => {
+    // Reparsing per cascade step is quadratic: 1000 such lines took ~7.8s,
+    // and this runs at site-build time on clipped content.
+    const source = Array.from({ length: 1000 }, (_, i) => `$$ tier ${i}`).join(
+      "\n",
+    );
+    const started = performance.now();
+    const normalized = normalizeBlockMath(source);
+    expect(performance.now() - started).toBeLessThan(2000);
+    // The bounded path must still leave nothing for KaTeX to eat.
+    expect(
+      mathRanges(normalized, { singleDollar: true }).filter(
+        (r) => !r.terminated,
+      ),
+    ).toEqual([]);
+    expect(normalized).toContain("tier 999");
+  });
+
+  test("treats a lone trailing $$ as delimiters, not an empty formula", () => {
+    // One line cannot be both opener and closer, but testing only the last
+    // line said it was — so the delimiters rendered as a blank display block.
+    expect(normalizeBlockMath("Some text\n\n$$")).toBe("Some text\n\n\\$\\$");
+    // An opener and a closer on separate lines is still a formula.
+    expect(normalizeBlockMath("$$\n$$")).toBe("$$\n$$");
+  });
+
   test("leaves closed math nested in a list alone", () => {
     const nested = "- First\n\n  $$\n  E=mc^2\n  $$\n";
     expect(normalizeBlockMath(nested)).toBe(nested);

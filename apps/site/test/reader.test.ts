@@ -181,6 +181,12 @@ describe("renderBlockHtml", () => {
     }
   });
 
+  test("renders a trailing lone $$ as text, not a blank formula", () => {
+    const html = renderBlockHtml("Some text\n\n$$", "s");
+    expect(html).toContain("$$");
+    expect(html).not.toContain("katex");
+  });
+
   test("renders prose that merely ends in $$ as prose", () => {
     const html = renderBlockHtml("The service costs $$", "s");
     expect(html).toBe("<p>The service costs $$</p>");
