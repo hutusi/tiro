@@ -69,20 +69,32 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   formula discarded with a sidebar cannot set it. Nothing else may set it —
   in particular the processor must not infer it from an already-clipped body,
   because it cannot establish the escaping guarantee.
-- **The translator never sees LaTeX.** Each inline formula is replaced by an
-  opaque token before a block is sent and restored afterwards; if a token does
-  not round-trip, the block reverts to its original. A prompt asking the model
+- **The translator never sees LaTeX.** Every formula — inline, or displayed
+  inside a list or blockquote where the enclosing block is not itself `math` —
+  is replaced by an opaque token before a block is sent and restored
+  afterwards; if a token does not round-trip, the block reverts to its
+  original. A prompt asking the model
   to leave LaTeX alone is not a guarantee, and a mangled formula passes every
   structural gate — the block still parses as one paragraph, so alignment is
   satisfied and wrong mathematics publishes silently. One untranslated
   paragraph is the better failure, and it is the trade ADR 0003 already makes.
-- **An unclosed `$$` is prose, not math.** micromark runs an unterminated math
-  fence to the end of the document, exactly as it does an unterminated code
-  fence. That is almost never what a line beginning `$$` means in prose — "$$
-  is the shell's PID", "$$10 for the basic plan" — and left alone it swallows
-  the rest of the article into one verbatim block that is never translated and
-  renders as a single red error. `splitBlocks` re-reads such a fence with a
-  math-free parser; renderers escape it.
+- **An unclosed `$$` is prose, not math, at any depth.** micromark runs an
+  unterminated math fence to the end of what it is parsing, exactly as it does
+  an unterminated code fence, and closes one only on a line holding nothing but
+  delimiters. That is almost never what a line beginning `$$` means in prose —
+  "$$ is the shell's PID", "$$10 for the basic plan", a "- $$ — moderate" price
+  tier. At top level it swallows the rest of the article into one verbatim
+  block that is never translated and renders as a single red error; inside a
+  list item it renders as an empty formula that eats the item's text.
+  `splitBlocks` re-reads any block containing such a fence with a math-free
+  parser; renderers escape it.
+- **One traversal answers every question about math nodes.** The three callers
+  that need to know where the formulas are — block splitting, render
+  normalisation and translation masking — share a single recursive walker
+  rather than each looking where it happens to expect math. Three partial
+  traversals is how a formula in a list item ended up neither copied verbatim
+  nor hidden from the model, and how an unclosed fence one level down survived
+  the repair written for it.
 - **The clipper recovers TeX before Readability runs**, normalizing KaTeX,
   MathJax, and MathML (`annotation[encoding="application/x-tex"]`, then
   `<math alttext>`, then MathJax v2's `script[type="math/tex"]`) into a single

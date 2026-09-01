@@ -66,6 +66,17 @@ Numerical stability matters more than the formula suggests. Subtracting the row 
 | Sliding window | $O(nwd)$ | long documents |
 | Linear attention | $O(nd^2)$ | very long sequences |
 
+Two habits are worth keeping when you implement it:
+
+- Assert the mask broadcasts, because
+
+  $$
+  \mathrm{scores} \in \mathbb{R}^{B \times H \times n \times n}
+  $$
+
+  and a mask of the wrong rank broadcasts silently instead of failing.
+- Compare against a naive loop on a tiny input before trusting the batched form.
+
 ```
 Q · Kᵀ  ->  scale  ->  mask  ->  softmax  ->  · V
 ```

@@ -46,6 +46,17 @@ const scores = q.map((row) => keys.map((key) => dot(row, key) * scale));
 | 滑动窗口 | $O(nwd)$ | 长文档 |
 | 线性注意力 | $O(nd^2)$ | 超长序列 |
 
+实现时有两个习惯值得保持：
+
+- 检查掩码的广播维度，因为
+
+  $$
+  \mathrm{scores} \in \mathbb{R}^{B \times H \times n \times n}
+  $$
+
+  秩不对的掩码会静默广播，而不是直接报错。
+- 在信任批量实现之前，先在极小的输入上与朴素循环做对比。
+
 ```
 Q · Kᵀ  ->  scale  ->  mask  ->  softmax  ->  · V
 ```
