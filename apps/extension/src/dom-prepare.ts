@@ -153,6 +153,34 @@ function normalizeMathJaxV2(doc: Document): void {
   }
 }
 
+/**
+ * LaTeXML — which is what arXiv's HTML papers are built with — lays every
+ * displayed equation out as a table: one cell for the formula, one for the
+ * equation number. The `<math>` inside is marked `display="inline"`, because
+ * the display-ness lives in that table rather than on the element.
+ *
+ * Left alone it costs twice. The formula is inside a `<td>`, so it degrades to
+ * inline math, and the table itself converts to a markdown table of mostly
+ * empty cells wrapped around it. Every displayed equation in the paper reads
+ * as a cramped inline formula in a four-column grid.
+ */
+function unwrapEquationTables(doc: Document): void {
+  const tables = doc.querySelectorAll(
+    "table.ltx_eqn_table, table.ltx_equationgroup",
+  );
+  for (const table of Array.from(tables)) {
+    const holder = doc.createElement("div");
+    for (const math of Array.from(table.querySelectorAll("math"))) {
+      math.setAttribute("display", "block");
+      const paragraph = doc.createElement("p");
+      paragraph.appendChild(math);
+      holder.appendChild(paragraph);
+    }
+    if (holder.childNodes.length === 0) continue;
+    table.replaceWith(holder);
+  }
+}
+
 function normalizeMath(doc: Document): void {
   normalizeMathJaxV2(doc);
   // Document order puts a container ahead of the `<math>` nested inside it, so
@@ -241,8 +269,16 @@ function recoverCodeBlocks(doc: Document): void {
     for (const gutter of Array.from(pre.querySelectorAll(GUTTERS))) {
       gutter.remove();
     }
-    const code = pre.querySelector("code");
-    if (code === null) continue;
+    let code = pre.querySelector("code");
+    if (code === null) {
+      // Turndown's fenced-code rule needs a <code>, and Sphinx/docutils — so
+      // Python's own docs and most of its ecosystem — emit `<pre>` with only
+      // spans inside. Without one the whole block converts to prose: the
+      // indentation goes, and Turndown escapes its way through the source.
+      code = doc.createElement("code");
+      while (pre.firstChild !== null) code.appendChild(pre.firstChild);
+      pre.appendChild(code);
+    }
     // Turndown already reads this one; leave it exactly as the page wrote it.
     if (classListOf(code).some((name) => /^language-./i.test(name))) continue;
     // Otherwise widen out from the element Turndown reads, one container at
@@ -277,6 +313,7 @@ function recoverCodeBlocks(doc: Document): void {
  * in a discarded sidebar set the flag (see markdown.ts).
  */
 export function prepareForClipping(doc: Document): void {
+  unwrapEquationTables(doc);
   normalizeMath(doc);
   recoverCodeBlocks(doc);
 }

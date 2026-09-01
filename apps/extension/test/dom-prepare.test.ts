@@ -397,3 +397,44 @@ describe("display math in nested contexts", () => {
     expect(md).toContain("B");
   });
 });
+
+describe("shapes found by clipping real pages", () => {
+  function convert(html: string) {
+    const doc = docFrom(html);
+    prepareForClipping(doc);
+    return htmlToMarkdown(doc.body.innerHTML);
+  }
+
+  test("unwraps a LaTeXML equation table into display math", () => {
+    // arXiv's HTML papers lay every displayed equation out as a table — one
+    // cell for the formula, one for its number — and mark the <math> itself
+    // `display="inline"`, because the display-ness is in the table. Left
+    // alone, all 45 equations in a real paper came out as inline math inside
+    // four-column tables of empty cells.
+    const { markdown } = convert(
+      '<p>Given</p><table class="ltx_equationgroup ltx_eqn_align ltx_eqn_table">' +
+        '<tbody><tr class="ltx_equation ltx_eqn_row">' +
+        '<td class="ltx_eqn_cell"></td>' +
+        '<td class="ltx_eqn_cell"><math display="inline" alttext="E=mc^2"><mi>E</mi></math></td>' +
+        '<td class="ltx_eqn_cell ltx_eqn_eqno">(1.1)</td>' +
+        "</tr></tbody></table><p>where</p>",
+    );
+    expect(markdown).toContain("$$\nE=mc^2\n$$");
+    expect(markdown).not.toContain("|");
+    expect(markdown).not.toContain("(1.1)");
+  });
+
+  test("fences a <pre> that has no <code> inside", () => {
+    // Sphinx and docutils — so Python's own documentation and most of its
+    // ecosystem — emit `<pre>` with only spans in it. Turndown's fenced rule
+    // needs a <code>, so all 42 blocks on the real page converted to prose
+    // with their indentation gone and backslashes escaped through the source.
+    const { markdown } = convert(
+      '<div class="highlight"><pre><span class="c1"># comment</span>\n' +
+        "spam = 1\n          # indented\n</pre></div>",
+    );
+    expect(markdown).toContain("```");
+    expect(markdown).toContain("          # indented");
+    expect(markdown).not.toContain("\\#");
+  });
+});
