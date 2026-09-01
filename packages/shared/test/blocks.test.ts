@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkAlignment,
-  inlineMathRanges,
   joinBlocks,
+  mathRanges,
   normalizeBlockMath,
   splitBlocks,
 } from "../src/blocks.ts";
@@ -115,6 +115,24 @@ describe("splitBlocks", () => {
     for (const b of blocks) expect(body).toContain(b.text);
   });
 
+  test("re-reads prose that merely ends in $$ as prose", () => {
+    // micromark closes a fence only on a delimiter-only line, so testing for
+    // a trailing `$$` anywhere called this a closed math block and rendered
+    // the whole thing as one red error.
+    expect(
+      splitBlocks("$$ — moderate\n\nThe service costs $$").map((b) => b.type),
+    ).toEqual(["paragraph", "paragraph"]);
+  });
+
+  test("re-reads an unclosed fence nested in a list", () => {
+    // Same mistake one level down: the block type is `list`, so a check that
+    // only looked at top-level `math` nodes never saw these.
+    const blocks = splitBlocks("Tiers:\n\n- $$ — moderate\n- $$$ — premium\n");
+    expect(blocks.map((b) => b.type)).toEqual(["paragraph", "list"]);
+    expect(blocks[1]?.text).toContain("moderate");
+    expect(blocks[1]?.text).toContain("premium");
+  });
+
   test("still reads a closed fence as math", () => {
     expect(splitBlocks("$$\nE = mc^2\n$$").map((b) => b.type)).toEqual([
       "math",
@@ -189,11 +207,11 @@ describe("checkAlignment", () => {
   });
 });
 
-describe("inlineMathRanges", () => {
+describe("mathRanges", () => {
   const text = "The variance $d_k$ grows as $O(n^2)$.";
 
   test("reports each formula's delimiters by offset", () => {
-    const ranges = inlineMathRanges(text, { singleDollar: true });
+    const ranges = mathRanges(text, { singleDollar: true });
     expect(ranges.map((r) => r.value)).toEqual(["d_k", "O(n^2)"]);
     // Offsets span the delimiters, so a caller can splice rather than guess.
     expect(text.slice(ranges[0]?.start, ranges[0]?.end)).toBe("$d_k$");
@@ -201,21 +219,42 @@ describe("inlineMathRanges", () => {
   });
 
   test("reads single dollars as math only when asked to", () => {
-    expect(inlineMathRanges(text, { singleDollar: false })).toEqual([]);
+    expect(mathRanges(text, { singleDollar: false })).toEqual([]);
     // The reason the option exists: without it, a price becomes a formula.
     expect(
-      inlineMathRanges("costs $5 to $10", { singleDollar: true }).map(
-        (r) => r.value,
-      ),
+      mathRanges("costs $5 to $10", { singleDollar: true }).map((r) => r.value),
     ).toEqual(["5 to "]);
-    expect(
-      inlineMathRanges("costs $5 to $10", { singleDollar: false }),
-    ).toEqual([]);
+    expect(mathRanges("costs $5 to $10", { singleDollar: false })).toEqual([]);
+  });
+
+  test("finds display math nested in a list or a blockquote", () => {
+    // A formula inside a list item makes the top-level block a `list`, so it
+    // is not verbatim; unless it is reported here it reaches the model raw.
+    const inList = mathRanges("- First\n\n  $$\n  E=mc^2\n  $$\n", {
+      singleDollar: true,
+    });
+    expect(inList).toHaveLength(1);
+    expect(inList[0]?.display).toBe(true);
+    expect(inList[0]?.terminated).toBe(true);
+    expect(inList[0]?.value).toBe("E=mc^2");
+
+    const inQuote = mathRanges("> q\n>\n> $$\n> E=mc^2\n> $$", {
+      singleDollar: true,
+    });
+    expect(inQuote.map((r) => r.value)).toEqual(["E=mc^2"]);
+  });
+
+  test("marks an unclosed fence as unterminated", () => {
+    const ranges = mathRanges("- $$ — moderate\n- $$$ — premium\n", {
+      singleDollar: true,
+    });
+    expect(ranges).toHaveLength(2);
+    expect(ranges.every((r) => r.display && !r.terminated)).toBe(true);
   });
 
   test("still finds doubled delimiters with single dollars off", () => {
     expect(
-      inlineMathRanges("scales as $$O(n)$$ here", { singleDollar: false }).map(
+      mathRanges("scales as $$O(n)$$ here", { singleDollar: false }).map(
         (r) => r.value,
       ),
     ).toEqual(["O(n)"]);
@@ -230,6 +269,20 @@ describe("normalizeBlockMath", () => {
     expect(normalizeBlockMath("$$ is the shell PID variable.")).toBe(
       "\\$\\$ is the shell PID variable.",
     );
+  });
+
+  test("escapes an unclosed fence nested in a list, delimiters and all", () => {
+    // Left alone these render as two empty KaTeX displays and the item text
+    // disappears. The whole run has to go: escaping "$$$" as "\\$\\$$" would
+    // leave a stray delimiter behind.
+    expect(normalizeBlockMath("- $$ — moderate\n- $$$ — premium\n")).toBe(
+      "- \\$\\$ — moderate\n- \\$\\$\\$ — premium\n",
+    );
+  });
+
+  test("leaves closed math nested in a list alone", () => {
+    const nested = "- First\n\n  $$\n  E=mc^2\n  $$\n";
+    expect(normalizeBlockMath(nested)).toBe(nested);
   });
 
   test("promotes a single-line $$…$$ paragraph to display math", () => {

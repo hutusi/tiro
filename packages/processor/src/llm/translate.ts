@@ -1,9 +1,9 @@
 import {
   type Block,
   checkAlignment,
-  inlineMathRanges,
   isInlineMathOnlyParagraph,
   joinBlocks,
+  mathRanges,
   splitBlocks,
   VERBATIM_BLOCK_TYPES,
 } from "@tiro/shared";
@@ -264,7 +264,8 @@ export async function translateBlocks(
   // fix a source that means something other than it looks like.
   let reverted = 0;
   const mathOf = (text: string): string =>
-    inlineMathRanges(text, { singleDollar: singleDollarMath })
+    mathRanges(text, { singleDollar: singleDollarMath })
+      .filter((r) => r.terminated)
       .map((r) => r.value)
       .sort()
       .join("\u0000");
@@ -335,7 +336,9 @@ const MATH_TOKEN = (i: number) => `TIROMATH${i}`;
  * pass rewrites. The model cannot mangle what it never sees.
  */
 function maskMath(text: string, singleDollar: boolean) {
-  const ranges = inlineMathRanges(text, { singleDollar });
+  // Only closed fences: an unclosed `$$` is prose (see normalizeBlockMath),
+  // and hiding it from the model would leave that text untranslated.
+  const ranges = mathRanges(text, { singleDollar }).filter((r) => r.terminated);
   if (ranges.length === 0) return { masked: text, formulas: [] };
   let masked = "";
   let cursor = 0;

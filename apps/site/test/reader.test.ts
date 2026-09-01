@@ -158,6 +158,21 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("katex");
   });
 
+  test("renders a pricing list instead of two empty formulas", () => {
+    // These rendered as empty katex-display spans, so "moderate" and
+    // "premium" vanished from the page entirely.
+    const html = renderBlockHtml("- $$ — moderate\n- $$$ — premium\n", "s");
+    expect(html).toContain("moderate");
+    expect(html).toContain("premium");
+    expect(html).not.toContain("katex");
+  });
+
+  test("renders prose that merely ends in $$ as prose", () => {
+    const html = renderBlockHtml("The service costs $$", "s");
+    expect(html).toBe("<p>The service costs $$</p>");
+    expect(html).not.toContain("katex-error");
+  });
+
   test("promotes a single-line $$…$$ paragraph to display math", () => {
     const html = renderBlockHtml("$$E = mc^2$$", "s");
     expect(html).toContain("katex-display");

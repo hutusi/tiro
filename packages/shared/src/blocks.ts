@@ -24,10 +24,18 @@ const dollarSafeParser = unified()
 const proseParser = unified().use(remarkParse).use(remarkGfm);
 
 /**
- * A closed `$$` fence ends with one. An unclosed one runs to end of document,
- * exactly like an unterminated code fence — see `splitBlocks`.
+ * micromark closes a `$$` fence only on a line that holds nothing but
+ * delimiters, so testing for a trailing `$$` anywhere is not the same
+ * question: it calls prose like "The service costs $$" a closed math block.
+ * Leading whitespace and `>` are allowed because a nested fence's source
+ * carries its list indentation or its blockquote marker.
  */
-const CLOSED_MATH_FENCE = /\$\$+[ \t]*$/;
+const CLOSING_FENCE_LINE = /^[ \t>]*\$\$+[ \t]*$/;
+
+function isTerminatedFence(source: string): boolean {
+  const lines = source.replace(/\s+$/, "").split("\n");
+  return CLOSING_FENCE_LINE.test(lines[lines.length - 1] ?? "");
+}
 
 /**
  * Block types a translation must reproduce byte-for-byte. Code is obvious;
@@ -59,18 +67,32 @@ export function isInlineMathOnlyParagraph(text: string): boolean {
   );
 }
 
-export interface InlineMathRange {
+export interface MathRange {
   /** Offset of the opening delimiter in the text this was read from. */
   start: number;
   /** Offset just past the closing delimiter. */
   end: number;
   /** The LaTeX between the delimiters. */
   value: string;
+  /** A `$$…$$` block rather than an inline `$…$`. */
+  display: boolean;
+  /**
+   * The closing fence exists. Always true for inline math; false for a `$$`
+   * that ran to the end of what it was parsed from, which is prose wearing a
+   * fence rather than a formula.
+   */
+  terminated: boolean;
 }
 
 /**
- * Every inline formula in a block, with the source offsets of its delimiters,
- * so a caller can splice rather than pattern-match its way around LaTeX.
+ * Every math node in a fragment, at any depth, with the source offsets of its
+ * delimiters so callers can splice rather than pattern-match around LaTeX.
+ *
+ * One walker on purpose. Three places used to reason about math nodes with
+ * three different partial traversals — one looked only at root children, one
+ * only at `inlineMath` — and the gaps between them were bugs: a formula in a
+ * list item was neither copied verbatim nor hidden from the translator, and an
+ * unclosed fence inside a list item survived the repair that exists for it.
  *
  * `singleDollar` must match how the site will render the article — the
  * frontmatter `has_math` flag. Reading `$…$` as math in an article that never
@@ -78,14 +100,14 @@ export interface InlineMathRange {
  * treat a price as a formula, which is the exact mistake the flag exists to
  * prevent.
  */
-export function inlineMathRanges(
+export function mathRanges(
   text: string,
   options: { singleDollar: boolean },
-): InlineMathRange[] {
+): MathRange[] {
   const tree = (options.singleDollar ? parser : dollarSafeParser).parse(
     text,
   ) as Root;
-  const found: InlineMathRange[] = [];
+  const found: MathRange[] = [];
   const walk = (node: unknown): void => {
     const n = node as {
       type?: string;
@@ -93,11 +115,18 @@ export function inlineMathRanges(
       children?: unknown[];
       position?: { start: { offset?: number }; end: { offset?: number } };
     };
-    if (n.type === "inlineMath") {
+    const display = n.type === "math";
+    if (display || n.type === "inlineMath") {
       const start = n.position?.start.offset;
       const end = n.position?.end.offset;
       if (start !== undefined && end !== undefined) {
-        found.push({ start, end, value: n.value ?? "" });
+        found.push({
+          start,
+          end,
+          value: n.value ?? "",
+          display,
+          terminated: !display || isTerminatedFence(text.slice(start, end)),
+        });
       }
     }
     for (const child of n.children ?? []) walk(child);
@@ -124,20 +153,21 @@ export function inlineMathRanges(
  * `splitBlocks` slices or the byte-identity contract breaks.
  */
 export function normalizeBlockMath(text: string): string {
-  const tree = parser.parse(text) as Root;
-  const unterminated = tree.children.filter((node) => {
-    if (node.type !== "math") return false;
-    const start = node.position?.start.offset;
-    const end = node.position?.end.offset;
-    if (start === undefined || end === undefined) return false;
-    return !CLOSED_MATH_FENCE.test(text.slice(start, end));
-  });
+  // Every unclosed fence, at any depth: a pricing list of "- $$ — moderate"
+  // hides them one level down, where they render as empty formulas that eat
+  // the item's text.
+  const unterminated = mathRanges(text, { singleDollar: true }).filter(
+    (range) => !range.terminated,
+  );
   if (unterminated.length > 0) {
     let out = text;
     // Back to front, so earlier offsets stay valid.
-    for (const node of unterminated.reverse()) {
-      const start = node.position?.start.offset ?? 0;
-      out = `${out.slice(0, start)}\\$\\$${out.slice(start + 2)}`;
+    for (const range of [...unterminated].reverse()) {
+      // The whole run, not two characters: escaping "$$$" as "\$\$$" leaves a
+      // stray delimiter behind.
+      const fence =
+        /^\$+/.exec(text.slice(range.start, range.end))?.[0] ?? "$$";
+      out = `${out.slice(0, range.start)}${fence.replace(/\$/g, () => "\\$")}${out.slice(range.start + fence.length)}`;
     }
     return out;
   }
@@ -177,6 +207,7 @@ export function splitBlocks(body: string): Block[] {
 
 function blocksFrom(source: string, from: typeof parser): Block[] {
   const tree = from.parse(source) as Root;
+  const mathParsed = from !== proseParser;
   return tree.children.flatMap((node) => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
@@ -186,7 +217,12 @@ function blocksFrom(source: string, from: typeof parser): Block[] {
       );
     }
     const text = source.slice(start, end);
-    if (node.type === "math" && !CLOSED_MATH_FENCE.test(text)) {
+    // Any depth, not just a top-level `math` node: an unclosed fence inside a
+    // list item is the same mistake wearing a different block type.
+    const unclosed =
+      mathParsed &&
+      mathRanges(text, { singleDollar: true }).some((r) => !r.terminated);
+    if (unclosed) {
       // proseParser has no math extension, so this cannot recurse forever.
       return blocksFrom(text, proseParser);
     }
