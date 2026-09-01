@@ -27,15 +27,6 @@ versions follow the `0.x` line while Tiro is a personal system.
   footnote label, so every note published as a stray bracket above its own text.
   That happens inside Readability, before the clipper's markdown exists, so a
   re-clip of such a page reproduces it.
-- **Figure captions stay attached to their figures.** The clipper emits a real
-  `<figure>` with its `<figcaption>` rather than an image followed by a loose
-  paragraph, so a caption is no longer indistinguishable from the article's next
-  sentence — on an academic post the credit line read as the author's own prose.
-  Twelve of the vault's 32 articles carry figures. The caption is still
-  translated: a figure is an `html` block and html is verbatim, so the processor
-  masks the surrounding markup and sends only the caption text, which also means
-  the model never sees the image path it could silently rewrite past an
-  alignment check that compares html blocks by type rather than bytes.
 
 ### Fixed
 
@@ -50,6 +41,12 @@ versions follow the `0.x` line while Tiro is a personal system.
   rule's return value, so trimming inside the replacement is a no-op. Unwrapping
   before Readability also changes what its scorer sees, and a DIY article now
   keeps 16 images instead of 10.
+- **Images whose URL carries a query string download again.** A `src` in raw
+  HTML must spell `&` as `&amp;` to be valid, and the image stage fetched that
+  literally — a different URL, which the CDN answers wrongly or not at all, so
+  the image was hotlinked for no reason. Decoding is scoped to the HTML
+  pattern; a markdown URL is under no such obligation, and decoding one would
+  rewrite what the author wrote.
 - **Headings no longer end in a stray `#`.** Generators append a self-link to
   every heading as the hover affordance that reveals its anchor; it is invisible
   until hover on the source page and survives conversion as `[#](…)`. Repaired in

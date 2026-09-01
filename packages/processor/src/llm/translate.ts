@@ -56,67 +56,7 @@ const VERBATIM_TYPES = new Set([
 const IMAGE_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 const MARKER = "TIRO_BLOCK";
 
-/**
- * A figure exactly as the clipper emits it, split into scaffold and caption.
- *
- * Deliberately narrow: it matches the one shape `figureRule` produces and
- * nothing else. Any other raw HTML in the vault stays verbatim, which is the
- * safe direction — this is the only html we know the internal structure of.
- */
-const FIGURE_CAPTION_RE =
-  /^(<figure>(?:<a\b[^>]*>)?<img\b[^>]*>(?:<\/a>)?<figcaption>)([\s\S]*)(<\/figcaption><\/figure>)$/;
-
-/**
- * Split a caption into its text and its tags, quote-aware.
- *
- * A `/<[^>]+>/` scan reads the first `>` as the tag's end, so
- * `<a title="1 > 0" href="…">` is cut mid-attribute and the href is left in
- * the text handed to the model — which then rewrites it. The clipper escapes
- * that case (`innerHTML` serialisation writes `&gt;`), but the processor also
- * runs over vault HTML nobody generated, so the parse cannot assume canonical
- * input.
- *
- * Returns null when a tag never closes. That is the safe direction: the caller
- * drops the block from translation rather than fall back to sending it whole,
- * and an English caption is a much smaller loss than an invented URL.
- */
-function maskTags(
-  text: string,
-  firstToken: number,
-): { masked: string; tags: string[] } | null {
-  let masked = "";
-  let cursor = 0;
-  const tags: string[] = [];
-  for (;;) {
-    const open = text.indexOf("<", cursor);
-    if (open === -1) return { masked: masked + text.slice(cursor), tags };
-    masked += text.slice(cursor, open);
-    let end = open + 1;
-    let quote = "";
-    while (end < text.length) {
-      const char = text[end] ?? "";
-      if (quote !== "") {
-        if (char === quote) quote = "";
-      } else if (char === '"' || char === "'") {
-        quote = char;
-      } else if (char === ">") {
-        break;
-      }
-      end += 1;
-    }
-    if (end >= text.length) return null; // unterminated tag
-    masked += MATH_TOKEN(firstToken + tags.length);
-    tags.push(text.slice(open, end + 1));
-    cursor = end + 1;
-  }
-}
-
 function isVerbatim(block: Block): boolean {
-  // A figure's caption is prose and was translated when it was a paragraph;
-  // keeping the whole block verbatim just because it is now html would leave
-  // English captions under Chinese figures. Only the caption is sent — see
-  // `maskBlock`.
-  if (block.type === "html") return !FIGURE_CAPTION_RE.test(block.text.trim());
   if (VERBATIM_TYPES.has(block.type)) return true;
   if (block.type !== "paragraph") return false;
   const text = block.text.trim();
@@ -160,13 +100,10 @@ export async function translateBlocks(
   const candidates = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => !isVerbatim(block))
-    // flatMap, not map: a block whose markup cannot be masked safely is
-    // dropped here and stays in its original language. Translating it anyway
-    // would mean handing the model markup to rewrite.
-    .flatMap((item) => {
-      const masked = maskBlock(item.block.text, singleDollarMath);
-      return masked === null ? [] : [{ ...item, ...masked }];
-    });
+    .map((item) => ({
+      ...item,
+      ...maskMath(item.block.text, singleDollarMath),
+    }));
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
   );
@@ -177,50 +114,18 @@ export async function translateBlocks(
     );
   }
 
-  // A source that already contains a math token would have unmaskMath put a
-  // formula where the author wrote prose. Vanishingly unlikely, but the cost
-  // of being wrong is a corrupted paragraph, so refuse to mask that block.
-  //
-  // Refusing to mask means sending the block as written, which is right for a
-  // paragraph — every character of it was going to the model anyway. It is
-  // wrong for a figure, whose markup is masked precisely so the model never
-  // sees it: unmasking there hands over the image path and every href, and a
-  // rewritten one publishes, because an html block is compared by type. So a
-  // figure is dropped instead, and keeps its original language.
-  //
-  // This runs before the checkpoint is consulted, not after. A dropped figure
-  // must not come back through the cache either: a checkpoint written by an
-  // earlier build holds whatever that build produced, and restoring it
-  // publishes a rewritten image path with no model call to notice.
-  let forgedFigures = 0;
-  const maskable = translatable.flatMap((item) => {
-    const forged =
-      item.formulas.length > 0 && item.block.text.includes("TIROMATH");
-    if (!forged) return [item];
-    if (FIGURE_CAPTION_RE.test(item.block.text.trim())) {
-      forgedFigures += 1;
-      return [];
-    }
-    return [{ ...item, masked: item.block.text, formulas: [] }];
-  });
-  if (forgedFigures > 0) {
-    log(
-      `${forgedFigures} figure(s) left untranslated — their caption contains the masking sentinel`,
-    );
-  }
-
   // Resume: anything an earlier run already translated is reused as-is and
   // never re-sent, so each run picks up where the last one stopped.
   const todo: Todo[] = [];
-  for (const item of maskable) {
+  for (const item of translatable) {
     const cached = cache?.get(item.block.text);
     if (cached === undefined) todo.push(item);
     else translated[item.index] = cached;
   }
-  const resumed = maskable.length - todo.length;
+  const resumed = translatable.length - todo.length;
   if (resumed > 0) {
     log(
-      `resuming from checkpoint: ${resumed}/${maskable.length} block(s) already translated`,
+      `resuming from checkpoint: ${resumed}/${translatable.length} block(s) already translated`,
     );
   }
 
@@ -271,6 +176,15 @@ export async function translateBlocks(
   const collision = todo.some(({ block }) =>
     block.text.includes(`<<<${MARKER}`),
   );
+  // A source that already contains a math token would have unmaskMath put a
+  // formula where the author wrote prose. Vanishingly unlikely, but the cost
+  // of being wrong is a corrupted paragraph, so refuse to mask that block.
+  for (const item of todo) {
+    if (item.formulas.length > 0 && item.block.text.includes("TIROMATH")) {
+      item.masked = item.block.text;
+      item.formulas = [];
+    }
+  }
 
   try {
     if (collision) {
@@ -453,47 +367,6 @@ function maskMath(text: string, singleDollar: boolean) {
     cursor = range.end;
   }
   return { masked: masked + text.slice(cursor), formulas };
-}
-
-/**
- * Mask a block down to the prose the model should actually see.
- *
- * For everything but a figure this is `maskMath` unchanged. A figure is
- * `<figure><img …><figcaption>` + caption + `</figcaption></figure>`, and only
- * the caption is prose: the scaffolding is masked as two more tokens, so the
- * markup the model never sees is the markup it cannot mangle — the same bargain
- * `maskMath` makes for formulas, reusing the same tokens and the same
- * exactly-once check on the way back.
- *
- * Sending the whole figure instead would put an `<img src>` in front of a
- * translation model, and a mangled one passes every gate: `checkAlignment`
- * asks an html block for its type, not its bytes, so a rewritten path would
- * publish as a broken image rather than fail the run.
- */
-function maskBlock(text: string, singleDollar: boolean) {
-  const figure = FIGURE_CAPTION_RE.exec(text.trim());
-  if (figure === null) return maskMath(text, singleDollar);
-  const [, open = "", caption = "", close = ""] = figure;
-  const inner = maskMath(caption, singleDollar);
-  // Every tag inside the caption is masked too, not just the scaffold. A
-  // caption's own markup is usually a credit link, and sending it means
-  // sending an href: a model that rewrites one produces a caption pointing
-  // somewhere the page never linked, and nothing downstream can tell — an
-  // html block is compared by type, so a hallucinated URL passes every gate
-  // and publishes. Masking leaves the model exactly the prose to translate.
-  const tagged = maskTags(inner.masked, inner.formulas.length);
-  if (tagged === null) return null;
-  const formulas = [...inner.formulas, ...tagged.tags];
-  // The scaffold's two tokens must still fit inside the padded token width.
-  // Skipping is the only safe answer: returning the block unmasked would send
-  // the whole figure — image path and hrefs included — which is the leak this
-  // masking exists to prevent, arriving through a different door.
-  if (formulas.length + 2 > MAX_MASKED) return null;
-  const first = formulas.length;
-  return {
-    masked: `${MATH_TOKEN(first)}${tagged.masked}${MATH_TOKEN(first + 1)}`,
-    formulas: [...formulas, open, close],
-  };
 }
 
 /**
