@@ -905,6 +905,54 @@ describe("figure captions", () => {
     expect(zh?.trim()).toBe(broken);
   });
 
+  test("skips a figure whose caption forges the masking sentinel", async () => {
+    // Refusing to mask means sending the block as written, which is right for
+    // a paragraph and wrong for a figure: unmasking hands over the image path
+    // and every href, and a rewritten one publishes, because an html block is
+    // compared by type rather than bytes.
+    const forged =
+      '<figure><img src="./assets/secret.png" alt="x"><figcaption>About TIROMATH tokens $x$ and <a href="https://real.example/page">this</a></figcaption></figure>';
+    const sent: string[] = [];
+    const rewriter: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      sent.push(user);
+      return user
+        .replace(/real\.example/g, "hallucinated.example")
+        .replace(/secret\.png/g, "evil.png");
+    };
+    const zh = await translateBlocks({
+      chat: rewriter,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(forged),
+      singleDollarMath: true,
+    });
+    expect(sent.join("")).not.toContain("secret.png");
+    expect(sent.join("")).not.toContain("real.example");
+    expect(zh?.trim()).toBe(forged);
+  });
+
+  test("still sends a paragraph that forges the sentinel, unmasked", async () => {
+    // The paragraph half of the same branch must not change: every character
+    // of a paragraph was going to the model anyway, so refusing to mask it is
+    // the correct answer there.
+    const sent: string[] = [];
+    const chat: ChatFn = async (request) => {
+      sent.push(request.messages.at(-1)?.content ?? "");
+      return makeFakeChat()(request);
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks("About TIROMATH tokens and $x$ formulas."),
+      singleDollarMath: true,
+    });
+    expect(sent.join("")).toContain("TIROMATH");
+    expect(zh ?? "").toContain("中文");
+  });
+
   test("leaves other raw HTML blocks verbatim", async () => {
     const raw = "<div class='promo'>Subscribe now</div>";
     const zh = await translateBlocks({
