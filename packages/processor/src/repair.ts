@@ -198,6 +198,9 @@ export function promoteTableHeaders(body: string): string {
   return out.join("\n");
 }
 
+/** A line that would start a nested list if lifted onto the marker line. */
+const NESTED_LIST = /^(?:[-*+]|\d+[.)])\s/;
+
 /** `1.  (1)` / `2.  (b)` — a marker the list already supplies. */
 const DUPLICATE_MARKER =
   /^([ \t]*(?:\d+\.|[-*+])[ \t]+)\((?:\d+|[a-z]|[ivx]+)\)[ \t]*$/i;
@@ -230,6 +233,14 @@ export function liftDuplicateListMarkers(body: string): string {
     // Only lift a line indented *into* this item; anything else means the
     // label was the whole item and there is nothing to pull up.
     if (first === undefined || !/^[ \t]/.test(first)) {
+      out.push(line);
+      continue;
+    }
+    // A nested list must not be pulled up: `1.  - child` is no longer nested,
+    // and both shapes parse as a single `list` block, so alignment never sees
+    // the difference. Stripping the label instead is worse — the indented
+    // content then reparses as code blocks.
+    if (NESTED_LIST.test(first.trim())) {
       out.push(line);
       continue;
     }
