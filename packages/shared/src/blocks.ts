@@ -153,24 +153,30 @@ export function mathRanges(
  * `splitBlocks` slices or the byte-identity contract breaks.
  */
 export function normalizeBlockMath(text: string): string {
-  // Every unclosed fence, at any depth: a pricing list of "- $$ — moderate"
-  // hides them one level down, where they render as empty formulas that eat
-  // the item's text.
-  const unterminated = mathRanges(text, { singleDollar: true }).filter(
-    (range) => !range.terminated,
-  );
-  if (unterminated.length > 0) {
-    let out = text;
+  let out = text;
+  // Until none are left, not once. An unclosed fence swallows everything after
+  // it, so the parse that finds it cannot also see the fences hiding inside
+  // it: escaping "$$ — moderate\n$$$ — premium" reveals a second opener on the
+  // line below, which would then eat "premium" on its own. Each pass escapes
+  // at least one run of delimiters, so the text runs out of them and this
+  // terminates; the no-progress check is belt and braces.
+  for (;;) {
+    const unterminated = mathRanges(out, { singleDollar: true }).filter(
+      (range) => !range.terminated,
+    );
+    if (unterminated.length === 0) break;
+    let next = out;
     // Back to front, so earlier offsets stay valid.
     for (const range of [...unterminated].reverse()) {
       // The whole run, not two characters: escaping "$$$" as "\$\$$" leaves a
       // stray delimiter behind.
-      const fence =
-        /^\$+/.exec(text.slice(range.start, range.end))?.[0] ?? "$$";
-      out = `${out.slice(0, range.start)}${fence.replace(/\$/g, () => "\\$")}${out.slice(range.start + fence.length)}`;
+      const fence = /^\$+/.exec(out.slice(range.start, range.end))?.[0] ?? "$$";
+      next = `${next.slice(0, range.start)}${fence.replace(/\$/g, () => "\\$")}${next.slice(range.start + fence.length)}`;
     }
-    return out;
+    if (next === out) break;
+    out = next;
   }
+  if (out !== text) return out;
 
   const trimmed = text.trim();
   if (trimmed.startsWith("$$") && isInlineMathOnlyParagraph(trimmed)) {

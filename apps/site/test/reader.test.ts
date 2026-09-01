@@ -167,6 +167,20 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("katex");
   });
 
+  test("keeps the text of chained unclosed fences", () => {
+    // Escaping only the first opener left the second to render as an empty
+    // formula, so "premium" disappeared from the page.
+    for (const source of [
+      "$$ — moderate\n$$$ — premium",
+      "> $$ — moderate\n> $$$ — premium",
+    ]) {
+      const html = renderBlockHtml(source, "s");
+      expect(html).toContain("moderate");
+      expect(html).toContain("premium");
+      expect(html).not.toContain("katex");
+    }
+  });
+
   test("renders prose that merely ends in $$ as prose", () => {
     const html = renderBlockHtml("The service costs $$", "s");
     expect(html).toBe("<p>The service costs $$</p>");

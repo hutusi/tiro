@@ -280,6 +280,33 @@ describe("normalizeBlockMath", () => {
     );
   });
 
+  test("escapes chained openers, not just the first", () => {
+    // An unclosed fence swallows everything after it, so the parse that finds
+    // it cannot see the opener hiding on the next line. Escaping once revealed
+    // that one, which then ate "premium" as an empty formula of its own.
+    expect(normalizeBlockMath("$$ — moderate\n$$$ — premium")).toBe(
+      "\\$\\$ — moderate\n\\$\\$\\$ — premium",
+    );
+    expect(normalizeBlockMath("> $$ — moderate\n> $$$ — premium")).toBe(
+      "> \\$\\$ — moderate\n> \\$\\$\\$ — premium",
+    );
+  });
+
+  test("leaves nothing unterminated behind, however many are chained", () => {
+    for (const source of [
+      "$$ a\n$$$ b\n$$$$ c",
+      "> $$ a\n> $$$ b",
+      "- $$ a\n- $$$ b\n",
+    ]) {
+      const normalized = normalizeBlockMath(source);
+      expect(
+        mathRanges(normalized, { singleDollar: true }).filter(
+          (r) => !r.terminated,
+        ),
+      ).toEqual([]);
+    }
+  });
+
   test("leaves closed math nested in a list alone", () => {
     const nested = "- First\n\n  $$\n  E=mc^2\n  $$\n";
     expect(normalizeBlockMath(nested)).toBe(nested);
