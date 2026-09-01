@@ -27,9 +27,36 @@ versions follow the `0.x` line while Tiro is a personal system.
   footnote label, so every note published as a stray bracket above its own text.
   That happens inside Readability, before the clipper's markdown exists, so a
   re-clip of such a page reproduces it.
+- **Figure captions stay attached to their figures.** The clipper emits a real
+  `<figure>` with its `<figcaption>` rather than an image followed by a loose
+  paragraph, so a caption is no longer indistinguishable from the article's next
+  sentence — on an academic post the credit line read as the author's own prose.
+  Twelve of the vault's 32 articles carry figures. The caption is still
+  translated: a figure is an `html` block and html is verbatim, so the processor
+  masks the surrounding markup and sends only the caption text, which also means
+  the model never sees the image path it could silently rewrite past an
+  alignment check that compares html blocks by type rather than bytes.
 
 ### Fixed
 
+- **Images inside `<picture>` are no longer published as code.** Turndown has no
+  `<picture>` rule and does not treat it as a block, so it re-attached the
+  whitespace flanking the element's content around the converted image. On a page
+  that pretty-prints its markup that whitespace is a newline and an indent, which
+  put the image four spaces into its line — an indented code block. The site
+  rendered the literal `![](…)` in a syntax-highlighted box, so one article's
+  five images, the entire subject of the piece, published as five boxes of
+  markup. Fixed in `dom-prepare`, not Turndown: the whitespace is added outside a
+  rule's return value, so trimming inside the replacement is a no-op. Unwrapping
+  before Readability also changes what its scorer sees, and a DIY article now
+  keeps 16 images instead of 10.
+- **Headings no longer end in a stray `#`.** Generators append a self-link to
+  every heading as the hover affordance that reveals its anchor; it is invisible
+  until hover on the source page and survives conversion as `[#](…)`. Repaired in
+  the vault by `tiro-process repair`, which also gained the ability to reach
+  indented images: that repair cannot run inside the verbatim masking, because
+  the block it fixes *is* a code block, so it runs as a parser-driven pre-pass
+  over the whole body.
 - **The clipper no longer writes markdown that cannot be parsed.** Four Turndown
   defects, all of them visible on the published site. A link title containing
   newlines — arXiv writes a whole section path into one — left the link
