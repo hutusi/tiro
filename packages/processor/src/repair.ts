@@ -88,11 +88,16 @@ function ownsItsLines(
  * swallowed lines arrive as prose — one of them a lone `=`, which markdown
  * reads as a setext heading, turning the paragraph above into an `<h1>`.
  *
+ * The destination alternation accepts `\(` and `\)` because Turndown escapes
+ * parentheses rather than dropping them, and a bare-paren class rejected the
+ * whole link — leaving the multi-line title, and so the setext heading, in place
+ * on every Wikipedia-style `Foo_(disambiguation)` URL.
+ *
  * Mirrors `normalizeLinkTitles` in the clipper.
  */
 export function joinLinkTitles(body: string): string {
   return body.replace(
-    /\]\((<[^<>\n]*>|[^\s()]+)\s+"([^"]*)"\)/g,
+    /\]\((<[^<>\n]*>|(?:\\[()]|[^\s()])+)\s+"([^"]*)"\)/g,
     (match, destination: string, title: string) => {
       const flat = title.replace(/\s+/g, " ").trim();
       if (flat === title) return match;

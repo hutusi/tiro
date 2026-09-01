@@ -39,6 +39,27 @@ describe("joinLinkTitles", () => {
     expect(splitBlocks(fixed).map((b) => b.type)).toEqual(["paragraph"]);
   });
 
+  test("flattens a title on a destination with escaped parentheses", () => {
+    // Turndown escapes parentheses rather than dropping them, so a bare-paren
+    // character class rejected the whole link and left the setext heading in
+    // place on every Wikipedia-style `Foo_(disambiguation)` URL.
+    const broken = 'x ([1](/a\\(b\\) "In S1.\n=\nd")) y';
+    expect(splitBlocks(broken).map((b) => b.type)).toEqual([
+      "heading",
+      "paragraph",
+    ]);
+    const fixed = joinLinkTitles(broken);
+    expect(fixed).toBe('x ([1](/a\\(b\\) "In S1. = d")) y');
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
+  test("still flattens a title on an angle-bracketed destination", () => {
+    const broken = '[x](<https://e.com/a b> "In S1.\n=\nd")';
+    expect(joinLinkTitles(broken)).toBe(
+      '[x](<https://e.com/a b> "In S1. = d")',
+    );
+  });
+
   test("leaves a single-line title alone", () => {
     const text = '[x](/a "a title")';
     expect(joinLinkTitles(text)).toBe(text);
