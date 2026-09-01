@@ -54,7 +54,10 @@ export const inlineLinkRule: TurndownService.Rule = {
   filter: (node, options) =>
     options.linkStyle === "inlined" &&
     node.nodeName === "A" &&
-    node.getAttribute("href") !== null,
+    // Turndown tests the href for truthiness, not existence, so `href=""` falls
+    // through to plain text. Matching that matters: an empty destination would
+    // otherwise become `[text]()`, a link to the page the reader is already on.
+    (node.getAttribute("href") ?? "") !== "",
   replacement: (content, node) => {
     const flat = content.replace(/\s+/g, " ").trim();
     // An empty anchor would produce `[](href)`, which renders as nothing at all.

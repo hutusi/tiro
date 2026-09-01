@@ -470,6 +470,14 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).toContain("[y](<https://ex.com/a b>)");
   });
 
+  test("leaves an anchor with an empty href as plain text", () => {
+    // Turndown tests the href for truthiness, not existence, so it declines
+    // these and the text passes through. Matching that matters: an empty
+    // destination becomes `[text]()`, a link to the page already open.
+    const { markdown } = convert('<p>a <a href="">text</a> b</p>');
+    expect(markdown).toBe("a text b");
+  });
+
   test("drops an anchor with no text rather than emitting an empty link", () => {
     const { markdown } = convert('<p>a<a href="/x"></a>b</p>');
     expect(markdown).toBe("ab");
