@@ -193,6 +193,17 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("\\$\\$ is the shell");
   });
 
+  test("keeps text behind alternating containers", () => {
+    const source = [
+      ...Array.from({ length: 12 }, (_, i) => `$$ tier ${i}`),
+      "",
+      "> - > $$ hidden",
+    ].join("\n");
+    const html = renderBlockHtml(source, "s");
+    expect(html).toContain("hidden");
+    expect(html).not.toContain("katex");
+  });
+
   test("keeps every item of a deeply nested list of fences", () => {
     const source = Array.from(
       { length: 12 },

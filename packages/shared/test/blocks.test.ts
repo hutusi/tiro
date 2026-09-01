@@ -359,6 +359,45 @@ describe("normalizeBlockMath", () => {
     }
   });
 
+  test("handles containers alternating to any depth", () => {
+    // Markdown lets list and blockquote markers interleave freely. Spelling
+    // that out as a prefix pattern always misses a combination, so candidates
+    // come from where the parser says a text node starts — which is after
+    // every container, whatever they were.
+    const cascade = (tail: string) =>
+      [...Array.from({ length: 12 }, (_, i) => `$$ tier ${i}`), "", tail].join(
+        "\n",
+      );
+    for (const tail of [
+      "- > $$ hidden",
+      "> - > $$ hidden",
+      "- - $$ hidden",
+      "1. > $$ hidden",
+      ">>> $$ hidden",
+      "- 1. > - $$ hidden",
+    ]) {
+      const normalized = normalizeBlockMath(cascade(tail));
+      expect(normalized).toContain("hidden");
+      expect(
+        mathRanges(normalized, { singleDollar: true }).filter(
+          (r) => !r.terminated,
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  test("leaves a mid-line $$ in prose alone", () => {
+    // A text node can also start mid-line, after emphasis or a link, and
+    // `**a**$$ x` is prose rather than a fence — escaping it would put visible
+    // backslashes into the sentence.
+    const source = [
+      ...Array.from({ length: 12 }, (_, i) => `$$ tier ${i}`),
+      "",
+      "**a**$$ x",
+    ].join("\n");
+    expect(normalizeBlockMath(source)).toContain("**a**$$ x");
+  });
+
   test("never escapes inside anything the parser does not call prose", () => {
     // Naming the shapes to protect is open-ended — fenced, then indented, then
     // inline, then raw <pre> — and each omission puts visible backslashes into

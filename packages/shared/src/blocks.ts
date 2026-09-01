@@ -178,15 +178,6 @@ function escapeFenceAt(text: string, start: number): string {
 }
 
 /**
- * What micromark skips before deciding a line opens a fence: indentation,
- * blockquote markers, and a list marker. Matching only whitespace and `>` left
- * a fence inside a list item unescaped, so a list nested deeper than the pass
- * limit kept one live opener that then hid the item.
- */
-const FENCE_LINE =
-  /^([ \t]*(?:>[ \t]*)*(?:[-*+][ \t]+|\d{1,9}[.)][ \t]+)?)(\$\$+)/;
-
-/**
  * Source ranges of ordinary prose in a fragment, read with the math-free
  * parser.
  *
@@ -221,31 +212,54 @@ function proseRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
- * Escape every line-initial delimiter run that sits in prose and is not part of
- * a formula which did close, in a single pass. Blunter than reparsing — it
+ * Escape every delimiter run that opens a line of prose and is not part of a
+ * formula which did close, in a single pass. Blunter than reparsing — it
  * cannot discover a valid formula that an outer unclosed fence was hiding —
  * but it is linear and it always terminates, which is what the pathological
  * case needs.
+ *
+ * Candidates come from the parser, not from a pattern for container markers.
+ * A text node begins exactly where prose begins *after* every container, so
+ * `- > $$`, `> - > $$` and `1. > $$` need no grammar here at all — spelling
+ * that grammar out is what let compound containers slip past. Only a
+ * continuation line inside one paragraph needs a pattern, and there the prefix
+ * can only be indentation and blockquote markers: a list marker would end the
+ * paragraph and start a new node.
  */
 function escapeRemainingOpeners(
   text: string,
   keep: readonly MathRange[],
 ): string {
   const prose = proseRanges(text);
-  const lines = text.split("\n");
-  const out: string[] = [];
-  let offset = 0;
-  for (const line of lines) {
-    const match = FENCE_LINE.exec(line);
-    const start = offset + (match?.[1]?.length ?? 0);
-    const covered = (r: { start: number; end: number }) =>
-      start >= r.start && start < r.end;
-    const escapable =
-      match !== null && prose.some(covered) && !keep.some(covered);
-    out.push(escapable ? escapeFenceAt(line, start - offset) : line);
-    offset += line.length + 1;
+  const targets = new Set<number>();
+
+  for (const range of prose) {
+    const slice = text.slice(range.start, range.end);
+    for (const match of slice.matchAll(/(^|\n[ \t>]*)(\$\$+)/g)) {
+      const lead = match[1] ?? "";
+      const offset = range.start + (match.index ?? 0) + lead.length;
+      if (lead === "") {
+        // The node starts here — but a node can also start mid-line, after
+        // emphasis or a link, and `**a**$$ x` is prose rather than a fence.
+        // Nothing else on the line may have come first.
+        const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+        const interrupted = prose.some(
+          (other) =>
+            other !== range && other.start < offset && other.end > lineStart,
+        );
+        if (interrupted) continue;
+      }
+      if (keep.some((r) => offset >= r.start && offset < r.end)) continue;
+      targets.add(offset);
+    }
   }
-  return out.join("\n");
+
+  let out = text;
+  // Back to front, so earlier offsets stay valid.
+  for (const offset of [...targets].sort((a, b) => b - a)) {
+    out = escapeFenceAt(out, offset);
+  }
+  return out;
 }
 
 export function normalizeBlockMath(text: string): string {
