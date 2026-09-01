@@ -67,6 +67,42 @@ function rehypeIgnoreMathmlInSearch() {
 }
 
 /**
+ * Give every table its own horizontal scroll box.
+ *
+ * Tailwind typography sizes tables `width: 100%; table-layout: auto`, which
+ * only holds while the content fits: a table whose minimum content width
+ * exceeds the column renders wider than its pane and — the pane being
+ * `overflow: visible` — paints over the neighbouring column. Code blocks never
+ * had this problem because typography ships `pre { overflow-x: auto }`; tables
+ * get no such guard. An 11-column arXiv results table overflowed its pane by
+ * 439px.
+ *
+ * Must run **after** rehype-sanitize, for the same reason Shiki does (ADR
+ * 0009): the wrapper carries a `class`, which the schema allows on nothing.
+ * Emitting it here keeps the allowlist narrow instead of granting clipped
+ * markup the same permission.
+ */
+function rehypeScrollableTables() {
+  return (tree: Root): void => {
+    visit(tree, "element", (node, index, parent) => {
+      if (
+        node.tagName !== "table" ||
+        parent === undefined ||
+        index === undefined
+      )
+        return undefined;
+      parent.children[index] = {
+        type: "element",
+        tagName: "div",
+        properties: { className: ["table-scroll"] },
+        children: [node],
+      };
+      return "skip";
+    });
+  };
+}
+
+/**
  * `singleDollarTextMath` is the only difference between the two processors.
  * With it on, `$` is a math delimiter everywhere and "it costs $5 to $10"
  * renders as a formula — so it is enabled only for articles the clipper
@@ -89,6 +125,7 @@ function buildProcessor(singleDollarTextMath: boolean) {
       // allowlist narrow — widening it instead would hand the same permission
       // to clipped markup (ADR 0009).
       .use(rehypeShiki)
+      .use(rehypeScrollableTables)
       .use(rehypeKatex, KATEX_OPTIONS)
       .use(rehypeIgnoreMathmlInSearch)
       .use(rehypeStringify)

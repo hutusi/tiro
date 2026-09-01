@@ -41,6 +41,26 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("alert(1)");
   });
 
+  test("wraps a table in a horizontal scroll box", () => {
+    const html = renderBlockHtml("| a | b |\n| --- | --- |\n| 1 | 2 |", "s");
+    expect(html).toContain('<div class="table-scroll">');
+    expect(html).toMatch(/<div class="table-scroll"><table>/);
+  });
+
+  // The wrapper carries a class the sanitize schema allows on nothing, so it
+  // is only safe because it is emitted after that step (ADR 0009). A table
+  // arriving as clipped raw HTML must come out wrapped too, and stripped of
+  // whatever the source page styled it with.
+  test("wraps a table that arrived as raw HTML, without its attributes", () => {
+    const html = renderBlockHtml(
+      '<table width="900" style="width:900px" class="src"><tr><td>x</td></tr></table>',
+      "s",
+    );
+    expect(html).toContain('<div class="table-scroll">');
+    expect(html).not.toContain("style=");
+    expect(html).not.toContain('class="src"');
+  });
+
   test("strips javascript: link targets", () => {
     const html = renderBlockHtml("[click](javascript:alert(1))", "s");
     expect(html).not.toContain("javascript:");
