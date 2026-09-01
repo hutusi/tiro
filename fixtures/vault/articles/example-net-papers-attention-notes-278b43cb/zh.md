@@ -38,7 +38,7 @@ const scale = 1 / Math.sqrt(dk);
 const scores = q.map((row) => keys.map((key) => dot(row, key) * scale));
 ```
 
-数值稳定性比公式看上去更重要。在取指数之前减去每行的最大值不会改变结果，因为对任意标量 $c$ 都有 $\mathrm{softmax}(x + c) = \mathrm{softmax}(x)$，但这能让每个指数都不大于零。
+数值稳定性比公式看上去更重要。在取指数之前减去每行的最大值不会改变结果，因为对任意标量 $c$ 都有 $\mathrm{softmax}(x + c) = \mathrm{softmax}(x)$，但这能让每个指数都不大于零。租一台机器来验证这一点每小时花费 \$5 到 \$10，相比做错的代价这很便宜。
 
 | 变体 | 复杂度 | 适用场景 |
 | --- | --- | --- |

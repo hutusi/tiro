@@ -27,13 +27,27 @@ versions follow the `0.x` line while Tiro is a personal system.
   `data-lang` markup all clipped as bare fences. Those are normalized at clip
   time, line-number gutters are dropped, and Chroma's line-number table is
   unwrapped to its code block.
-- **Inline `$…$` is read as math only for articles that have it** — recorded as
-  `has_math` by the clipper, so an article about pricing does not render
-  "$5 to $10" as a formula. `$$…$$` is unambiguous and renders everywhere,
-  including for articles clipped before this existed.
+- **Inline `$…$` is read as math only where the dollars are curated.** The
+  clipper escapes every literal `$` in the prose of an article it recovered
+  maths from, and records `has_math` to say so — so an article that is both a
+  maths article and a pricing article renders both correctly. `$$…$$` is
+  unambiguous and renders everywhere, including for articles clipped before
+  this existed.
+- **The translator never sees LaTeX.** Inline formulas are replaced by opaque
+  tokens before a block is sent and restored afterwards; a token that does not
+  round-trip reverts the block. A prompt is not a guarantee, and a mangled
+  formula passes every structural gate — it still parses as a paragraph, so
+  alignment is satisfied and wrong mathematics would publish silently.
 
 ### Fixed
 
+- **An unclosed `$$` no longer swallows the rest of an article.** micromark
+  runs an unterminated math fence to end of document, exactly as it does an
+  unterminated code fence, so a prose line beginning `$$` — "$$ is the shell's
+  PID", "$$10 for the basic plan" — turned everything after it into one
+  verbatim block: never translated, rendered as a single red error, and silent,
+  because both sides parsed identically and alignment passed. A fence that
+  never closed is now re-read as prose.
 - **Display math containing a blank line is one block again.** The shared
   parser had no math extension, so `$$…$$` was a paragraph — and a paragraph
   ends at a blank line. An `aligned` environment written across one therefore

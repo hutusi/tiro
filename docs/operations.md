@@ -127,15 +127,25 @@ so re-runs are always safe no-ops for finished articles.
 ### Math rendering
 
 The site reads `$…$` as a math delimiter only for articles whose frontmatter
-says `has_math: true`, which the clipper sets when it finds math in the page
-DOM. Everywhere else only `$$…$$` typesets, so prose like "it costs $5 to $10"
-is never mistaken for a formula (ADR 0009).
+says `has_math: true`. Everywhere else only `$$…$$` typesets, so prose like
+"it costs $5 to $10" is never mistaken for a formula (ADR 0009).
 
-- **An article's inline math is not typeset**: add `has_math: true` to its
-  frontmatter in the vault and push — no reprocessing needed, the flag is read
-  at site build time.
-- **Prose is being typeset as a formula**: set `has_math: false`. Block-level
-  `$$…$$` still renders; nothing else will.
+`has_math: true` is a **promise about the file**, not a note that it contains
+maths: *every literal `$` in the prose is escaped as `\$`, so every bare `$…$`
+is a formula.* The clipper keeps that promise by escaping as it converts. Set
+the flag by hand only if you keep it too.
+
+- **An article's inline math is not typeset**: escape every literal `$` in its
+  prose as `\$`, then add `has_math: true`. Push — no reprocessing needed, the
+  flag is read at site build time. Adding the flag *without* escaping is how
+  you get the next bullet.
+- **Prose is being typeset as a formula**: either escape that `$` as `\$`, or
+  set `has_math: false` if the article has no inline math worth keeping.
+  Block-level `$$…$$` still renders either way.
+- **A paragraph is one red error blob, or the article is half untranslated**:
+  a line beginning `$$` that never closes runs to the end of the document, the
+  way an unterminated code fence does. `splitBlocks` re-reads it as prose, so
+  this should not happen — if it does, escape the `$$` as `\$\$`.
 - **The clipper missed the math entirely** (the source page ships no LaTeX,
   only rendered glyphs): the formulas are gone from the markdown, and the flag
   cannot bring them back. Re-clip if the page has since changed; otherwise fix
@@ -341,3 +351,5 @@ permanent extension ID, unrelated to the unpacked one.
 | Site build logs `shiki: no grammar for "x"` | a fence whose language is outside the curated grammar list in `apps/site/src/lib/highlight.ts` | harmless — the block renders as plain text. Add the grammar there if the language is worth supporting |
 | A red formula on the page, `katex-error` in the HTML | the clipped LaTeX does not parse | by design: KaTeX never fails the build. Hover the formula for KaTeX's own message, then fix the markdown in the vault |
 | A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |
+| A price renders as a formula | `has_math: true` on an article whose literal dollars are not escaped | escape them as `\$`, or clear the flag |
+| `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |

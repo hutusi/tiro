@@ -38,7 +38,8 @@ flowchart LR
    *before* Readability, which prunes low-text subtrees it cannot be asked to
    give back. It recovers each formula's LaTeX source (KaTeX/MathJax
    annotation, then arXiv's `<math alttext>`, then MathJax v2's
-   `math/tex` script), deletes the visual duplicate, and records `has_math`;
+   `math/tex` script), deletes the visual duplicate, escapes literal dollars so
+   the recovered delimiters are the only bare ones left, and records `has_math`;
    and it normalizes however the page marked up its code languages into the
    `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
@@ -88,9 +89,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   The shared parser runs remark-math, so `$$…$$` is a single `math` block even
   with blank lines inside, the way a fenced code block already is (ADR 0009).
 - **Math is declared, not guessed**: the optional `has_math` flag records that
-  the clipper found math in the page DOM. Only those articles read `$…$` as a
-  delimiter; everywhere else the site renders `$$…$$` alone, so prose dollar
-  amounts are never mistaken for formulas (ADR 0009).
+  the clipper escaped every literal `$` in the article's prose, so every bare
+  `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;
+  everywhere else the site renders `$$…$$` alone, so prose dollar amounts are
+  never mistaken for formulas. Only the clipper may set it — it is the one
+  component that sees the DOM and can tell a price from a formula (ADR 0009).
 - **LLM access is provider-configurable**: an OpenAI-compatible
   chat-completions endpoint configured in `config/tiro.yml` (`base_url`,
   `model`, `api_key_env`). Default: Aliyun Bailian + `qwen-plus`.

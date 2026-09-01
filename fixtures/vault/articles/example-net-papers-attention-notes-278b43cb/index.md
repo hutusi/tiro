@@ -58,7 +58,7 @@ const scale = 1 / Math.sqrt(dk);
 const scores = q.map((row) => keys.map((key) => dot(row, key) * scale));
 ```
 
-Numerical stability matters more than the formula suggests. Subtracting the row maximum before exponentiating leaves the result unchanged, since $\mathrm{softmax}(x + c) = \mathrm{softmax}(x)$ for any scalar $c$, but it keeps every exponent at or below zero.
+Numerical stability matters more than the formula suggests. Subtracting the row maximum before exponentiating leaves the result unchanged, since $\mathrm{softmax}(x + c) = \mathrm{softmax}(x)$ for any scalar $c$, but it keeps every exponent at or below zero. Renting a machine to check this costs \$5 to \$10 an hour, which is cheap next to shipping it wrong.
 
 | Variant | Complexity | Where it helps |
 | --- | --- | --- |

@@ -49,12 +49,40 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   come from arbitrary web pages; one exotic value must not fail the site build.
 - **Math is gated per article, defaulting to display-only.** `remark-math` with
   its defaults reads `$` as a math delimiter everywhere, so "it costs $5 to $10"
-  becomes a formula. The clipper records `has_math: true` when it actually found
-  math in the page DOM; only those articles enable single-dollar inline math.
-  Everything else — including every article clipped before this landed — is
-  rendered with `singleDollarTextMath: false`, which still typesets `$$…$$` and
-  can never misread prose. The default is deliberately not "math off": it costs
-  nothing and needs no reprocessing to benefit.
+  becomes a formula. Only articles flagged `has_math` enable single-dollar
+  inline math. Everything else — including every article clipped before this
+  landed — is rendered with `singleDollarTextMath: false`, which still typesets
+  `$$…$$` and can never misread prose. The default is deliberately not "math
+  off": it costs nothing and needs no reprocessing to benefit.
+- **`has_math` means the article's dollar signs are curated, not that it
+  contains maths.** The first version of this decision made the flag mean the
+  latter, and it was the wrong shape: a flag saying "there is a formula
+  somewhere" was used to switch the parser for the whole document, so any
+  article that was *both* a maths article and a prose article broke — "the API
+  costs $5 to $10 … $O(n^2)$" typeset `5to` as a formula. A document-wide switch
+  cannot answer a question that is per-occurrence.
+  So the clipper, which is the only component that sees the DOM and can tell a
+  price from a formula, escapes every literal `$` in the prose when it recovers
+  math, and sets the flag to record that it did. `has_math: true` then states
+  something enforceable: every *bare* `$…$` in this file is a formula. The flag
+  is read from the HTML that survives Readability, not from the page, so a
+  formula discarded with a sidebar cannot set it. Nothing else may set it —
+  in particular the processor must not infer it from an already-clipped body,
+  because it cannot establish the escaping guarantee.
+- **The translator never sees LaTeX.** Each inline formula is replaced by an
+  opaque token before a block is sent and restored afterwards; if a token does
+  not round-trip, the block reverts to its original. A prompt asking the model
+  to leave LaTeX alone is not a guarantee, and a mangled formula passes every
+  structural gate — the block still parses as one paragraph, so alignment is
+  satisfied and wrong mathematics publishes silently. One untranslated
+  paragraph is the better failure, and it is the trade ADR 0003 already makes.
+- **An unclosed `$$` is prose, not math.** micromark runs an unterminated math
+  fence to the end of the document, exactly as it does an unterminated code
+  fence. That is almost never what a line beginning `$$` means in prose — "$$
+  is the shell's PID", "$$10 for the basic plan" — and left alone it swallows
+  the rest of the article into one verbatim block that is never translated and
+  renders as a single red error. `splitBlocks` re-reads such a fence with a
+  math-free parser; renderers escape it.
 - **The clipper recovers TeX before Readability runs**, normalizing KaTeX,
   MathJax, and MathML (`annotation[encoding="application/x-tex"]`, then
   `<math alttext>`, then MathJax v2's `script[type="math/tex"]`) into a single
@@ -72,6 +100,13 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   directions: an old article simply lacks the field, and an old reader tolerates
   a new file. ADR 0002's bump is for breaking document-format changes; this is
   not one.
+- **Display math is a top-level construct.** Nested inside a table cell, list
+  item, blockquote or heading, a recovered formula is emitted inline instead. A
+  `$$` block in a table cell has its newlines turned into `<br>` by the GFM cell
+  rule and is then typeset literally; inside a list the enclosing block is a
+  `list`, not a `math`, so it is not verbatim and the formula reaches the
+  translator unprotected. Inline math is protected everywhere, so degrading to
+  it is strictly safer than either.
 
 ## Consequences
 
@@ -88,7 +123,13 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   which degrades to the existing stacked rendering, not to breakage, and is
   fixed by reprocessing.
 - Articles clipped before this get display math but not inline math until
-  re-clipped. Setting `has_math: true` by hand is a supported override.
+  re-clipped. Setting `has_math: true` by hand is a supported override, but it
+  is a promise about the file: any literal `$` in its prose must be escaped in
+  the same edit, or the flag will make prices render as formulas.
+- Escaped dollars appear in the vault markdown of maths articles. This is
+  standard markdown — it renders as a literal `$` anywhere — which is why it was
+  preferred over writing inline math as `$$x$$`, a form that would have made the
+  gate unnecessary but would render as a display block in every other tool.
 - Math that a page renders without shipping its TeX source (some MathJax v3
   configurations) is dropped. Converting presentation MathML back to LaTeX would
   recover it and is deliberately deferred.
