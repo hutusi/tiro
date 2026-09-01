@@ -29,6 +29,21 @@ const USER_AGENT =
 const MD_IMAGE_RE = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/g;
 const HTML_IMG_RE = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/g;
 
+/**
+ * Undo the ampersand escaping an HTML attribute requires.
+ *
+ * A `src` holding a query string must spell `&` as `&amp;` to be valid HTML,
+ * so a CDN URL arrives here as `?w=800&amp;format=webp`. Fetched literally
+ * that is a different URL: the CDN either ignores the parameters or 404s, and
+ * the image falls back to a hotlink for no reason. Only the ampersand is
+ * decoded — it is the one character an attribute is obliged to escape, and
+ * decoding more would risk turning text that merely looks like an entity into
+ * a different URL than the page asked for.
+ */
+function decodeAmpersands(url: string): string {
+  return url.replace(/&(?:amp|#38|#[xX]26);/g, "&");
+}
+
 // How a localized image is spelled once the stage has rewritten it.
 const ASSET_PREFIX = "./assets/";
 
@@ -65,7 +80,7 @@ export function findImageUrls(body: string): string[] {
     if (match[1] !== undefined) urls.add(match[1]);
   }
   for (const match of body.matchAll(HTML_IMG_RE)) {
-    if (match[1] !== undefined) urls.add(match[1]);
+    if (match[1] !== undefined) urls.add(decodeAmpersands(match[1]));
   }
   return [...urls];
 }
@@ -444,13 +459,21 @@ export async function processImages(
   // discovery. A bare split/join on the URL text would also corrupt longer
   // URLs sharing it as a prefix (x.png inside x.png.html) and rewrite plain
   // links, which should keep pointing at the source.
-  const rewriteMatch = (match: string, url: string): string => {
-    const relative = replacements.get(url);
-    return relative === undefined ? match : match.replace(url, relative);
-  };
+  // `decode` must match what discovery keyed the map on, or an HTML image
+  // whose URL carried `&amp;` downloads and then fails to be rewritten,
+  // leaving the body pointing at the network for a file already on disk.
+  const rewriteWith =
+    (decode: (url: string) => string) =>
+    (match: string, url: string): string => {
+      const relative = replacements.get(decode(url));
+      return relative === undefined ? match : match.replace(url, relative);
+    };
   const rewritten = body
-    .replace(MD_IMAGE_RE, rewriteMatch)
-    .replace(HTML_IMG_RE, rewriteMatch);
+    .replace(
+      MD_IMAGE_RE,
+      rewriteWith((url) => url),
+    )
+    .replace(HTML_IMG_RE, rewriteWith(decodeAmpersands));
 
   return { body: rewritten, downloaded: replacements.size, failed };
 }

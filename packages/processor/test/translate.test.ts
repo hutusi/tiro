@@ -817,6 +817,49 @@ describe("figure captions", () => {
     expect(zh?.trim()).toBe(figure);
   });
 
+  test("masks the caption's own markup, so an href cannot be rewritten", async () => {
+    // A caption's markup is usually a credit link. A model that rewrites the
+    // href produces a caption pointing somewhere the page never linked, and
+    // an html block is compared by type, so it would publish unnoticed.
+    const linked =
+      '<figure><img src="./assets/a.png" alt="x"><figcaption>Credit: <a href="https://real.example/page">Someone</a></figcaption></figure>';
+    const sent: string[] = [];
+    const rewriter: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      sent.push(user);
+      return user.replace(/real\.example/g, "hallucinated.example");
+    };
+    const zh = await translateBlocks({
+      chat: rewriter,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(linked),
+    });
+    expect(sent.join("")).not.toContain("real.example");
+    expect(zh ?? "").toContain('<a href="https://real.example/page">');
+    expect(zh ?? "").not.toContain("hallucinated");
+  });
+
+  test("still recognises a figure whose image is wrapped in a link", async () => {
+    const linked =
+      '<figure><a href="https://ex.com/full.png"><img src="./assets/a.png" alt="x"></a><figcaption>Cap</figcaption></figure>';
+    const sent: string[] = [];
+    const chat: ChatFn = async (request) => {
+      sent.push(request.messages.at(-1)?.content ?? "");
+      return tokenPreservingChat(request);
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(linked),
+    });
+    expect(sent.join("")).not.toContain("ex.com/full.png");
+    expect(zh ?? "").toContain('<a href="https://ex.com/full.png">');
+    expect(zh ?? "").toContain("<figcaption>译文</figcaption>");
+  });
+
   test("leaves other raw HTML blocks verbatim", async () => {
     const raw = "<div class='promo'>Subscribe now</div>";
     const zh = await translateBlocks({

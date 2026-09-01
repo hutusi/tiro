@@ -128,3 +128,28 @@ describe("figureRule inside a link", () => {
     expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["paragraph"]);
   });
 });
+
+describe("figureRule limits", () => {
+  test("falls back to markdown when the caption holds a formula", () => {
+    // Markdown is not parsed inside an HTML block, so `$…$` would publish as
+    // literal dollars, and the marker span loses its attribute to the site's
+    // sanitize schema and renders as bare glyphs. The formula is worth more
+    // than the figure semantics.
+    const markdown = clip(
+      '<figure><img src="/a.png" alt="x"><figcaption>Loss <span class="katex"><annotation encoding="application/x-tex">L(x)</annotation></span> curve</figcaption></figure>',
+    ).trim();
+    expect(markdown).not.toContain("<figure>");
+    expect(markdown).toContain("$L(x)$");
+  });
+
+  test("keeps a link wrapping the image inside the figure", () => {
+    // The common lightbox shape. Rebuilding from the image alone dropped the
+    // link to the full-size version entirely.
+    const markdown = clip(
+      '<figure><a href="https://ex.com/full.png"><img src="/thumb.png" alt="x"></a><figcaption>Cap</figcaption></figure>',
+    ).trim();
+    expect(markdown).toContain('<a href="https://ex.com/full.png">');
+    expect(markdown).toContain('<img src="/thumb.png" alt="x">');
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["html"]);
+  });
+});

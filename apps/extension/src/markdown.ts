@@ -105,6 +105,16 @@ function insideLink(node: Node): boolean {
   return false;
 }
 
+/** The link wrapping `image` inside `figure`, if the figure holds one. */
+function linkWrapping(image: Element, figure: Node): Element | null {
+  let current: Node | null | undefined = image.parentNode;
+  while (current !== null && current !== undefined && current !== figure) {
+    if (current.nodeName === "A") return current as Element;
+    current = current.parentNode;
+  }
+  return null;
+}
+
 /**
  * Keep a captioned image and its caption together as one `<figure>`.
  *
@@ -142,12 +152,27 @@ export const figureRule: TurndownService.Rule = {
     const src = image?.getAttribute("src") ?? "";
     // Optional chaining rather than a null check: Turndown's DOM returns
     // `undefined` for a missing node where a browser returns `null`.
-    const text = oneLine(element.querySelector("figcaption")?.innerHTML ?? "");
+    const captionHtml = element.querySelector("figcaption")?.innerHTML ?? "";
+    // A recovered formula cannot survive in here. Markdown is not parsed
+    // inside an HTML block, so `$…$` would publish as literal dollars, and the
+    // marker span loses its attribute to the site's sanitize schema and
+    // publishes as bare glyphs — the ADR 0003 failure this pipeline exists to
+    // prevent. A caption with math keeps the markdown path, where the formula
+    // renders; the figure semantics are the cheaper thing to give up.
+    if (captionHtml.includes(MATH_ATTR)) return content;
+    const text = oneLine(captionHtml);
     if (src === "" || text === "") return content;
     const alt = image?.getAttribute("alt") ?? "";
-    return `\n\n<figure><img src="${attr(src)}" alt="${attr(
-      alt,
-    )}"><figcaption>${text}</figcaption></figure>\n\n`;
+    let figureContent = `<img src="${attr(src)}" alt="${attr(alt)}">`;
+    // A figure whose image links to the full-size version is the common
+    // lightbox shape. Rebuilding from the image alone silently dropped it.
+    const href = image
+      ? (linkWrapping(image, element)?.getAttribute("href") ?? "")
+      : "";
+    if (href !== "") {
+      figureContent = `<a href="${attr(href)}">${figureContent}</a>`;
+    }
+    return `\n\n<figure>${figureContent}<figcaption>${text}</figcaption></figure>\n\n`;
   },
 };
 

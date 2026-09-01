@@ -64,7 +64,10 @@ const MARKER = "TIRO_BLOCK";
  * safe direction — this is the only html we know the internal structure of.
  */
 const FIGURE_CAPTION_RE =
-  /^(<figure><img\b[^>]*><figcaption>)([\s\S]*)(<\/figcaption><\/figure>)$/;
+  /^(<figure>(?:<a\b[^>]*>)?<img\b[^>]*>(?:<\/a>)?<figcaption>)([\s\S]*)(<\/figcaption><\/figure>)$/;
+
+/** Any tag inside a caption — masked so the model sees prose and nothing else. */
+const HTML_TAG_RE = /<[^>]+>/g;
 
 function isVerbatim(block: Block): boolean {
   // A figure's caption is prose and was translated when it was a paragraph;
@@ -404,14 +407,27 @@ function maskBlock(text: string, singleDollar: boolean) {
   if (figure === null) return maskMath(text, singleDollar);
   const [, open = "", caption = "", close = ""] = figure;
   const inner = maskMath(caption, singleDollar);
-  // Two more tokens must still fit inside the padded token width.
-  if (inner.formulas.length + 2 > MAX_MASKED) {
+  // Every tag inside the caption is masked too, not just the scaffold. A
+  // caption's own markup is usually a credit link, and sending it means
+  // sending an href: a model that rewrites one produces a caption pointing
+  // somewhere the page never linked, and nothing downstream can tell — an
+  // html block is compared by type, so a hallucinated URL passes every gate
+  // and publishes. Masking leaves the model exactly the prose to translate.
+  const tags: string[] = [];
+  const body = inner.masked.replace(HTML_TAG_RE, (tag) => {
+    const token = MATH_TOKEN(inner.formulas.length + tags.length);
+    tags.push(tag);
+    return token;
+  });
+  const formulas = [...inner.formulas, ...tags];
+  // The scaffold's two tokens must still fit inside the padded token width.
+  if (formulas.length + 2 > MAX_MASKED) {
     return { masked: text, formulas: [] };
   }
-  const first = inner.formulas.length;
+  const first = formulas.length;
   return {
-    masked: `${MATH_TOKEN(first)}${inner.masked}${MATH_TOKEN(first + 1)}`,
-    formulas: [...inner.formulas, open, close],
+    masked: `${MATH_TOKEN(first)}${body}${MATH_TOKEN(first + 1)}`,
+    formulas: [...formulas, open, close],
   };
 }
 
