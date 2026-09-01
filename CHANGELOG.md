@@ -7,6 +7,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
 ### Added
 
 - **Syntax highlighting and LaTeX rendering.** Code blocks are highlighted with
@@ -33,6 +35,14 @@ versions follow the `0.x` line while Tiro is a personal system.
   maths article and a pricing article renders both correctly. `$$…$$` is
   unambiguous and renders everywhere, including for articles clipped before
   this existed.
+- **Malformed maths degrades instead of destroying the page.** An unclosed
+  `$$` runs to the end of the document the way an unterminated code fence
+  does, so a prose line beginning `$$` — "$$ is the shell's PID", a "$$ —
+  moderate" price tier — would otherwise swallow everything after it into one
+  block that is never translated and renders as a single red error. Such a
+  fence is re-read as prose, at any nesting depth, and never inside code or
+  raw HTML. Display maths written across a blank line stays one block, the way
+  a fenced code block already did.
 - **The translator never sees LaTeX.** Inline formulas are replaced by opaque
   tokens before a block is sent and restored afterwards; a token that does not
   round-trip reverts the block. A prompt is not a guarantee, and a mangled
@@ -40,21 +50,6 @@ versions follow the `0.x` line while Tiro is a personal system.
   alignment is satisfied and wrong mathematics would publish silently.
 
 ### Fixed
-
-- **An unclosed `$$` no longer swallows the rest of an article.** micromark
-  runs an unterminated math fence to end of document, exactly as it does an
-  unterminated code fence, so a prose line beginning `$$` — "$$ is the shell's
-  PID", "$$10 for the basic plan" — turned everything after it into one
-  verbatim block: never translated, rendered as a single red error, and silent,
-  because both sides parsed identically and alignment passed. A fence that
-  never closed is now re-read as prose.
-- **Display math containing a blank line is one block again.** The shared
-  parser had no math extension, so `$$…$$` was a paragraph — and a paragraph
-  ends at a blank line. An `aligned` environment written across one therefore
-  split into two half-delimited blocks, which the site (rendering block by
-  block) could never typeset and the translator saw as two broken fragments.
-  `math` blocks are now protected byte-for-byte across translation, the way
-  code blocks already were.
 
 - **One bad block no longer costs an article its whole translation.** Each
   translation is now verified on its own before the body is joined, and a block
@@ -354,5 +349,6 @@ verified end to end with real articles in both languages.
 - CI and deploy workflows run with read-only tokens and without persisted
   git credentials.
 
-[Unreleased]: https://github.com/hutusi/tiro/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hutusi/tiro/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/hutusi/tiro/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hutusi/tiro/releases/tag/v0.1.0
