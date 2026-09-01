@@ -44,19 +44,76 @@ import {
  * answer instead of a guess about line shapes.
  */
 function outsideVerbatim(body: string, transform: (prose: string) => string) {
+  const ranges = verbatimRanges(body);
+  const inline: { start: number; end: number }[] = [];
   const out: string[] = [];
   let cursor = 0;
-  for (const range of verbatimRanges(body)) {
+  for (const range of ranges) {
     const whole = wholeLinesAround(body, range);
-    if (whole === null || whole.start < cursor) continue;
+    if (whole === null) {
+      // Not skipped — masked below. A range sharing its line with prose cannot
+      // split the text without handing a line transform a fragment, but the
+      // three that match across lines reach inside it all the same.
+      inline.push(range);
+      continue;
+    }
+    if (whole.start < cursor) continue;
     if (whole.start > cursor) {
-      out.push(transform(body.slice(cursor, whole.start)));
+      out.push(masked(body, cursor, whole.start, inline, transform));
     }
     out.push(body.slice(whole.start, whole.end));
     cursor = whole.end;
   }
-  if (cursor < body.length) out.push(transform(body.slice(cursor)));
+  if (cursor < body.length) {
+    out.push(masked(body, cursor, body.length, inline, transform));
+  }
   return out.join("");
+}
+
+const TOKEN_DIGITS = 4;
+const MAX_MASKED = 10 ** TOKEN_DIGITS;
+/** Alphanumeric on purpose: no transform's pattern can match inside it. */
+const VERBATIM_TOKEN = (i: number) =>
+  `TIROVERBATIM${String(i).padStart(TOKEN_DIGITS, "0")}`;
+
+/**
+ * Transform one gap with its inline verbatim ranges hidden behind tokens.
+ *
+ * Splitting the gap at them is not an option: that is what handed
+ * `promoteTableHeaders` half a table row. Hiding them lets the line transforms
+ * still see whole lines while `joinLinkTitles`, `rejoinSplitLinks` and
+ * `rejoinSplitFootnotes` — which match across lines, and so reach into an
+ * inline code span, inline formula or inline HTML — find nothing to match.
+ *
+ * Follows `maskMath` in `llm/translate.ts`, including its bound: past the token
+ * width the padding stops guaranteeing distinct tokens, and leaving the gap
+ * unmasked is the safe direction — it falls back to the protection that existed
+ * before rather than to a wrong substitution.
+ */
+function masked(
+  body: string,
+  from: number,
+  to: number,
+  inline: readonly { start: number; end: number }[],
+  transform: (prose: string) => string,
+): string {
+  const within = inline.filter((r) => r.start >= from && r.end <= to);
+  if (within.length === 0 || within.length > MAX_MASKED) {
+    return transform(body.slice(from, to));
+  }
+  let text = "";
+  let cursor = from;
+  const hidden: string[] = [];
+  for (const range of within) {
+    text += body.slice(cursor, range.start) + VERBATIM_TOKEN(hidden.length);
+    hidden.push(body.slice(range.start, range.end));
+    cursor = range.end;
+  }
+  text = transform(text + body.slice(cursor, to));
+  return hidden.reduce(
+    (result, original, i) => result.replaceAll(VERBATIM_TOKEN(i), original),
+    text,
+  );
 }
 
 /**

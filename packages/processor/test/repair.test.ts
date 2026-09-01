@@ -23,6 +23,7 @@ import {
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const EN = "example-com-posts-hello-ai-e8446b12";
+const CN = "example-cn-posts-ai-times-0d21367e";
 
 function freshVault(): string {
   const dir = mkdtempSync(join(tmpdir(), "tiro-repair-"));
@@ -199,6 +200,38 @@ describe("repairBody", () => {
   test("leaves display math alone", () => {
     const body = "$$\n1.  (1)\n$$";
     expect(repairBody(body)).toBe(body);
+  });
+});
+
+describe("inline verbatim spans", () => {
+  // A range sharing its line with prose cannot split the text — that hands a
+  // line transform a fragment. It is masked instead, so the three transforms
+  // that match across lines find nothing inside it.
+  test("leaves a multi-line title inside an inline code span", () => {
+    const body = 'Write `[x](/a "line one\nline two")` here.';
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("leaves a duplicate marker inside an inline code span", () => {
+    const body = "Write `1.  (1)` here.";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("leaves a multi-line title inside inline math", () => {
+    const body = 'Value $[a](b "one\ntwo")$ holds.';
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("leaves a multi-line title inside inline html", () => {
+    const body = 'Use <span title="one\ntwo">x</span> here.';
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("still repairs the prose around a masked span", () => {
+    const body = "Use `code` then:\n\n|     |     |\n| --- | --- |\n| A | B |";
+    expect(repairBody(body)).toBe(
+      "Use `code` then:\n\n| A | B |\n| --- | --- |",
+    );
   });
 });
 
