@@ -1,7 +1,6 @@
-import { gfm } from "@joplin/turndown-plugin-gfm";
 import { Readability } from "@mozilla/readability";
-import TurndownService from "turndown";
-import { mathTurndownRule, prepareForClipping } from "./dom-prepare.ts";
+import { prepareForClipping } from "./dom-prepare.ts";
+import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipResultMessage } from "./messages.ts";
 
 /**
@@ -16,7 +15,7 @@ import type { ClipResultMessage } from "./messages.ts";
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards. The
   // clone, never the live page: this rewrites the nodes it touches.
-  const { hasMath } = prepareForClipping(clone);
+  prepareForClipping(clone);
   // Snapshot before Readability, which consumes the clone. Serializing always
   // costs less than a second cloneNode, and the fallback needs the prepared
   // DOM as much as the happy path does.
@@ -33,14 +32,9 @@ import type { ClipResultMessage } from "./messages.ts";
   // fallback does not, which is one reason the failure is flagged.
   const html = readabilityFailed ? preparedBody : (article?.content ?? "");
 
-  const turndown = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-    bulletListMarker: "-",
-  });
-  turndown.use(gfm);
-  turndown.addRule("tiroMath", mathTurndownRule);
-  const markdown = turndown.turndown(html);
+  // hasMath comes from the HTML actually being converted, so a formula
+  // Readability discarded with the page furniture cannot set the flag.
+  const { markdown, hasMath } = htmlToMarkdown(html);
 
   const message: ClipResultMessage = {
     type: "tiro-clip-result",

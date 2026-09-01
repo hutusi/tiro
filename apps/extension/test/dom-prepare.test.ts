@@ -1,13 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { gfm } from "@joplin/turndown-plugin-gfm";
 import { splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
-import TurndownService from "turndown";
-import {
-  MATH_ATTR,
-  mathTurndownRule,
-  prepareForClipping,
-} from "../src/dom-prepare.ts";
+import { MATH_ATTR, prepareForClipping } from "../src/dom-prepare.ts";
+import { htmlToMarkdown } from "../src/markdown.ts";
 
 /**
  * A scoped window rather than happy-dom's global registrator: bun runs every
@@ -22,8 +17,8 @@ function docFrom(html: string): Document {
 
 function prepare(html: string) {
   const doc = docFrom(html);
-  const result = prepareForClipping(doc);
-  return { ...result, html: doc.body.innerHTML, doc };
+  prepareForClipping(doc);
+  return { html: doc.body.innerHTML, doc };
 }
 
 /** The markdown the Turndown rule would emit for each recovered formula. */
@@ -38,14 +33,14 @@ function formulas(doc: Document): string[] {
 
 describe("math recovery", () => {
   test("takes KaTeX's TeX annotation and drops its visual duplicate", () => {
-    const { doc, hasMath, html } = prepare(
+    const { doc, html } = prepare(
       '<p>Given <span class="katex"><span class="katex-mathml">' +
         "<math><semantics><mrow><msup><mi>x</mi><mn>2</mn></msup></mrow>" +
         '<annotation encoding="application/x-tex">x^2</annotation>' +
         "</semantics></math></span>" +
         '<span class="katex-html" aria-hidden="true">x2</span></span> holds.</p>',
     );
-    expect(hasMath).toBe(true);
+    expect(htmlToMarkdown(html).hasMath).toBe(true);
     expect(formulas(doc)).toEqual(["$x^2$"]);
     // The rendered half is gone, so the glyphs cannot be emitted twice.
     expect(html).not.toContain("katex-html");
@@ -65,10 +60,9 @@ describe("math recovery", () => {
   });
 
   test("reads arXiv's alttext when there is no annotation", () => {
-    const { doc, hasMath } = prepare(
+    const { doc } = prepare(
       '<p><math alttext="\\frac{a}{b}" display="block"><mi>a</mi></math></p>',
     );
-    expect(hasMath).toBe(true);
     expect(formulas(doc)).toEqual(["$$\\frac{a}{b}$$"]);
   });
 
@@ -88,10 +82,10 @@ describe("math recovery", () => {
     // ADR 0003: flattening the glyphs leaves paragraphs ending in a lone `=`,
     // which markdown reads as a setext heading and which cost an arXiv paper
     // its entire translation. Losing one formula is the better trade.
-    const { doc, hasMath, html } = prepare(
+    const { doc, html } = prepare(
       "<p>Before <math><mi>a</mi><mo>=</mo><mi>b</mi></math> after.</p>",
     );
-    expect(hasMath).toBe(false);
+    expect(htmlToMarkdown(html).hasMath).toBe(false);
     expect(formulas(doc)).toEqual([]);
     expect(html).toBe("<p>Before  after.</p>");
   });
@@ -107,7 +101,8 @@ describe("math recovery", () => {
   });
 
   test("reports no math for an ordinary page", () => {
-    expect(prepare("<p>It costs $5 to $10.</p>").hasMath).toBe(false);
+    const { html } = prepare("<p>It costs $5 to $10.</p>");
+    expect(htmlToMarkdown(html).hasMath).toBe(false);
   });
 });
 
@@ -183,18 +178,11 @@ describe("code language recovery", () => {
 });
 
 describe("markdown produced end to end", () => {
-  /** The exact Turndown configuration clipper.ts builds. */
+  /** The same conversion clipper.ts runs, not a re-creation of it. */
   function toMarkdown(html: string): string {
     const doc = docFrom(html);
     prepareForClipping(doc);
-    const turndown = new TurndownService({
-      headingStyle: "atx",
-      codeBlockStyle: "fenced",
-      bulletListMarker: "-",
-    });
-    turndown.use(gfm);
-    turndown.addRule("tiroMath", mathTurndownRule);
-    return turndown.turndown(doc.body.innerHTML);
+    return htmlToMarkdown(doc.body.innerHTML).markdown;
   }
 
   function katex(tex: string, display = false): string {
@@ -237,5 +225,63 @@ describe("markdown produced end to end", () => {
       '<div class="highlight highlight-source-js"><pre><code>const a = 1;</code></pre></div>',
     );
     expect(md).toBe("```js\nconst a = 1;\n```");
+  });
+});
+
+describe("dollar signs", () => {
+  function convert(html: string) {
+    const doc = docFrom(html);
+    prepareForClipping(doc);
+    return htmlToMarkdown(doc.body.innerHTML);
+  }
+
+  const katexSpan = (tex: string) =>
+    `<span class="katex"><span class="katex-mathml"><math><semantics>` +
+    `<annotation encoding="application/x-tex">${tex}</annotation>` +
+    `</semantics></math></span></span>`;
+
+  test("escapes literal dollars but not recovered formulas", () => {
+    // This asymmetry is what lets has_math promise something enforceable:
+    // in a flagged article, every *bare* $…$ is a formula.
+    const { markdown, hasMath } = convert(
+      `<p>Latency scales as ${katexSpan("O(n^2)")}, and it costs $5 to $10.</p>`,
+    );
+    expect(hasMath).toBe(true);
+    expect(markdown).toBe(
+      "Latency scales as $O(n^2)$, and it costs \\$5 to \\$10.",
+    );
+  });
+
+  test("leaves dollars inside code alone", () => {
+    // Turndown takes the isCode path for these, so escaping never reaches
+    // them — a shell snippet must not grow backslashes.
+    const { markdown } = convert(
+      `<p>Use <code>$PATH</code> ${katexSpan("x")}</p>` +
+        '<pre><code class="language-sh">echo $HOME</code></pre>',
+    );
+    expect(markdown).toContain("`$PATH`");
+    expect(markdown).toContain("echo $HOME");
+    expect(markdown).not.toContain("\\$HOME");
+  });
+
+  test("does not escape anything in an article with no math", () => {
+    const { markdown, hasMath } = convert("<p>It costs $5 to $10.</p>");
+    expect(hasMath).toBe(false);
+    expect(markdown).toBe("It costs $5 to $10.");
+  });
+
+  test("ignores math Readability dropped with the page furniture", () => {
+    // The flag has to describe the article that gets written, not the page
+    // that was looked at: a sidebar formula setting it would switch a pricing
+    // article to single-dollar parsing for nothing.
+    const doc = docFrom(
+      `<article><p>It costs $5 to $10.</p></article>` +
+        `<aside><p>${katexSpan("x^2")}</p></aside>`,
+    );
+    prepareForClipping(doc);
+    const selected = doc.querySelector("article")?.innerHTML ?? "";
+    const { markdown, hasMath } = htmlToMarkdown(selected);
+    expect(hasMath).toBe(false);
+    expect(markdown).toBe("It costs $5 to $10.");
   });
 });

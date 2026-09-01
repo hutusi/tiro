@@ -17,11 +17,6 @@
 
 import type TurndownService from "turndown";
 
-export interface PrepareResult {
-  /** At least one formula was recovered — becomes frontmatter `has_math`. */
-  hasMath: boolean;
-}
-
 /** Marks a recovered formula for the Turndown rule in clipper.ts. */
 export const MATH_ATTR = "data-tiro-math";
 
@@ -83,7 +78,7 @@ function marker(doc: Document, tex: string, display: boolean): Element {
   return span;
 }
 
-function replaceMath(doc: Document, element: Element): boolean {
+function replaceMath(doc: Document, element: Element): void {
   const tex = texFrom(element);
   // A page that renders math without shipping its source leaves us nothing to
   // write. Removing it beats letting Turndown flatten the glyphs into text
@@ -94,17 +89,16 @@ function replaceMath(doc: Document, element: Element): boolean {
   const target = element.closest(".katex-display") ?? element;
   if (tex === null) {
     target.remove();
-    return false;
+    return;
   }
   target.replaceWith(marker(doc, tex, display));
-  return true;
 }
 
-function normalizeMathJaxV2(doc: Document): number {
+function normalizeMathJaxV2(doc: Document): void {
   const scripts = Array.from(
     doc.querySelectorAll('script[type^="math/tex"]'),
   ) as Element[];
-  if (scripts.length === 0) return 0;
+  if (scripts.length === 0) return;
   // MathJax v2 keeps the TeX in the script and renders beside it, so the
   // rendered nodes are pure duplication once the scripts are converted.
   for (const rendered of Array.from(
@@ -112,7 +106,6 @@ function normalizeMathJaxV2(doc: Document): number {
   )) {
     rendered.remove();
   }
-  let count = 0;
   for (const script of scripts) {
     const tex = script.textContent?.trim() ?? "";
     if (tex === "") {
@@ -123,13 +116,11 @@ function normalizeMathJaxV2(doc: Document): number {
       "mode=display",
     );
     script.replaceWith(marker(doc, tex, display));
-    count += 1;
   }
-  return count;
 }
 
-function normalizeMath(doc: Document): number {
-  let count = normalizeMathJaxV2(doc);
+function normalizeMath(doc: Document): void {
+  normalizeMathJaxV2(doc);
   // Document order puts a container ahead of the `<math>` nested inside it, so
   // the container wins and the descendant is skipped as already detached.
   const candidates = Array.from(
@@ -137,9 +128,8 @@ function normalizeMath(doc: Document): number {
   );
   for (const element of candidates) {
     if (!element.isConnected) continue;
-    if (replaceMath(doc, element)) count += 1;
+    replaceMath(doc, element);
   }
-  return count;
 }
 
 function classListOf(element: Element): string[] {
@@ -230,11 +220,15 @@ function recoverCodeBlocks(doc: Document): void {
 /**
  * Rewrite a *cloned* document in place. Never call this on the live page —
  * it removes and replaces nodes the user is looking at.
+ *
+ * Deliberately reports nothing about how much math it found. Whether the
+ * article *has* math is a question about the HTML that survives Readability,
+ * not about the page this saw, and answering it from here would let a formula
+ * in a discarded sidebar set the flag (see markdown.ts).
  */
-export function prepareForClipping(doc: Document): PrepareResult {
-  const mathCount = normalizeMath(doc);
+export function prepareForClipping(doc: Document): void {
+  normalizeMath(doc);
   recoverCodeBlocks(doc);
-  return { hasMath: mathCount > 0 };
 }
 
 /**
