@@ -348,6 +348,39 @@ function stripRedundantListMarkers(doc: Document): void {
 }
 
 /**
+ * Replace `<picture>` with the `<img>` it wraps.
+ *
+ * Turndown has no rule for `<picture>`, and it is not one of the element names
+ * Turndown calls a block, so the element is inline: Turndown captures the
+ * whitespace flanking its content and re-attaches it *around* whatever a rule
+ * returns. A page that pretty-prints its markup puts a newline and an indent
+ * before each `<source>`, so that flanking whitespace is real, and the image
+ * lands several spaces into its line — which markdown reads as an indented code
+ * block. The site then renders the literal text `![](…)` in a highlighted box
+ * and the picture never appears. One clipped article lost all five of its
+ * images this way; two more carry the same shape without having surfaced it.
+ *
+ * A Turndown rule cannot fix this. The flanking whitespace is added outside the
+ * rule's return value, so trimming inside the replacement is a no-op — measured,
+ * not assumed. Removing the wrapper in the DOM deletes the whitespace text
+ * nodes themselves, which is the same move `unwrapChromaTables` makes for the
+ * same reason: hand Turndown a shape it already converts correctly.
+ *
+ * The `<img>` keeps its own `src`, the fallback the page nominated. Choosing
+ * among `<source srcset>` candidates would mean picking a resolution on the
+ * reader's behalf from media queries this has no viewport to evaluate.
+ */
+function unwrapPictures(doc: Document): void {
+  for (const picture of Array.from(doc.querySelectorAll("picture"))) {
+    const img = picture.querySelector("img");
+    // No <img> means the page relied entirely on <source srcset>, which
+    // Turndown drops regardless. Leave it for Readability to discard.
+    if (img === null) continue;
+    picture.replaceWith(img);
+  }
+}
+
+/**
  * Give a headerless table a header row taken from its own first row.
  *
  * GFM has no way to write a table without one, so the Turndown plugin
@@ -401,6 +434,7 @@ export function prepareForClipping(doc: Document): void {
   normalizeMath(doc);
   recoverCodeBlocks(doc);
   stripRedundantListMarkers(doc);
+  unwrapPictures(doc);
   // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
   // line-number gutters). Promoting headers first would rewrite the very cells
   // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
