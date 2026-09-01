@@ -71,6 +71,13 @@ describe("joinLinkTitles", () => {
     );
   });
 
+  test("flattens a title containing an escaped quote", () => {
+    // joinLinkTitles carried the same `[^"]*` limitation as the heading
+    // anchor; both now share one pattern.
+    const broken = '[x](/a "In S1.\n=\nsaid \\"hi\\"")';
+    expect(joinLinkTitles(broken)).toBe('[x](/a "In S1. = said \\"hi\\"")');
+  });
+
   test("leaves a single-line title alone", () => {
     const text = '[x](/a "a title")';
     expect(joinLinkTitles(text)).toBe(text);
@@ -137,6 +144,13 @@ describe("stripHeadingAnchors", () => {
     expect(stripHeadingAnchors(broken)).toBe("## Title");
   });
 
+  test("strips an anchor whose title contains an escaped quote", () => {
+    // The clipper writes title.replace(/"/g, '\\"'), so a title holding a
+    // quote arrives escaped and `[^"]*` stops at the wrong one.
+    const broken = '## Title [#](#t "Permalink to \\"Title\\"")';
+    expect(stripHeadingAnchors(broken)).toBe("## Title");
+  });
+
   test("leaves a heading whose trailing link is real content", () => {
     // Only the symbols generators use for the affordance may match, or a
     // heading that simply ends in a link would lose it.
@@ -191,6 +205,14 @@ describe("deindentBlockImages", () => {
       "paragraph",
       "paragraph",
     ]);
+  });
+
+  test("lifts images separated by a hard break", () => {
+    // Two trailing spaces make mdast a `break` node rather than whitespace.
+    const broken = "Text:\n\n    ![](a.png)  \n    ![](b.png)";
+    expect(deindentBlockImages(broken)).toBe(
+      "Text:\n\n![](a.png)  \n![](b.png)",
+    );
   });
 
   test("leaves an indented block mixing images with prose", () => {

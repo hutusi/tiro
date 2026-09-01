@@ -192,6 +192,29 @@ function wholeLinesAround(
 const BLOCK_OPENING_PREFIX = /^[\s>]*(?:(?:[-*+]|\d+[.)])[\s>]*)*$/;
 
 /**
+ * A link destination as Turndown writes one: angle-bracketed, or a run in which
+ * parentheses appear escaped.
+ *
+ * `[^()]*` looks equivalent and is not. Turndown escapes rather than drops a
+ * parenthesis in a URL, so a bare-paren class rejects every Wikipedia-style
+ * `Foo_(disambiguation)` link — the same gap `joinLinkTitles` was fixed for,
+ * reappearing here because the pattern was written fresh instead of shared.
+ */
+const DESTINATION_BODY = String.raw`<[^<>\n]*>|(?:\\[()]|[^\s()])+`;
+const DESTINATION = String.raw`(?:${DESTINATION_BODY})`;
+
+/**
+ * The `"title"` Turndown appends after a destination, and its escaping.
+ *
+ * `[^"]*` stops at the first quote, and a title may contain one: the clipper
+ * writes `title.replace(/"/g, '\\"')`, so `Permalink to "Title"` arrives as
+ * `Permalink to \"Title\"`. Matching an escaped pair explicitly is the only
+ * way to reach the real closing quote.
+ */
+const TITLE_BODY = String.raw`(?:\\.|[^"\\])*`;
+const TITLE = String.raw`(?:\s+"${TITLE_BODY}")?`;
+
+/**
  * Flatten a link title that spans lines.
  *
  * arXiv writes a section path into `title=`, and when the path contains a
@@ -209,7 +232,10 @@ const BLOCK_OPENING_PREFIX = /^[\s>]*(?:(?:[-*+]|\d+[.)])[\s>]*)*$/;
  */
 export function joinLinkTitles(body: string): string {
   return body.replace(
-    /\]\((<[^<>\n]*>|(?:\\[()]|[^\s()])+)\s+"([^"]*)"\)/g,
+    new RegExp(
+      String.raw`\]\((${DESTINATION_BODY})\s+"(${TITLE_BODY})"\)`,
+      "g",
+    ),
     (match, destination: string, title: string) => {
       const flat = title.replace(/\s+/g, " ").trim();
       if (flat === title) return match;
@@ -343,20 +369,6 @@ export function liftDuplicateListMarkers(body: string): string {
   }
   return out.join("\n");
 }
-
-/**
- * A link destination as Turndown writes one: angle-bracketed, or a run in which
- * parentheses appear escaped.
- *
- * `[^()]*` looks equivalent and is not. Turndown escapes rather than drops a
- * parenthesis in a URL, so a bare-paren class rejects every Wikipedia-style
- * `Foo_(disambiguation)` link — the same gap `joinLinkTitles` was fixed for,
- * reappearing here because the pattern was written fresh instead of shared.
- */
-const DESTINATION = String.raw`(?:<[^<>\n]*>|(?:\\[()]|[^\s()])+)`;
-
-/** The optional `"title"` Turndown appends after a destination. */
-const TITLE = String.raw`(?:\s+"[^"]*")?`;
 
 /**
  * A heading ending in its own permalink anchor: `## Title [#](#title)`.
