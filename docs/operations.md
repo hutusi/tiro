@@ -126,6 +126,16 @@ written and a pair that no longer aligns is left untouched and reported. That
 exit is non-zero: a refusal is the guard working, but it is also the only
 signal that an article still carries a defect.
 
+Killing the process can still tear a pair. Both files are staged and then
+renamed, so everything that can realistically fail happens while the originals
+are intact — but a kill landing between the two renames leaves one file repaired
+and one original. That state is not silent: `validate` reports it immediately as
+an alignment error, and `git checkout` on the article undoes it. A write-ahead
+log with startup recovery would close the window and is not worth its own
+failure modes here — unlike the processor's checkpoint (ADR 0008), which exists
+because the workflow kills it on a timer, `repair` is hand-run, interactive, on
+git-tracked files, and ends in reading the diff.
+
 **A refusal means re-clip, not retry.** It happens when the two sides were not
 damaged identically — usually because the translator shifted content across the
 damaged blocks — and no symmetric text edit can fix that. Re-clip the page with
