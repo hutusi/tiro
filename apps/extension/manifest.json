@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tiro Clipper",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Clip the current page as Markdown into your Tiro vault on GitHub.",
   "homepage_url": "https://tiro.ainaive.com/",
   "icons": {
