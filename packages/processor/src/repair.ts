@@ -355,6 +355,9 @@ export function liftDuplicateListMarkers(body: string): string {
  */
 const DESTINATION = String.raw`(?:<[^<>\n]*>|(?:\\[()]|[^\s()])+)`;
 
+/** The optional `"title"` Turndown appends after a destination. */
+const TITLE = String.raw`(?:\s+"[^"]*")?`;
+
 /**
  * A heading ending in its own permalink anchor: `## Title [#](#title)`.
  *
@@ -370,7 +373,7 @@ const DESTINATION = String.raw`(?:<[^<>\n]*>|(?:\\[()]|[^\s()])+)`;
  * because the fixtures used ordinary spaces.
  */
 const HEADING_ANCHOR = new RegExp(
-  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\(${DESTINATION}\)[^\S\n]*$`,
+  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\(${DESTINATION}${TITLE}\)[^\S\n]*$`,
   "gm",
 );
 

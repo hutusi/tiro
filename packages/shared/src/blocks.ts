@@ -149,11 +149,18 @@ const VERBATIM_NODE_TYPES: ReadonlySet<string> = new Set([
 export function isImageOnlyParagraph(text: string): boolean {
   const children = (parser.parse(text) as Root).children;
   const [node] = children;
+  if (children.length !== 1 || node?.type !== "paragraph") return false;
+  // Whitespace between images is part of the paragraph, not content: two
+  // images on consecutive lines parse as image, text("\n"), image. Demanding
+  // every child be an image rejects them, which is a paragraph of nothing but
+  // pictures by any reading.
+  const onlyImagesAndSpace = node.children.every(
+    (child) =>
+      child.type === "image" ||
+      (child.type === "text" && child.value.trim() === ""),
+  );
   return (
-    children.length === 1 &&
-    node?.type === "paragraph" &&
-    node.children.length > 0 &&
-    node.children.every((child) => child.type === "image")
+    onlyImagesAndSpace && node.children.some((child) => child.type === "image")
   );
 }
 

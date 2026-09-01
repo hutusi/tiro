@@ -131,6 +131,12 @@ describe("stripHeadingAnchors", () => {
     expect(stripHeadingAnchors(broken)).toBe("## Title");
   });
 
+  test("strips an anchor that carries a title", () => {
+    // Turndown appends `"Permalink"` when the anchor has a title attribute.
+    const broken = '## Title [#](#title "Permalink")';
+    expect(stripHeadingAnchors(broken)).toBe("## Title");
+  });
+
   test("leaves a heading whose trailing link is real content", () => {
     // Only the symbols generators use for the affordance may match, or a
     // heading that simply ends in a link would lose it.
@@ -172,6 +178,24 @@ describe("deindentBlockImages", () => {
       const broken = `Text:\n\n    ${image}`;
       expect(deindentBlockImages(broken)).toBe(`Text:\n\n${image}`);
     }
+  });
+
+  test("lifts consecutive images sharing one block", () => {
+    // Two images on adjacent lines are one paragraph containing image,
+    // whitespace, image — a paragraph of nothing but pictures by any reading,
+    // and still exactly one block, so alignment is unaffected.
+    const broken = "Text:\n\n    ![](a.png)\n    ![](b.png)";
+    const fixed = deindentBlockImages(broken);
+    expect(fixed).toBe("Text:\n\n![](a.png)\n![](b.png)");
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+  });
+
+  test("leaves an indented block mixing images with prose", () => {
+    const code = "Example:\n\n    ![](a.png)\n    and some prose";
+    expect(deindentBlockImages(code)).toBe(code);
   });
 
   test("leaves indented code that is not purely images", () => {
