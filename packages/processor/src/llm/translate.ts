@@ -95,13 +95,15 @@ export async function translateBlocks(
   } = options;
 
   const translated: string[] = blocks.map((b) => b.text);
+  // Filter first: masking every block would parse code and top-level math only
+  // to discard the result.
   const candidates = blocks
-    .map((block, index) => ({
-      block,
-      index,
-      ...maskMath(block.text, singleDollarMath),
-    }))
-    .filter(({ block }) => !isVerbatim(block));
+    .map((block, index) => ({ block, index }))
+    .filter(({ block }) => !isVerbatim(block))
+    .map((item) => ({
+      ...item,
+      ...maskMath(item.block.text, singleDollarMath),
+    }));
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
   );
@@ -323,8 +325,17 @@ interface Todo {
 /**
  * Opaque and markdown-inert, and deliberately unlike the batch protocol's
  * `<<<TIRO_BLOCK_n>>>` so the two can never be confused for one another.
+ *
+ * Zero-padded to a fixed width so no token can ever be a prefix of another.
+ * Unpadded, `TIROMATH1` is a prefix of `TIROMATH10`, so the uniqueness check
+ * in `unmaskMath` saw a duplicate and reverted the block — every paragraph
+ * with eleven or more formulas silently stayed in English, which in dense
+ * mathematical prose is a common paragraph rather than a rare one.
  */
-const MATH_TOKEN = (i: number) => `TIROMATH${i}`;
+const TOKEN_DIGITS = 4;
+const MAX_MASKED = 10 ** TOKEN_DIGITS;
+const MATH_TOKEN = (i: number) =>
+  `TIROMATH${String(i).padStart(TOKEN_DIGITS, "0")}`;
 
 /**
  * Replace every inline formula with a token.
@@ -338,8 +349,15 @@ const MATH_TOKEN = (i: number) => `TIROMATH${i}`;
 function maskMath(text: string, singleDollar: boolean) {
   // Only closed fences: an unclosed `$$` is prose (see normalizeBlockMath),
   // and hiding it from the model would leave that text untranslated.
-  const ranges = mathRanges(text, { singleDollar }).filter((r) => r.terminated);
-  if (ranges.length === 0) return { masked: text, formulas: [] };
+  const ranges = mathRanges(text, { singleDollar })
+    .filter((r) => r.terminated)
+    .sort((a, b) => a.start - b.start);
+  // Beyond the token width the padding stops guaranteeing distinct tokens.
+  // Leaving such a block unmasked is the safe direction: it falls back to the
+  // protection that existed before, rather than to a wrong substitution.
+  if (ranges.length === 0 || ranges.length > MAX_MASKED) {
+    return { masked: text, formulas: [] };
+  }
   let masked = "";
   let cursor = 0;
   const formulas: string[] = [];
@@ -364,7 +382,11 @@ function unmaskMath(text: string, formulas: readonly string[]): string | null {
     if (first === -1 || out.indexOf(token, first + token.length) !== -1) {
       return null; // dropped, or duplicated into a second formula
     }
-    out = out.replace(token, formulas[i] ?? "");
+    // A callback, never the string: `$$`, `$&`, `` $` `` and `$'` are all
+    // replacement syntax, and all of them occur in LaTeX. Passing the formula
+    // directly restored `$$O(n)$$` as `$O(n)$`, and `$a$&$b$` as
+    // `$aTIROMATH0000$b$` — the token put back into the text by `$&`.
+    out = out.replace(token, () => formulas[i] ?? "");
   }
   return out;
 }

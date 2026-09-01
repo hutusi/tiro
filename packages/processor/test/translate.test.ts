@@ -686,3 +686,66 @@ describe("inline math through translation", () => {
     expect(zh).toContain("中文");
   });
 });
+
+describe("token substitution", () => {
+  /** A model that translates the prose and leaves every token untouched. */
+  const echoTokens: ChatFn = async (request) => {
+    const user = request.messages.at(-1)?.content ?? "";
+    return user.replace(
+      /(<<<TIRO_BLOCK_\d+>>>\n)([\s\S]*?)(?=<<<TIRO_BLOCK_|$)/g,
+      (_m, marker, body) => `${marker}译:${body}`,
+    );
+  };
+
+  test("survives more than ten formulas in one block", async () => {
+    // TIROMATH1 is a prefix of TIROMATH10 unless the tokens are padded, so the
+    // uniqueness check saw a duplicate and reverted the whole paragraph.
+    const formulas = Array.from({ length: 11 }, (_, i) => `$x_{${i}}$`);
+    const text = `Given ${formulas.join(" and ")} we conclude.`;
+    const zh = await translateBlocks({
+      chat: echoTokens,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(text),
+      singleDollarMath: true,
+    });
+    expect(zh).toContain("译:");
+    for (const formula of formulas) expect(zh).toContain(formula);
+  });
+
+  test("restores formulas containing replacement syntax literally", async () => {
+    // $$, $&, $` and $' are all String.replace syntax and all occur in LaTeX.
+    for (const formula of ["$$O(n)$$", "$a$&$b$", "$x`y$"]) {
+      const zh = await translateBlocks({
+        chat: echoTokens,
+        model: "m",
+        targetLang: "zh",
+        blocks: splitBlocks(`Given ${formula} we conclude.`),
+        singleDollarMath: true,
+      });
+      expect(zh).toContain(formula);
+      expect(zh).not.toContain("TIROMATH");
+    }
+  });
+
+  test("masks display math nested in a list", async () => {
+    // The block is a `list`, so it is not verbatim; without the walker seeing
+    // one level down, the formula went to the model raw.
+    const seen: string[] = [];
+    const source = "- First item\n\n  $$\n  E=mc^2\n  $$\n\n- Second item";
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        seen.push(request.messages.at(-1)?.content ?? "");
+        return echoTokens(request);
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(source),
+      singleDollarMath: true,
+    });
+    expect(seen.join("\n")).not.toContain("E=mc^2");
+    expect(seen.join("\n")).toContain("TIROMATH0000");
+    expect(zh).toContain("$$\n  E=mc^2\n  $$");
+    expect(splitBlocks(zh ?? "").map((b) => b.type)).toEqual(["list"]);
+  });
+});
