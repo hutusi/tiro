@@ -235,6 +235,25 @@ describe("inline verbatim spans", () => {
   });
 });
 
+describe("articles without a translation", () => {
+  test("repairs index.md alone when zh.md is absent", async () => {
+    // Contract-valid: a `lang: zh` article must have no translation, and
+    // validate errors if one exists. The site renders these `kind: "single"`,
+    // never paired, so there is no alignment to break — refusing them would
+    // skip every single-language article.
+    const vault = freshVault();
+    const index = join(vault, "articles", CN, "index.md");
+    rmSync(join(vault, "articles", CN, "zh.md"), { force: true });
+    const broken = "\n\n|     |     |\n| --- | --- |\n| Paper | Idea |\n";
+    writeFileSync(index, readFileSync(index, "utf8") + broken);
+
+    const report = await repairVault(vault, { slug: CN });
+    expect(report.refused).toEqual([]);
+    expect(report.repaired).toEqual([{ slug: CN, files: ["index.md"] }]);
+    expect(readFileSync(index, "utf8")).not.toMatch(/^\|\s+\|\s+\|$/m);
+  });
+});
+
 describe("CRLF articles", () => {
   test("repairs a CRLF body without mixing line endings", () => {
     // parseArticle accepts CRLF, so an article with it is contract-valid.
