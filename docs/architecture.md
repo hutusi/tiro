@@ -29,10 +29,18 @@ flowchart LR
 
 ## Data flow
 
-1. **Clip.** The Chrome extension extracts the current page (Readability),
-   converts it to Markdown (Turndown), assembles frontmatter, and commits a
-   single `index.md` into the vault via the GitHub Contents API. Images stay
-   hotlinked (absolute URLs) at this stage.
+1. **Clip.** The Chrome extension repairs the page DOM, extracts it
+   (Readability), converts it to Markdown (Turndown), assembles frontmatter,
+   and commits a single `index.md` into the vault via the GitHub Contents API.
+   Images stay hotlinked (absolute URLs) at this stage.
+
+   The repair pass (`apps/extension/src/dom-prepare.ts`) runs on a clone
+   *before* Readability, which prunes low-text subtrees it cannot be asked to
+   give back. It recovers each formula's LaTeX source (KaTeX/MathJax
+   annotation, then arXiv's `<math alttext>`, then MathJax v2's
+   `math/tex` script), deletes the visual duplicate, and records `has_math`;
+   and it normalizes however the page marked up its code languages into the
+   `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
    - detect language (CJK-codepoint ratio, no LLM call),
@@ -51,6 +59,12 @@ flowchart LR
 3. **Publish.** The deploy workflow checks out both repos, builds the Astro
    site from the vault content, indexes it with Pagefind, and deploys to
    Cloudflare Pages. The site is fully public.
+
+   Rendering is one unified pipeline (`apps/site/src/lib/render.ts`). Shiki
+   and KaTeX run *after* rehype-sanitize, as trusted generators over
+   already-scrubbed text, so the allowlist never has to admit the classes and
+   inline styles they emit — which would admit them from clipped markup too
+   (ADR 0009).
 
 ## The content contract
 

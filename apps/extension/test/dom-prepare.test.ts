@@ -1,0 +1,241 @@
+import { describe, expect, test } from "bun:test";
+import { gfm } from "@joplin/turndown-plugin-gfm";
+import { splitBlocks } from "@tiro/shared";
+import { Window } from "happy-dom";
+import TurndownService from "turndown";
+import {
+  MATH_ATTR,
+  mathTurndownRule,
+  prepareForClipping,
+} from "../src/dom-prepare.ts";
+
+/**
+ * A scoped window rather than happy-dom's global registrator: bun runs every
+ * test file in one process, and installing `document` globally would leak into
+ * suites that deliberately have no DOM.
+ */
+function docFrom(html: string): Document {
+  const window = new Window();
+  window.document.body.innerHTML = html;
+  return window.document as unknown as Document;
+}
+
+function prepare(html: string) {
+  const doc = docFrom(html);
+  const result = prepareForClipping(doc);
+  return { ...result, html: doc.body.innerHTML, doc };
+}
+
+/** The markdown the Turndown rule would emit for each recovered formula. */
+function formulas(doc: Document): string[] {
+  return Array.from(doc.querySelectorAll(`[${MATH_ATTR}]`)).map((node) => {
+    const tex = (node.textContent ?? "").trim();
+    return node.getAttribute(MATH_ATTR) === "display"
+      ? `$$${tex}$$`
+      : `$${tex}$`;
+  });
+}
+
+describe("math recovery", () => {
+  test("takes KaTeX's TeX annotation and drops its visual duplicate", () => {
+    const { doc, hasMath, html } = prepare(
+      '<p>Given <span class="katex"><span class="katex-mathml">' +
+        "<math><semantics><mrow><msup><mi>x</mi><mn>2</mn></msup></mrow>" +
+        '<annotation encoding="application/x-tex">x^2</annotation>' +
+        "</semantics></math></span>" +
+        '<span class="katex-html" aria-hidden="true">x2</span></span> holds.</p>',
+    );
+    expect(hasMath).toBe(true);
+    expect(formulas(doc)).toEqual(["$x^2$"]);
+    // The rendered half is gone, so the glyphs cannot be emitted twice.
+    expect(html).not.toContain("katex-html");
+    expect(html).not.toContain("<math");
+  });
+
+  test("recognises a KaTeX display wrapper and removes it whole", () => {
+    const { doc, html } = prepare(
+      '<div class="katex-display"><span class="katex"><span class="katex-mathml">' +
+        '<math display="block"><semantics>' +
+        '<annotation encoding="application/x-tex">E = mc^2</annotation>' +
+        "</semantics></math></span></span></div>",
+    );
+    expect(formulas(doc)).toEqual(["$$E = mc^2$$"]);
+    // An empty wrapper left behind would become a stray markdown block.
+    expect(html).not.toContain("katex-display");
+  });
+
+  test("reads arXiv's alttext when there is no annotation", () => {
+    const { doc, hasMath } = prepare(
+      '<p><math alttext="\\frac{a}{b}" display="block"><mi>a</mi></math></p>',
+    );
+    expect(hasMath).toBe(true);
+    expect(formulas(doc)).toEqual(["$$\\frac{a}{b}$$"]);
+  });
+
+  test("converts MathJax v2 scripts and deletes the rendered copy", () => {
+    const { doc, html } = prepare(
+      '<p><span class="MathJax_Preview">x2</span>' +
+        '<span class="MathJax" id="MathJax-Element-1-Frame">x²</span>' +
+        '<script type="math/tex">x^2</script>' +
+        '<script type="math/tex; mode=display">\\sum_{i=1}^{n} i</script></p>',
+    );
+    expect(formulas(doc)).toEqual(["$x^2$", "$$\\sum_{i=1}^{n} i$$"]);
+    expect(html).not.toContain("MathJax_Preview");
+    expect(html).not.toContain("math/tex");
+  });
+
+  test("drops math whose TeX source the page never shipped", () => {
+    // ADR 0003: flattening the glyphs leaves paragraphs ending in a lone `=`,
+    // which markdown reads as a setext heading and which cost an arXiv paper
+    // its entire translation. Losing one formula is the better trade.
+    const { doc, hasMath, html } = prepare(
+      "<p>Before <math><mi>a</mi><mo>=</mo><mi>b</mi></math> after.</p>",
+    );
+    expect(hasMath).toBe(false);
+    expect(formulas(doc)).toEqual([]);
+    expect(html).toBe("<p>Before  after.</p>");
+  });
+
+  test("keeps inline math on one line", () => {
+    // A newline inside `$…$` ends the inline math and leaves stray dollars.
+    const { doc } = prepare(
+      '<p><span class="katex"><math><semantics>' +
+        '<annotation encoding="application/x-tex">a\n  +\n  b</annotation>' +
+        "</semantics></math></span></p>",
+    );
+    expect(formulas(doc)).toEqual(["$a + b$"]);
+  });
+
+  test("reports no math for an ordinary page", () => {
+    expect(prepare("<p>It costs $5 to $10.</p>").hasMath).toBe(false);
+  });
+});
+
+describe("code language recovery", () => {
+  function languageOf(html: string): string | null {
+    const { doc } = prepare(html);
+    const code = doc.querySelector("pre code");
+    const classes = (code?.getAttribute("class") ?? "").split(/\s+/);
+    return (
+      classes.find((name) => name.startsWith("language-"))?.slice(9) ?? null
+    );
+  }
+
+  test("leaves a language the page already declared", () => {
+    expect(
+      languageOf('<pre><code class="language-TypeScript">x</code></pre>'),
+    ).toBe("TypeScript");
+  });
+
+  test("recovers from the conventions highlighters actually use", () => {
+    expect(languageOf('<pre><code class="lang-go">x</code></pre>')).toBe("go");
+    expect(languageOf('<pre><code data-lang="ruby">x</code></pre>')).toBe(
+      "ruby",
+    );
+    expect(languageOf('<pre data-language="rust"><code>x</code></pre>')).toBe(
+      "rust",
+    );
+    expect(
+      languageOf(
+        '<div class="highlight highlight-source-js"><pre><code>x</code></pre></div>',
+      ),
+    ).toBe("js");
+    expect(languageOf('<pre class="brush: python;"><code>x</code></pre>')).toBe(
+      "python",
+    );
+    expect(
+      languageOf(
+        '<pre class="sourceCode c"><code class="sourceCode">x</code></pre>',
+      ),
+    ).toBe("c");
+  });
+
+  test("leaves a fence alone when nothing names a language", () => {
+    expect(languageOf('<pre class="chroma"><code>x</code></pre>')).toBe(null);
+  });
+
+  test("ignores attribute values that are not language tokens", () => {
+    expect(
+      languageOf(
+        '<pre><code data-lang="a language with spaces">x</code></pre>',
+      ),
+    ).toBe(null);
+  });
+
+  test("removes line-number gutters from the code text", () => {
+    const { doc } = prepare(
+      '<pre><code><span class="linenos">1\n2</span>const a = 1;</code></pre>',
+    );
+    expect(doc.querySelector("pre code")?.textContent).toBe("const a = 1;");
+  });
+
+  test("unwraps Chroma's line-number table to the code block", () => {
+    // Left alone this converts to a markdown table wrapping a code block.
+    const { doc, html } = prepare(
+      '<div class="highlight"><table class="lntable"><tbody><tr>' +
+        '<td class="lntd"><pre class="chroma"><code>1\n2</code></pre></td>' +
+        '<td class="lntd"><pre class="chroma"><code class="language-go">a\nb</code></pre></td>' +
+        "</tr></tbody></table></div>",
+    );
+    expect(html).not.toContain("<table");
+    expect(doc.querySelector("pre code")?.textContent).toBe("a\nb");
+  });
+});
+
+describe("markdown produced end to end", () => {
+  /** The exact Turndown configuration clipper.ts builds. */
+  function toMarkdown(html: string): string {
+    const doc = docFrom(html);
+    prepareForClipping(doc);
+    const turndown = new TurndownService({
+      headingStyle: "atx",
+      codeBlockStyle: "fenced",
+      bulletListMarker: "-",
+    });
+    turndown.use(gfm);
+    turndown.addRule("tiroMath", mathTurndownRule);
+    return turndown.turndown(doc.body.innerHTML);
+  }
+
+  function katex(tex: string, display = false): string {
+    const math =
+      `<span class="katex"><span class="katex-mathml"><math><semantics>` +
+      `<annotation encoding="application/x-tex">${tex}</annotation>` +
+      `</semantics></math></span></span>`;
+    return display ? `<div class="katex-display">${math}</div>` : math;
+  }
+
+  test("emits LaTeX unescaped", () => {
+    // Turndown's text escaping would produce `\\sqrt{d\_k}` here.
+    const md = toMarkdown(`<p>Scale by ${katex("\\sqrt{d_k}")}.</p>`);
+    expect(md).toBe("Scale by $\\sqrt{d_k}$.");
+  });
+
+  test("display math becomes its own top-level block", () => {
+    const md = toMarkdown(
+      `<p>Before.</p>${katex("E = mc^2", true)}<p>After.</p>`,
+    );
+    expect(splitBlocks(md).map((b) => b.type)).toEqual([
+      "paragraph",
+      "math",
+      "paragraph",
+    ]);
+    expect(md).toContain("$$\nE = mc^2\n$$");
+  });
+
+  test("display math splits a paragraph it was written inside", () => {
+    const md = toMarkdown(`<p>Before ${katex("E = mc^2", true)} after.</p>`);
+    expect(splitBlocks(md).map((b) => b.type)).toEqual([
+      "paragraph",
+      "math",
+      "paragraph",
+    ]);
+  });
+
+  test("a recovered language reaches the fence's info string", () => {
+    const md = toMarkdown(
+      '<div class="highlight highlight-source-js"><pre><code>const a = 1;</code></pre></div>',
+    );
+    expect(md).toBe("```js\nconst a = 1;\n```");
+  });
+});

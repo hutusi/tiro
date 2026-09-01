@@ -8,6 +8,7 @@ export interface ClipResultMessage {
     author: string;
     markdown: string;
     readabilityFailed: boolean;
+    hasMath: boolean;
   };
 }
 
@@ -26,6 +27,7 @@ export function isClipResult(message: unknown): message is ClipResultMessage {
     typeof p.excerpt === "string" &&
     typeof p.author === "string" &&
     typeof p.markdown === "string" &&
-    typeof p.readabilityFailed === "boolean"
+    typeof p.readabilityFailed === "boolean" &&
+    typeof p.hasMath === "boolean"
   );
 }
