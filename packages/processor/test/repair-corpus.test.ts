@@ -39,6 +39,24 @@ describe("repair corpus", () => {
     });
   }
 
+  test("every case behaves identically with CRLF endings", () => {
+    // One assertion covering every transform under CRLF, and every case added
+    // here later. Two transforms once silently did nothing on a CRLF article
+    // while the other three worked — a half-repaired file, which is worse than
+    // an untouched one. repairBody normalizes at its boundary now, so the CRLF
+    // result must be the LF result with the endings put back.
+    for (const name of cases) {
+      const input = readFileSync(join(corpusDir, name, "input.md"), "utf8");
+      const expected = readFileSync(
+        join(corpusDir, name, "expected.md"),
+        "utf8",
+      );
+      expect(repairBody(input.replaceAll("\n", "\r\n"))).toBe(
+        expected.replaceAll("\n", "\r\n"),
+      );
+    }
+  });
+
   test("every case is idempotent", () => {
     // A repair that changes its own output is a repair that fights the next run.
     for (const name of cases) {

@@ -200,7 +200,7 @@ export function promoteTableHeaders(body: string): string {
 
 /** `1.  (1)` / `2.  (b)` — a marker the list already supplies. */
 const DUPLICATE_MARKER =
-  /^([ \t]*(?:\d+\.|[-*+])[ \t]+)\((?:\d+|[a-z]|[ivx]+)\)[ \t\r]*$/i;
+  /^([ \t]*(?:\d+\.|[-*+])[ \t]+)\((?:\d+|[a-z]|[ivx]+)\)[ \t]*$/i;
 
 /**
  * Pull a list item's text up onto its marker line.
@@ -233,11 +233,7 @@ export function liftDuplicateListMarkers(body: string): string {
       out.push(line);
       continue;
     }
-    // Keep the lifted line's own ending: splitting on "\n" leaves the "\r" of a
-    // CRLF file on the line, and trimming it away would mix endings in a file
-    // that had one kind throughout.
-    const eol = first.endsWith("\r") ? "\r" : "";
-    out.push(`${marker[1]}${first.trim()}${eol}`);
+    out.push(`${marker[1]}${first.trim()}`);
     i = j;
   }
   return out.join("\n");
@@ -253,9 +249,34 @@ const TRANSFORMS = [
 
 /** Apply every repair to one markdown body. */
 export function repairBody(body: string): string {
+  // Normalize once here rather than teaching each transform about `\r`. Three
+  // separate CRLF defects were fixed one at a time and each left the next
+  // standing, because every transform was individually responsible for line
+  // endings — two of them silently did nothing on a CRLF article while the
+  // other three worked, which is worse than not running at all. Converting at
+  // the boundary makes every transform LF-only by construction, including ones
+  // written later by someone who never thinks about this.
+  if (!isUniformlyCrlf(body)) return repairLf(body);
+  return repairLf(body.replaceAll("\r\n", "\n")).replaceAll("\n", "\r\n");
+}
+
+function repairLf(body: string): string {
   return outsideVerbatim(body, (prose) =>
     TRANSFORMS.reduce((text, transform) => transform(text), prose),
   );
+}
+
+/**
+ * Every line ends `\r\n` and no stray `\r` appears anywhere.
+ *
+ * Deliberately strict, because normalize-then-restore is only exactly
+ * invertible when the endings are uniform. A lone `\r` — plausible inside a
+ * code block in an article about line endings — sends the body down the direct
+ * path rather than having its bytes rewritten. A mixed-ending body, which
+ * nothing in Tiro produces, is then repaired on its LF-terminated lines only.
+ */
+function isUniformlyCrlf(body: string): boolean {
+  return body.includes("\r\n") && !/(?<!\r)\n|\r(?!\n)/.test(body);
 }
 
 export interface RepairedArticle {
