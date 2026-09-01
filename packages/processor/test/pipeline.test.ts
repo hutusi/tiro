@@ -715,11 +715,14 @@ describe("run budget", () => {
     ).toContain("中文");
 
     // An ordinary run — no --force — now picks it up, which is the whole point.
+    // `toContain`, not `toEqual`: --force reset every article in the fixture
+    // vault, and which of the others also fell outside the budget above is an
+    // accident of how many fixtures there are, not what this test is about.
     const followUp = await runPipeline({ vaultDir: vault }, config, {
       ...deps,
       chat: makeFakeChat(),
     });
-    expect(followUp.processed).toEqual([BIG]);
+    expect(followUp.processed).toContain(BIG);
   });
 
   test("deferring an unforced article writes nothing", async () => {
