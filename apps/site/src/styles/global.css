@@ -146,6 +146,19 @@
   border: 1px solid var(--line);
 }
 
+/* Paired mode renders each pane into a `minmax(0, 1fr)` track with `overflow:
+ * visible`, so anything wider than the column does not scroll or clip — it
+ * paints straight across the gap and over the other column's text. Clipped
+ * articles are full of unbreakable tokens (CDN image URLs, arXiv anchors), and
+ * the default `overflow-wrap: normal` gives them no break opportunity at all.
+ * Links and code get `anywhere` because a URL has no spaces to break at. */
+.prose {
+  overflow-wrap: break-word;
+}
+.prose :where(a, code) {
+  overflow-wrap: anywhere;
+}
+
 /* Paired mode renders into a column roughly half the usual prose width, so a
  * wide formula has to scroll inside its own box rather than widen the row. */
 .prose :where(.katex-display) {

@@ -121,12 +121,12 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
             {view.rows.map((row) => (
               <div class="reader-row grid gap-x-12 gap-y-2 lg:grid-cols-2">
                 <div
-                  class="pane-original prose max-w-none"
+                  class="pane-original prose max-w-none min-w-0"
                   lang={frontmatter.lang}
                   set:html={row.original}
                 />
                 <div
-                  class="pane-translation prose max-w-none"
+                  class="pane-translation prose max-w-none min-w-0"
                   lang="zh-CN"
                   set:html={row.translation}
                 />
