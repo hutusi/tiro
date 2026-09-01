@@ -149,6 +149,34 @@ describe("code language recovery", () => {
     expect(languageOf('<pre class="chroma"><code>x</code></pre>')).toBe(null);
   });
 
+  test("does not read a natural language off a wrapper", () => {
+    // data-lang is also the standard spelling for i18n and tab groups. Reading
+    // it from an ancestor writes ```en into the vault permanently and costs
+    // every code block on the page its highlighting.
+    expect(
+      languageOf('<div data-lang="en"><pre><code>hello</code></pre></div>'),
+    ).toBe(null);
+    expect(
+      languageOf(
+        '<section data-language="fr"><pre><code>x</code></pre></section>',
+      ),
+    ).toBe(null);
+    // The unambiguous container patterns still work.
+    expect(
+      languageOf(
+        '<div class="highlight highlight-source-js"><pre><code>x</code></pre></div>',
+      ),
+    ).toBe("js");
+  });
+
+  test("skips Pandoc's layout classes when reading a bare language", () => {
+    expect(
+      languageOf(
+        '<pre class="sourceCode numberSource javascript numberLines"><code class="sourceCode">x</code></pre>',
+      ),
+    ).toBe("javascript");
+  });
+
   test("ignores attribute values that are not language tokens", () => {
     expect(
       languageOf(
@@ -164,6 +192,15 @@ describe("code language recovery", () => {
     expect(doc.querySelector("pre code")?.textContent).toBe("const a = 1;");
   });
 
+  test("removes Chroma's inline line numbers", () => {
+    const { doc } = prepare(
+      '<pre><code class="language-go"><span class="line">' +
+        '<span class="ln">1</span><span class="cl">func main()</span>' +
+        "</span></code></pre>",
+    );
+    expect(doc.querySelector("pre code")?.textContent).toBe("func main()");
+  });
+
   test("unwraps Chroma's line-number table to the code block", () => {
     // Left alone this converts to a markdown table wrapping a code block.
     const { doc, html } = prepare(
@@ -174,6 +211,21 @@ describe("code language recovery", () => {
     );
     expect(html).not.toContain("<table");
     expect(doc.querySelector("pre code")?.textContent).toBe("a\nb");
+  });
+
+  test("still produces a fence when Chroma's code cell has no code element", () => {
+    // Turndown's fenced-code rule requires a <code>; without one the unwrap
+    // leaves a paragraph, losing the indentation and the monospace.
+    const doc = docFrom(
+      '<div class="highlight"><table class="lntable"><tbody><tr>' +
+        '<td class="lntd"><pre><code>1</code></pre></td>' +
+        '<td class="lntd"><pre class="chroma"><span class="line">func main()</span></pre></td>' +
+        "</tr></tbody></table></div>",
+    );
+    prepareForClipping(doc);
+    expect(htmlToMarkdown(doc.body.innerHTML).markdown).toBe(
+      "```\nfunc main()\n```",
+    );
   });
 });
 

@@ -31,7 +31,7 @@ const MATHJAX_V2_RENDERED =
  * Turndown reads them as part of the source.
  */
 const GUTTERS =
-  ".lineno, .linenos, .line-numbers-rows, .line-number, .gutter, .hljs-ln-numbers, .code-line-numbers, .rouge-gutter";
+  ".lineno, .linenos, .line-numbers-rows, .line-number, .gutter, .hljs-ln-numbers, .code-line-numbers, .rouge-gutter, .ln, .lnt";
 
 /** Conservative: a language token, not arbitrary attribute content. */
 const LANG_TOKEN = /^[a-z0-9][a-z0-9+#._-]{0,19}$/i;
@@ -49,6 +49,36 @@ const LANG_ATTRS = [
   "data-code-language",
   "data-highlight-language",
 ];
+
+/**
+ * Patterns unambiguous enough to trust on an element that is not the code
+ * itself. `data-lang` and friends are *also* the standard spelling for a
+ * natural language on an i18n or tab-group wrapper, so reading them from an
+ * ancestor turns `<div data-lang="en">` into ```en and costs every code block
+ * on the page its highlighting — permanently, since the wrong language is
+ * written into the vault.
+ */
+const CONTAINER_LANG_PATTERNS = [
+  /^language-([\w+#.-]+)$/i,
+  /^highlight-source-([\w+#.-]+)$/i, // GitHub
+];
+
+/**
+ * Classes that sit beside Pandoc's `sourceCode` without being the language.
+ * Its line-numbered output is `class="sourceCode numberSource javascript
+ * numberLines"`, so taking the first bare class name yields "numberSource".
+ */
+const NOT_A_LANGUAGE = new Set([
+  "sourcecode",
+  "numbersource",
+  "numberlines",
+  "highlight",
+  "chroma",
+  "code",
+  "hljs",
+  "pre",
+  "line",
+]);
 
 function texFrom(element: Element): string | null {
   const annotation = element.querySelector(TEX_ANNOTATION);
@@ -147,20 +177,25 @@ function classListOf(element: Element): string[] {
   );
 }
 
-function languageFromClasses(element: Element | null): string | null {
+function languageFromClasses(
+  element: Element | null,
+  patterns: readonly RegExp[] = LANG_CLASS_PATTERNS,
+): string | null {
   if (element === null) return null;
   const classes = classListOf(element);
   for (const name of classes) {
-    for (const pattern of LANG_CLASS_PATTERNS) {
+    for (const pattern of patterns) {
       const value = name.match(pattern)?.[1];
       if (value !== undefined && LANG_TOKEN.test(value)) return value;
     }
   }
+  if (patterns !== LANG_CLASS_PATTERNS) return null;
   // Pandoc writes `class="sourceCode javascript"` — the language is a bare
   // class name, only safe to read because `sourceCode` vouches for it.
   if (classes.some((name) => name.toLowerCase() === "sourcecode")) {
     const bare = classes.find(
-      (name) => name.toLowerCase() !== "sourcecode" && LANG_TOKEN.test(name),
+      (name) =>
+        !NOT_A_LANGUAGE.has(name.toLowerCase()) && LANG_TOKEN.test(name),
     );
     if (bare !== undefined) return bare;
   }
@@ -188,6 +223,14 @@ function unwrapChromaTables(doc: Document): void {
     const codeCell = cells[cells.length - 1];
     const pre = codeCell?.querySelector("pre");
     if (pre === undefined || pre === null) continue;
+    // Chroma often emits the code cell with no <code> inside. Turndown's
+    // fenced-code rule requires one, so unwrapping alone would turn the block
+    // into a paragraph — indentation and monospace gone.
+    if (pre.querySelector("code") === null) {
+      const code = doc.createElement("code");
+      while (pre.firstChild !== null) code.appendChild(pre.firstChild);
+      pre.appendChild(code);
+    }
     table.replaceWith(pre);
   }
 }
@@ -209,9 +252,12 @@ function recoverCodeBlocks(doc: Document): void {
       languageFromAttrs(code) ??
       languageFromClasses(pre) ??
       languageFromAttrs(pre) ??
-      languageFromClasses(pre.parentElement) ??
-      languageFromAttrs(pre.parentElement) ??
-      languageFromClasses(pre.parentElement?.parentElement ?? null);
+      // Containers get the narrow patterns only — see CONTAINER_LANG_PATTERNS.
+      languageFromClasses(pre.parentElement, CONTAINER_LANG_PATTERNS) ??
+      languageFromClasses(
+        pre.parentElement?.parentElement ?? null,
+        CONTAINER_LANG_PATTERNS,
+      );
     if (language === null) continue;
     const classes = (code.getAttribute("class") ?? "").trim();
     code.setAttribute(
