@@ -227,6 +227,33 @@ describe("inline verbatim spans", () => {
     expect(repairBody(body)).toBe(body);
   });
 
+  test("does not eat prose that looks like a mask token", () => {
+    // A fixed token prefix is a substitution waiting to happen: this
+    // repository's own documentation contains the literal string, and an
+    // article quoting it had that text replaced by a code span's contents.
+    const body =
+      "The token TIROVERBATIM0000 appears, and `code` is inline.\n\n|     |     |\n| --- | --- |\n| A | B |";
+    expect(repairBody(body)).toBe(
+      "The token TIROVERBATIM0000 appears, and `code` is inline.\n\n| A | B |\n| --- | --- |",
+    );
+  });
+
+  test("lengthens the prefix until the source disagrees", () => {
+    const body = "Both TIROVERBATIM0000 and TIROVERBATIMX0000, plus `code`.";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("restores content containing $ replacement patterns", () => {
+    // `$$`, `$&`, `` $` `` and `$'` are all replacement syntax, and all occur
+    // in the code spans being restored — `$$` is the shell's PID. Passing the
+    // original as a string lost a `$`, and `$&` put the token itself into the
+    // article.
+    for (const inner of ["a$$b", "a$&b", "a$'b"]) {
+      const body = "Text `" + inner + '` and title `[x](/a "one\ntwo")` here.';
+      expect(repairBody(body)).toContain("`" + inner + "`");
+    }
+  });
+
   test("still repairs the prose around a masked span", () => {
     const body = "Use `code` then:\n\n|     |     |\n| --- | --- |\n| A | B |";
     expect(repairBody(body)).toBe(

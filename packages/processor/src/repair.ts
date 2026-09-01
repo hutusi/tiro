@@ -45,6 +45,9 @@ import {
  */
 function outsideVerbatim(body: string, transform: (prose: string) => string) {
   const ranges = verbatimRanges(body);
+  // Once for the body, not once per gap: the scan is over the whole source
+  // either way, and every gap must agree on which prefix is safe.
+  const prefix = tokenPrefix(body);
   const inline: { start: number; end: number }[] = [];
   const out: string[] = [];
   let cursor = 0;
@@ -59,22 +62,40 @@ function outsideVerbatim(body: string, transform: (prose: string) => string) {
     }
     if (whole.start < cursor) continue;
     if (whole.start > cursor) {
-      out.push(masked(body, cursor, whole.start, inline, transform));
+      out.push(masked(body, cursor, whole.start, inline, transform, prefix));
     }
     out.push(body.slice(whole.start, whole.end));
     cursor = whole.end;
   }
   if (cursor < body.length) {
-    out.push(masked(body, cursor, body.length, inline, transform));
+    out.push(masked(body, cursor, body.length, inline, transform, prefix));
   }
   return out.join("");
 }
 
 const TOKEN_DIGITS = 4;
 const MAX_MASKED = 10 ** TOKEN_DIGITS;
+const TOKEN_BASE = "TIROVERBATIM";
+
+/**
+ * A token prefix that appears nowhere in the source.
+ *
+ * A fixed prefix is a substitution waiting to happen: an article containing the
+ * literal token — this repository's own documentation would — had that text
+ * replaced with the contents of a code span when the mask was undone. Lengthening
+ * until the source disagrees costs one scan and removes the possibility, rather
+ * than making it unlikely. It terminates because a finite source cannot contain
+ * an arbitrarily long run.
+ */
+function tokenPrefix(source: string): string {
+  let prefix = TOKEN_BASE;
+  while (source.includes(prefix)) prefix += "X";
+  return prefix;
+}
+
 /** Alphanumeric on purpose: no transform's pattern can match inside it. */
-const VERBATIM_TOKEN = (i: number) =>
-  `TIROVERBATIM${String(i).padStart(TOKEN_DIGITS, "0")}`;
+const verbatimToken = (prefix: string, i: number) =>
+  `${prefix}${String(i).padStart(TOKEN_DIGITS, "0")}`;
 
 /**
  * Transform one gap with its inline verbatim ranges hidden behind tokens.
@@ -85,10 +106,15 @@ const VERBATIM_TOKEN = (i: number) =>
  * `rejoinSplitFootnotes` — which match across lines, and so reach into an
  * inline code span, inline formula or inline HTML — find nothing to match.
  *
- * Follows `maskMath` in `llm/translate.ts`, including its bound: past the token
- * width the padding stops guaranteeing distinct tokens, and leaving the gap
- * unmasked is the safe direction — it falls back to the protection that existed
- * before rather than to a wrong substitution.
+ * Follows `maskMath` and `unmaskMath` in `llm/translate.ts`, whose two guards
+ * this needs for the same reasons: the replacement is a callback because `$$`,
+ * `$&`, `` $` `` and `$'` are all replacement syntax and all occur in the code
+ * spans being restored, and each token must still be there exactly once or the
+ * transforms moved something and the output cannot be trusted.
+ *
+ * The bound is theirs too: past the token width the padding stops guaranteeing
+ * distinct tokens, and leaving the gap unmasked falls back to the protection
+ * that existed before rather than to a wrong substitution.
  */
 function masked(
   body: string,
@@ -96,6 +122,7 @@ function masked(
   to: number,
   inline: readonly { start: number; end: number }[],
   transform: (prose: string) => string,
+  prefix: string,
 ): string {
   const within = inline.filter((r) => r.start >= from && r.end <= to);
   if (within.length === 0 || within.length > MAX_MASKED) {
@@ -105,15 +132,24 @@ function masked(
   let cursor = from;
   const hidden: string[] = [];
   for (const range of within) {
-    text += body.slice(cursor, range.start) + VERBATIM_TOKEN(hidden.length);
+    text +=
+      body.slice(cursor, range.start) + verbatimToken(prefix, hidden.length);
     hidden.push(body.slice(range.start, range.end));
     cursor = range.end;
   }
-  text = transform(text + body.slice(cursor, to));
-  return hidden.reduce(
-    (result, original, i) => result.replaceAll(VERBATIM_TOKEN(i), original),
-    text,
-  );
+  let out = transform(text + body.slice(cursor, to));
+  for (let i = 0; i < hidden.length; i += 1) {
+    const token = verbatimToken(prefix, i);
+    const first = out.indexOf(token);
+    if (first === -1 || out.indexOf(token, first + token.length) !== -1) {
+      // Dropped or duplicated: no transform should do either, but if one has,
+      // the masked output cannot be restored faithfully. Hand back the gap
+      // untouched — an unrepaired article beats a silently altered one.
+      return body.slice(from, to);
+    }
+    out = out.replace(token, () => hidden[i] ?? "");
+  }
+  return out;
 }
 
 /**
