@@ -475,6 +475,33 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).toBe("ab");
   });
 
+  test("promotes a headerless table's first row instead of a blank header", () => {
+    // GFM cannot write a table without a header, so the plugin synthesizes an
+    // empty one whenever the first row is all <td> — a blank leading row, and
+    // the row of real headings below it still rendered as data. arXiv never
+    // uses <thead>: 51 tables in one paper and 7 in another arrived this way.
+    const { markdown } = convert(
+      "<table><tbody>" +
+        "<tr><td>Paper</td><td>Idea</td></tr>" +
+        "<tr><td>Ours</td><td>K-A</td></tr>" +
+        "</tbody></table>",
+    );
+    expect(markdown).not.toMatch(/^\|\s+\|\s+\|$/m);
+    expect(markdown.split("\n")[0]).toContain("Paper");
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["table"]);
+  });
+
+  test("leaves a table that already declares its header", () => {
+    const { markdown } = convert(
+      "<table><tbody>" +
+        "<tr><th>Paper</th><th>Idea</th></tr>" +
+        "<tr><td>Ours</td><td>K-A</td></tr>" +
+        "</tbody></table>",
+    );
+    expect(markdown.split("\n")[0]).toContain("Paper");
+    expect(markdown).toContain("Ours");
+  });
+
   test("fences a <pre> that has no <code> inside", () => {
     // Sphinx and docutils — so Python's own documentation and most of its
     // ecosystem — emit `<pre>` with only spans in it. Turndown's fenced rule

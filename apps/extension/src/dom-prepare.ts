@@ -330,6 +330,45 @@ function normalizeLinkTitles(doc: Document): void {
 }
 
 /**
+ * Give a headerless table a header row taken from its own first row.
+ *
+ * GFM has no way to write a table without one, so the Turndown plugin
+ * synthesizes an empty one — `|     |     |` above the divider — whenever the
+ * first row is all `<td>`. The result is a blank leading row *and* a first row
+ * of real headings still rendered as data. arXiv never uses `<thead>`, so all
+ * 51 tables in one paper and 7 in another arrived this way.
+ *
+ * Promoting the row is the better of the two available lies: the cells a page
+ * lays out first are the ones it means as headings, which is what a browser
+ * shows for the same markup. Tables that already declare a header, in `<thead>`
+ * or with `<th>` in the first row, are left alone.
+ */
+function promoteTableHeaders(doc: Document): void {
+  for (const table of Array.from(doc.querySelectorAll("table"))) {
+    if (table.querySelector("thead") !== null) continue;
+    const row = table.querySelector("tr");
+    if (row === null || row.querySelector("th") !== null) continue;
+    const cells = Array.from(row.children).filter(
+      (cell) => cell.tagName === "TD",
+    );
+    if (cells.length === 0 || cells.length !== row.children.length) continue;
+    for (const cell of cells) {
+      const heading = doc.createElement("th");
+      for (const attribute of Array.from(cell.attributes)) {
+        heading.setAttribute(attribute.name, attribute.value);
+      }
+      while (cell.firstChild !== null) heading.appendChild(cell.firstChild);
+      cell.replaceWith(heading);
+    }
+    const head = doc.createElement("thead");
+    // Take the row's position, not the table's: a caption or colgroup may come
+    // first, and <thead> has to follow them to stay in a valid table.
+    row.replaceWith(head);
+    head.appendChild(row);
+  }
+}
+
+/**
  * Rewrite a *cloned* document in place. Never call this on the live page —
  * it removes and replaces nodes the user is looking at.
  *
@@ -343,6 +382,10 @@ export function prepareForClipping(doc: Document): void {
   unwrapEquationTables(doc);
   normalizeMath(doc);
   recoverCodeBlocks(doc);
+  // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
+  // line-number gutters). Promoting headers first would rewrite the very cells
+  // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
+  promoteTableHeaders(doc);
 }
 
 /**
