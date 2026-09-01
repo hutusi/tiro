@@ -749,3 +749,82 @@ describe("token substitution", () => {
     expect(splitBlocks(zh ?? "").map((b) => b.type)).toEqual(["list"]);
   });
 });
+
+describe("figure captions", () => {
+  const figure =
+    '<figure><img src="./assets/a.png" alt="A diagram"><figcaption>A caption worth reading.</figcaption></figure>';
+
+  /**
+   * A model that translates the prose it is given and leaves the sentinel
+   * tokens where they are — the same assumption `maskMath` already makes of
+   * every formula it hides.
+   */
+  const tokenPreservingChat: ChatFn = async (request) => {
+    const user = request.messages.find((m) => m.role === "user")?.content ?? "";
+    return user.replace(
+      /(<<<TIRO_BLOCK_\d+>>>\n)([\s\S]*?)(?=<<<TIRO_BLOCK_|$)/g,
+      (_m, marker: string, body: string) =>
+        marker +
+        body
+          .split(/(TIROMATH\d{4})/)
+          .map((part) =>
+            /^TIROMATH\d{4}$/.test(part) || part.trim() === "" ? part : "译文",
+          )
+          .join(""),
+    );
+  };
+
+  test("translates the caption and restores the markup byte-for-byte", async () => {
+    const sent: string[] = [];
+    const chat: ChatFn = async (request) => {
+      sent.push(request.messages.at(-1)?.content ?? "");
+      return tokenPreservingChat(request);
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(figure),
+    });
+    const out = zh ?? "";
+    // The scaffolding is masked, so the model never sees the image path and
+    // cannot rewrite it. checkAlignment would not catch that if it did: an
+    // html block is compared by type, not by bytes.
+    expect(sent.join("\n")).not.toContain("./assets/a.png");
+    expect(sent.join("\n")).not.toContain("<figcaption>");
+    // It comes back intact, with only the caption text replaced.
+    expect(out).toContain('<img src="./assets/a.png" alt="A diagram">');
+    expect(out).toContain("<figcaption>译文</figcaption>");
+    expect(out).not.toContain("A caption worth reading");
+    expect(splitBlocks(out).map((b) => b.type)).toEqual(["html"]);
+  });
+
+  test("reverts to the original when the markup would not survive", async () => {
+    // The existing shape guard is what makes masking safe to attempt: a model
+    // that writes outside the tokens produces a paragraph, not a figure, and
+    // the block is kept in English rather than published broken.
+    const sloppy: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      return user.replace(/(<<<TIRO_BLOCK_\d+>>>\n)/g, "$1前言：");
+    };
+    const zh = await translateBlocks({
+      chat: sloppy,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(figure),
+    });
+    expect(zh?.trim()).toBe(figure);
+  });
+
+  test("leaves other raw HTML blocks verbatim", async () => {
+    const raw = "<div class='promo'>Subscribe now</div>";
+    const zh = await translateBlocks({
+      chat: makeFakeChat(),
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(raw),
+    });
+    expect(zh?.trim()).toBe(raw);
+  });
+});

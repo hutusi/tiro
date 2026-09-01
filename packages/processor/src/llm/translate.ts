@@ -56,7 +56,22 @@ const VERBATIM_TYPES = new Set([
 const IMAGE_ONLY_RE = /^!\[[^\]]*\]\([^)]*\)$/;
 const MARKER = "TIRO_BLOCK";
 
+/**
+ * A figure exactly as the clipper emits it, split into scaffold and caption.
+ *
+ * Deliberately narrow: it matches the one shape `figureRule` produces and
+ * nothing else. Any other raw HTML in the vault stays verbatim, which is the
+ * safe direction — this is the only html we know the internal structure of.
+ */
+const FIGURE_CAPTION_RE =
+  /^(<figure><img\b[^>]*><figcaption>)([\s\S]*)(<\/figcaption><\/figure>)$/;
+
 function isVerbatim(block: Block): boolean {
+  // A figure's caption is prose and was translated when it was a paragraph;
+  // keeping the whole block verbatim just because it is now html would leave
+  // English captions under Chinese figures. Only the caption is sent — see
+  // `maskBlock`.
+  if (block.type === "html") return !FIGURE_CAPTION_RE.test(block.text.trim());
   if (VERBATIM_TYPES.has(block.type)) return true;
   if (block.type !== "paragraph") return false;
   const text = block.text.trim();
@@ -102,7 +117,7 @@ export async function translateBlocks(
     .filter(({ block }) => !isVerbatim(block))
     .map((item) => ({
       ...item,
-      ...maskMath(item.block.text, singleDollarMath),
+      ...maskBlock(item.block.text, singleDollarMath),
     }));
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
@@ -367,6 +382,37 @@ function maskMath(text: string, singleDollar: boolean) {
     cursor = range.end;
   }
   return { masked: masked + text.slice(cursor), formulas };
+}
+
+/**
+ * Mask a block down to the prose the model should actually see.
+ *
+ * For everything but a figure this is `maskMath` unchanged. A figure is
+ * `<figure><img …><figcaption>` + caption + `</figcaption></figure>`, and only
+ * the caption is prose: the scaffolding is masked as two more tokens, so the
+ * markup the model never sees is the markup it cannot mangle — the same bargain
+ * `maskMath` makes for formulas, reusing the same tokens and the same
+ * exactly-once check on the way back.
+ *
+ * Sending the whole figure instead would put an `<img src>` in front of a
+ * translation model, and a mangled one passes every gate: `checkAlignment`
+ * asks an html block for its type, not its bytes, so a rewritten path would
+ * publish as a broken image rather than fail the run.
+ */
+function maskBlock(text: string, singleDollar: boolean) {
+  const figure = FIGURE_CAPTION_RE.exec(text.trim());
+  if (figure === null) return maskMath(text, singleDollar);
+  const [, open = "", caption = "", close = ""] = figure;
+  const inner = maskMath(caption, singleDollar);
+  // Two more tokens must still fit inside the padded token width.
+  if (inner.formulas.length + 2 > MAX_MASKED) {
+    return { masked: text, formulas: [] };
+  }
+  const first = inner.formulas.length;
+  return {
+    masked: `${MATH_TOKEN(first)}${inner.masked}${MATH_TOKEN(first + 1)}`,
+    formulas: [...inner.formulas, open, close],
+  };
 }
 
 /**
