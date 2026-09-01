@@ -446,6 +446,35 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).toBe("[link](/x)");
   });
 
+  test("keeps a link wrapping a block image on one line", () => {
+    // Substack wraps every captioned image in <a><div><img></a>. Turndown puts
+    // the div's surrounding blank lines inside the brackets, so `[`, the image
+    // and `](url)` land on three lines — which markdown cannot read as a link.
+    // The brackets then render literally and the URL becomes a bare autolink.
+    const { markdown } = convert(
+      '<a href="https://cdn.example/full.png">' +
+        '<div><img src="./assets/x.jpg" alt="cap"></div></a>',
+    );
+    expect(markdown).toBe(
+      "[![cap](./assets/x.jpg)](https://cdn.example/full.png)",
+    );
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
+  test("escapes a link destination the way turndown does", () => {
+    const { markdown } = convert(
+      '<p><a href="https://ex.com/a(b)c">x</a> ' +
+        '<a href="https://ex.com/a b">y</a></p>',
+    );
+    expect(markdown).toContain("[x](https://ex.com/a\\(b\\)c)");
+    expect(markdown).toContain("[y](<https://ex.com/a b>)");
+  });
+
+  test("drops an anchor with no text rather than emitting an empty link", () => {
+    const { markdown } = convert('<p>a<a href="/x"></a>b</p>');
+    expect(markdown).toBe("ab");
+  });
+
   test("fences a <pre> that has no <code> inside", () => {
     // Sphinx and docutils — so Python's own documentation and most of its
     // ecosystem — emit `<pre>` with only spans in it. Turndown's fenced rule
