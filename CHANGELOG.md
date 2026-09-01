@@ -11,7 +11,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 - **`tiro-process repair`** rewrites clip-time markdown defects already in the
   vault — a code fix only ever helps the next clip. It edits `index.md` and
-  `zh.md` together or not at all, checking 1:1 block alignment before writing
+  `zh.md` together or not at all — staged writes then renames, so a failure
+  partway leaves both files as they were — checking 1:1 block alignment before writing
   and reporting the pair untouched when a repair would break it (invariant 4).
   A refusal means the two sides were not damaged identically, which no
   symmetric edit can fix: re-clip the page instead. One of its repairs has no

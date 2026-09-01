@@ -1,3 +1,4 @@
+import { rename, rm } from "node:fs/promises";
 import {
   checkAlignment,
   splitBlocks,
@@ -312,13 +313,64 @@ export async function repairVault(
     }
 
     if (options.dryRun !== true) {
-      if (newIndex !== indexText) await Bun.write(indexAbs, newIndex);
-      if (newZh !== null && newZh !== zhText) await Bun.write(zhAbs, newZh);
+      const writes: { pathAbs: string; contents: string; original: string }[] =
+        [];
+      if (newIndex !== indexText) {
+        writes.push({
+          pathAbs: indexAbs,
+          contents: newIndex,
+          original: indexText,
+        });
+      }
+      if (newZh !== null && newZh !== zhText && zhText !== null) {
+        writes.push({ pathAbs: zhAbs, contents: newZh, original: zhText });
+      }
+      await writePairAtomically(writes);
     }
     repaired.push({ slug, files });
   }
 
   return { repaired, refused, scanned };
+}
+
+/**
+ * Replace a whole set of files, or none of them.
+ *
+ * `checkAlignment` above decides the pair is safe to write; that promise is only
+ * worth anything if both halves actually land. Writing them one after another
+ * meant a failure on the second — a full disk, a permission change mid-run —
+ * left the article repaired on one side and not the other, which is exactly the
+ * misaligned state the check exists to prevent.
+ *
+ * Staged writes first, then renames. Everything that can realistically fail
+ * happens while the originals are still in place, and `rename(2)` within a
+ * directory is atomic, the same reasoning the translation checkpoint uses
+ * (`llm/cache.ts`, ADR 0008). Should a rename still fail partway, the originals
+ * are in memory and go back.
+ */
+async function writePairAtomically(
+  writes: readonly { pathAbs: string; contents: string; original: string }[],
+): Promise<void> {
+  const staged: string[] = [];
+  try {
+    for (const write of writes) {
+      const tmpAbs = `${write.pathAbs}.tmp`;
+      await Bun.write(tmpAbs, write.contents);
+      staged.push(tmpAbs);
+    }
+    for (const [i, write] of writes.entries()) {
+      const tmpAbs = staged[i];
+      if (tmpAbs !== undefined) await rename(tmpAbs, write.pathAbs);
+    }
+  } catch (error) {
+    // Put back whatever did land, then clear the staging files so the vault's
+    // `git add -A` never commits them.
+    for (const write of writes) {
+      await Bun.write(write.pathAbs, write.original).catch(() => {});
+    }
+    for (const tmpAbs of staged) await rm(tmpAbs, { force: true });
+    throw error;
+  }
 }
 
 /** Frontmatter is YAML, not markdown — repair the body and leave it alone. */

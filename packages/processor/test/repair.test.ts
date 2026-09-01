@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { splitBlocks } from "@tiro/shared";
@@ -223,6 +231,29 @@ describe("repairVault", () => {
     expect(readFileSync(index, "utf8")).toBe(
       `${before}\n\n[\n\n![c](./assets/x.png)\n\n](https://e.example)\n`,
     );
+  });
+
+  test("leaves both files untouched when one write fails", async () => {
+    const vault = freshVault();
+    const index = join(vault, "articles", EN, "index.md");
+    const zh = join(vault, "articles", EN, "zh.md");
+    const broken = "\n\n|     |     |\n| --- | --- |\n| Paper | Idea |\n";
+    const indexBefore = readFileSync(index, "utf8") + broken;
+    const zhBefore = readFileSync(zh, "utf8") + broken;
+    writeFileSync(index, indexBefore);
+    writeFileSync(zh, zhBefore);
+    // A directory where zh.md's staging file goes, so staging it throws while
+    // index.md's is already staged. Both originals must survive: a half-repaired
+    // pair is the misaligned state checkAlignment exists to prevent.
+    mkdirSync(`${zh}.tmp`);
+
+    await expect(repairVault(vault, { slug: EN })).rejects.toThrow();
+
+    expect(readFileSync(index, "utf8")).toBe(indexBefore);
+    expect(readFileSync(zh, "utf8")).toBe(zhBefore);
+    // The staged half is cleaned up, so the vault's `git add -A` never sees it.
+    expect(existsSync(`${index}.tmp`)).toBe(false);
+    rmSync(`${zh}.tmp`, { recursive: true });
   });
 
   test("dry-run reports the repair without writing it", async () => {
