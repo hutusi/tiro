@@ -424,6 +424,28 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).not.toContain("(1.1)");
   });
 
+  test("keeps a multi-line link title from swallowing the lines after it", () => {
+    // arXiv writes the whole section path into a link's title, and when that
+    // path contains a formula the attribute carries the MathML's rendered
+    // newlines. The emitted title never closes on its line, so the link never
+    // terminates and the swallowed lines arrive as prose — one of them a lone
+    // `=`, which markdown reads as a setext heading, turning the paragraph
+    // above it into an <h1>. 31 links on one real paper did this.
+    const { markdown } = convert(
+      '<p>the first case of (<a href="#S4.E1" ' +
+        'title="In S1. A new infinite family in\n=\nd\n3\nfor ‣ 4.1 Kakeya">' +
+        "1</a>) is a rediscovery.</p>",
+    );
+    expect(markdown).not.toMatch(/^=$/m);
+    expect(markdown.split("\n")).toHaveLength(1);
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
+  test("drops a title that is only whitespace", () => {
+    const { markdown } = convert('<p><a href="/x" title="  ">link</a></p>');
+    expect(markdown).toBe("[link](/x)");
+  });
+
   test("fences a <pre> that has no <code> inside", () => {
     // Sphinx and docutils — so Python's own documentation and most of its
     // ecosystem — emit `<pre>` with only spans in it. Turndown's fenced rule

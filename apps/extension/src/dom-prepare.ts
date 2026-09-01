@@ -304,6 +304,32 @@ function recoverCodeBlocks(doc: Document): void {
 }
 
 /**
+ * Flatten every `title` attribute onto one line.
+ *
+ * Turndown copies a link's title straight into `[text](href "title")`. arXiv
+ * writes the whole section path into one — `title="In 2.1 Kolmogorov-Arnold
+ * Representation theorem ‣ 2 ..."` — and when that path contains a formula the
+ * attribute contains the MathML's *rendered* newlines. The emitted title then
+ * never closes on its line, so the link never terminates, and the lines it
+ * swallows arrive as prose. One of them is routinely a lone `=`, which markdown
+ * reads as a setext heading: the paragraph above it becomes an `<h1>`.
+ *
+ * That is the "prose rendered as a giant headline" failure, and `headingStyle:
+ * "atx"` cannot prevent it — the `=` comes from the title text, not from a
+ * heading rule. Collapsing the whitespace fixes the link; dropping the quote
+ * stops a title from closing itself early and spilling the rest as link text.
+ */
+function normalizeLinkTitles(doc: Document): void {
+  for (const element of Array.from(doc.querySelectorAll("[title]"))) {
+    const title = element.getAttribute("title");
+    if (title === null) continue;
+    const flattened = title.replace(/\s+/g, " ").replace(/"/g, "").trim();
+    if (flattened === "") element.removeAttribute("title");
+    else if (flattened !== title) element.setAttribute("title", flattened);
+  }
+}
+
+/**
  * Rewrite a *cloned* document in place. Never call this on the live page —
  * it removes and replaces nodes the user is looking at.
  *
@@ -313,6 +339,7 @@ function recoverCodeBlocks(doc: Document): void {
  * in a discarded sidebar set the flag (see markdown.ts).
  */
 export function prepareForClipping(doc: Document): void {
+  normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);
   recoverCodeBlocks(doc);
