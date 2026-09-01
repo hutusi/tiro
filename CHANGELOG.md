@@ -78,9 +78,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   it would have ended every later run too.
 - **A block too large to send is kept untranslated instead of blocking the
   article** (`translation.max_block_chars`, default 20000). A top-level block is
-  never split, so an oversized one is sent alone and expects an equally large
-  response — past the provider's output cap it simply never succeeds. A 177-entry
-  arXiv bibliography, 47K chars as one list, is the case this exists for.
+  never split, so an oversized one used to be sent alone and expect an equally
+  large response — past the provider's output cap that simply never succeeded,
+  and the article went with it. Such a block is now left out of the batch and
+  passes through in its original language. A 177-entry arXiv bibliography, 47K
+  chars as one list, is the case this exists for.
 - **One oversized article no longer starves the processing queue.** A 170 KB
   clip needed 14 sequential translation batches and could not finish inside the
   job's 30-minute cap; because translation kept no state, every retry restarted
