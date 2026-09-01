@@ -1,3 +1,4 @@
+import { normalizeBlockMath } from "@tiro/shared";
 import type { Root } from "hast";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -114,7 +115,7 @@ export function renderBlockHtml(
   slug: string,
   options: RenderOptions = {},
 ): string {
-  const withAssets = blockText.replaceAll(
+  const withAssets = normalizeBlockMath(blockText).replaceAll(
     "./assets/",
     `/vault-assets/${slug}/`,
   );

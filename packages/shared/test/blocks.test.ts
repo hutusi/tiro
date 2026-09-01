@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { checkAlignment, joinBlocks, splitBlocks } from "../src/blocks.ts";
+import {
+  checkAlignment,
+  inlineMathRanges,
+  joinBlocks,
+  normalizeBlockMath,
+  splitBlocks,
+} from "../src/blocks.ts";
 
 const canonicalBody = [
   "# Heading",
@@ -89,6 +95,32 @@ describe("splitBlocks", () => {
     expect(blocks.map((b) => b.type)).toEqual(["paragraph"]);
   });
 
+  test("re-reads an unclosed $$ fence as prose", () => {
+    // An unclosed fence runs to end of document, so a price tier or a note
+    // about the shell's $$ used to swallow the whole article into one math
+    // block: copied verbatim past the translator, rendered as one red error,
+    // and silent, because both sides parse identically and alignment passes.
+    const body =
+      "Our tiers:\n$$10 for the basic plan.\n\nSecond paragraph.\n\n## Next\n\nMore.";
+    const blocks = splitBlocks(body);
+    expect(blocks.map((b) => b.type)).not.toContain("math");
+    expect(blocks.map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+      "paragraph",
+      "heading",
+      "paragraph",
+    ]);
+    // Byte-identity survives the re-read: every block is still a slice.
+    for (const b of blocks) expect(body).toContain(b.text);
+  });
+
+  test("still reads a closed fence as math", () => {
+    expect(splitBlocks("$$\nE = mc^2\n$$").map((b) => b.type)).toEqual([
+      "math",
+    ]);
+  });
+
   test("returns an empty array for an empty body", () => {
     expect(splitBlocks("")).toEqual([]);
     expect(splitBlocks("\n\n")).toEqual([]);
@@ -154,5 +186,62 @@ describe("checkAlignment", () => {
     const result = checkAlignment(mathOriginal, translated);
     expect(result.ok).toBe(false);
     expect(result.errors[0]).toContain("math block was altered");
+  });
+});
+
+describe("inlineMathRanges", () => {
+  const text = "The variance $d_k$ grows as $O(n^2)$.";
+
+  test("reports each formula's delimiters by offset", () => {
+    const ranges = inlineMathRanges(text, { singleDollar: true });
+    expect(ranges.map((r) => r.value)).toEqual(["d_k", "O(n^2)"]);
+    // Offsets span the delimiters, so a caller can splice rather than guess.
+    expect(text.slice(ranges[0]?.start, ranges[0]?.end)).toBe("$d_k$");
+    expect(text.slice(ranges[1]?.start, ranges[1]?.end)).toBe("$O(n^2)$");
+  });
+
+  test("reads single dollars as math only when asked to", () => {
+    expect(inlineMathRanges(text, { singleDollar: false })).toEqual([]);
+    // The reason the option exists: without it, a price becomes a formula.
+    expect(
+      inlineMathRanges("costs $5 to $10", { singleDollar: true }).map(
+        (r) => r.value,
+      ),
+    ).toEqual(["5 to "]);
+    expect(
+      inlineMathRanges("costs $5 to $10", { singleDollar: false }),
+    ).toEqual([]);
+  });
+
+  test("still finds doubled delimiters with single dollars off", () => {
+    expect(
+      inlineMathRanges("scales as $$O(n)$$ here", { singleDollar: false }).map(
+        (r) => r.value,
+      ),
+    ).toEqual(["O(n)"]);
+  });
+});
+
+describe("normalizeBlockMath", () => {
+  test("escapes an unclosed fence so it renders as the prose it is", () => {
+    expect(normalizeBlockMath("$$10 for the basic plan.")).toBe(
+      "\\$\\$10 for the basic plan.",
+    );
+    expect(normalizeBlockMath("$$ is the shell PID variable.")).toBe(
+      "\\$\\$ is the shell PID variable.",
+    );
+  });
+
+  test("promotes a single-line $$…$$ paragraph to display math", () => {
+    // micromark needs the fences on their own lines for a display block, so
+    // one line renders inline — no centring, no overflow box.
+    expect(normalizeBlockMath("$$E = mc^2$$")).toBe("$$\nE = mc^2\n$$");
+  });
+
+  test("leaves inline math, real display math, and prose alone", () => {
+    expect(normalizeBlockMath("$x$")).toBe("$x$");
+    expect(normalizeBlockMath("$$\nE = mc^2\n$$")).toBe("$$\nE = mc^2\n$$");
+    expect(normalizeBlockMath("costs $5 to $10")).toBe("costs $5 to $10");
+    expect(normalizeBlockMath("plain prose")).toBe("plain prose");
   });
 });

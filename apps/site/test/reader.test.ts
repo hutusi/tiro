@@ -114,6 +114,17 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("katex-display");
   });
 
+  test("renders an unclosed $$ fence as prose, not one red error blob", () => {
+    const html = renderBlockHtml("$$10 for the basic plan.", "s");
+    expect(html).toBe("<p>$$10 for the basic plan.</p>");
+    expect(html).not.toContain("katex");
+  });
+
+  test("promotes a single-line $$…$$ paragraph to display math", () => {
+    const html = renderBlockHtml("$$E = mc^2$$", "s");
+    expect(html).toContain("katex-display");
+  });
+
   test("renders broken TeX as an error instead of failing the build", () => {
     const html = renderBlockHtml("$$\n\\frac{1}\n$$", "s");
     expect(html).toContain("katex-error");
