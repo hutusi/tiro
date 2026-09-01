@@ -606,3 +606,83 @@ describe("translateBlocks fidelity", () => {
     expect(out[0]?.text).toBe("中文：Intro paragraph.");
   });
 });
+
+describe("inline math through translation", () => {
+  const mathBlocks = splitBlocks("The variance $d_k$ grows as $O(n^2)$ here.");
+
+  test("never shows the model the LaTeX, and puts it back verbatim", () => {
+    return (async () => {
+      const seen: string[] = [];
+      const zh = await translateBlocks({
+        chat: makeFakeChat({
+          onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+        }),
+        model: "m",
+        targetLang: "zh",
+        blocks: mathBlocks,
+        singleDollarMath: true,
+      });
+      const sent = seen.join("\n");
+      expect(sent).not.toContain("d_k");
+      expect(sent).not.toContain("O(n^2)");
+      expect(sent).toContain("TIROMATH0");
+      expect(zh).toContain("$d_k$");
+      expect(zh).toContain("$O(n^2)$");
+    })();
+  });
+
+  test("reverts the block when the model mangles a formula", async () => {
+    // The exact case a reviewer reproduced: $E=mc^2$ came back as $E=mc^3$,
+    // passed alignment because the block was still a paragraph, and published.
+    const blocks = splitBlocks("Einstein showed $E=mc^2$ holds.");
+    const chat: ChatFn = async (request) => {
+      const user = request.messages.at(-1)?.content ?? "";
+      const marker = user.match(/<<<TIRO_BLOCK_\d+>>>/)?.[0] ?? "";
+      // A model that ignored the mask and wrote its own formula.
+      return `${marker}\n爱因斯坦证明 $E=mc^3$ 成立。`;
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      singleDollarMath: true,
+    });
+    expect(zh).not.toContain("mc^3");
+    expect(zh?.trim()).toBe("Einstein showed $E=mc^2$ holds.");
+  });
+
+  test("reverts when the model unescapes a literal dollar into a formula", async () => {
+    const blocks = splitBlocks("It costs \\$5 to \\$10 with $x$ users.");
+    const chat: ChatFn = async (request) => {
+      const user = request.messages.at(-1)?.content ?? "";
+      const marker = user.match(/<<<TIRO_BLOCK_\d+>>>/)?.[0] ?? "";
+      return `${marker}\n费用为 $5 到 $10，有 TIROMATH0 位用户。`;
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      singleDollarMath: true,
+    });
+    expect(zh?.trim()).toBe("It costs \\$5 to \\$10 with $x$ users.");
+  });
+
+  test("leaves prose dollars alone when the article did not declare math", async () => {
+    // singleDollarMath off: "$5 to $" is not a formula, so nothing is masked
+    // and the price paragraph translates normally.
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: makeFakeChat({
+        onRequest: (r) => seen.push(r.messages.at(-1)?.content ?? ""),
+      }),
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks("The API costs $5 to $10 per month."),
+      singleDollarMath: false,
+    });
+    expect(seen.join("\n")).not.toContain("TIROMATH");
+    expect(zh).toContain("中文");
+  });
+});

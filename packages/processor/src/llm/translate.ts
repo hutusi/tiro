@@ -1,6 +1,7 @@
 import {
   type Block,
   checkAlignment,
+  inlineMathRanges,
   isInlineMathOnlyParagraph,
   joinBlocks,
   splitBlocks,
@@ -33,6 +34,13 @@ export interface TranslateOptions {
    * normally the client's per-request timeout, so a call cannot overrun the
    * budget by more than one request. */
   callBudgetMs?: number;
+  /**
+   * Whether `$…$` is math in this article — frontmatter `has_math`. Must match
+   * how the site will render it: masking single dollars in an article that
+   * never declared them curated would hide "5 to " out of "costs $5 to $10"
+   * and leave the price untranslated.
+   */
+  singleDollarMath?: boolean;
   log?: (message: string) => void;
 }
 
@@ -82,12 +90,17 @@ export async function translateBlocks(
     cache,
     deadline = unboundedDeadline(),
     callBudgetMs = 0,
+    singleDollarMath = false,
     log = () => {},
   } = options;
 
   const translated: string[] = blocks.map((b) => b.text);
   const candidates = blocks
-    .map((block, index) => ({ block, index }))
+    .map((block, index) => ({
+      block,
+      index,
+      ...maskMath(block.text, singleDollarMath),
+    }))
     .filter(({ block }) => !isVerbatim(block));
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
@@ -122,7 +135,11 @@ export async function translateBlocks(
     // an *indented* code block, which then re-parses as a paragraph and fails
     // the alignment gate — silently costing the article its whole translation
     // even though the block was never sent anywhere. Verbatim means verbatim.
-    const cleaned = text.trim() || item.block.text;
+    // Restored before anything else sees it: the checkpoint is keyed on the
+    // original text and must hold a real translation, or a resumed run reads
+    // the tokens back out and publishes TIROMATH0 into zh.md.
+    const restored = unmaskMath(text.trim(), item.formulas);
+    const cleaned = restored?.trim() || item.block.text;
     translated[item.index] = cleaned;
     cache?.set(item.block.text, cleaned);
   };
@@ -157,6 +174,15 @@ export async function translateBlocks(
   const collision = todo.some(({ block }) =>
     block.text.includes(`<<<${MARKER}`),
   );
+  // A source that already contains a math token would have unmaskMath put a
+  // formula where the author wrote prose. Vanishingly unlikely, but the cost
+  // of being wrong is a corrupted paragraph, so refuse to mask that block.
+  for (const item of todo) {
+    if (item.formulas.length > 0 && item.block.text.includes("TIROMATH")) {
+      item.masked = item.block.text;
+      item.formulas = [];
+    }
+  }
 
   try {
     if (collision) {
@@ -165,7 +191,7 @@ export async function translateBlocks(
         deadline.check(callBudgetMs, `block ${item.index}`);
         record(
           item,
-          await translateSingle(chat, model, targetLang, item.block),
+          await translateSingle(chat, model, targetLang, item.masked),
         );
         await cache?.flush();
       }
@@ -211,7 +237,7 @@ export async function translateBlocks(
           deadline.check(callBudgetMs, `block ${item.index}`);
           record(
             item,
-            await translateSingle(chat, model, targetLang, item.block),
+            await translateSingle(chat, model, targetLang, item.masked),
           );
           await cache?.flush();
         }
@@ -237,17 +263,32 @@ export async function translateBlocks(
   // such blocks out of 364 used to reject the whole article, and no prompt can
   // fix a source that means something other than it looks like.
   let reverted = 0;
+  const mathOf = (text: string): string =>
+    inlineMathRanges(text, { singleDollar: singleDollarMath })
+      .map((r) => r.value)
+      .sort()
+      .join("\u0000");
   const finalText = blocks.map((b, i) => {
     const candidate = translated[i] || b.text;
     if (candidate === b.text) return b.text;
     const reparsed = splitBlocks(candidate);
-    if (reparsed.length === 1 && reparsed[0]?.type === b.type) return candidate;
-    reverted += 1;
-    return b.text;
+    if (reparsed.length !== 1 || reparsed[0]?.type !== b.type) {
+      reverted += 1;
+      return b.text;
+    }
+    // Masking means the formulas should come back untouched; a difference here
+    // is the model having invented or destroyed one — most plausibly by
+    // dropping the backslash from an escaped `\$`, which would turn a price
+    // into a formula in the translated pane alone.
+    if (mathOf(candidate) !== mathOf(b.text)) {
+      reverted += 1;
+      return b.text;
+    }
+    return candidate;
   });
   if (reverted > 0) {
     log(
-      `${reverted} block(s) reverted to the original: the translation changed their markdown shape`,
+      `${reverted} block(s) reverted to the original: the translation changed their markdown shape or their math`,
     );
   }
 
@@ -272,6 +313,57 @@ export async function translateBlocks(
 interface Todo {
   block: Block;
   index: number;
+  /** `block.text` with each formula replaced by a token — what gets sent. */
+  masked: string;
+  /** The formulas, in the order their tokens appear. */
+  formulas: string[];
+}
+
+/**
+ * Opaque and markdown-inert, and deliberately unlike the batch protocol's
+ * `<<<TIRO_BLOCK_n>>>` so the two can never be confused for one another.
+ */
+const MATH_TOKEN = (i: number) => `TIROMATH${i}`;
+
+/**
+ * Replace every inline formula with a token.
+ *
+ * The prompt asking the model to leave LaTeX alone was the only thing
+ * protecting it, and a mangled formula passes every structural gate: the block
+ * still parses as a paragraph, so alignment is satisfied and wrong mathematics
+ * publishes silently. Backslashes and braces are exactly what a translation
+ * pass rewrites. The model cannot mangle what it never sees.
+ */
+function maskMath(text: string, singleDollar: boolean) {
+  const ranges = inlineMathRanges(text, { singleDollar });
+  if (ranges.length === 0) return { masked: text, formulas: [] };
+  let masked = "";
+  let cursor = 0;
+  const formulas: string[] = [];
+  for (const range of ranges) {
+    masked += text.slice(cursor, range.start) + MATH_TOKEN(formulas.length);
+    formulas.push(text.slice(range.start, range.end));
+    cursor = range.end;
+  }
+  return { masked: masked + text.slice(cursor), formulas };
+}
+
+/**
+ * Put the formulas back. Returns null when the tokens did not survive — the
+ * caller then keeps the original block, so a model that mangled a token costs
+ * one untranslated paragraph rather than one wrong formula.
+ */
+function unmaskMath(text: string, formulas: readonly string[]): string | null {
+  let out = text;
+  for (let i = 0; i < formulas.length; i += 1) {
+    const token = MATH_TOKEN(i);
+    const first = out.indexOf(token);
+    if (first === -1 || out.indexOf(token, first + token.length) !== -1) {
+      return null; // dropped, or duplicated into a second formula
+    }
+    out = out.replace(token, formulas[i] ?? "");
+  }
+  return out;
 }
 
 function packBatches(todo: readonly Todo[], batchChars: number): Todo[][] {
@@ -279,13 +371,13 @@ function packBatches(todo: readonly Todo[], batchChars: number): Todo[][] {
   let current: Todo[] = [];
   let size = 0;
   for (const item of todo) {
-    if (current.length > 0 && size + item.block.text.length > batchChars) {
+    if (current.length > 0 && size + item.masked.length > batchChars) {
       batches.push(current);
       current = [];
       size = 0;
     }
     current.push(item);
-    size += item.block.text.length;
+    size += item.masked.length;
   }
   if (current.length > 0) batches.push(current);
   return batches;
@@ -311,7 +403,7 @@ async function translateBatch(
   log: (message: string) => void,
 ): Promise<(string | undefined)[] | null> {
   const input = batch
-    .map((item, i) => `<<<${MARKER}_${i}>>>\n${item.block.text}`)
+    .map((item, i) => `<<<${MARKER}_${i}>>>\n${item.masked}`)
     .join("\n");
   const messages = [
     { role: "system" as const, content: batchSystemPrompt(targetLang) },
@@ -352,7 +444,7 @@ async function translateSingle(
   chat: ChatFn,
   model: string,
   targetLang: string,
-  block: Block,
+  blockText: string,
 ): Promise<string> {
   const system = [
     `You translate one markdown block into the language "${targetLang}".`,
@@ -363,7 +455,7 @@ async function translateSingle(
     model,
     messages: [
       { role: "system", content: system },
-      { role: "user", content: block.text },
+      { role: "user", content: blockText },
     ],
   });
   return raw.trim();

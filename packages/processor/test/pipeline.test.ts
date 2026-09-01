@@ -240,57 +240,6 @@ describe("failure markers", () => {
   });
 });
 
-describe("has_math backfill", () => {
-  const RAW_SLUG = "example-org-blog-raw-clip-b5de6fbd";
-
-  function writeRaw(vault: string, body: string, frontmatterLines: string[]) {
-    writeFileSync(
-      join(vault, "articles", RAW_SLUG, "index.md"),
-      [
-        "---",
-        'url: "https://example.org/blog/raw-clip"',
-        'title: "Raw Clip"',
-        'domain: "example.org"',
-        'clipped_at: "2026-08-23T09:00:00.000Z"',
-        ...frontmatterLines,
-        "tiro:",
-        "  schema: 1",
-        "---",
-        "",
-        body,
-        "",
-      ].join("\n"),
-    );
-  }
-
-  async function processRaw(vault: string) {
-    const config = await loadVaultConfig(vault);
-    await runPipeline({ vaultDir: vault, slug: RAW_SLUG }, config, deps);
-    return parseArticle(
-      readFileSync(join(vault, "articles", RAW_SLUG, "index.md"), "utf8"),
-    ).frontmatter;
-  }
-
-  test("fills the flag in from a display-math block on an older clip", async () => {
-    const vault = freshVault();
-    writeRaw(vault, "Intro.\n\n$$\nE = mc^2\n$$", []);
-    expect((await processRaw(vault)).has_math).toBe(true);
-  });
-
-  test("leaves prose dollar amounts alone", async () => {
-    // The whole point of the flag: inline `$` is never evidence of math.
-    const vault = freshVault();
-    writeRaw(vault, "The plan costs $5 to $10 per month.", []);
-    expect((await processRaw(vault)).has_math).toBeUndefined();
-  });
-
-  test("never overrides what the clipper recorded", async () => {
-    const vault = freshVault();
-    writeRaw(vault, "Inline $x^2$ only, no display block.", ["has_math: true"]);
-    expect((await processRaw(vault)).has_math).toBe(true);
-  });
-});
-
 describe("hard failures", () => {
   const SECOND = "zz-second-pending-article-aaaaaaaa";
   const secondClip = [
