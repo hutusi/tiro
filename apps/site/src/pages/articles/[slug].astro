@@ -196,10 +196,20 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
   #reader[data-mode="translation"] > :not(:last-child) {
     margin-block-end: 1.25rem;
   }
-  /* Per-block prose roots suppress prose's own heading margins; give rows
-     that open a section their breathing room back. */
-  #reader > :global(.reader-row:has(h2, h3):not(:first-child)) {
+  /* Per-block prose roots suppress prose's own heading margins — every block is
+     both :first-child and :last-child of its pane, so typography zeroes them —
+     and space-y-6 then spaces every row identically. Give rows that open a
+     section their breathing room back, graded by level so the hierarchy reads.
+     All six levels, not just h2/h3: clipped papers use h1 for the title and
+     h4-h6 for abstracts, theorems and proofs. */
+  #reader > :global(.reader-row:has(h1, h2):not(:first-child)) {
+    margin-top: 3rem;
+  }
+  #reader > :global(.reader-row:has(h3):not(:first-child)) {
     margin-top: 2rem;
+  }
+  #reader > :global(.reader-row:has(h4, h5, h6):not(:first-child)) {
+    margin-top: 1.5rem;
   }
   /* Raw tokens (--surface/--accent), not --color-*: `@theme inline`
      substitutes the --color-* names away at build time. */

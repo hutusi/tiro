@@ -119,6 +119,22 @@
   font-weight: 700;
 }
 
+/* Typography styles h1-h4 only, so h5/h6 inherited body size and weight and
+ * read as plain paragraphs. arXiv papers put "Abstract", "Theorem 2.1" and
+ * "Proof." at h6, which is most of a paper's structure rendered invisible. */
+.prose :where(h5) {
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.prose :where(h6) {
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--tw-prose-headings);
+}
+
 .prose :where(a) {
   text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
   text-underline-offset: 3px;

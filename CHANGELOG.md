@@ -7,6 +7,28 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The two reader columns no longer paint on top of each other.** Each pane is
+  a `minmax(0, 1fr)` grid track with `overflow: visible`, so anything wider than
+  the column neither scrolled nor clipped — it crossed the gap and overprinted
+  the other column's text. Nothing in the site broke a long token: there was no
+  `overflow-wrap`, `word-break` or `hyphens` rule anywhere, and clipped articles
+  are full of CDN image URLs and arXiv anchors with nothing to break at. Wide
+  tables had the same defect from the other direction — typography guards `pre`
+  with `overflow-x: auto` but leaves tables unguarded — and now scroll inside
+  their own box, wrapped after the sanitize step so the allowlist stays narrow
+  (ADR 0009). `min-w-0` on the panes fixes the mirror-image symptom in
+  single-pane mode, where the track is `minmax(auto, 1fr)` and one long URL gave
+  the whole page a horizontal scrollbar instead.
+- **Headings read as headings again.** Rendering each block into its own `.prose`
+  root makes every block both `:first-child` and `:last-child`, so typography
+  zeroes its margins and `space-y-6` spaces every row identically; only h2 and h3
+  got their spacing restored. Row spacing is now graded across all six levels,
+  and h5/h6 — which typography does not style at all — are given size and weight.
+  arXiv papers put "Abstract", "Theorem" and "Proof." at h6, so most of a paper's
+  structure was rendering as plain paragraphs.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added
