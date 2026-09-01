@@ -110,6 +110,43 @@ describe("repairBody", () => {
     expect(repairBody(body)).toBe(body);
   });
 
+  test("leaves a longer fence alone, inner ``` included", () => {
+    // A line scanner reading the first three backticks takes the inner fence
+    // for the closer and rewrites the rest of the code as prose.
+    const body =
+      "````md\n```\n|     |     |\n| --- | --- |\n| a | b |\n```\n````";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("still repairs after a one-line $$ formula", () => {
+    // A scanner that opens on `$$` and looks for the close on a later line
+    // never closes this one, silently skipping every repair after it.
+    const body = "$$E=mc^2$$\n\n1.  (1)\n    \n    Content.\n";
+    expect(repairBody(body)).toBe("$$E=mc^2$$\n\n1.  Content.\n");
+  });
+
+  test("leaves an indented code block alone", () => {
+    const body = "text\n\n    1.  (1)\n\nmore";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("promotes a header on a row that contains inline html", () => {
+    // remark reads each <br> in a clipped table cell as an html node. Cutting
+    // the text at every verbatim range split the row mid-line and handed
+    // promoteTableHeaders half of it, which it mangled — so only ranges that
+    // have their lines to themselves are allowed to split.
+    const body =
+      "|     |     |\n| --- | --- |\n| 1  <br>2 | \\# dig TXT  <br>;; ANSWER |";
+    expect(repairBody(body)).toBe(
+      "| 1  <br>2 | \\# dig TXT  <br>;; ANSWER |\n| --- | --- |",
+    );
+  });
+
+  test("leaves an inline code span alone", () => {
+    const body = "write `1.  (1)` like this";
+    expect(repairBody(body)).toBe(body);
+  });
+
   test("leaves display math alone", () => {
     const body = "$$\n1.  (1)\n$$";
     expect(repairBody(body)).toBe(body);

@@ -1,4 +1,9 @@
-import { checkAlignment, splitBlocks, translationPath } from "@tiro/shared";
+import {
+  checkAlignment,
+  splitBlocks,
+  translationPath,
+  verbatimRanges,
+} from "@tiro/shared";
 
 /**
  * Repair markdown that the clipper wrote before its Turndown defects were
@@ -14,47 +19,64 @@ import { checkAlignment, splitBlocks, translationPath } from "@tiro/shared";
  * preserves structure.
  */
 
-/** A fence line, so transforms can leave code and display math alone. */
-const FENCE = /^\s*(```|~~~|\$\$)/;
+/**
+ * Run `transform` over everything the parser does not call code, math or raw
+ * HTML.
+ *
+ * Every pattern below is a line shape, and line shapes occur inside code blocks
+ * for entirely legitimate reasons — a shell transcript contains `|  |`, a diff
+ * contains `[`, a markdown tutorial contains all of them. Splitting the text
+ * first means no transform has to carry its own "unless this is code" condition.
+ *
+ * This asks `verbatimRanges` rather than scanning for fences, because scanning
+ * cannot be made right: it read the first three backticks of a longer fence and
+ * mistook the inner ``` for its closer, and it opened on a one-line `$$E=mc^2$$`
+ * that closes on the same line and so never closed at all — silently skipping
+ * every repair after it. The parser knows fence lengths, indented code and
+ * inline spans without being told.
+ *
+ * Still a denylist of node *types*, unlike `proseRanges`' allowlist, and
+ * deliberately: these repairs join text across nodes — `[`, an image and
+ * `](url)` are three separate blocks, which is the defect — so "only touch text
+ * nodes" cannot express them. What changed is that the list is the parser's
+ * answer instead of a guess about line shapes.
+ */
+function outsideVerbatim(body: string, transform: (prose: string) => string) {
+  const out: string[] = [];
+  let cursor = 0;
+  for (const range of verbatimRanges(body)) {
+    if (!ownsItsLines(body, range)) continue;
+    if (range.start > cursor) {
+      out.push(transform(body.slice(cursor, range.start)));
+    }
+    out.push(body.slice(range.start, range.end));
+    cursor = range.end;
+  }
+  if (cursor < body.length) out.push(transform(body.slice(cursor)));
+  return out.join("");
+}
 
 /**
- * Run `transform` over the prose between fences only.
+ * Whether a range has its lines to itself, ignoring indentation and quoting.
  *
- * Every pattern below is a line shape, and line shapes occur inside code
- * blocks for entirely legitimate reasons — a shell transcript contains `|  |`,
- * a diff contains `[`. Splitting on fences first means no transform has to
- * carry its own "unless this is code" condition.
+ * Every transform reads whole lines, so cutting the text at something that
+ * begins mid-line hands them a fragment. The `<br>` between two cells of a
+ * clipped table is such a range — remark reads each one as an html node — and
+ * splitting there left `promoteTableHeaders` looking at half a row, which it
+ * duly mangled. Inline code and inline math have the same shape.
+ *
+ * Leaving those in place costs nothing: a line with prose on it is not a bare
+ * `|  |  |` or a bare `N.  (n)`, so no line transform matches it either way.
  */
-function outsideFences(body: string, transform: (prose: string) => string) {
-  const lines = body.split("\n");
-  const out: string[] = [];
-  let prose: string[] = [];
-  let fence: string | null = null;
-
-  const flush = () => {
-    if (prose.length > 0) out.push(transform(prose.join("\n")));
-    prose = [];
-  };
-
-  for (const line of lines) {
-    const marker = FENCE.exec(line)?.[1];
-    if (fence === null && marker !== undefined) {
-      flush();
-      fence = marker;
-      out.push(line);
-    } else if (fence !== null) {
-      out.push(line);
-      // `$$` opens and closes with the same marker; a ``` fence closes on any
-      // line that starts with one, which is what turndown emits.
-      if (marker !== undefined && (marker === fence || fence === "$$")) {
-        fence = null;
-      }
-    } else {
-      prose.push(line);
-    }
-  }
-  flush();
-  return out.join("\n");
+function ownsItsLines(
+  body: string,
+  range: { start: number; end: number },
+): boolean {
+  const lineStart = body.lastIndexOf("\n", range.start - 1) + 1;
+  const before = body.slice(lineStart, range.start);
+  const lineEnd = body.indexOf("\n", range.end);
+  const after = body.slice(range.end, lineEnd === -1 ? body.length : lineEnd);
+  return /^[\s>]*$/.test(before) && after.trim() === "";
 }
 
 /**
@@ -204,7 +226,7 @@ const TRANSFORMS = [
 
 /** Apply every repair to one markdown body. */
 export function repairBody(body: string): string {
-  return outsideFences(body, (prose) =>
+  return outsideVerbatim(body, (prose) =>
     TRANSFORMS.reduce((text, transform) => transform(text), prose),
   );
 }
