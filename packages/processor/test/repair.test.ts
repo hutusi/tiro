@@ -19,6 +19,7 @@ import {
   rejoinSplitLinks,
   repairBody,
   repairVault,
+  stripHeadingAnchors,
 } from "../src/repair.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
@@ -100,6 +101,38 @@ describe("rejoinSplitFootnotes", () => {
   test("leaves a bracket that is not a footnote label", () => {
     const text = "\\[\n\nsomething else\\]";
     expect(rejoinSplitFootnotes(text)).toBe(text);
+  });
+});
+
+describe("stripHeadingAnchors", () => {
+  test("drops the trailing permalink anchor, keeping the heading", () => {
+    const broken =
+      "#### Model selection [#](https://ex.com/p/#model-selection)";
+    expect(splitBlocks(broken).map((b) => b.type)).toEqual(["heading"]);
+    const fixed = stripHeadingAnchors(broken);
+    expect(fixed).toBe("#### Model selection");
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual(["heading"]);
+  });
+
+  test("strips an anchor separated by a non-breaking space", () => {
+    // Generators emit &nbsp; here so the marker cannot wrap onto its own
+    // line. Every heading on the one article in the vault with this defect
+    // uses U+00A0, so a pattern accepting only space/tab repairs none of them.
+    const broken =
+      "#### Model selection\u00a0[#](https://ex.com/p/#model-selection)";
+    expect(stripHeadingAnchors(broken)).toBe("#### Model selection");
+  });
+
+  test("leaves a heading whose trailing link is real content", () => {
+    // Only the symbols generators use for the affordance may match, or a
+    // heading that simply ends in a link would lose it.
+    const text = "## See [the docs](https://ex.com/docs)";
+    expect(stripHeadingAnchors(text)).toBe(text);
+  });
+
+  test("leaves an anchor that is not in a heading", () => {
+    const text = "A paragraph ending in [#](https://ex.com/p/#x)";
+    expect(stripHeadingAnchors(text)).toBe(text);
   });
 });
 

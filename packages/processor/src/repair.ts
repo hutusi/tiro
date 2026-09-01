@@ -343,12 +343,46 @@ export function liftDuplicateListMarkers(body: string): string {
   return out.join("\n");
 }
 
+/**
+ * A heading ending in its own permalink anchor: `## Title [#](#title)`.
+ *
+ * The link text is restricted to the symbols generators actually use for this
+ * affordance, so an ordinary heading that merely ends in a link — `## See
+ * [the docs](…)` — cannot match.
+ *
+ * The gap before the anchor is `[^\S\n]` — every whitespace character except a
+ * newline — not `[ \t]`. Generators emit `&nbsp;` there to stop the marker
+ * wrapping onto a line of its own, so the separator is routinely U+00A0. A
+ * `[ \t]` version of this pattern matched none of the 14 headings on the one
+ * article in the vault that has them, while every unit test still passed,
+ * because the fixtures used ordinary spaces.
+ */
+const HEADING_ANCHOR = /^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\([^()]*\)[^\S\n]*$/gm;
+
+/**
+ * Drop a heading's trailing permalink anchor.
+ *
+ * Static-site generators append a self-link to every heading — typically
+ * `<a class="headerlink" href="#section">#</a>` — as the hover affordance that
+ * reveals the anchor. On the page it is invisible until hover; in markdown
+ * Turndown has no reason to treat it as anything but a link, so it survives as
+ * `[#](…)` and every heading publishes with a trailing `#`.
+ *
+ * Like `rejoinSplitFootnotes`, this has no counterpart in `apps/extension`, so
+ * a re-clip reproduces it. The clipper-side mirror would be a dom-prepare pass
+ * removing `a.headerlink`/`a.anchor` inside `h1`–`h6`.
+ */
+export function stripHeadingAnchors(body: string): string {
+  return body.replace(HEADING_ANCHOR, "$1");
+}
+
 const TRANSFORMS = [
   joinLinkTitles,
   rejoinSplitLinks,
   rejoinSplitFootnotes,
   promoteTableHeaders,
   liftDuplicateListMarkers,
+  stripHeadingAnchors,
 ];
 
 /** Apply every repair to one markdown body. */
