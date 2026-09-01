@@ -424,6 +424,108 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).not.toContain("(1.1)");
   });
 
+  test("keeps a multi-line link title from swallowing the lines after it", () => {
+    // arXiv writes the whole section path into a link's title, and when that
+    // path contains a formula the attribute carries the MathML's rendered
+    // newlines. The emitted title never closes on its line, so the link never
+    // terminates and the swallowed lines arrive as prose — one of them a lone
+    // `=`, which markdown reads as a setext heading, turning the paragraph
+    // above it into an <h1>. 31 links on one real paper did this.
+    const { markdown } = convert(
+      '<p>the first case of (<a href="#S4.E1" ' +
+        'title="In S1. A new infinite family in\n=\nd\n3\nfor ‣ 4.1 Kakeya">' +
+        "1</a>) is a rediscovery.</p>",
+    );
+    expect(markdown).not.toMatch(/^=$/m);
+    expect(markdown.split("\n")).toHaveLength(1);
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
+  test("drops a title that is only whitespace", () => {
+    const { markdown } = convert('<p><a href="/x" title="  ">link</a></p>');
+    expect(markdown).toBe("[link](/x)");
+  });
+
+  test("keeps a link wrapping a block image on one line", () => {
+    // Substack wraps every captioned image in <a><div><img></a>. Turndown puts
+    // the div's surrounding blank lines inside the brackets, so `[`, the image
+    // and `](url)` land on three lines — which markdown cannot read as a link.
+    // The brackets then render literally and the URL becomes a bare autolink.
+    const { markdown } = convert(
+      '<a href="https://cdn.example/full.png">' +
+        '<div><img src="./assets/x.jpg" alt="cap"></div></a>',
+    );
+    expect(markdown).toBe(
+      "[![cap](./assets/x.jpg)](https://cdn.example/full.png)",
+    );
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["paragraph"]);
+  });
+
+  test("escapes a link destination the way turndown does", () => {
+    const { markdown } = convert(
+      '<p><a href="https://ex.com/a(b)c">x</a> ' +
+        '<a href="https://ex.com/a b">y</a></p>',
+    );
+    expect(markdown).toContain("[x](https://ex.com/a\\(b\\)c)");
+    expect(markdown).toContain("[y](<https://ex.com/a b>)");
+  });
+
+  test("leaves an anchor with an empty href as plain text", () => {
+    // Turndown tests the href for truthiness, not existence, so it declines
+    // these and the text passes through. Matching that matters: an empty
+    // destination becomes `[text]()`, a link to the page already open.
+    const { markdown } = convert('<p>a <a href="">text</a> b</p>');
+    expect(markdown).toBe("a text b");
+  });
+
+  test("drops an anchor with no text rather than emitting an empty link", () => {
+    const { markdown } = convert('<p>a<a href="/x"></a>b</p>');
+    expect(markdown).toBe("ab");
+  });
+
+  test("promotes a headerless table's first row instead of a blank header", () => {
+    // GFM cannot write a table without a header, so the plugin synthesizes an
+    // empty one whenever the first row is all <td> — a blank leading row, and
+    // the row of real headings below it still rendered as data. arXiv never
+    // uses <thead>: 51 tables in one paper and 7 in another arrived this way.
+    const { markdown } = convert(
+      "<table><tbody>" +
+        "<tr><td>Paper</td><td>Idea</td></tr>" +
+        "<tr><td>Ours</td><td>K-A</td></tr>" +
+        "</tbody></table>",
+    );
+    expect(markdown).not.toMatch(/^\|\s+\|\s+\|$/m);
+    expect(markdown.split("\n")[0]).toContain("Paper");
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["table"]);
+  });
+
+  test("leaves a table that already declares its header", () => {
+    const { markdown } = convert(
+      "<table><tbody>" +
+        "<tr><th>Paper</th><th>Idea</th></tr>" +
+        "<tr><td>Ours</td><td>K-A</td></tr>" +
+        "</tbody></table>",
+    );
+    expect(markdown.split("\n")[0]).toContain("Paper");
+    expect(markdown).toContain("Ours");
+  });
+
+  test("drops a LaTeXML list item's own rendered marker", () => {
+    // LaTeXML numbers <ol> items itself and writes the label into the item, so
+    // Turndown emits the <ol>'s marker and the label both — `1.  (1)` with the
+    // item's text pushed into a paragraph below it. 43 items in one paper read
+    // as a numbered list of bare numbers.
+    const { markdown } = convert(
+      '<ol class="ltx_enumerate">' +
+        '<li class="ltx_item"><span class="ltx_tag ltx_tag_item">(1)</span>' +
+        '<div class="ltx_para"><p>Residual activation functions.</p></div></li>' +
+        "</ol>",
+    );
+    expect(markdown).not.toContain("(1)");
+    expect(markdown).toContain("1.  Residual activation functions.");
+    expect(splitBlocks(markdown).map((b) => b.type)).toEqual(["list"]);
+  });
+
   test("fences a <pre> that has no <code> inside", () => {
     // Sphinx and docutils — so Python's own documentation and most of its
     // ecosystem — emit `<pre>` with only spans in it. Turndown's fenced rule

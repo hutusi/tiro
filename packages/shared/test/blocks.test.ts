@@ -5,6 +5,7 @@ import {
   mathRanges,
   normalizeBlockMath,
   splitBlocks,
+  verbatimRanges,
 } from "../src/blocks.ts";
 
 const canonicalBody = [
@@ -258,6 +259,73 @@ describe("mathRanges", () => {
         (r) => r.value,
       ),
     ).toEqual(["O(n)"]);
+  });
+});
+
+describe("verbatimRanges", () => {
+  /** The protected slices, so a case reads as what survives a rewrite. */
+  const protectedText = (text: string): string[] =>
+    verbatimRanges(text).map((r) => text.slice(r.start, r.end));
+
+  test("covers a longer fence whole, including an inner ``` line", () => {
+    // The reason this is asked of the parser: a four-backtick fence is closed
+    // only by four or more, so a line scanner reading the first three takes the
+    // inner fence for the closer and treats the rest of the code as prose.
+    const text = "````md\n```\n| a |\n```\n````";
+    expect(protectedText(text)).toEqual([text]);
+  });
+
+  test("ends a one-line $$ formula at its own closing delimiter", () => {
+    // A scanner that opens on `$$` and looks for the close on a *later* line
+    // never closes this one, and silently skips everything after it.
+    const text = "$$E=mc^2$$\n\nprose after the formula";
+    expect(protectedText(text)).toEqual(["$$E=mc^2$$"]);
+  });
+
+  test("protects code nested in a list item", () => {
+    const text = "- item\n\n  ```\n  code\n  ```\n";
+    expect(protectedText(text)).toEqual(["```\n  code\n  ```"]);
+  });
+
+  test("protects an indented code block", () => {
+    const text = "text\n\n    indented code\n\nmore";
+    expect(protectedText(text)).toEqual(["    indented code"]);
+  });
+
+  test("protects an inline code span", () => {
+    expect(protectedText("use `1.  (1)` here")).toEqual(["`1.  (1)`"]);
+  });
+
+  test("protects raw html", () => {
+    const text = "<div>\n| a | b |\n</div>";
+    expect(protectedText(text)).toEqual([text]);
+  });
+
+  test("does not protect an unterminated $$ fence", () => {
+    // remark hands back the rest of the document as one math node, and
+    // splitBlocks re-reads such a block as prose. Protecting it would silence
+    // every caller downstream of a line like "$$ is the shell's PID".
+    const text = "$$ is the shell PID\n\nprose that follows\n";
+    expect(splitBlocks(text).map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+    expect(verbatimRanges(text)).toEqual([]);
+  });
+
+  test("still protects code inside an unterminated $$ fence", () => {
+    // The re-read is what buys this: a plain skip would leave the fence bare.
+    const text = "$$ moderate\n\n```\ncode line\n```\n";
+    expect(protectedText(text)).toEqual(["```\ncode line\n```"]);
+  });
+
+  test("still protects a terminated $$ fence", () => {
+    const text = "$$\nE=mc^2\n$$\n\nprose\n";
+    expect(protectedText(text)).toEqual(["$$\nE=mc^2\n$$"]);
+  });
+
+  test("returns nothing for plain prose", () => {
+    expect(verbatimRanges("just a paragraph")).toEqual([]);
   });
 });
 

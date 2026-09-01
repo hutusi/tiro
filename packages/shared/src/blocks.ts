@@ -56,6 +56,84 @@ export const VERBATIM_BLOCK_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Source ranges of content that must survive a rewrite byte-for-byte, at any
+ * nesting depth.
+ *
+ * The any-depth counterpart to `VERBATIM_BLOCK_TYPES` above, which answers the
+ * same question for a *top-level* block only. A tool that rewrites markdown in
+ * place needs the deeper answer: a fence inside a list item is still code.
+ *
+ * Asking the parser is the point. Recognising these by line shape means naming
+ * every way one can be written — fence length, indented code, an inline span, a
+ * `$$…$$` that opens and closes on one line — and each omission silently
+ * rewrites something that was never prose. See `proseRanges` below, which made
+ * the same argument for the allowlist it uses; a caller that must work *between*
+ * nodes rather than inside them cannot use that allowlist, and this is the
+ * nearest safe thing.
+ *
+ * An unterminated `$$` is *not* protected, matching `blocksFrom` below: such a
+ * fence is prose wearing a delimiter, and remark hands back the whole rest of
+ * the document as one math node. Protecting that would silence every caller
+ * downstream of it. The slice is re-read without the math extension instead, so
+ * code genuinely inside the swallowed region keeps its protection.
+ */
+export function verbatimRanges(text: string): { start: number; end: number }[] {
+  return rangesFrom(text, parser);
+}
+
+function rangesFrom(
+  text: string,
+  from: typeof parser,
+): { start: number; end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  const mathParsed = from !== proseParser;
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    if (n.type !== undefined && VERBATIM_NODE_TYPES.has(n.type)) {
+      const start = n.position?.start.offset;
+      const end = n.position?.end.offset;
+      if (start === undefined || end === undefined) return;
+      // An unclosed `$$` runs to the end of what it was parsed from, so remark
+      // reports the rest of the document as one formula. `splitBlocks` re-reads
+      // such a block as prose; protect it and every later repair dies with it.
+      // proseParser has no math extension, so this cannot recurse forever.
+      if (
+        mathParsed &&
+        n.type === "math" &&
+        !isTerminatedFence(text.slice(start, end))
+      ) {
+        for (const range of rangesFrom(text.slice(start, end), proseParser)) {
+          found.push({ start: start + range.start, end: start + range.end });
+        }
+        return;
+      }
+      found.push({ start, end });
+      return;
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(from.parse(text) as Root);
+  return found;
+}
+
+/**
+ * Node types `verbatimRanges` protects. `html` is here because clipped articles
+ * carry raw HTML the converter could not express as markdown — a `<pre>` among
+ * it holds source exactly like a fence does.
+ */
+const VERBATIM_NODE_TYPES: ReadonlySet<string> = new Set([
+  "code",
+  "inlineCode",
+  "math",
+  "inlineMath",
+  "html",
+]);
+
+/**
  * True when a paragraph's entire content is one inline-math node — i.e. the
  * author wrote `$$E = mc^2$$` on a single line. micromark needs the `$$`
  * fences on their own lines to produce a `math` block, so on one line it is

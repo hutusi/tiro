@@ -7,6 +7,54 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **`tiro-process repair`** rewrites clip-time markdown defects already in the
+  vault — a code fix only ever helps the next clip. It edits `index.md` and
+  `zh.md` together or not at all — staged writes then renames, so a failure
+  partway leaves both files as they were — checking 1:1 block alignment before writing
+  and reporting the pair untouched when a repair would break it (invariant 4).
+  A refusal means the two sides were not damaged identically, which no
+  symmetric edit can fix: re-clip the page instead. One of its repairs has no
+  clipper counterpart: pages that separate paragraphs with `<br><br>` make
+  Readability rebuild the blocks itself, and it cuts through the middle of a
+  footnote label, so every note published as a stray bracket above its own text.
+  That happens inside Readability, before the clipper's markdown exists, so a
+  re-clip of such a page reproduces it.
+
+### Fixed
+
+- **The clipper no longer writes markdown that cannot be parsed.** Four Turndown
+  defects, all of them visible on the published site. A link title containing
+  newlines — arXiv writes a whole section path into one — left the link
+  unterminated, and the lines it swallowed arrived as prose; one of them a lone
+  `=`, which markdown reads as a setext heading, so a paragraph published as a
+  giant `<h1>`. A link wrapping a block element got that element's blank lines
+  inside its brackets, so every captioned Substack image published as a literal
+  `[`, an image, and a bare CDN URL. A table with no `<thead>` gained a
+  synthesized empty header row, with its real headings still rendered as data.
+  And LaTeXML's own list-item labels survived beside the marker the list already
+  supplied, so arXiv enumerations published as numbered lists of bare numbers.
+- **The two reader columns no longer paint on top of each other.** Each pane is
+  a `minmax(0, 1fr)` grid track with `overflow: visible`, so anything wider than
+  the column neither scrolled nor clipped — it crossed the gap and overprinted
+  the other column's text. Nothing in the site broke a long token: there was no
+  `overflow-wrap`, `word-break` or `hyphens` rule anywhere, and clipped articles
+  are full of CDN image URLs and arXiv anchors with nothing to break at. Wide
+  tables had the same defect from the other direction — typography guards `pre`
+  with `overflow-x: auto` but leaves tables unguarded — and now scroll inside
+  their own box, wrapped after the sanitize step so the allowlist stays narrow
+  (ADR 0009). `min-w-0` on the panes fixes the mirror-image symptom in
+  single-pane mode, where the track is `minmax(auto, 1fr)` and one long URL gave
+  the whole page a horizontal scrollbar instead.
+- **Headings read as headings again.** Rendering each block into its own `.prose`
+  root makes every block both `:first-child` and `:last-child`, so typography
+  zeroes its margins and `space-y-6` spaces every row identically; only h2 and h3
+  got their spacing restored. Row spacing is now graded across all six levels,
+  and h5/h6 — which typography does not style at all — are given size and weight.
+  arXiv papers put "Abstract", "Theorem" and "Proof." at h6, so most of a paper's
+  structure was rendering as plain paragraphs.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

@@ -68,6 +68,20 @@ export interface ParsedArticle {
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
+/**
+ * Length of the leading frontmatter block, delimiters included, or null when
+ * there is none.
+ *
+ * Exported so a tool that rewrites the body in place can find where it starts
+ * without re-serializing the YAML — which would reformat frontmatter nobody
+ * asked it to touch. Sharing the pattern with `parseArticle` is the point: a
+ * second copy drifted on `\r\n`, and the repair then treated an article's YAML
+ * as prose and refused the article as misaligned.
+ */
+export function frontmatterLength(fileText: string): number | null {
+  return fileText.match(FRONTMATTER_RE)?.[0].length ?? null;
+}
+
 /** Parse and validate a full `index.md` file. Throws on schema violations. */
 export function parseArticle(fileText: string): ParsedArticle {
   const match = fileText.match(FRONTMATTER_RE);

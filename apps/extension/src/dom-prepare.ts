@@ -304,6 +304,89 @@ function recoverCodeBlocks(doc: Document): void {
 }
 
 /**
+ * Flatten every `title` attribute onto one line.
+ *
+ * Turndown copies a link's title straight into `[text](href "title")`. arXiv
+ * writes the whole section path into one — `title="In 2.1 Kolmogorov-Arnold
+ * Representation theorem ‣ 2 ..."` — and when that path contains a formula the
+ * attribute contains the MathML's *rendered* newlines. The emitted title then
+ * never closes on its line, so the link never terminates, and the lines it
+ * swallows arrive as prose. One of them is routinely a lone `=`, which markdown
+ * reads as a setext heading: the paragraph above it becomes an `<h1>`.
+ *
+ * That is the "prose rendered as a giant headline" failure, and `headingStyle:
+ * "atx"` cannot prevent it — the `=` comes from the title text, not from a
+ * heading rule. Collapsing the whitespace fixes the link; dropping the quote
+ * stops a title from closing itself early and spilling the rest as link text.
+ */
+function normalizeLinkTitles(doc: Document): void {
+  for (const element of Array.from(doc.querySelectorAll("[title]"))) {
+    const title = element.getAttribute("title");
+    if (title === null) continue;
+    const flattened = title.replace(/\s+/g, " ").replace(/"/g, "").trim();
+    if (flattened === "") element.removeAttribute("title");
+    else if (flattened !== title) element.setAttribute("title", flattened);
+  }
+}
+
+/**
+ * Drop a list item's own rendered marker.
+ *
+ * LaTeXML numbers `<ol>` items itself, writing the label into the item as
+ * `<span class="ltx_tag_item">(1)</span>` — the `<ol>` supplies a marker too,
+ * so Turndown emits both: `1.  (1)`, with the item's actual text pushed into a
+ * paragraph below. The list reads as a numbered list of bare numbers. 43 items
+ * in one paper look like this.
+ *
+ * Scoped to `ltx_tag_item` rather than every `ltx_tag`: the equation and
+ * section variants carry numbers that nothing else reproduces.
+ */
+function stripRedundantListMarkers(doc: Document): void {
+  for (const tag of Array.from(doc.querySelectorAll("li > .ltx_tag_item"))) {
+    tag.remove();
+  }
+}
+
+/**
+ * Give a headerless table a header row taken from its own first row.
+ *
+ * GFM has no way to write a table without one, so the Turndown plugin
+ * synthesizes an empty one — `|     |     |` above the divider — whenever the
+ * first row is all `<td>`. The result is a blank leading row *and* a first row
+ * of real headings still rendered as data. arXiv never uses `<thead>`, so all
+ * 51 tables in one paper and 7 in another arrived this way.
+ *
+ * Promoting the row is the better of the two available lies: the cells a page
+ * lays out first are the ones it means as headings, which is what a browser
+ * shows for the same markup. Tables that already declare a header, in `<thead>`
+ * or with `<th>` in the first row, are left alone.
+ */
+function promoteTableHeaders(doc: Document): void {
+  for (const table of Array.from(doc.querySelectorAll("table"))) {
+    if (table.querySelector("thead") !== null) continue;
+    const row = table.querySelector("tr");
+    if (row === null || row.querySelector("th") !== null) continue;
+    const cells = Array.from(row.children).filter(
+      (cell) => cell.tagName === "TD",
+    );
+    if (cells.length === 0 || cells.length !== row.children.length) continue;
+    for (const cell of cells) {
+      const heading = doc.createElement("th");
+      for (const attribute of Array.from(cell.attributes)) {
+        heading.setAttribute(attribute.name, attribute.value);
+      }
+      while (cell.firstChild !== null) heading.appendChild(cell.firstChild);
+      cell.replaceWith(heading);
+    }
+    const head = doc.createElement("thead");
+    // Take the row's position, not the table's: a caption or colgroup may come
+    // first, and <thead> has to follow them to stay in a valid table.
+    row.replaceWith(head);
+    head.appendChild(row);
+  }
+}
+
+/**
  * Rewrite a *cloned* document in place. Never call this on the live page —
  * it removes and replaces nodes the user is looking at.
  *
@@ -313,9 +396,15 @@ function recoverCodeBlocks(doc: Document): void {
  * in a discarded sidebar set the flag (see markdown.ts).
  */
 export function prepareForClipping(doc: Document): void {
+  normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);
   recoverCodeBlocks(doc);
+  stripRedundantListMarkers(doc);
+  // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
+  // line-number gutters). Promoting headers first would rewrite the very cells
+  // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
+  promoteTableHeaders(doc);
 }
 
 /**

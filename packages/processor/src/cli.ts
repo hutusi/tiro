@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { createDeadline } from "./deadline.ts";
 import { type ChatFn, createChatClient } from "./llm/client.ts";
 import { loadVaultConfig, runPipeline } from "./pipeline.ts";
+import { repairVault } from "./repair.ts";
 import { validateVault } from "./validate.ts";
 
 function usage(): never {
@@ -11,6 +12,7 @@ function usage(): never {
       "Usage:",
       "  tiro-process run --vault <dir> [--slug <slug>] [--force] [--dry-run]",
       "  tiro-process validate --vault <dir>",
+      "  tiro-process repair --vault <dir> [--slug <slug>] [--dry-run]",
     ].join("\n"),
   );
   process.exit(2);
@@ -29,11 +31,13 @@ const { values, positionals } = parseArgs({
 
 const command = positionals[0] ?? "run";
 const vaultDir = values.vault;
-if (vaultDir === undefined || (command !== "run" && command !== "validate"))
-  usage();
+const COMMANDS = new Set(["run", "validate", "repair"]);
+if (vaultDir === undefined || !COMMANDS.has(command)) usage();
 
 if (command === "validate") {
   process.exit(await validate(vaultDir));
+} else if (command === "repair") {
+  process.exit(await repair(vaultDir));
 } else {
   process.exit(await run(vaultDir));
 }
@@ -117,4 +121,30 @@ async function validate(vault: string): Promise<number> {
     `validated ${report.articles} article(s), ${report.errors.length} error(s)`,
   );
   return report.errors.length > 0 ? 1 : 0;
+}
+
+/**
+ * Repair clip-time markdown defects in place. Separate from `run` on purpose:
+ * it needs no LLM and no budget, rewrites articles that are already processed,
+ * and is meant to be read as a diff before it is committed.
+ */
+async function repair(vault: string): Promise<number> {
+  const report = await repairVault(vault, {
+    ...(values.slug !== undefined ? { slug: values.slug } : {}),
+    dryRun: values["dry-run"],
+  });
+  for (const article of report.repaired) {
+    console.log(`repaired ${article.slug} (${article.files.join(", ")})`);
+  }
+  for (const failure of report.refused) {
+    console.warn(
+      `warning: ${failure.slug} left unchanged, repair broke alignment: ${failure.errors.join("; ")}`,
+    );
+  }
+  console.log(
+    `${values["dry-run"] ? "would repair" : "repaired"} ${report.repaired.length} of ${report.scanned} article(s), ${report.refused.length} refused`,
+  );
+  // Refusals are the guard working, not a crash — but they are also the only
+  // signal that an article still carries a defect, so they must not exit 0.
+  return report.refused.length > 0 ? 1 : 0;
 }

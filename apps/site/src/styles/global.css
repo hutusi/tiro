@@ -119,6 +119,22 @@
   font-weight: 700;
 }
 
+/* Typography styles h1-h4 only, so h5/h6 inherited body size and weight and
+ * read as plain paragraphs. arXiv papers put "Abstract", "Theorem 2.1" and
+ * "Proof." at h6, which is most of a paper's structure rendered invisible. */
+.prose :where(h5) {
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.prose :where(h6) {
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: var(--tw-prose-headings);
+}
+
 .prose :where(a) {
   text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
   text-underline-offset: 3px;
@@ -146,6 +162,19 @@
   border: 1px solid var(--line);
 }
 
+/* Paired mode renders each pane into a `minmax(0, 1fr)` track with `overflow:
+ * visible`, so anything wider than the column does not scroll or clip — it
+ * paints straight across the gap and over the other column's text. Clipped
+ * articles are full of unbreakable tokens (CDN image URLs, arXiv anchors), and
+ * the default `overflow-wrap: normal` gives them no break opportunity at all.
+ * Links and code get `anywhere` because a URL has no spaces to break at. */
+.prose {
+  overflow-wrap: break-word;
+}
+.prose :where(a, code) {
+  overflow-wrap: anywhere;
+}
+
 /* Paired mode renders into a column roughly half the usual prose width, so a
  * wide formula has to scroll inside its own box rather than widen the row. */
 .prose :where(.katex-display) {
@@ -160,6 +189,21 @@
 .prose :where(.katex-display) > .katex.katex {
   display: inline-block;
   text-align: initial;
+}
+
+/* Wrapper emitted by rehypeScrollableTables, after sanitize (ADR 0009). The
+ * table keeps `width: auto` so it can exceed the column and scroll, and
+ * `min-width: 100%` so a narrow one still fills it. The margin moves to the
+ * wrapper because typography's own table margins sit on the element we just
+ * wrapped. */
+.prose :where(.table-scroll) {
+  overflow-x: auto;
+  margin-block: 2em;
+}
+.prose :where(.table-scroll) > table {
+  width: auto;
+  min-width: 100%;
+  margin-block: 0;
 }
 
 .prose :where(img) {

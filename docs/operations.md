@@ -102,6 +102,50 @@ endpoint works.
     -d '{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}'
   ```
 
+## Repairing clip-time markdown defects
+
+A clipper fix only helps the *next* clip: the vault keeps whatever Turndown
+produced at the time. `repair` rewrites the defects the clipper used to emit —
+link titles that span lines (which markdown reads as a setext heading, turning
+a paragraph into a giant `<h1>`), links whose text was pushed onto its own
+lines by a block child, synthesized empty table header rows, and LaTeXML's
+duplicated list-item labels.
+
+```sh
+bun run packages/processor/src/cli.ts repair --vault ../tiro-vault --dry-run
+bun run packages/processor/src/cli.ts repair --vault ../tiro-vault
+```
+
+It takes no LLM calls and no budget. `--slug` limits it to one article;
+`--dry-run` reports without writing. Read the diff before committing the vault.
+
+`index.md` and `zh.md` are rewritten together or not at all. These transforms
+change block structure by design, and `zh.md` must stay strictly 1:1 aligned
+with the body (invariant 4), so the result is checked before anything is
+written and a pair that no longer aligns is left untouched and reported. That
+exit is non-zero: a refusal is the guard working, but it is also the only
+signal that an article still carries a defect.
+
+Killing the process can still tear a pair. Both files are staged and then
+renamed, so everything that can realistically fail happens while the originals
+are intact — but a kill landing between the two renames leaves one file repaired
+and one original. That state is not silent: `validate` reports it immediately as
+an alignment error, and `git checkout` on the article undoes it. A write-ahead
+log with startup recovery would close the window and is not worth its own
+failure modes here — unlike the processor's checkpoint (ADR 0008), which exists
+because the workflow kills it on a timer, `repair` is hand-run, interactive, on
+git-tracked files, and ends in reading the diff.
+
+**A refusal means re-clip, not retry.** It happens when the two sides were not
+damaged identically — usually because the translator shifted content across the
+damaged blocks — and no symmetric text edit can fix that. Re-clip the page with
+a current extension (the slug is deterministic, so it overwrites in place), then
+delete `tiro.processed_at` to have it re-summarized and re-translated.
+
+Re-clipping is also the only fix for math clipped before the extension
+recovered LaTeX: those equations hold the MathML's rendered glyphs concatenated
+with escaped LaTeX, and nothing can reliably tell the two apart afterwards.
+
 ## Reprocessing articles
 
 Articles are selected by the missing `tiro.processed_at` frontmatter marker,
