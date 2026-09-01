@@ -157,6 +157,7 @@ async function main(): Promise<void> {
           readabilityFailed: payload.readabilityFailed,
           hasMath: payload.hasMath,
           clippedAt: nowIso,
+          clipperVersion: chrome.runtime.getManifest().version,
         });
         // The flat layout makes file.path deterministic; the lookup only
         // supplies the sha that turns the PUT into an overwrite.
