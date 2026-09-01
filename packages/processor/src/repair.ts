@@ -376,6 +376,52 @@ export function stripHeadingAnchors(body: string): string {
   return body.replace(HEADING_ANCHOR, "$1");
 }
 
+/** A lone image, indented far enough that markdown reads it as code. */
+const INDENTED_IMAGE = /^ {4,}!\[[^\]]*\]\([^()]*\)[^\S\n]*$/;
+
+/**
+ * Lift images that markdown is reading as an indented code block.
+ *
+ * A page that pretty-prints `<picture>` puts the `<img>` on its own line
+ * indented under the wrapper. Turndown has no rule for `<picture>`, so it keeps
+ * those whitespace text nodes, and the image lands four or more spaces in —
+ * which is an indented code block. The site then renders the literal text
+ * `![](…)` in a syntax-highlighted box and the image never appears at all. One
+ * article in the vault is five images, and all five are lost this way.
+ *
+ * Unlike every transform in `TRANSFORMS`, this cannot run inside
+ * `outsideVerbatim`: the damaged block *is* a `code` block, so the very
+ * protection that keeps the line transforms honest hides these lines from them.
+ * It therefore runs as a pre-pass over the whole body, and asks the parser
+ * rather than scanning lines — which is also what makes it safe. Indentation
+ * inside a list is part of a `list` block, never a top-level `code` block, so
+ * legitimately-nested content is unreachable here by construction rather than
+ * by a heuristic that has to recognise list context.
+ *
+ * Requiring *every* line to be an image narrows it to blocks that cannot be
+ * real code, and keeps the block count fixed: one `code` block becomes one
+ * `paragraph`, so `index.md` and `zh.md` stay aligned. The residual risk is a
+ * markdown tutorial whose indented sample is nothing but image syntax; no
+ * parser signal separates that from this.
+ */
+export function deindentBlockImages(body: string): string {
+  let out = "";
+  let cursor = 0;
+  for (const block of splitBlocks(body)) {
+    if (block.type !== "code") continue;
+    const lines = block.text.split("\n");
+    if (!lines.every((line) => INDENTED_IMAGE.test(line))) continue;
+    // Blocks arrive in document order and each `text` is an exact slice, so a
+    // forward scan rebuilds the body with everything between blocks untouched.
+    const at = body.indexOf(block.text, cursor);
+    if (at === -1) continue;
+    out += body.slice(cursor, at);
+    out += lines.map((line) => line.replace(/^\s+/, "")).join("\n");
+    cursor = at + block.text.length;
+  }
+  return out + body.slice(cursor);
+}
+
 const TRANSFORMS = [
   joinLinkTitles,
   rejoinSplitLinks,
@@ -399,7 +445,10 @@ export function repairBody(body: string): string {
 }
 
 function repairLf(body: string): string {
-  return outsideVerbatim(body, (prose) =>
+  // The pre-pass runs first and outside the masking, because the block it
+  // repairs is itself verbatim — see `deindentBlockImages`. Once lifted, the
+  // image is ordinary prose and the line transforms see it like any other.
+  return outsideVerbatim(deindentBlockImages(body), (prose) =>
     TRANSFORMS.reduce((text, transform) => transform(text), prose),
   );
 }

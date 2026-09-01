@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { splitBlocks } from "@tiro/shared";
 import {
+  deindentBlockImages,
   joinLinkTitles,
   liftDuplicateListMarkers,
   promoteTableHeaders,
@@ -133,6 +134,51 @@ describe("stripHeadingAnchors", () => {
   test("leaves an anchor that is not in a heading", () => {
     const text = "A paragraph ending in [#](https://ex.com/p/#x)";
     expect(stripHeadingAnchors(text)).toBe(text);
+  });
+});
+
+describe("deindentBlockImages", () => {
+  test("lifts an image markdown was reading as code", () => {
+    const broken = "Regular text is okay:\n\n    ![](./assets/a.avif)";
+    expect(splitBlocks(broken).map((b) => b.type)).toEqual([
+      "paragraph",
+      "code",
+    ]);
+    const fixed = deindentBlockImages(broken);
+    expect(fixed).toBe("Regular text is okay:\n\n![](./assets/a.avif)");
+    // The block count must not move, or index.md and zh.md stop aligning.
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+  });
+
+  test("leaves indented code that is not purely images", () => {
+    const code = "Example:\n\n    const x = 1;\n    ![](./a.png)";
+    expect(deindentBlockImages(code)).toBe(code);
+  });
+
+  test("leaves an image already nested inside a list", () => {
+    // Indentation inside a list belongs to a `list` block, never a top-level
+    // `code` block, so this is out of reach by construction.
+    const list = "1.  Item\n\n    ![](./a.png)\n";
+    expect(splitBlocks(list).map((b) => b.type)).toEqual(["list"]);
+    expect(deindentBlockImages(list)).toBe(list);
+  });
+
+  test("repairs every image in a document, leaving prose between them", () => {
+    const broken =
+      "One:\n\n    ![](./a.png)\n\nTwo:\n\n    ![](./b.png)\n\nEnd.\n";
+    expect(deindentBlockImages(broken)).toBe(
+      "One:\n\n![](./a.png)\n\nTwo:\n\n![](./b.png)\n\nEnd.\n",
+    );
+  });
+
+  test("runs inside repairBody, which masks verbatim blocks", () => {
+    // The regression this pins: the block is `code`, so outsideVerbatim hides
+    // it from every transform in TRANSFORMS. Only the pre-pass can reach it.
+    const broken = "Text:\n\n    ![](./a.png)";
+    expect(repairBody(broken)).toBe("Text:\n\n![](./a.png)");
   });
 });
 
