@@ -134,6 +134,30 @@ const VERBATIM_NODE_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * True when `text` is a single paragraph holding nothing but images.
+ *
+ * Answering this with a regex means re-implementing link syntax, and the
+ * approximation is always narrower than the real thing: Turndown escapes
+ * parentheses in a destination and brackets in alt text, and a pattern built
+ * from `[^()]` or `[^\]]` rejects both — quietly, by declining to repair a
+ * defect rather than by failing. The parser already knows where an image ends.
+ *
+ * One paragraph, not one line, because that is the property callers actually
+ * need: a block that parses to exactly one paragraph can replace exactly one
+ * block, which is what keeps `index.md` and `zh.md` aligned.
+ */
+export function isImageOnlyParagraph(text: string): boolean {
+  const children = (parser.parse(text) as Root).children;
+  const [node] = children;
+  return (
+    children.length === 1 &&
+    node?.type === "paragraph" &&
+    node.children.length > 0 &&
+    node.children.every((child) => child.type === "image")
+  );
+}
+
+/**
  * True when a paragraph's entire content is one inline-math node — i.e. the
  * author wrote `$$E = mc^2$$` on a single line. micromark needs the `$$`
  * fences on their own lines to produce a `math` block, so on one line it is

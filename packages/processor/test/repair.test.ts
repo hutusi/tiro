@@ -124,6 +124,13 @@ describe("stripHeadingAnchors", () => {
     expect(stripHeadingAnchors(broken)).toBe("#### Model selection");
   });
 
+  test("strips an anchor whose URL has escaped parentheses", () => {
+    // Turndown escapes rather than drops a parenthesis in a URL, so a
+    // bare-paren character class rejects every Wikipedia-style link.
+    const broken = "## Title [#](https://ex.com/a\\(b\\)#t)";
+    expect(stripHeadingAnchors(broken)).toBe("## Title");
+  });
+
   test("leaves a heading whose trailing link is real content", () => {
     // Only the symbols generators use for the affordance may match, or a
     // heading that simply ends in a link would lose it.
@@ -151,6 +158,20 @@ describe("deindentBlockImages", () => {
       "paragraph",
       "paragraph",
     ]);
+  });
+
+  test("lifts images whose syntax a regex would reject", () => {
+    // Escaped parentheses in the destination and escaped brackets in the alt
+    // text are both ordinary Turndown output; a hand-written pattern declines
+    // them and silently leaves the defect in place.
+    for (const image of [
+      "![x](a\\(b\\).png)",
+      "![a\\]b](x.png)",
+      '![x](y.png "a title")',
+    ]) {
+      const broken = `Text:\n\n    ${image}`;
+      expect(deindentBlockImages(broken)).toBe(`Text:\n\n${image}`);
+    }
   });
 
   test("leaves indented code that is not purely images", () => {

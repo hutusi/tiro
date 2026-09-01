@@ -2,6 +2,7 @@ import { rename, rm } from "node:fs/promises";
 import {
   checkAlignment,
   frontmatterLength,
+  isImageOnlyParagraph,
   splitBlocks,
   translationPath,
   verbatimRanges,
@@ -344,6 +345,17 @@ export function liftDuplicateListMarkers(body: string): string {
 }
 
 /**
+ * A link destination as Turndown writes one: angle-bracketed, or a run in which
+ * parentheses appear escaped.
+ *
+ * `[^()]*` looks equivalent and is not. Turndown escapes rather than drops a
+ * parenthesis in a URL, so a bare-paren class rejects every Wikipedia-style
+ * `Foo_(disambiguation)` link — the same gap `joinLinkTitles` was fixed for,
+ * reappearing here because the pattern was written fresh instead of shared.
+ */
+const DESTINATION = String.raw`(?:<[^<>\n]*>|(?:\\[()]|[^\s()])+)`;
+
+/**
  * A heading ending in its own permalink anchor: `## Title [#](#title)`.
  *
  * The link text is restricted to the symbols generators actually use for this
@@ -357,7 +369,10 @@ export function liftDuplicateListMarkers(body: string): string {
  * article in the vault that has them, while every unit test still passed,
  * because the fixtures used ordinary spaces.
  */
-const HEADING_ANCHOR = /^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\([^()]*\)[^\S\n]*$/gm;
+const HEADING_ANCHOR = new RegExp(
+  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\(${DESTINATION}\)[^\S\n]*$`,
+  "gm",
+);
 
 /**
  * Drop a heading's trailing permalink anchor.
@@ -375,9 +390,6 @@ const HEADING_ANCHOR = /^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\([^()]*\)[^\S\n]*$/gm
 export function stripHeadingAnchors(body: string): string {
   return body.replace(HEADING_ANCHOR, "$1");
 }
-
-/** A lone image, indented far enough that markdown reads it as code. */
-const INDENTED_IMAGE = /^ {4,}!\[[^\]]*\]\([^()]*\)[^\S\n]*$/;
 
 /**
  * Lift images that markdown is reading as an indented code block.
@@ -398,11 +410,16 @@ const INDENTED_IMAGE = /^ {4,}!\[[^\]]*\]\([^()]*\)[^\S\n]*$/;
  * legitimately-nested content is unreachable here by construction rather than
  * by a heuristic that has to recognise list context.
  *
- * Requiring *every* line to be an image narrows it to blocks that cannot be
- * real code, and keeps the block count fixed: one `code` block becomes one
- * `paragraph`, so `index.md` and `zh.md` stay aligned. The residual risk is a
- * markdown tutorial whose indented sample is nothing but image syntax; no
- * parser signal separates that from this.
+ * The candidate is lifted and handed to the parser rather than matched line by
+ * line. A regex for image syntax is always narrower than the real thing —
+ * Turndown escapes parentheses in a destination and brackets in alt text, and
+ * a `[^()]`-style pattern rejects both, declining to repair the defect instead
+ * of failing visibly. Asking whether the lifted text is one image-only
+ * paragraph also states the property that matters directly: one `code` block
+ * becomes exactly one `paragraph`, so `index.md` and `zh.md` stay aligned.
+ *
+ * The residual risk is a markdown tutorial whose indented sample is nothing
+ * but image syntax; no parser signal separates that from this.
  */
 export function deindentBlockImages(body: string): string {
   let out = "";
@@ -410,7 +427,8 @@ export function deindentBlockImages(body: string): string {
   for (const block of splitBlocks(body)) {
     if (block.type !== "code") continue;
     const lines = block.text.split("\n");
-    if (!lines.every((line) => INDENTED_IMAGE.test(line))) continue;
+    const lifted = lines.map((line) => line.replace(/^\s+/, "")).join("\n");
+    if (!isImageOnlyParagraph(lifted)) continue;
     // Blocks arrive in document order and each `text` is an exact slice, so a
     // forward scan rebuilds the body with everything between blocks untouched.
     const at = body.indexOf(block.text, cursor);
