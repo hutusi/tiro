@@ -407,6 +407,28 @@ describe("normalizeBlockMath", () => {
     );
   });
 
+  test("recovers a swallowed formula however deep the cascade", () => {
+    // Reparsing finds it while the pass budget lasts; past that the single
+    // pass has to recognise it unaided, because a formula still hidden inside
+    // an unclosed fence was invisible to the parse that built `keep`. Depths
+    // either side of the limit and well past it.
+    for (const openers of [3, 8, 9, 12, 30]) {
+      const source = [
+        "- item",
+        ...Array.from({ length: openers }, (_, i) => `  $$ tier ${i}`),
+        "",
+        "  $$O(n)$$",
+      ].join("\n");
+      const normalized = normalizeBlockMath(source);
+      expect(normalized).toContain("  $$O(n)$$");
+      expect(
+        mathRanges(normalized, { singleDollar: true }).filter(
+          (r) => !r.terminated,
+        ),
+      ).toEqual([]);
+    }
+  });
+
   test("leaves a formula preceded by any inline node alone", () => {
     // A `$$` that is not at a paragraph's start is not opening anything.
     // Asking instead whether earlier *text* appeared on the line only caught

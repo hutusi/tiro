@@ -193,6 +193,18 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("\\$\\$ is the shell");
   });
 
+  test("typesets a swallowed formula past the reparse budget", () => {
+    const source = [
+      "- item",
+      ...Array.from({ length: 12 }, (_, i) => `  $$ tier ${i}`),
+      "",
+      "  $$O(n)$$",
+    ].join("\n");
+    const html = renderBlockHtml(source, "s");
+    expect(html).toContain("katex");
+    expect(html).not.toContain("$$O(n)$$");
+  });
+
   test("typesets a formula that an unclosed fence had swallowed", () => {
     const html = renderBlockHtml("- $$ — price\n\n  $$O(n)$$", "s");
     expect(html).toContain("katex");

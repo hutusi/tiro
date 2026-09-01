@@ -242,6 +242,30 @@ function paragraphRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
+ * Whether the run at `offset` opens an inline formula rather than a fence —
+ * `$$O(n)$$` on one line, which micromark reads as inline math because a
+ * flow fence's opening line may not contain another delimiter.
+ *
+ * Asked of one line at a time, so this stays linear over the block; the
+ * reparse loop answers the same question by parsing everything again, which
+ * is what makes it too slow to run per opener. `keep` cannot answer it,
+ * because a formula still hidden inside an unclosed fence was invisible to
+ * the parse that produced it.
+ */
+function opensInlineMath(text: string, offset: number): boolean {
+  const lineEnd = text.indexOf("\n", offset);
+  const rest = text.slice(offset, lineEnd === -1 ? undefined : lineEnd);
+  // Inline math has to close on the same line, so without a second delimiter
+  // there is nothing to parse for. Skipping those keeps the common case — a
+  // block of bare openers — at one parse rather than one per line.
+  const run = /^\$+/.exec(rest)?.[0].length ?? 0;
+  if (!rest.slice(run).includes("$")) return false;
+  return mathRanges(rest, { singleDollar: true }).some(
+    (range) => range.start === 0 && range.terminated,
+  );
+}
+
+/**
  * Escape every delimiter run that opens a line of prose and is not part of a
  * formula which did close, in a single pass. Blunter than reparsing — it
  * cannot discover a valid formula that an outer unclosed fence was hiding —
@@ -279,6 +303,7 @@ function escapeRemainingOpeners(
       // inline code spanning a newline, which the continuation branch reaches.
       if (!prose.some(covered)) continue;
       if (keep.some((r) => covered({ start: r.start, end: r.end }))) continue;
+      if (opensInlineMath(text, offset)) continue;
       targets.add(offset);
     }
   }
