@@ -73,6 +73,84 @@ export const inlineLinkRule: TurndownService.Rule = {
   },
 };
 
+/** Escape a string for use inside a double-quoted HTML attribute. */
+function attr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Squash every run of whitespace, so the result cannot contain a blank line. */
+function oneLine(html: string): string {
+  return html.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Whether an ancestor is a link.
+ *
+ * `inlineLinkRule` flattens a link's content onto one line, so a figure inside
+ * an `<a>` would come out as `[<figure>…</figure>](href)` — raw HTML as the
+ * text of a markdown link, which parses as a paragraph rather than an html
+ * block. Walking `parentNode` rather than calling `closest`, which Turndown's
+ * DOM does not implement.
+ */
+function insideLink(node: Node): boolean {
+  let current = node.parentNode;
+  while (current !== null && current !== undefined) {
+    if (current.nodeName === "A") return true;
+    current = current.parentNode;
+  }
+  return false;
+}
+
+/**
+ * Keep a captioned image and its caption together as one `<figure>`.
+ *
+ * Turndown has no figure rule, so `<figure>`/`<figcaption>` are converted as
+ * plain blocks: the image becomes a markdown image and the caption becomes an
+ * ordinary paragraph directly beneath it, indistinguishable from body prose.
+ * The reader cannot tell where the caption ends and the article resumes, and
+ * on an academic post the credit line reads as the author's next sentence.
+ * Twelve of the vault's 32 articles carry figures, one of them 32 of them.
+ *
+ * Emitted as raw HTML rather than markdown because markdown has no way to
+ * express the association. Three constraints shape the exact string:
+ *
+ * - No blank line anywhere inside. A blank line ends a CommonMark type-6 HTML
+ *   block, which would split one figure into several `html` blocks and break
+ *   the 1:1 alignment `zh.md` depends on.
+ * - Markdown is not parsed inside such a block, so the image is `<img>` rather
+ *   than `![]()` and the caption keeps its own inline HTML.
+ * - Only the attributes the site's sanitize schema allows are emitted, rebuilt
+ *   from the DOM rather than copied from `outerHTML`, so a page's `class`,
+ *   `style` and `srcset` cannot ride along.
+ *
+ * A figure with no caption stays a plain markdown image: there is nothing to
+ * associate, and markdown keeps it translatable and repairable. The same
+ * fallback covers a figure holding anything other than exactly one image,
+ * where the pairing would be a guess.
+ */
+export const figureRule: TurndownService.Rule = {
+  filter: "figure",
+  replacement: (content, node) => {
+    const element = node as Element;
+    const images = element.querySelectorAll("img");
+    if (images.length !== 1 || insideLink(node)) return content;
+    const image = images[0];
+    const src = image?.getAttribute("src") ?? "";
+    // Optional chaining rather than a null check: Turndown's DOM returns
+    // `undefined` for a missing node where a browser returns `null`.
+    const text = oneLine(element.querySelector("figcaption")?.innerHTML ?? "");
+    if (src === "" || text === "") return content;
+    const alt = image?.getAttribute("alt") ?? "";
+    return `\n\n<figure><img src="${attr(src)}" alt="${attr(
+      alt,
+    )}"><figcaption>${text}</figcaption></figure>\n\n`;
+  },
+};
+
 /**
  * Convert prepared article HTML to the markdown that lands in the vault.
  *
@@ -91,6 +169,7 @@ export function htmlToMarkdown(html: string): MarkdownResult {
   turndown.use(gfm);
   turndown.addRule("tiroInlineLink", inlineLinkRule);
   turndown.addRule("tiroMath", mathTurndownRule);
+  turndown.addRule("tiroFigure", figureRule);
   if (hasMath) {
     const base = turndown.escape.bind(turndown);
     turndown.escape = (text: string) => escapeLiteralDollars(base(text));
