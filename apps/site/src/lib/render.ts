@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
+import { rehypeShiki } from "./highlight.ts";
 
 // GitHub-style sanitization schema, extended with the figure markup that
 // clipped articles legitimately carry. Everything else a hostile page could
@@ -24,6 +25,11 @@ const processor = unified()
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
   .use(rehypeSanitize, schema)
+  // Order is load-bearing: Shiki emits a class on the <pre> and an inline
+  // style on every token, which the schema above allows on nothing. Running
+  // it afterwards keeps the allowlist narrow — the alternative, widening the
+  // schema, would hand the same permission to clipped markup (ADR 0009).
+  .use(rehypeShiki)
   .use(rehypeStringify);
 
 /**

@@ -46,6 +46,53 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("javascript:");
   });
 
+  test("highlights a fenced block with its declared language", () => {
+    const html = renderBlockHtml("```ts\nconst a = 1;\n```", "s");
+    expect(html).toContain('class="shiki');
+    expect(html).toContain('<span style="color:');
+    expect(html).toContain("const");
+    // The theme's own background is dropped so the site's warm code styling
+    // keeps owning it; only token colors come from Shiki.
+    expect(html).not.toContain("background-color");
+  });
+
+  test("falls back to plain text for an unknown language", () => {
+    const html = renderBlockHtml("```notalanguage\nx := 1\n```", "s");
+    expect(html).toContain('class="shiki');
+    expect(html).toContain("x := 1");
+  });
+
+  test("highlights an unlabelled fence without a trailing blank line", () => {
+    const html = renderBlockHtml("```\nplain\n```", "s");
+    expect(html).toContain("plain");
+    expect(html.match(/class="line"/g)).toHaveLength(1);
+  });
+
+  test("keeps the code of a clip that shipped its own highlighting", () => {
+    // Sanitization strips these spans' attributes but keeps the elements, so
+    // reading only direct text children would render an empty block.
+    const html = renderBlockHtml(
+      '<pre><code class="language-js"><span style="color:red">const</span> x = 1;</code></pre>',
+      "s",
+    );
+    expect(html).toContain("const");
+    expect(html).toContain("x");
+    expect(html).not.toContain("color:red");
+  });
+
+  test("highlighting does not reopen the sanitizer", () => {
+    // Shiki emits class and style attributes; the schema must still refuse
+    // them from clipped markup, and strip scripts before Shiki ever runs.
+    const html = renderBlockHtml(
+      '<pre class="evil" style="position:fixed"><code>a<script>alert(1)</script>b</code></pre>',
+      "s",
+    );
+    expect(html).not.toContain("evil");
+    expect(html).not.toContain("position:fixed");
+    expect(html).not.toContain("alert(1)");
+    expect(html).toContain("ab");
+  });
+
   test("renders GFM tables", () => {
     const html = renderBlockHtml("| a | b |\n| --- | --- |\n| 1 | 2 |", "s");
     expect(html).toContain("<table>");
