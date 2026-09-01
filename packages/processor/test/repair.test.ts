@@ -7,6 +7,7 @@ import {
   joinLinkTitles,
   liftDuplicateListMarkers,
   promoteTableHeaders,
+  rejoinSplitFootnotes,
   rejoinSplitLinks,
   repairBody,
   repairVault,
@@ -51,6 +52,24 @@ describe("rejoinSplitLinks", () => {
     const fixed = rejoinSplitLinks(broken);
     expect(fixed).toBe("[![cap](./assets/x.jpg)](https://cdn.example/full)");
     expect(splitBlocks(fixed)).toHaveLength(1);
+  });
+});
+
+describe("rejoinSplitFootnotes", () => {
+  test("pulls a footnote label back onto its text", () => {
+    // Readability rebuilds <br><br>-separated pages into blocks and cuts
+    // through the middle of `[<a name="f1n">1</a>] Should students...`,
+    // leaving the bracket as a paragraph of its own.
+    const broken = "**Notes**\n\n\\[\n\n1\\] Should students still study CS?";
+    expect(splitBlocks(broken)).toHaveLength(3);
+    const fixed = rejoinSplitFootnotes(broken);
+    expect(fixed).toBe("**Notes**\n\n\\[1\\] Should students still study CS?");
+    expect(splitBlocks(fixed)).toHaveLength(2);
+  });
+
+  test("leaves a bracket that is not a footnote label", () => {
+    const text = "\\[\n\nsomething else\\]";
+    expect(rejoinSplitFootnotes(text)).toBe(text);
   });
 });
 

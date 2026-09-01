@@ -96,6 +96,24 @@ export function rejoinSplitLinks(body: string): string {
   );
 }
 
+/**
+ * Rejoin a footnote label that Readability split.
+ *
+ * Pages that separate paragraphs with `<br><br>` rather than `<p>` — Paul
+ * Graham's essays are the archetype — make Readability rebuild the blocks
+ * itself, and it does so through the middle of an inline run: `[<a
+ * name="f1n">1</a>] Should students…` comes back as `<p>[</p>` followed by the
+ * rest at block level. Turndown then emits `\[` as its own paragraph, so every
+ * footnote publishes as a stray bracket above its own text.
+ *
+ * The cause is inside Readability, before the clipper's markdown ever exists,
+ * so unlike the transforms above this one has no counterpart in `apps/extension`
+ * — a re-clip of such a page reproduces it.
+ */
+export function rejoinSplitFootnotes(body: string): string {
+  return body.replace(/\\\[\n\s*\n(?=\d+\\\])/g, "\\[");
+}
+
 const EMPTY_ROW = /^\|(?:\s*\|)+\s*$/;
 const DIVIDER = /^\|(?:\s*:?-+:?\s*\|)+\s*$/;
 
@@ -179,6 +197,7 @@ export function liftDuplicateListMarkers(body: string): string {
 const TRANSFORMS = [
   joinLinkTitles,
   rejoinSplitLinks,
+  rejoinSplitFootnotes,
   promoteTableHeaders,
   liftDuplicateListMarkers,
 ];

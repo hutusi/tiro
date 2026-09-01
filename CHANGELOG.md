@@ -14,7 +14,12 @@ versions follow the `0.x` line while Tiro is a personal system.
   `zh.md` together or not at all, checking 1:1 block alignment before writing
   and reporting the pair untouched when a repair would break it (invariant 4).
   A refusal means the two sides were not damaged identically, which no
-  symmetric edit can fix: re-clip the page instead.
+  symmetric edit can fix: re-clip the page instead. One of its repairs has no
+  clipper counterpart: pages that separate paragraphs with `<br><br>` make
+  Readability rebuild the blocks itself, and it cuts through the middle of a
+  footnote label, so every note published as a stray bracket above its own text.
+  That happens inside Readability, before the clipper's markdown exists, so a
+  re-clip of such a page reproduces it.
 
 ### Fixed
 
