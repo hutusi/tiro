@@ -71,11 +71,22 @@ export const VERBATIM_BLOCK_TYPES: ReadonlySet<string> = new Set([
  * nodes rather than inside them cannot use that allowlist, and this is the
  * nearest safe thing.
  *
- * Uses the same parser as `splitBlocks`, so what is protected here and what is
- * aligned there cannot disagree.
+ * An unterminated `$$` is *not* protected, matching `blocksFrom` below: such a
+ * fence is prose wearing a delimiter, and remark hands back the whole rest of
+ * the document as one math node. Protecting that would silence every caller
+ * downstream of it. The slice is re-read without the math extension instead, so
+ * code genuinely inside the swallowed region keeps its protection.
  */
 export function verbatimRanges(text: string): { start: number; end: number }[] {
+  return rangesFrom(text, parser);
+}
+
+function rangesFrom(
+  text: string,
+  from: typeof parser,
+): { start: number; end: number }[] {
   const found: { start: number; end: number }[] = [];
+  const mathParsed = from !== proseParser;
   const walk = (node: unknown): void => {
     const n = node as {
       type?: string;
@@ -85,12 +96,27 @@ export function verbatimRanges(text: string): { start: number; end: number }[] {
     if (n.type !== undefined && VERBATIM_NODE_TYPES.has(n.type)) {
       const start = n.position?.start.offset;
       const end = n.position?.end.offset;
-      if (start !== undefined && end !== undefined) found.push({ start, end });
+      if (start === undefined || end === undefined) return;
+      // An unclosed `$$` runs to the end of what it was parsed from, so remark
+      // reports the rest of the document as one formula. `splitBlocks` re-reads
+      // such a block as prose; protect it and every later repair dies with it.
+      // proseParser has no math extension, so this cannot recurse forever.
+      if (
+        mathParsed &&
+        n.type === "math" &&
+        !isTerminatedFence(text.slice(start, end))
+      ) {
+        for (const range of rangesFrom(text.slice(start, end), proseParser)) {
+          found.push({ start: start + range.start, end: start + range.end });
+        }
+        return;
+      }
+      found.push({ start, end });
       return;
     }
     for (const child of n.children ?? []) walk(child);
   };
-  walk(parser.parse(text) as Root);
+  walk(from.parse(text) as Root);
   return found;
 }
 

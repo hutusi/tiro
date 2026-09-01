@@ -301,6 +301,29 @@ describe("verbatimRanges", () => {
     expect(protectedText(text)).toEqual([text]);
   });
 
+  test("does not protect an unterminated $$ fence", () => {
+    // remark hands back the rest of the document as one math node, and
+    // splitBlocks re-reads such a block as prose. Protecting it would silence
+    // every caller downstream of a line like "$$ is the shell's PID".
+    const text = "$$ is the shell PID\n\nprose that follows\n";
+    expect(splitBlocks(text).map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+    expect(verbatimRanges(text)).toEqual([]);
+  });
+
+  test("still protects code inside an unterminated $$ fence", () => {
+    // The re-read is what buys this: a plain skip would leave the fence bare.
+    const text = "$$ moderate\n\n```\ncode line\n```\n";
+    expect(protectedText(text)).toEqual(["```\ncode line\n```"]);
+  });
+
+  test("still protects a terminated $$ fence", () => {
+    const text = "$$\nE=mc^2\n$$\n\nprose\n";
+    expect(protectedText(text)).toEqual(["$$\nE=mc^2\n$$"]);
+  });
+
   test("returns nothing for plain prose", () => {
     expect(verbatimRanges("just a paragraph")).toEqual([]);
   });
