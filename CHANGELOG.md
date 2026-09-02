@@ -42,6 +42,15 @@ versions follow the `0.x` line while Tiro is a personal system.
   rule's return value, so trimming inside the replacement is a no-op. Unwrapping
   before Readability also changes what its scorer sees, and a DIY article now
   keeps 16 images instead of 10.
+- **arXiv data tables survive the clip.** Readability deletes an element whose
+  class matches a boilerplate regex before any scoring happens, and that regex
+  contains `header` — so LaTeXML's `ltx_guessed_headers`, which marks a table
+  whose header row it inferred, took the whole table with it. One paper
+  published three captions promising tables that were not there, with nine
+  cross-references pointing at nothing. Dropping that one class pre-Readability
+  recovers all five of its data tables. `ltx_pagination` also matches the
+  regex and is deliberately left alone: those are page-break markers and
+  Readability is right to drop them.
 - **Images whose URL carries a query string download again.** A `src` in raw
   HTML must spell `&` as `&amp;` to be valid, and the image stage fetched that
   literally — a different URL, which the CDN answers wrongly or not at all, so
