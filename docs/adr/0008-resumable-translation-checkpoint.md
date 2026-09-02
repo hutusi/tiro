@@ -34,11 +34,10 @@ failures must not fail the workflow before its commit step), so the only
 evidence was a `processing <slug>` line with no matching completion.
 
 > **Partly superseded by [ADR 0010](0010-durable-translation-checkpoint.md)
-> (2026-09-02).** Two decisions below no longer hold: the checkpoint is *not*
-> discarded on success, and `--force` *does* clear it for an article that has
-> already finished. Everything else — the content-addressed key, the
-> misalignment discard, the non-fatal write, the ordering against `index.md` —
-> stands. The text is left as written; 0010 records what changed and why.
+> (2026-09-02).** One decision below no longer holds: the checkpoint is *not*
+> discarded on success. Everything else stands — including "`--force` does not
+> clear it", which 0010 briefly reversed and then restored, for the reason
+> given here.
 
 ## Decision
 

@@ -2,9 +2,9 @@
 
 Status: accepted (2026-09)
 
-Supersedes two decisions in [ADR 0008](0008-resumable-translation-checkpoint.md):
-"discarded on both terminal outcomes" and "`--force` does not clear it".
-Everything else in 0008 stands.
+Supersedes one decision in [ADR 0008](0008-resumable-translation-checkpoint.md):
+"discarded on both terminal outcomes". Everything else in 0008 stands,
+including "`--force` does not clear it" — see *Rejected* below.
 
 ## Context
 
@@ -43,18 +43,33 @@ contains.
   reason: resuming from the blocks that broke the alignment contract reproduces
   the failure on every retry and makes a recoverable fault permanent.
 - **An article needing no translation still discards.** There is nothing to keep.
-- **`--force` clears it for articles that already finished** — the reversal.
-  Force means "redo this", and a surviving checkpoint would quietly reduce that
-  to re-billing the summary. 0008 argued the opposite because at the time a
-  checkpoint could only belong to an *unfinished* article, where clearing it
-  would defeat the one case that needs resuming. Both cases now exist, so the
-  rule distinguishes them.
-- **The forced clear runs once, before the loop.** Not inside `processOne`: the
-  budget check defers every remaining article without starting it, so a discard
-  in there never runs for those, and the forced redo evaporates on the next
-  ordinary run. Doing it before any of this run's own work also keeps it clear
-  of a checkpoint written *by* this run, so deferring mid-translation still
-  saves partial progress.
+- **`--force` still does not clear it**, exactly as 0008 decided.
+
+## Rejected: making `--force` clear the checkpoint
+
+The first version of this ADR reversed 0008 here, on the reasoning that a
+surviving checkpoint reduces a forced redo to re-billing the summary. That was
+wrong twice over.
+
+It was wrong on the merits: 0008's argument is that the content-addressed key
+already guarantees a cached translation is only ever returned for byte-identical
+input, so reuse is *correct*, and paying again for identical output is waste
+rather than diligence. The operator's levers for genuinely fresh translations
+are unchanged and sufficient — change the model or target in `tiro.yml` and the
+header guard drops the file wholesale, or delete the file.
+
+It was also wrong structurally, and expensively so. Correctness came to depend
+on a *deletion*, and this pipeline abandons an article in several places: the
+budget check before it starts, a mid-article deferral, a bulk deferral, a
+`--dry-run`, and a hard failure. Five review rounds found five instances of the
+same defect — the guard added where the work happens and not where the work is
+abandoned — including a `--force --dry-run` that deleted checkpoints, which is
+the one flag whose contract is that the vault is untouched.
+
+The lesson is worth more than the feature was: `--force` invalidated an
+assumption the pipeline was built on — *a discovered article has no marker* —
+which had been true by construction and so was never checked anywhere. Removing
+the invalidation removes all five failure modes rather than fixing them.
 
 ## Consequences
 
@@ -65,8 +80,8 @@ contains.
   across the corpus against a ~99 MB vault, about 1%. Still inert to every
   reader — the site's loaders and `validate` glob `index.md`/`zh.md`, and asset
   reconciliation only looks inside `assets/`.
-- A forced whole-vault redo now discards every finished article's checkpoint up
-  front, including articles that later defer unstarted. That is what "re-bills
-  every article" already promised.
+- A forced whole-vault redo re-requests summaries but reuses translations, so
+  it is far cheaper than "re-bills every article" once suggested. The runbook
+  says so.
 - The operator's other invalidation levers are unchanged: change the model or
   target in `tiro.yml` and the header guard drops the file wholesale.

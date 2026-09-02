@@ -106,55 +106,9 @@ export async function runPipeline(
     log(`invalid article skipped: ${bad.path}: ${bad.error}`);
   log(`${pending.length} article(s) to process`);
 
-  // `--force` means "redo these", and a checkpoint that survives success would
-  // otherwise make that a lie: the run would reuse every translation and
-  // re-bill nothing but the summary.
-  //
-  // Done in one pass before the loop, not per article, because an article can
-  // leave this run without ever starting — the budget check defers everything
-  // remaining — and a discard inside `processOne` never runs for those. Doing
-  // it here also keeps it clear of any checkpoint *this* run writes, so
-  // deferring mid-translation still saves partial work.
-  //
-  // Only articles that already finished: a pending one is either mid-flight or
-  // freshly clipped, and its checkpoint is progress rather than a stale result.
-  //
-  // Never under `--dry-run`: that flag's whole contract is that the vault is
-  // unchanged, and deleting a checkpoint is the most destructive thing this
-  // run could do to it.
-  //
-  // Not swallowed, either. Elsewhere a checkpoint failure costs only
-  // resumability and is logged, but `--force` now *depends* on the removal:
-  // a checkpoint that survives is read straight back and the redo reuses every
-  // block, silently. Same rule ADR 0008 already applies to the deferral path —
-  // non-fatal only while nothing depends on it — so a removal that fails takes
-  // its article out of this run rather than letting it continue on stale work.
-  const forcedFailures = new Set<string>();
-  if (options.force === true && options.dryRun !== true) {
-    for (const article of pending) {
-      if (article.parsed.frontmatter.tiro.processed_at === undefined) continue;
-      try {
-        await discardTranslationCache(
-          `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`,
-        );
-      } catch (error) {
-        forcedFailures.add(article.slug);
-        report.errored.push({
-          slug: article.slug,
-          error: `could not clear the translation checkpoint for a forced redo, so it would have reused the old translation: ${String(error)}`,
-          staysPending: false,
-        });
-        log(
-          `skipping ${article.slug}: its checkpoint could not be cleared, and --force must not reuse it`,
-        );
-      }
-    }
-  }
-
   for (let i = 0; i < pending.length; i += 1) {
     const article = pending[i];
     if (article === undefined) continue;
-    if (forcedFailures.has(article.slug)) continue;
     if (options.dryRun === true) {
       const lang =
         article.parsed.frontmatter.lang ??
@@ -172,10 +126,6 @@ export async function runPipeline(
       // in the summary after taking it out of the per-article line.
       let deferredCount = 0;
       for (const candidate of pending.slice(i)) {
-        // Never a forced-invalidation failure: deferring clears its marker,
-        // and the next ordinary run would then process it against the very
-        // checkpoint that could not be removed.
-        if (forcedFailures.has(candidate.slug)) continue;
         if (await deferArticle(candidate, options, report, log))
           deferredCount += 1;
       }
@@ -249,7 +199,6 @@ export async function runPipeline(
       if (outOfBudget) {
         let deferredCount = 0;
         for (const candidate of pending.slice(i + 1)) {
-          if (forcedFailures.has(candidate.slug)) continue;
           if (await deferArticle(candidate, options, report, log))
             deferredCount += 1;
         }

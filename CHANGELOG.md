@@ -39,12 +39,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   measured cost of the gap was a 164 KB paper spending ~59 minutes across two
   workflow runs re-translating work it had already paid for. The checkpoint is
   pruned to the blocks the article still contains, and a misaligned translation
-  still discards it so a broken result is never resumed. `--force` discards the
-  checkpoint of every article that already finished, in one pass before the run
-  begins — inside the per-article path it would be skipped for anything the
-  budget defers without starting, and the forced redo would evaporate on the
-  next ordinary run. ADR 0010 supersedes the two decisions in ADR 0008 that
-  this reverses.
+  still discards it so a broken result is never resumed. `--force` continues to
+  reuse it, as ADR 0008 decided: the content-addressed key means a reuse is only
+  ever the same input translated by the same model, so re-billing for identical
+  output is waste. ADR 0010 supersedes the one decision in ADR 0008 this
+  reverses.
 
 ### Fixed
 

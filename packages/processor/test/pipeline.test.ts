@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -715,40 +716,36 @@ describe("run budget", () => {
     expect(readFileSync(cacheAbs, "utf8")).toBe(before);
   });
 
-  test("a checkpoint that cannot be cleared takes its article out of a forced run", async () => {
-    // --force depends on the removal now: a checkpoint that survives is read
-    // straight back and the redo reuses every block, silently. Logging and
-    // carrying on would defeat the flag.
+  test("--force reuses translations, because the key guarantees they fit", async () => {
+    // ADR 0008: force means "reprocess this article", and a content-addressed
+    // key already guarantees a cached translation is only ever returned for
+    // byte-identical input. Re-billing for identical output is waste. The
+    // levers for genuinely fresh translations are changing the model or target
+    // in tiro.yml, which invalidates the file wholesale, or deleting it.
     const vault = withBigArticle();
     const config = await tinyConfig(vault);
     await runPipeline({ vaultDir: vault, slug: BIG }, config, {
       ...deps,
       chat: makeFakeChat(),
     });
-    // Make the checkpoint undeletable but still readable.
-    const dir = join(vault, "articles", BIG);
-    chmodSync(dir, 0o555);
-    try {
-      let translationCalls = 0;
-      const forced = await runPipeline(
-        { vaultDir: vault, slug: BIG, force: true },
-        config,
-        {
-          ...deps,
-          chat: makeFakeChat({
-            onRequest: (r) => {
-              if (r.response_format?.type !== "json_object")
-                translationCalls += 1;
-            },
-          }),
-        },
-      );
-      expect(forced.errored.map((e) => e.slug)).toContain(BIG);
-      expect(forced.processed).not.toContain(BIG);
-      expect(translationCalls).toBe(0);
-    } finally {
-      chmodSync(dir, 0o755);
-    }
+
+    let translationCalls = 0;
+    const forced = await runPipeline(
+      { vaultDir: vault, slug: BIG, force: true },
+      config,
+      {
+        ...deps,
+        chat: makeFakeChat({
+          onRequest: (r) => {
+            if (r.response_format?.type !== "json_object")
+              translationCalls += 1;
+          },
+        }),
+      },
+    );
+    expect(forced.processed).toEqual([BIG]);
+    // The summary is re-requested; the translation is not re-bought.
+    expect(translationCalls).toBe(0);
   });
 
   test("a hard failure during --force returns the article to pending", async () => {
@@ -791,96 +788,6 @@ describe("run budget", () => {
     expect(followUp.processed).toContain(RAW);
   });
 
-  test("budget deferral does not hand a failed invalidation back to the queue", async () => {
-    // The main loop skips an article whose checkpoint could not be cleared,
-    // but the bulk deferral ran over the unfiltered list: it cleared the
-    // marker, so the next ordinary run picked the article up and reused the
-    // very checkpoint nobody could remove.
-    const vault = withBigArticle();
-    const config = await tinyConfig(vault);
-    await runPipeline({ vaultDir: vault }, config, {
-      ...deps,
-      chat: makeFakeChat(),
-    });
-
-    const dir = join(vault, "articles", BIG);
-    chmodSync(dir, 0o555);
-    try {
-      let clock = 0;
-      const forced = await runPipeline(
-        { vaultDir: vault, force: true },
-        config,
-        {
-          ...deps,
-          chat: billingChat(() => {
-            clock += 1000;
-          }),
-          deadline: createDeadline(1200, () => clock),
-        },
-      );
-      expect(forced.errored.map((e) => e.slug)).toContain(BIG);
-      // Not deferred, and still marked processed: an ordinary run must not
-      // pick it up and quietly reuse the checkpoint.
-      expect(forced.skipped).not.toContain(BIG);
-      const after = parseArticle(readFileSync(join(dir, "index.md"), "utf8"));
-      expect(needsProcessing(after.frontmatter)).toBe(false);
-      // And the report says so, rather than promising a retry.
-      const failure = forced.errored.find((e) => e.slug === BIG);
-      expect(failure?.staysPending).toBe(false);
-    } finally {
-      chmodSync(dir, 0o755);
-    }
-  });
-
-  test("a --force redo survives being deferred before it reaches translation", async () => {
-    // The forced discard has to happen before anything that can spend budget.
-    // Images and summarisation both can, and deferring after them clears
-    // processed_at via markPending while leaving a complete checkpoint — so
-    // the next ordinary run saw a pending article, no --force, and reused
-    // every block. The forced redo evaporated silently.
-    const vault = withBigArticle();
-    const config = await tinyConfig(vault);
-    await runPipeline({ vaultDir: vault, slug: BIG }, config, {
-      ...deps,
-      chat: makeFakeChat(),
-    });
-    expect(
-      existsSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
-    ).toBe(true);
-
-    // Forced redo with a budget too small to reach translation at all.
-    let clock = 0;
-    const forced = await runPipeline(
-      { vaultDir: vault, slug: BIG, force: true },
-      config,
-      {
-        ...deps,
-        chat: billingChat(() => {
-          clock += 1000;
-        }),
-        deadline: createDeadline(1, () => clock),
-      },
-    );
-    expect(forced.translated).toEqual([]);
-    // The checkpoint is gone, so the redo cannot be quietly skipped later.
-    expect(
-      existsSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
-    ).toBe(false);
-
-    // The ordinary run that picks it up really does re-translate.
-    let translationCalls = 0;
-    const followUp = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
-      ...deps,
-      chat: makeFakeChat({
-        onRequest: (r) => {
-          if (r.response_format?.type !== "json_object") translationCalls += 1;
-        },
-      }),
-    });
-    expect(followUp.translated).toEqual([BIG]);
-    expect(translationCalls).toBeGreaterThan(0);
-  });
-
   test("a budget-deferred --force article returns to pending and a normal run finishes it", async () => {
     // Forced discovery includes already-processed articles, so deferring one
     // used to leave processed_at in place: the next ordinary run skipped it,
@@ -901,6 +808,12 @@ describe("run budget", () => {
         ).frontmatter,
       ),
     ).toBe(false);
+
+    // This test is about deferral and markPending, not about caching: drop the
+    // checkpoint so the forced redo actually has translation to pay for.
+    // Without this the run finishes inside the budget and never defers,
+    // because a finished article now keeps its translations (ADR 0010).
+    rmSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE));
 
     // Forced redo that runs out of budget partway.
     let clock = 0;

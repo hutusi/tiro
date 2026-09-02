@@ -168,9 +168,13 @@ so re-runs are always safe no-ops for finished articles.
   Run workflow with `force: true` and the article's `slug`. Handy too when one
   oversized article is monopolising runs: dispatching a specific slug skips the
   queue entirely.
-- **Redo everything**: `force: true`, no slug. Re-bills every article — a
-  forced redo discards the translation checkpoint of any article that already
-  finished, so it genuinely re-translates rather than reusing what is cached.
+- **Redo everything**: `force: true`, no slug. Re-runs images, summaries and
+  tags for every article. Translations are *reused* where the block's source
+  text is unchanged — the checkpoint is content-addressed, so a reuse is only
+  ever the same input translated by the same model (ADR 0008). To genuinely
+  re-translate, change `llm.model` or `translation.target` in `tiro.yml`, which
+  invalidates every checkpoint wholesale, or delete the article's
+  `.tiro-zh-cache.json`.
 - **Locally**: `TIRO_LLM_API_KEY=… bun run process -- --vault ../tiro-vault`
   (then commit/push the vault yourself).
 - **Contract check over the whole vault**:
