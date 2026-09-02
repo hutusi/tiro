@@ -475,14 +475,40 @@ function linkWrapping(image: Element, figure: Element): Element | null {
 }
 
 /**
+ * True when `link` holds `image` through a chain of single-child wrappers and
+ * nothing else — no sibling, at any depth, textual or not.
+ *
+ * Structural rather than a text test, because the content that has to be
+ * protected here is not all textual: an `<hr>` or an `<svg>` beside the image
+ * carries no text but is still content, and dropping it would be exactly the
+ * silent loss this pass has to avoid.
+ */
+function isWrapperChain(link: Element, image: Element): boolean {
+  let current: Element = link;
+  while (current !== image) {
+    const children = meaningfulChildren(current);
+    const [only] = children;
+    if (children.length !== 1 || only === undefined) return false;
+    // "#text" and "#comment" cannot wrap anything, and the walk has to reach
+    // the image for the chain to be one.
+    if (only.nodeName.startsWith("#")) return false;
+    current = only as Element;
+  }
+  return true;
+}
+
+/**
  * Make `image` the link's only child, dropping the layout elements between.
  *
  * A wrapper is usually a `<div>`, which Turndown calls a block and therefore
  * surrounds with blank lines — *inside* the paragraph being built, splitting
- * the block this pass promises is one. The wrapper is known to carry nothing
- * but the image by the time this runs, so removing it loses nothing, and it
- * leaves Turndown the shape it already converts correctly. Exactly the move
- * `unwrapPictures` makes, for exactly the same reason.
+ * the block this pass promises is one. Removing it hands Turndown the shape it
+ * already converts correctly, exactly the move `unwrapPictures` makes and for
+ * the same reason.
+ *
+ * Discarding the link's children wholesale is safe only because `isWrapperChain`
+ * has established there is nothing among them to lose: one meaningful child at
+ * every step from the link down to the image.
  */
 function unwrapWrappers(link: Element, image: Element): void {
   if (link.firstChild === image && link.childNodes.length === 1) return;
@@ -510,12 +536,13 @@ function pictureOf(image: Element, figure: Element): Element | null {
   // site reads as a picture. `unwrapWrappers` below drops them so Turndown
   // never sees the block element.
   //
-  // What must not be in there is other *content*: overlay text converts to
-  // `[![](x)Zoom](full)`, which the site does not read as a picture. Testing
-  // the text rather than the child count is what separates the two, and the
-  // figure already holds exactly one image, so nothing else can hide in a
-  // wrapper.
-  if ((link.textContent ?? "").trim() !== "") return null;
+  // The chain must be checked structurally rather than by asking whether the
+  // link holds any text. `<a><div><img></div><hr></a>` has no text at all, so
+  // a text check calls it "nothing but the image" and the unwrap then deletes
+  // the `<hr>`. Requiring one meaningful child at every step is what makes
+  // that unwrap lossless by construction — and it rejects overlay text on the
+  // same rule, since `<span>Zoom</span>` is a second child.
+  if (!isWrapperChain(link, image)) return null;
   return link;
 }
 

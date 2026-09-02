@@ -760,6 +760,26 @@ describe("figure captions — what must never be folded", () => {
     expect(splitBlocks(md)).toHaveLength(1);
   });
 
+  test("leaves a link holding a textless sibling alone", () => {
+    // <hr> and <svg> carry no text, so a textContent check called this link
+    // "nothing but the image" and the unwrap then deleted them.
+    const { html } = prepare(
+      '<figure><a href="full"><div><img src="x.png" alt="d"></div><hr></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+    expect(html).toContain("<hr");
+  });
+
+  test("leaves a link holding an svg beside its image alone", () => {
+    const { html } = prepare(
+      '<figure><a href="full"><img src="x.png" alt="d"><svg></svg></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+    expect(html).toContain("<svg");
+  });
+
   test("leaves a link carrying more than its image alone", () => {
     // `[![](x)Zoom](full)` is not a picture by the site's definition, so the
     // fold would produce a block the renderer declines to make a figure of.
