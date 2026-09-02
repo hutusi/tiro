@@ -381,12 +381,83 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
- * Elements a caption cannot carry into a paragraph. Each needs blank lines
- * around it in markdown, and a blank line would end the block — which is the
- * whole thing this fold exists to avoid.
+ * Inline elements a caption may carry into a paragraph.
+ *
+ * An allow-list, not a list of blocks to reject, because the two failures are
+ * not symmetric. An inline element missing from this list costs a figure,
+ * which then converts exactly as it does today. A *block* element missing from
+ * a reject-list costs the promise this pass exists to make: Turndown puts
+ * blank lines around anything it calls a block, and the single block becomes
+ * several, which is the alignment contract in ADR 0003. Turndown's block set
+ * is long — section, article, aside, dl, hr and more — and a reject-list would
+ * have to stay in sync with the library to stay correct.
  */
-const CAPTION_BLOCK =
-  "p, div, ul, ol, table, blockquote, pre, figure, h1, h2, h3, h4, h5, h6";
+const CAPTION_INLINE: ReadonlySet<string> = new Set([
+  "A",
+  "ABBR",
+  "B",
+  "BDI",
+  "BDO",
+  "BR",
+  "CITE",
+  "CODE",
+  "DEL",
+  "DFN",
+  "EM",
+  "I",
+  "IMG",
+  "INS",
+  "KBD",
+  "MARK",
+  "Q",
+  "RP",
+  "RT",
+  "RUBY",
+  "S",
+  "SAMP",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "TIME",
+  "U",
+  "VAR",
+  "WBR",
+]);
+
+/** Children that carry content; whitespace between tags does not. */
+function meaningfulChildren(element: Element): Node[] {
+  return Array.from(element.childNodes).filter((node) => {
+    if (node.nodeName === "#comment") return false;
+    if (node.nodeName === "#text") {
+      return (node.textContent ?? "").trim() !== "";
+    }
+    return true;
+  });
+}
+
+/** True when everything inside `root` is content a paragraph can hold. */
+function isFoldableContent(root: Element): boolean {
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    if (!CAPTION_INLINE.has(element.nodeName)) return false;
+    // A recovered display formula emits its own blank lines (mathTurndownRule),
+    // and a <p> is not one of the BLOCK_HOSTILE contexts that demote it to
+    // inline — so it would split the block from inside an allowed <span>.
+    if (element.getAttribute(MATH_ATTR) === "display") return false;
+  }
+  return true;
+}
+
+/** True when any ancestor of `node` is a link. */
+function insideLink(node: Element): boolean {
+  let current: Node | null = node.parentNode;
+  while (current !== null) {
+    if (current.nodeName === "A") return true;
+    current = current.parentNode;
+  }
+  return false;
+}
 
 /**
  * The link wrapping `image` inside `figure`, if the figure holds one.
@@ -405,24 +476,20 @@ function linkWrapping(image: Element, figure: Element): Element | null {
 
 /**
  * The element whose children hold the caption's inline content, or `null` when
- * the caption carries block structure a paragraph cannot absorb.
+ * the caption carries anything a paragraph cannot absorb.
  */
 function captionSource(caption: Element): Element | null {
-  const blocks = Array.from(caption.querySelectorAll(CAPTION_BLOCK));
-  if (blocks.length === 0) return caption;
-  const [only] = blocks;
+  const children = meaningfulChildren(caption);
+  const [only] = children;
   // A caption marked up as a single paragraph is the common shape and unwraps
-  // cleanly. Anything richer — two paragraphs, a list — would need the blank
-  // lines this cannot emit, so leave that figure alone rather than flattening
-  // structure the page meant.
-  if (
-    blocks.length === 1 &&
-    only?.nodeName === "P" &&
-    only.parentNode === caption
-  ) {
-    return only;
-  }
-  return null;
+  // cleanly — but only when that paragraph is the caption's *whole* content.
+  // `Lead<p>Rest</p>Tail` is not that shape, and unwrapping it would publish
+  // `Rest` and silently drop the rest of the sentence.
+  const source =
+    children.length === 1 && only?.nodeName === "P"
+      ? (only as Element)
+      : caption;
+  return isFoldableContent(source) ? source : null;
 }
 
 /**
@@ -446,12 +513,18 @@ function captionSource(caption: Element): Element | null {
  * nodes, so a newline would leave the caption running on from the image, while
  * a hard break keeps the two legible as separate lines in the raw markdown.
  *
- * Anything the pairing would have to guess at is left alone, converting
- * exactly as it does today: a figure with no caption, an empty caption, more
- * than one image, or a caption holding block structure.
+ * Every bail-out below leaves the figure converting exactly as it does today.
+ * That is the cheap direction: a figure that keeps reading as loose prose is
+ * the defect this fixes, while a fold that guesses wrong drops content off the
+ * page or breaks the one-block promise the site and `zh.md` both rely on.
  */
 function foldFigureCaptions(doc: Document): void {
   for (const figure of Array.from(doc.querySelectorAll("figure"))) {
+    // A link around the whole figure would swallow the caption:
+    // `inlineLinkRule` flattens a link's content onto one line, so the
+    // paragraph would open with a link rather than an image, the caption would
+    // become clickable, and the site would not read it as a figure at all.
+    if (insideLink(figure)) continue;
     const images = figure.querySelectorAll("img");
     // Exactly one, or which picture the caption describes is a guess.
     if (images.length !== 1) continue;
@@ -461,8 +534,22 @@ function foldFigureCaptions(doc: Document): void {
     if (caption === null || (caption.textContent ?? "").trim() === "") continue;
     const source = captionSource(caption);
     if (source === null) continue;
+    const picture = linkWrapping(image, figure) ?? image;
+    // The figure must hold nothing beyond the picture and its caption.
+    // Replacing it with a paragraph built from those two would drop anything
+    // else it carries — a note after the caption, a stray sentence — and
+    // losing content off the page is far worse than a caption that still
+    // reads as prose.
+    const children = meaningfulChildren(figure);
+    if (
+      children.length !== 2 ||
+      !children.includes(picture) ||
+      !children.includes(caption)
+    ) {
+      continue;
+    }
     const paragraph = doc.createElement("p");
-    paragraph.appendChild(linkWrapping(image, figure) ?? image);
+    paragraph.appendChild(picture);
     paragraph.appendChild(doc.createElement("br"));
     while (source.firstChild !== null) {
       paragraph.appendChild(source.firstChild);

@@ -659,3 +659,74 @@ describe("figure captions (ADR 0011)", () => {
     expect(md).toBe("![d](f.png)  \nA caption.");
   });
 });
+
+describe("figure captions — what must never be folded", () => {
+  function markdownFor(html: string): string {
+    return htmlToMarkdown(prepare(html).html).markdown.trim();
+  }
+  function katexDisplay(tex: string): string {
+    return (
+      `<div class="katex-display"><span class="katex"><span class="katex-mathml">` +
+      `<math><semantics><annotation encoding="application/x-tex">${tex}</annotation>` +
+      `</semantics></math></span></span></div>`
+    );
+  }
+
+  test("keeps content the figure holds beside its image and caption", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d">' +
+        "<figcaption>A caption.</figcaption>" +
+        "<p>Essential note.</p></figure>",
+    );
+    expect(md).toContain("Essential note.");
+  });
+
+  test("keeps caption text either side of an inner paragraph", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d">' +
+        "<figcaption>Lead<p>Rest</p>Tail</figcaption></figure>",
+    );
+    expect(md).toContain("Lead");
+    expect(md).toContain("Tail");
+  });
+
+  test("never promises one block for a caption Turndown would split", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d">' +
+        "<figcaption><section>Note</section></figcaption></figure>",
+    );
+    const imageBlocks = splitBlocks(md).filter((b) => b.text.includes("f.png"));
+    // Either folded into one block, or not folded at all — never a promise of
+    // one block that Turndown then splits.
+    expect(imageBlocks).toHaveLength(1);
+    expect(splitBlocks(md).length).toBeLessThanOrEqual(2);
+    if (md.includes("  \n")) expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("leaves a caption carrying display math alone", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>Where ' +
+        `${katexDisplay("E=mc^2")} holds.</figcaption></figure>`,
+    );
+    if (md.includes("  \n")) expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("leaves a figure wrapped in a link unfolded", () => {
+    const wrapped =
+      '<a href="full.png"><figure><img src="f.png" alt="d">' +
+      "<figcaption>A caption.</figcaption></figure></a>";
+    // Folding here would put the caption inside the link's text, because
+    // inlineLinkRule flattens a link's content onto one line — the paragraph
+    // would open with a link rather than an image and stop reading as a figure.
+    expect(prepare(wrapped).html).toContain("<figcaption>");
+
+    // That flattening is inlineLinkRule's own behaviour for any link wrapping
+    // block content, not something this pass introduces: the identical markdown
+    // comes out of the same shape with no <figure> in it at all.
+    expect(markdownFor(wrapped)).toBe(
+      htmlToMarkdown(
+        '<a href="full.png"><img src="f.png" alt="d"><p>A caption.</p></a>',
+      ).markdown.trim(),
+    );
+  });
+});
