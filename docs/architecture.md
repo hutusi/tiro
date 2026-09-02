@@ -78,10 +78,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   `articles/<slug>/` (ADR 0007), so the path itself guarantees a re-clip
   overwrites the same article and reprocesses it.
 - **Needs processing** = frontmatter lacks `tiro.processed_at`. Idempotent and
-  retry-safe; no dependence on push diffs. An article too long to translate in
-  one run keeps a `.tiro-zh-cache.json` checkpoint beside it and resumes on the
-  next run (ADR 0008); the checkpoint is invisible to every reader, which glob
-  `index.md`/`zh.md` only.
+  retry-safe; no dependence on push diffs. Every translated article keeps a
+  `.tiro-zh-cache.json` checkpoint beside it: an article too long for one run
+  resumes from it (ADR 0008), and a finished one holds onto it so a later
+  re-clip pays only for the blocks whose source text changed (ADR 0010). The
+  checkpoint is invisible to every reader, which glob `index.md`/`zh.md` only.
 - **Translation alignment**: `zh.md` has strict 1:1 top-level-block alignment
   with the `index.md` body (`code` and `math` blocks byte-identical). The site
   zips the two block arrays for side-by-side rendering; misalignment falls back
