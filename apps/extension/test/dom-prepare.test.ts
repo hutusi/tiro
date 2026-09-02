@@ -539,4 +539,28 @@ describe("shapes found by clipping real pages", () => {
     expect(markdown).toContain("          # indented");
     expect(markdown).not.toContain("\\#");
   });
+
+  test("drops the LaTeXML class that makes Readability delete a table", () => {
+    // `_removeUnlikelyCandidates` matches an element's class against a
+    // boilerplate regex containing `header`, and LaTeXML marks a table whose
+    // header row it inferred with `ltx_guessed_headers` — so the whole table
+    // was deleted before scoring. Three data tables on one clipped paper went
+    // this way while their captions survived.
+    const { html } = prepare(
+      '<table class="ltx_tabular ltx_guessed_headers ltx_align_middle">' +
+        "<tr><th>Problem</th></tr><tr><td>Kakeya</td></tr></table>",
+    );
+    expect(html).not.toContain("ltx_guessed_headers");
+    // The classes carrying real meaning are untouched.
+    expect(html).toContain("ltx_tabular");
+    expect(html).toContain("ltx_align_middle");
+  });
+
+  test("leaves ltx_pagination alone, where the regex is right", () => {
+    // Those are page-break markers; Readability should drop them.
+    const { html } = prepare(
+      '<div class="ltx_pagination ltx_role_newpage"></div>',
+    );
+    expect(html).toContain("ltx_pagination");
+  });
 });

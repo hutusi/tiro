@@ -381,6 +381,31 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * Drop the one LaTeXML class name that makes Readability delete a data table.
+ *
+ * `_removeUnlikelyCandidates` tests an element's class and id against a
+ * boilerplate regex before any scoring happens, and that regex contains
+ * `header`. LaTeXML marks a table whose header row it inferred with
+ * `ltx_guessed_headers` — which contains that substring — so the whole table
+ * is deleted as site furniture. On one clipped paper three data tables went
+ * this way while their `<figcaption>`s survived, leaving captions promising
+ * tables that are not there and nine cross-references pointing at nothing.
+ *
+ * Scoped to this single class, because it is the only collision in the corpus
+ * that is wrong. `ltx_pagination` also matches, and there the regex is right:
+ * those are page-break markers and Readability should drop them.
+ *
+ * The class carries no meaning downstream — Readability strips classes from
+ * its output anyway — so removing it costs nothing and is not a rewrite of
+ * the table's structure, unlike the passes below.
+ */
+function unhideGuessedHeaderTables(doc: Document): void {
+  for (const node of Array.from(doc.querySelectorAll(".ltx_guessed_headers"))) {
+    node.classList.remove("ltx_guessed_headers");
+  }
+}
+
+/**
  * Give a headerless table a header row taken from its own first row.
  *
  * GFM has no way to write a table without one, so the Turndown plugin
@@ -435,6 +460,7 @@ export function prepareForClipping(doc: Document): void {
   recoverCodeBlocks(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
+  unhideGuessedHeaderTables(doc);
   // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
   // line-number gutters). Promoting headers first would rewrite the very cells
   // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
