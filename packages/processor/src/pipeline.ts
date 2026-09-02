@@ -110,19 +110,42 @@ export async function runPipeline(
   //
   // Only articles that already finished: a pending one is either mid-flight or
   // freshly clipped, and its checkpoint is progress rather than a stale result.
-  if (options.force === true) {
+  //
+  // Never under `--dry-run`: that flag's whole contract is that the vault is
+  // unchanged, and deleting a checkpoint is the most destructive thing this
+  // run could do to it.
+  //
+  // Not swallowed, either. Elsewhere a checkpoint failure costs only
+  // resumability and is logged, but `--force` now *depends* on the removal:
+  // a checkpoint that survives is read straight back and the redo reuses every
+  // block, silently. Same rule ADR 0008 already applies to the deferral path —
+  // non-fatal only while nothing depends on it — so a removal that fails takes
+  // its article out of this run rather than letting it continue on stale work.
+  const forcedFailures = new Set<string>();
+  if (options.force === true && options.dryRun !== true) {
     for (const article of pending) {
       if (article.parsed.frontmatter.tiro.processed_at === undefined) continue;
-      await discardCheckpointQuietly(
-        `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`,
-        log,
-      );
+      try {
+        await discardTranslationCache(
+          `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`,
+        );
+      } catch (error) {
+        forcedFailures.add(article.slug);
+        report.errored.push({
+          slug: article.slug,
+          error: `could not clear the translation checkpoint for a forced redo, so it would have reused the old translation: ${String(error)}`,
+        });
+        log(
+          `skipping ${article.slug}: its checkpoint could not be cleared, and --force must not reuse it`,
+        );
+      }
     }
   }
 
   for (let i = 0; i < pending.length; i += 1) {
     const article = pending[i];
     if (article === undefined) continue;
+    if (forcedFailures.has(article.slug)) continue;
     if (options.dryRun === true) {
       const lang =
         article.parsed.frontmatter.lang ??

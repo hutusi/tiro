@@ -695,6 +695,62 @@ describe("run budget", () => {
     ).toEqual([]);
   });
 
+  test("--force --dry-run leaves the checkpoint alone", async () => {
+    // A dry run's whole contract is that the vault is unchanged, and deleting
+    // a checkpoint is the most destructive thing this run could do to it.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    const cacheAbs = join(vault, "articles", BIG, TRANSLATION_CACHE_FILE);
+    const before = readFileSync(cacheAbs, "utf8");
+
+    await runPipeline(
+      { vaultDir: vault, slug: BIG, force: true, dryRun: true },
+      config,
+      { ...deps, chat: makeFakeChat() },
+    );
+    expect(readFileSync(cacheAbs, "utf8")).toBe(before);
+  });
+
+  test("a checkpoint that cannot be cleared takes its article out of a forced run", async () => {
+    // --force depends on the removal now: a checkpoint that survives is read
+    // straight back and the redo reuses every block, silently. Logging and
+    // carrying on would defeat the flag.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    // Make the checkpoint undeletable but still readable.
+    const dir = join(vault, "articles", BIG);
+    chmodSync(dir, 0o555);
+    try {
+      let translationCalls = 0;
+      const forced = await runPipeline(
+        { vaultDir: vault, slug: BIG, force: true },
+        config,
+        {
+          ...deps,
+          chat: makeFakeChat({
+            onRequest: (r) => {
+              if (r.response_format?.type !== "json_object")
+                translationCalls += 1;
+            },
+          }),
+        },
+      );
+      expect(forced.errored.map((e) => e.slug)).toContain(BIG);
+      expect(forced.processed).not.toContain(BIG);
+      expect(translationCalls).toBe(0);
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+  });
+
   test("a --force redo survives being deferred before it reaches translation", async () => {
     // The forced discard has to happen before anything that can spend budget.
     // Images and summarisation both can, and deferring after them clears
