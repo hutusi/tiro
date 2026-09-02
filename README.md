@@ -32,3 +32,7 @@ bun run lint       # Biome + Prettier (.astro only)
 bun run typecheck  # tsc across all packages
 bun test           # bun test across all packages
 ```
+
+## License
+
+[MIT](./LICENSE).
