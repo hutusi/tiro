@@ -7,6 +7,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-02
+
 ### Added
 
 - **A figure's caption stays attached to its figure.** The clipper folds a
@@ -481,6 +483,7 @@ verified end to end with real articles in both languages.
 - CI and deploy workflows run with read-only tokens and without persisted
   git credentials.
 
-[Unreleased]: https://github.com/hutusi/tiro/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/hutusi/tiro/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hutusi/tiro/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hutusi/tiro/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/hutusi/tiro/releases/tag/v0.1.0
