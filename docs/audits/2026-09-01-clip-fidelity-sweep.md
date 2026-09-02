@@ -218,7 +218,8 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
    unwrapping `<thead>` change nothing, and the only surviving table is the one *without* them. The
    `<th>` correlation was real; the causation ran through the class name attached alongside it.
 
-   **Still needs a re-clip of 2608** for the tables to appear: a clipper fix only helps the next clip.
+   **Re-clipped 2026-09-02 and confirmed**: 2608 now carries all five tables, each rendering next to its
+   caption, and records `clipper_version: 0.9.0`.
 
 **Re-clipping is now a measured remedy, not a hope.** The two 0.7.0 clips clear every legacy class,
 so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` is the

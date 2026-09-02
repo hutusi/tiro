@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { Readability } from "@mozilla/readability";
 import { splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
-import { MATH_ATTR, prepareForClipping } from "../src/dom-prepare.ts";
+import {
+  foldFiguresIn,
+  MATH_ATTR,
+  prepareForClipping,
+} from "../src/dom-prepare.ts";
 import { htmlToMarkdown } from "../src/markdown.ts";
 
 /**
@@ -562,5 +567,357 @@ describe("shapes found by clipping real pages", () => {
       '<div class="ltx_pagination ltx_role_newpage"></div>',
     );
     expect(html).toContain("ltx_pagination");
+  });
+});
+
+describe("figure captions (ADR 0011)", () => {
+  /** Prepared, then folded — the order clipper.ts runs them in. */
+  function clipHtml(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return foldFiguresIn(prepared, doc);
+  }
+
+  /** The markdown a prepared figure actually converts to. */
+  function markdownFor(html: string): string {
+    return htmlToMarkdown(clipHtml(html)).markdown.trim();
+  }
+
+  test("folds a caption into its image's paragraph", () => {
+    const md = markdownFor(
+      '<figure><img src="fig.png" alt="A diagram">' +
+        "<figcaption>Figure 2.2: what it shows.</figcaption></figure>",
+    );
+    // One block: image, hard break, caption. A blank line here would make the
+    // caption a separate paragraph again, which is the whole defect.
+    expect(md).toBe("![A diagram](fig.png)  \nFigure 2.2: what it shows.");
+    expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("the folded block is one block and stays one after translation", () => {
+    const md = markdownFor(
+      '<figure><img src="fig.png" alt="d"><figcaption>A caption.</figcaption>' +
+        "</figure>",
+    );
+    const translated = "![d](fig.png)  \n一段说明。";
+    expect(splitBlocks(md)).toHaveLength(1);
+    expect(splitBlocks(translated)).toHaveLength(1);
+    expect(splitBlocks(md)[0]?.type).toBe(splitBlocks(translated)[0]?.type);
+  });
+
+  test("keeps the link wrapping a lightbox image", () => {
+    const md = markdownFor(
+      '<figure><a href="full.png"><img src="thumb.png" alt="d"></a>' +
+        "<figcaption>A caption.</figcaption></figure>",
+    );
+    expect(md).toBe("[![d](thumb.png)](full.png)  \nA caption.");
+  });
+
+  test("keeps inline markup inside the caption", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>Credit: ' +
+        '<a href="https://example.com">M. G.</a> and <em>others</em>.' +
+        "</figcaption></figure>",
+    );
+    expect(md).toBe(
+      "![d](f.png)  \nCredit: [M. G.](https://example.com) and _others_.",
+    );
+  });
+
+  test("unwraps a caption marked up as a single paragraph", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption><p>A caption.</p>' +
+        "</figcaption></figure>",
+    );
+    expect(md).toBe("![d](f.png)  \nA caption.");
+  });
+
+  test("leaves a figure with no caption as a plain image", () => {
+    const md = markdownFor('<figure><img src="f.png" alt="d"></figure>');
+    expect(md).toBe("![d](f.png)");
+  });
+
+  test("leaves an empty caption alone", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>  </figcaption></figure>',
+    );
+    expect(md).not.toContain("  \n");
+  });
+
+  test("leaves a multi-image figure alone — the pairing would be a guess", () => {
+    const html = clipHtml(
+      '<figure><img src="a.png"><img src="b.png">' +
+        "<figcaption>Both of them.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("leaves a caption holding block structure alone", () => {
+    // Two paragraphs cannot be folded without a blank line, and a blank line
+    // would end the block.
+    const html = clipHtml(
+      '<figure><img src="f.png"><figcaption><p>One.</p><p>Two.</p>' +
+        "</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("folds a <picture> inside a figure, which unwrapPictures ran first on", () => {
+    const md = markdownFor(
+      "<figure><picture><source srcset='big.webp'>" +
+        '<img src="f.png" alt="d"></picture>' +
+        "<figcaption>A caption.</figcaption></figure>",
+    );
+    expect(md).toBe("![d](f.png)  \nA caption.");
+  });
+});
+
+describe("figure captions — what must never be folded", () => {
+  /** Prepared, then folded — the order clipper.ts runs them in. */
+  function clipHtml(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return foldFiguresIn(prepared, doc);
+  }
+
+  function markdownFor(html: string): string {
+    return htmlToMarkdown(clipHtml(html)).markdown.trim();
+  }
+  function katexDisplay(tex: string): string {
+    return (
+      `<div class="katex-display"><span class="katex"><span class="katex-mathml">` +
+      `<math><semantics><annotation encoding="application/x-tex">${tex}</annotation>` +
+      `</semantics></math></span></span></div>`
+    );
+  }
+
+  test("keeps content the figure holds beside its image and caption", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d">' +
+        "<figcaption>A caption.</figcaption>" +
+        "<p>Essential note.</p></figure>",
+    );
+    expect(md).toContain("Essential note.");
+  });
+
+  test("keeps caption text either side of an inner paragraph", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d">' +
+        "<figcaption>Lead<p>Rest</p>Tail</figcaption></figure>",
+    );
+    expect(md).toContain("Lead");
+    expect(md).toContain("Tail");
+  });
+
+  test("never promises one block for a caption Turndown would split", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d">' +
+        "<figcaption><section>Note</section></figcaption></figure>",
+    );
+    const imageBlocks = splitBlocks(md).filter((b) => b.text.includes("f.png"));
+    // Either folded into one block, or not folded at all — never a promise of
+    // one block that Turndown then splits.
+    expect(imageBlocks).toHaveLength(1);
+    expect(splitBlocks(md).length).toBeLessThanOrEqual(2);
+    if (md.includes("  \n")) expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("leaves a caption carrying display math alone", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>Where ' +
+        `${katexDisplay("E=mc^2")} holds.</figcaption></figure>`,
+    );
+    if (md.includes("  \n")) expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("folds a caption whose lines are separated by a single break", () => {
+    // One break is `  \n`, which keeps the block whole — captions marked up
+    // over two lines are common and should still become figures.
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>A<br>B</figcaption></figure>',
+    );
+    expect(splitBlocks(md)).toHaveLength(1);
+    expect(md).toBe("![d](f.png)  \nA  \nB");
+  });
+
+  test("leaves a caption with doubled breaks alone", () => {
+    // Two breaks in a row are `  \n  \n` — a blank line, and a blank line ends
+    // the block this pass promises is one.
+    const html = clipHtml(
+      '<figure><img src="f.png" alt="d"><figcaption>A<br><br>B</figcaption>' +
+        "</figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("leaves a caption that opens with a break alone", () => {
+    // The separator this inserts is itself a break, so a leading one doubles it.
+    const html = clipHtml(
+      '<figure><img src="f.png" alt="d"><figcaption><br>A</figcaption></figure>',
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("a doubled break nested inside inline markup is caught too", () => {
+    const html = clipHtml(
+      '<figure><img src="f.png" alt="d"><figcaption><em>A<br><br>B</em>' +
+        "</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("folds Substack's <a><div><img></div></a> wrapper shape", () => {
+    // The real page shape inlineLinkRule exists for (see markdown.ts): it
+    // flattens to [![](x)](full), which is exactly what the site reads as a
+    // picture, so a wrapper element between link and image must not block the
+    // fold — only other *content* inside the link may.
+    const md = markdownFor(
+      '<figure><a href="full.png"><div><img src="f.png" alt="d"></div></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(md).toBe("[![d](f.png)](full.png)  \nCap.");
+    expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("leaves a link holding a textless sibling alone", () => {
+    // <hr> and <svg> carry no text, so a textContent check called this link
+    // "nothing but the image" and the unwrap then deleted them.
+    const html = clipHtml(
+      '<figure><a href="full"><div><img src="x.png" alt="d"></div><hr></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+    expect(html).toContain("<hr");
+  });
+
+  test("leaves a link holding an svg beside its image alone", () => {
+    const html = clipHtml(
+      '<figure><a href="full"><img src="x.png" alt="d"><svg></svg></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+    expect(html).toContain("<svg");
+  });
+
+  test("leaves a link whose wrapper means something alone", () => {
+    // <em> and <del> are not layout: dropping them changes the markdown, and
+    // for <del> it changes what the page said — the image was struck through.
+    for (const tag of ["em", "del", "code", "strong"]) {
+      const html = clipHtml(
+        `<figure><a href="full"><${tag}><img src="x.png" alt="d"></${tag}></a>` +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(html).toContain("<figcaption>");
+      expect(html).toContain(`<${tag}`);
+    }
+  });
+
+  test("a dropped wrapper leaves the picture markdown unchanged", () => {
+    // The property that makes a wrapper disposable: removing it produces the
+    // markdown the same link would have produced without it.
+    const bare = htmlToMarkdown(
+      '<a href="full"><img src="x.png" alt="d"></a>',
+    ).markdown.trim();
+    for (const wrapper of [
+      "<div>%</div>",
+      "<span>%</span>",
+      // What Readability turns a wrapper <div> into, and so the shape the
+      // fold actually meets in production.
+      "<p>%</p>",
+      "<div><span>%</span></div>",
+    ]) {
+      const inner = wrapper.replace("%", '<img src="x.png" alt="d">');
+      const md = markdownFor(
+        `<figure><a href="full">${inner}</a>` +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(md).toBe(`${bare}  \nCap.`);
+      expect(splitBlocks(md)).toHaveLength(1);
+    }
+  });
+
+  test("leaves a link carrying more than its image alone", () => {
+    // `[![](x)Zoom](full)` is not a picture by the site's definition, so the
+    // fold would produce a block the renderer declines to make a figure of.
+    const html = clipHtml(
+      '<figure><a href="full.png"><img src="f.png" alt="d"><span>Zoom</span>' +
+        "</a><figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("leaves a figure wrapped in a link unfolded", () => {
+    const wrapped =
+      '<a href="full.png"><figure><img src="f.png" alt="d">' +
+      "<figcaption>A caption.</figcaption></figure></a>";
+    // Folding here would put the caption inside the link's text, because
+    // inlineLinkRule flattens a link's content onto one line — the paragraph
+    // would open with a link rather than an image and stop reading as a figure.
+    expect(clipHtml(wrapped)).toContain("<figcaption>");
+
+    // That flattening is inlineLinkRule's own behaviour for any link wrapping
+    // block content, not something this pass introduces: the identical markdown
+    // comes out of the same shape with no <figure> in it at all.
+    expect(markdownFor(wrapped)).toBe(
+      htmlToMarkdown(
+        '<a href="full.png"><img src="f.png" alt="d"><p>A caption.</p></a>',
+      ).markdown.trim(),
+    );
+  });
+});
+
+describe("figure folding runs after Readability", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The clipper's real order: prepare, extract, then fold. */
+  function clip(markup: string): string {
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    const prepared = doc.body.innerHTML;
+    let extracted = "";
+    try {
+      extracted = new Readability(doc as never).parse()?.content ?? "";
+    } catch {
+      extracted = "";
+    }
+    return foldFiguresIn(extracted === "" ? prepared : extracted, doc);
+  }
+
+  test("a hidden figure stays out of the clip", () => {
+    // Folding before Readability turned <figure hidden> into a plain <p>,
+    // stripping the attribute Readability excludes on, and the image the page
+    // had hidden was published.
+    const html = clip(
+      '<figure hidden><img src="hidden.png"><figcaption>Cap.</figcaption>' +
+        "</figure>",
+    );
+    expect(html).not.toContain("hidden.png");
+  });
+
+  test("a hidden wrapper inside a figure's link stays out of the clip", () => {
+    const html = clip(
+      '<figure><a href="full"><div hidden><img src="hidden.png"></div></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).not.toContain("hidden.png");
+  });
+
+  test("an aria-hidden figure stays out of the clip", () => {
+    const html = clip(
+      '<figure aria-hidden="true"><img src="hidden.png">' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).not.toContain("hidden.png");
+  });
+
+  test("a visible figure survives extraction and still folds", () => {
+    const html = clip(
+      '<figure><img src="shown.png" alt="d"><figcaption>Cap.</figcaption>' +
+        "</figure>",
+    );
+    expect(html).toContain("shown.png");
+    expect(html).not.toContain("<figcaption>");
+    expect(htmlToMarkdown(html).markdown).toContain("![d](shown.png)  \nCap.");
   });
 });

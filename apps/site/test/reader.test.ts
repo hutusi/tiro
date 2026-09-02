@@ -12,14 +12,58 @@ describe("renderBlockHtml", () => {
     expect(html).toContain('src="/vault-assets/my-slug/abc.png"');
   });
 
-  test("keeps figure markup with rewritten asset URLs", () => {
+  test("renders an image paragraph with prose as a figure (ADR 0011)", () => {
     const html = renderBlockHtml(
-      '<figure><img src="./assets/x.png"><figcaption>cap</figcaption></figure>',
+      "![alt](./assets/x.png)\nFigure 1: what it shows.",
       "s",
     );
     expect(html).toContain("<figure>");
     expect(html).toContain('src="/vault-assets/s/x.png"');
-    expect(html).toContain("<figcaption>cap</figcaption>");
+    expect(html).toContain("<figcaption>Figure 1: what it shows.</figcaption>");
+  });
+
+  test("a hard break between image and caption is the separator, not content", () => {
+    const html = renderBlockHtml("![alt](./assets/x.png)  \nA caption.", "s");
+    expect(html).toContain("<figcaption>A caption.</figcaption>");
+    expect(html).not.toContain("<br>");
+  });
+
+  test("keeps a captioned image's lightbox link", () => {
+    const html = renderBlockHtml(
+      "[![alt](./assets/x.png)](https://example.com/full.png)\nA caption.",
+      "s",
+    );
+    expect(html).toContain('<figure><a href="https://example.com/full.png">');
+    expect(html).toContain("<figcaption>A caption.</figcaption>");
+  });
+
+  test("an image on its own stays a plain image, not an empty figure", () => {
+    const html = renderBlockHtml("![alt](./assets/x.png)", "s");
+    expect(html).not.toContain("<figure>");
+  });
+
+  test("a paragraph of several images is not a figure", () => {
+    const html = renderBlockHtml(
+      "![one](./assets/a.png)\n![two](./assets/b.png)",
+      "s",
+    );
+    expect(html).not.toContain("<figure>");
+  });
+
+  test("prose that merely contains an image is not a figure", () => {
+    const html = renderBlockHtml("As shown ![alt](./assets/x.png) here.", "s");
+    expect(html).not.toContain("<figure>");
+  });
+
+  test("figure markup a page smuggled in is still stripped", () => {
+    // The only figures on this site are the ones the renderer builds after
+    // sanitization; the allowlist never has to admit the tag (ADR 0009).
+    const html = renderBlockHtml(
+      '<figure><img src="./assets/x.png"><figcaption>cap</figcaption></figure>',
+      "s",
+    );
+    expect(html).not.toContain("<figure>");
+    expect(html).not.toContain("<figcaption>");
   });
 
   test("strips event handlers but keeps the image", () => {

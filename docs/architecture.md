@@ -42,6 +42,12 @@ flowchart LR
    the recovered delimiters are the only bare ones left, and records `has_math`;
    and it normalizes however the page marked up its code languages into the
    `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
+   Figures are the exception, folded *after* extraction instead: a `<figure>`'s
+   caption joins its image's paragraph, so the two arrive as one block and the
+   site can render them as a figure — co-location is the only association
+   markdown can express (ADR 0011). It has to run second because Readability
+   selects on the very attributes folding replaces; done first, a
+   `<figure hidden>` became a plain `<p>` and its hidden image was published.
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
    - detect language (CJK-codepoint ratio, no LLM call),

@@ -381,6 +381,348 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * Inline elements a caption may carry into a paragraph.
+ *
+ * An allow-list, not a list of blocks to reject, because the two failures are
+ * not symmetric. An inline element missing from this list costs a figure,
+ * which then converts exactly as it does today. A *block* element missing from
+ * a reject-list costs the promise this pass exists to make: Turndown puts
+ * blank lines around anything it calls a block, and the single block becomes
+ * several, which is the alignment contract in ADR 0003. Turndown's block set
+ * is long — section, article, aside, dl, hr and more — and a reject-list would
+ * have to stay in sync with the library to stay correct.
+ */
+const CAPTION_INLINE: ReadonlySet<string> = new Set([
+  "A",
+  "ABBR",
+  "B",
+  "BDI",
+  "BDO",
+  "BR",
+  "CITE",
+  "CODE",
+  "DEL",
+  "DFN",
+  "EM",
+  "I",
+  "IMG",
+  "INS",
+  "KBD",
+  "MARK",
+  "Q",
+  "RP",
+  "RT",
+  "RUBY",
+  "S",
+  "SAMP",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "TIME",
+  "U",
+  "VAR",
+  "WBR",
+]);
+
+/** Children that carry content; whitespace between tags does not. */
+function meaningfulChildren(element: Element): Node[] {
+  return Array.from(element.childNodes).filter((node) => {
+    if (node.nodeName === "#comment") return false;
+    if (node.nodeName === "#text") {
+      return (node.textContent ?? "").trim() !== "";
+    }
+    return true;
+  });
+}
+
+/** True when everything inside `root` is content a paragraph can hold. */
+function isFoldableContent(root: Element): boolean {
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    if (!CAPTION_INLINE.has(element.nodeName)) return false;
+    // A recovered display formula emits its own blank lines (mathTurndownRule),
+    // and a <p> is not one of the BLOCK_HOSTILE contexts that demote it to
+    // inline — so it would split the block from inside an allowed <span>.
+    if (element.getAttribute(MATH_ATTR) === "display") return false;
+  }
+  return true;
+}
+
+/** True when any ancestor of `node` is a link. */
+function insideLink(node: Element): boolean {
+  let current: Node | null = node.parentNode;
+  while (current !== null) {
+    if (current.nodeName === "A") return true;
+    current = current.parentNode;
+  }
+  return false;
+}
+
+/**
+ * The link wrapping `image` inside `figure`, if the figure holds one.
+ *
+ * A captioned image linking to its full-size version is the common lightbox
+ * shape; rebuilding the paragraph from the image alone would silently drop it.
+ */
+function linkWrapping(image: Element, figure: Element): Element | null {
+  let current: Node | null = image.parentNode;
+  while (current !== null && current !== figure) {
+    if (current.nodeName === "A") return current as Element;
+    current = current.parentNode;
+  }
+  return null;
+}
+
+/**
+ * Elements that may be dropped from between a link and its image.
+ *
+ * The test a wrapper has to pass is that removing it leaves the markdown
+ * unchanged. `<div>`, `<p>` and `<span>` carry no meaning of their own around
+ * a lone image, so `<a><div><img></div></a>` and `<a><img></a>` convert
+ * identically. `<p>` is on the list because **Readability rewrites a wrapper
+ * `<div>` into one**: by the time this runs, Substack's shape is
+ * `<a><p><img></p></a>`, and leaving `<p>` off meant the fold quietly stopped
+ * happening for the one page shape the wrapper handling exists for. `<em>`,
+ * `<del>`, `<code>` and their kind do not: dropping `<del>` turns
+ * `[~~![](x)~~](full)` into `[![](x)](full)`, which says the page struck the
+ * image through when it did not.
+ *
+ * An allow-list, so an element nobody has considered leaves the figure
+ * unfolded rather than being silently discarded.
+ */
+const DISPOSABLE_WRAPPERS: ReadonlySet<string> = new Set(["DIV", "P", "SPAN"]);
+
+/**
+ * True when `link` holds `image` through a chain of disposable wrappers and
+ * nothing else — no sibling at any depth, and nothing between them that means
+ * something.
+ *
+ * Structural rather than a text test, because what has to be protected here is
+ * not all textual: an `<hr>` or an `<svg>` beside the image carries no text but
+ * is still content, and `<em>` carries no text of its own at all.
+ */
+function isWrapperChain(link: Element, image: Element): boolean {
+  let current: Element = link;
+  while (current !== image) {
+    const children = meaningfulChildren(current);
+    const [only] = children;
+    if (children.length !== 1 || only === undefined) return false;
+    // "#text" and "#comment" cannot wrap anything, and the walk has to reach
+    // the image for the chain to be one.
+    if (only.nodeName.startsWith("#")) return false;
+    if (only !== image && !DISPOSABLE_WRAPPERS.has(only.nodeName)) return false;
+    current = only as Element;
+  }
+  return true;
+}
+
+/**
+ * Make `image` the link's only child, dropping the layout elements between.
+ *
+ * A wrapper is usually a `<div>`, which Turndown calls a block and therefore
+ * surrounds with blank lines — *inside* the paragraph being built, splitting
+ * the block this pass promises is one. Removing it hands Turndown the shape it
+ * already converts correctly, exactly the move `unwrapPictures` makes and for
+ * the same reason.
+ *
+ * Discarding the link's children wholesale is safe only because `isWrapperChain`
+ * has established there is nothing among them to lose: one meaningful child at
+ * every step from the link down to the image.
+ */
+function unwrapWrappers(link: Element, image: Element): void {
+  if (link.firstChild === image && link.childNodes.length === 1) return;
+  while (link.firstChild !== null) link.removeChild(link.firstChild);
+  link.appendChild(image);
+}
+
+/**
+ * The picture a figure holds — its image, or the link wrapping it — or `null`
+ * when that link carries anything besides the image.
+ *
+ * The site reads a link as a picture only when an image is its sole content
+ * (`isPicture` in `apps/site/src/lib/render.ts`). A wrapper holding overlay
+ * text converts to `[![](x)Zoom](full)`, which the renderer declines to make a
+ * figure of — so folding it would produce a block that buys nothing and quietly
+ * disagrees with the contract in ADR 0011. The two definitions have to move
+ * together; this is the clipper's half of that.
+ */
+function pictureOf(image: Element, figure: Element): Element | null {
+  const link = linkWrapping(image, figure);
+  if (link === null) return image;
+  // Wrapper elements between the link and its image are fine — Substack ships
+  // `<a><div><img></div></a>`, the shape `inlineLinkRule` exists to flatten
+  // (see markdown.ts), and it flattens to `[![](x)](full)`, exactly what the
+  // site reads as a picture. `unwrapWrappers` below drops them so Turndown
+  // never sees the block element.
+  //
+  // The chain must be checked structurally rather than by asking whether the
+  // link holds any text. `<a><div><img></div><hr></a>` has no text at all, so
+  // a text check calls it "nothing but the image" and the unwrap then deletes
+  // the `<hr>`. Requiring one meaningful child at every step is what makes
+  // that unwrap lossless by construction — and it rejects overlay text on the
+  // same rule, since `<span>Zoom</span>` is a second child.
+  if (!isWrapperChain(link, image)) return null;
+  return link;
+}
+
+/**
+ * True when every line break in the caption survives the fold.
+ *
+ * Turndown writes a `<br>` as `"  \n"`, so two in a row make a blank line —
+ * and a blank line ends the block this pass promises is one. A break at the
+ * very start does the same, because the separator inserted before the caption
+ * is itself a break. A single break between lines, or one at the end, keeps
+ * the block whole and is worth allowing: captions marked up over two lines
+ * are common, and rejecting them would cost figures for nothing.
+ *
+ * Flattened across nesting, because `<em>A<br><br>B</em>` produces the same
+ * blank line as `A<br><br>B` does.
+ */
+function breaksAreSafe(source: Element): boolean {
+  const sequence: ("break" | "content")[] = [];
+  const collect = (node: Node): void => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeName === "BR") {
+        sequence.push("break");
+      } else if (child.nodeName === "#text") {
+        if ((child.textContent ?? "").trim() !== "") sequence.push("content");
+      } else if (child.nodeName === "IMG") {
+        sequence.push("content");
+      } else {
+        collect(child);
+      }
+    }
+  };
+  collect(source);
+  if (sequence[0] === "break") return false;
+  return !sequence.some(
+    (kind, index) => kind === "break" && sequence[index - 1] === "break",
+  );
+}
+
+/**
+ * The element whose children hold the caption's inline content, or `null` when
+ * the caption carries anything a paragraph cannot absorb.
+ */
+function captionSource(caption: Element): Element | null {
+  const children = meaningfulChildren(caption);
+  const [only] = children;
+  // A caption marked up as a single paragraph is the common shape and unwraps
+  // cleanly — but only when that paragraph is the caption's *whole* content.
+  // `Lead<p>Rest</p>Tail` is not that shape, and unwrapping it would publish
+  // `Rest` and silently drop the rest of the sentence.
+  const source =
+    children.length === 1 && only?.nodeName === "P"
+      ? (only as Element)
+      : caption;
+  if (!isFoldableContent(source) || !breaksAreSafe(source)) return null;
+  return source;
+}
+
+/**
+ * Fold a `<figure>`'s caption into the same paragraph as its image.
+ *
+ * Turndown has no figure rule, so `<figure>`/`<figcaption>` convert as two
+ * plain blocks: a markdown image, a blank line, then an ordinary paragraph.
+ * Nothing downstream can then tell the caption from the article's next
+ * sentence — on an academic post a credit line reads as the author's own
+ * prose, and 12 of the vault's 32 articles carry figures.
+ *
+ * Emitting a real `<figure>` was tried and reverted (ADR 0011): markdown
+ * cannot express the association, so the rule emitted raw HTML, and raw HTML
+ * is opaque to every service this pipeline provides. What markdown *can*
+ * express is co-location — one paragraph holding both — which is what this
+ * builds. The block stays a single block, so alignment and translation are
+ * untouched, and the association cannot desync from the content because it is
+ * the content's shape.
+ *
+ * A `<br>` rather than a bare newline: Turndown collapses whitespace in text
+ * nodes, so a newline would leave the caption running on from the image, while
+ * a hard break keeps the two legible as separate lines in the raw markdown.
+ *
+ * Runs after Readability — see `foldFiguresIn`, the exported entry point.
+ *
+ * Every bail-out below leaves the figure converting exactly as it does today.
+ * That is the cheap direction: a figure that keeps reading as loose prose is
+ * the defect this fixes, while a fold that guesses wrong drops content off the
+ * page or breaks the one-block promise the site and `zh.md` both rely on.
+ */
+/**
+ * Fold every figure in already-extracted article HTML.
+ *
+ * Runs **after** Readability, unlike everything else in this file, and that is
+ * the whole point. Readability decides what to keep by reading attributes —
+ * `hidden`, `aria-hidden`, inline `display: none`, and the class and id names
+ * it scores against — and folding replaces the elements carrying them. Done
+ * first, `<figure hidden>` became a plain `<p>` and Readability then published
+ * an image the page had deliberately hidden; a `hidden` wrapper inside the
+ * figure's link did the same. Verified end to end, both ways round.
+ *
+ * Guarding those attributes instead would mean re-deriving Readability's
+ * selection rules here, which this file already knows better than to attempt:
+ * `unhideGuessedHeaderTables` exists only because one of those rules is a
+ * regex over class names. Running afterwards means no fold can change what was
+ * selected, whatever attributes it drops.
+ *
+ * Safe this late because the shapes it needs survive extraction: Readability
+ * keeps `<figure>` and `<figcaption>`, and `<picture>` was already unwrapped
+ * before it.
+ *
+ * Takes a `Document` only to borrow its implementation for a scratch document;
+ * the HTML passed in is what gets folded.
+ */
+export function foldFiguresIn(html: string, doc: Document): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  foldFigureCaptions(scratch);
+  return scratch.body.innerHTML;
+}
+
+function foldFigureCaptions(doc: Document): void {
+  for (const figure of Array.from(doc.querySelectorAll("figure"))) {
+    // A link around the whole figure would swallow the caption:
+    // `inlineLinkRule` flattens a link's content onto one line, so the
+    // paragraph would open with a link rather than an image, the caption would
+    // become clickable, and the site would not read it as a figure at all.
+    if (insideLink(figure)) continue;
+    const images = figure.querySelectorAll("img");
+    // Exactly one, or which picture the caption describes is a guess.
+    if (images.length !== 1) continue;
+    const image = images[0];
+    if (image == null) continue;
+    const caption = figure.querySelector("figcaption");
+    if (caption === null || (caption.textContent ?? "").trim() === "") continue;
+    const source = captionSource(caption);
+    if (source === null) continue;
+    const picture = pictureOf(image, figure);
+    if (picture === null) continue;
+    // The figure must hold nothing beyond the picture and its caption.
+    // Replacing it with a paragraph built from those two would drop anything
+    // else it carries — a note after the caption, a stray sentence — and
+    // losing content off the page is far worse than a caption that still
+    // reads as prose.
+    const children = meaningfulChildren(figure);
+    if (
+      children.length !== 2 ||
+      !children.includes(picture) ||
+      !children.includes(caption)
+    ) {
+      continue;
+    }
+    // Only now that nothing can still bail: this edits the link in place.
+    if (picture !== image) unwrapWrappers(picture, image);
+    const paragraph = doc.createElement("p");
+    paragraph.appendChild(picture);
+    paragraph.appendChild(doc.createElement("br"));
+    while (source.firstChild !== null) {
+      paragraph.appendChild(source.firstChild);
+    }
+    figure.replaceWith(paragraph);
+  }
+}
+
+/**
  * Drop the one LaTeXML class name that makes Readability delete a data table.
  *
  * `_removeUnlikelyCandidates` tests an element's class and id against a
