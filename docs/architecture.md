@@ -42,6 +42,9 @@ flowchart LR
    the recovered delimiters are the only bare ones left, and records `has_math`;
    and it normalizes however the page marked up its code languages into the
    `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
+   It also folds a `<figure>`'s caption into the same paragraph as its image,
+   so the two arrive as one block and the site can render them as a figure —
+   co-location is the only association markdown can express (ADR 0011).
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
    - detect language (CJK-codepoint ratio, no LLM call),

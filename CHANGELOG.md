@@ -9,6 +9,32 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **A figure's caption stays attached to its figure.** The clipper folds a
+  `<figure>`'s caption into the same paragraph as its image, and the site
+  renders any paragraph that opens with an image and continues with prose as a
+  real `<figure>`/`<figcaption>`. Twelve of the vault's 32 articles carry
+  figures; until now every one of them published as a bare image followed by a
+  loose paragraph, so a caption was typographically indistinguishable from the
+  article's next sentence — on one academic post a credit line read as the
+  author's own prose.
+
+  This is the second attempt. The first emitted a real `<figure>` from the
+  clipper, which meant emitting raw HTML, and raw HTML is opaque to the
+  pipeline: math recovery, dollar escaping, link handling and translator
+  masking all had to be rebuilt by hand inside the block, and four independent
+  paths got it wrong. The reason this one is different is that it never
+  invents a block type. Markdown cannot express a caption's association with
+  its image, but it *can* express co-location, so the association is simply
+  that the two share a paragraph. The block stays one block, alignment and
+  translation are untouched, the caption is translated as ordinary prose, and
+  the association cannot desync from the content because it is the content's
+  shape (ADR 0011).
+
+  Measured before it was designed: of 116 paragraphs sitting directly after an
+  image in the vault, only 13 carry a `Figure N:` style label, and length
+  separates nothing — so no site-side heuristic could have recovered what the
+  markdown had thrown away.
+
 - **Articles record the clipper that wrote them** — `tiro.clipper_version`,
   alongside the existing `tiro.processor_version`. Optional, so articles clipped
   before it simply lack it and the document format is unchanged. It answers
