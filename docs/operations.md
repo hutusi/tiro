@@ -168,7 +168,9 @@ so re-runs are always safe no-ops for finished articles.
   Run workflow with `force: true` and the article's `slug`. Handy too when one
   oversized article is monopolising runs: dispatching a specific slug skips the
   queue entirely.
-- **Redo everything**: `force: true`, no slug. Re-bills every article.
+- **Redo everything**: `force: true`, no slug. Re-bills every article — a
+  forced redo discards the translation checkpoint of any article that already
+  finished, so it genuinely re-translates rather than reusing what is cached.
 - **Locally**: `TIRO_LLM_API_KEY=… bun run process -- --vault ../tiro-vault`
   (then commit/push the vault yourself).
 - **Contract check over the whole vault**:

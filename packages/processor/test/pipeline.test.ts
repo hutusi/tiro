@@ -16,6 +16,7 @@ import {
   needsProcessing,
   parseArticle,
   splitBlocks,
+  stringifyArticle,
 } from "@tiro/shared";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
@@ -572,10 +573,19 @@ describe("run budget", () => {
     expect(checkAlignment(splitBlocks(body), splitBlocks(zh)).errors).toEqual(
       [],
     );
-    // A finished article drops its checkpoint.
-    expect(() =>
-      readFileSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
-    ).toThrow();
+    // A finished article KEEPS its checkpoint (ADR 0008): that is what makes a
+    // later re-clip cheap. It is pruned to the blocks this article still has,
+    // so it cannot accumulate every version of every paragraph.
+    const kept = JSON.parse(
+      readFileSync(
+        join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+        "utf8",
+      ),
+    ) as { blocks: Record<string, string> };
+    expect(Object.keys(kept.blocks).length).toBeGreaterThanOrEqual(cached);
+    expect(Object.keys(kept.blocks).length).toBeLessThanOrEqual(
+      splitBlocks(body).length,
+    );
     // Resumption is the point: the blocks the first run paid for are not
     // bought twice. (+1 for this run's summary call.)
     expect(calls).toBe(splitBlocks(body).length - cached + 1);
@@ -618,6 +628,55 @@ describe("run budget", () => {
     expect(report.skipped).toEqual([BIG]);
     expect(report.errored).toEqual([]);
   });
+  test("a re-clip reuses the translations of blocks it did not change", async () => {
+    // The point of keeping the checkpoint. A clip rewrites index.md from
+    // clip-time data only, so the article goes fully pending again — and
+    // before this, the checkpoint had already been deleted by the run that
+    // made it "processed", so every block was re-sent and re-billed.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+
+    // Simulate a re-clip: same body, one paragraph edited, markers stripped.
+    const indexAbs = join(vault, "articles", BIG, "index.md");
+    const { frontmatter, body } = parseArticle(readFileSync(indexAbs, "utf8"));
+    const edited = body.replace(/^First paragraph\./m, "Rewritten opening.");
+    const {
+      processed_at: _gone,
+      processor_version: _alsoGone,
+      ...clipTime
+    } = frontmatter.tiro;
+    writeFileSync(
+      indexAbs,
+      stringifyArticle(
+        { ...frontmatter, tiro: clipTime, summary: undefined },
+        edited,
+      ),
+    );
+
+    let translationCalls = 0;
+    const after = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: (r) => {
+          if (r.response_format?.type !== "json_object") translationCalls += 1;
+        },
+      }),
+    });
+    expect(after.translated).toEqual([BIG]);
+    // Everything unchanged came from the checkpoint, so the re-clip costs a
+    // handful of calls rather than the whole article.
+    expect(translationCalls).toBeLessThan(3);
+    const zh = readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8");
+    const fresh = parseArticle(readFileSync(indexAbs, "utf8"));
+    expect(
+      checkAlignment(splitBlocks(fresh.body), splitBlocks(zh)).errors,
+    ).toEqual([]);
+  });
+
   test("a budget-deferred --force article returns to pending and a normal run finishes it", async () => {
     // Forced discovery includes already-processed articles, so deferring one
     // used to leave processed_at in place: the next ordinary run skipped it,

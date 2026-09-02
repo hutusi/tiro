@@ -64,6 +64,14 @@ export interface TranslationCache {
   /** Write pending entries. Called after every batch, so a hard kill costs at
    * most one batch of work. No-op when nothing changed. */
   flush(): Promise<void>;
+  /**
+   * Forget every block the article no longer contains.
+   *
+   * Called once an article finishes, so the file that survives holds exactly
+   * this article's translations rather than accumulating every version of
+   * every paragraph it has ever had.
+   */
+  retain(blockTexts: readonly string[]): void;
   /** Drop the checkpoint — the article is finished and needs it no longer. */
   discard(): Promise<void>;
 }
@@ -129,6 +137,16 @@ export async function loadTranslationCache(
     },
     set(blockText, translation) {
       blocks[keyFor(blockText)] = translation;
+      dirty = true;
+    },
+    retain(blockTexts) {
+      const live = new Set(blockTexts.map(keyFor));
+      const kept: Record<string, string> = {};
+      for (const [key, value] of Object.entries(blocks)) {
+        if (live.has(key)) kept[key] = value;
+      }
+      if (Object.keys(kept).length === Object.keys(blocks).length) return;
+      blocks = kept;
       dirty = true;
     },
     async flush() {
