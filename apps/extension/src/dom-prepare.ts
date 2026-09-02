@@ -475,6 +475,22 @@ function linkWrapping(image: Element, figure: Element): Element | null {
 }
 
 /**
+ * Make `image` the link's only child, dropping the layout elements between.
+ *
+ * A wrapper is usually a `<div>`, which Turndown calls a block and therefore
+ * surrounds with blank lines — *inside* the paragraph being built, splitting
+ * the block this pass promises is one. The wrapper is known to carry nothing
+ * but the image by the time this runs, so removing it loses nothing, and it
+ * leaves Turndown the shape it already converts correctly. Exactly the move
+ * `unwrapPictures` makes, for exactly the same reason.
+ */
+function unwrapWrappers(link: Element, image: Element): void {
+  if (link.firstChild === image && link.childNodes.length === 1) return;
+  while (link.firstChild !== null) link.removeChild(link.firstChild);
+  link.appendChild(image);
+}
+
+/**
  * The picture a figure holds — its image, or the link wrapping it — or `null`
  * when that link carries anything besides the image.
  *
@@ -488,9 +504,18 @@ function linkWrapping(image: Element, figure: Element): Element | null {
 function pictureOf(image: Element, figure: Element): Element | null {
   const link = linkWrapping(image, figure);
   if (link === null) return image;
-  const children = meaningfulChildren(link);
-  const [only] = children;
-  if (children.length !== 1 || only !== image) return null;
+  // Wrapper elements between the link and its image are fine — Substack ships
+  // `<a><div><img></div></a>`, the shape `inlineLinkRule` exists to flatten
+  // (see markdown.ts), and it flattens to `[![](x)](full)`, exactly what the
+  // site reads as a picture. `unwrapWrappers` below drops them so Turndown
+  // never sees the block element.
+  //
+  // What must not be in there is other *content*: overlay text converts to
+  // `[![](x)Zoom](full)`, which the site does not read as a picture. Testing
+  // the text rather than the child count is what separates the two, and the
+  // figure already holds exactly one image, so nothing else can hide in a
+  // wrapper.
+  if ((link.textContent ?? "").trim() !== "") return null;
   return link;
 }
 
@@ -605,6 +630,8 @@ function foldFigureCaptions(doc: Document): void {
     ) {
       continue;
     }
+    // Only now that nothing can still bail: this edits the link in place.
+    if (picture !== image) unwrapWrappers(picture, image);
     const paragraph = doc.createElement("p");
     paragraph.appendChild(picture);
     paragraph.appendChild(doc.createElement("br"));
