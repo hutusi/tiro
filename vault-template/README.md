@@ -16,12 +16,18 @@ config/tiro.yml                   # LLM provider config + category taxonomy
 Articles arrive via the Tiro Chrome extension; the workflow summarizes, tags,
 translates, and localizes images, then commits the results back.
 
-A long article may also carry `articles/<slug>/.tiro-zh-cache.json` — a
-translation checkpoint. One run has a bounded budget
-(`processing.run_budget_ms`), so an article too long to translate in one go
-saves its finished batches there and resumes on the next run rather than
-starting over. It is deleted automatically once the article completes; leave it
-alone, and expect it in `git log` while an article is still in progress.
+A translated article also carries `articles/<slug>/.tiro-zh-cache.json` — a
+translation checkpoint, keyed by the source text of each block. One run has a
+bounded budget (`processing.run_budget_ms`), so an article too long to
+translate in one go saves its finished batches there and resumes on the next
+run rather than starting over.
+
+It is **kept** once the article completes, pruned to the blocks that article
+still holds, so a later re-clip pays only for the paragraphs whose text
+actually changed (ADR 0010). It is dropped only when a translation comes out
+misaligned — resuming from the blocks that broke alignment would make a
+recoverable fault permanent. Leave these files alone; expect them in `git log`,
+and expect them to come to roughly 1% of the vault's size.
 
 ## Setup
 
