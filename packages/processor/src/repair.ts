@@ -3,6 +3,7 @@ import {
   checkAlignment,
   frontmatterLength,
   isImageOnlyParagraph,
+  parseArticle,
   splitBlocks,
   translationPath,
   verbatimRanges,
@@ -376,16 +377,49 @@ export function liftDuplicateListMarkers(body: string): string {
 }
 
 /**
- * A destination that can only be a permalink: one carrying a fragment.
+ * What a repair needs to know about the article beyond its body text.
  *
- * The link *text* is far too weak a signal on its own. A heading may end in a
- * genuine link whose label happens to be `#` — `[#](https://example.com/issues)`
- * — and stripping that deletes content, which is a worse outcome than leaving
- * a stray marker behind. Requiring a non-empty fragment separates the two
- * without assuming the anchor is written as a bare `#section`: the real case in
- * the vault spells it absolutely, `https://simonwillison.net/…/#two-products`.
+ * Only `stripHeadingAnchors` reads it; the rest ignore the argument. It is
+ * threaded rather than looked up because `zh.md` has no frontmatter of its
+ * own, and both halves of a pair must reach the same verdict or the repair
+ * edits one file and not the other.
  */
-const PERMALINK = String.raw`(?:<[^<>\n#]*#[^<>\n]+>|(?:\\[()]|[^\s()])*#(?:\\[()]|[^\s()])+)`;
+export interface RepairContext {
+  /** The page this article was clipped from, from `index.md` frontmatter. */
+  articleUrl?: string;
+}
+
+/**
+ * Whether a heading's trailing link points back into this same article.
+ *
+ * Neither the link's text nor the presence of a fragment is sufficient. A
+ * heading may genuinely end in a deep link that carries one —
+ * `## Syntax [§](https://html.spec.whatwg.org/#syntax)` — and stripping that
+ * deletes something the page said, which is worse than leaving a marker
+ * behind. A permalink is by definition same-document, so that is what gets
+ * checked: a bare fragment, or an absolute URL agreeing with the article's own
+ * origin and path.
+ *
+ * Without a known article URL only the bare form qualifies. That is the
+ * conservative direction — an unrepaired heading, never a deleted link.
+ */
+function isSelfPermalink(destination: string, articleUrl?: string): boolean {
+  const raw = destination.replace(/^<|>$/g, "").replace(/\\([()])/g, "$1");
+  if (raw.startsWith("#")) return raw.length > 1;
+  if (articleUrl === undefined) return false;
+  try {
+    const target = new URL(raw);
+    if (target.hash.length <= 1) return false;
+    // Trailing slashes are not a difference: the vault's own case links
+    // `…/understanding-chatgpt-work/#two-products` from an article whose url
+    // has no trailing slash.
+    const place = (url: URL) =>
+      `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+    return place(target) === place(new URL(articleUrl));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * A heading ending in its own permalink anchor: `## Title [#](#title)`.
@@ -402,7 +436,7 @@ const PERMALINK = String.raw`(?:<[^<>\n#]*#[^<>\n]+>|(?:\\[()]|[^\s()])*#(?:\\[(
  * because the fixtures used ordinary spaces.
  */
 const HEADING_ANCHOR = new RegExp(
-  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\(${PERMALINK}${TITLE}\)[^\S\n]*$`,
+  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\((${DESTINATION_BODY})${TITLE}\)[^\S\n]*$`,
   "gm",
 );
 
@@ -419,8 +453,15 @@ const HEADING_ANCHOR = new RegExp(
  * a re-clip reproduces it. The clipper-side mirror would be a dom-prepare pass
  * removing `a.headerlink`/`a.anchor` inside `h1`–`h6`.
  */
-export function stripHeadingAnchors(body: string): string {
-  return body.replace(HEADING_ANCHOR, "$1");
+export function stripHeadingAnchors(
+  body: string,
+  context: RepairContext = {},
+): string {
+  return body.replace(
+    HEADING_ANCHOR,
+    (match, heading: string, destination: string) =>
+      isSelfPermalink(destination, context.articleUrl) ? heading : match,
+  );
 }
 
 /**
@@ -472,7 +513,7 @@ export function deindentBlockImages(body: string): string {
   return out + body.slice(cursor);
 }
 
-const TRANSFORMS = [
+const TRANSFORMS: Array<(body: string, context: RepairContext) => string> = [
   joinLinkTitles,
   rejoinSplitLinks,
   rejoinSplitFootnotes,
@@ -482,7 +523,7 @@ const TRANSFORMS = [
 ];
 
 /** Apply every repair to one markdown body. */
-export function repairBody(body: string): string {
+export function repairBody(body: string, context: RepairContext = {}): string {
   // Normalize once here rather than teaching each transform about `\r`. Three
   // separate CRLF defects were fixed one at a time and each left the next
   // standing, because every transform was individually responsible for line
@@ -490,16 +531,19 @@ export function repairBody(body: string): string {
   // other three worked, which is worse than not running at all. Converting at
   // the boundary makes every transform LF-only by construction, including ones
   // written later by someone who never thinks about this.
-  if (!isUniformlyCrlf(body)) return repairLf(body);
-  return repairLf(body.replaceAll("\r\n", "\n")).replaceAll("\n", "\r\n");
+  if (!isUniformlyCrlf(body)) return repairLf(body, context);
+  return repairLf(body.replaceAll("\r\n", "\n"), context).replaceAll(
+    "\n",
+    "\r\n",
+  );
 }
 
-function repairLf(body: string): string {
+function repairLf(body: string, context: RepairContext): string {
   // The pre-pass runs first and outside the masking, because the block it
   // repairs is itself verbatim — see `deindentBlockImages`. Once lifted, the
   // image is ordinary prose and the line transforms see it like any other.
   return outsideVerbatim(deindentBlockImages(body), (prose) =>
-    TRANSFORMS.reduce((text, transform) => transform(text), prose),
+    TRANSFORMS.reduce((text, transform) => transform(text, context), prose),
   );
 }
 
@@ -580,8 +624,12 @@ export async function repairVault(
     const hasZh = await zhFile.exists();
     const zhText = hasZh ? await zhFile.text() : null;
 
-    const newIndex = repairFile(indexText);
-    const newZh = zhText === null ? null : repairFile(zhText);
+    // Read once from index.md and used for both files: zh.md carries no
+    // frontmatter, and a repair that ran on one side only would edit a pair
+    // out of agreement.
+    const context: RepairContext = { articleUrl: articleUrlOf(indexText) };
+    const newIndex = repairFile(indexText, context);
+    const newZh = zhText === null ? null : repairFile(zhText, context);
 
     const files: string[] = [];
     if (newIndex !== indexText) files.push("index.md");
@@ -665,10 +713,20 @@ async function writePairAtomically(
 }
 
 /** Frontmatter is YAML, not markdown — repair the body and leave it alone. */
-function repairFile(text: string): string {
+/** The article's own url, or undefined when the frontmatter cannot be read —
+ * a repair must never fail because it could not learn its context. */
+function articleUrlOf(indexText: string): string | undefined {
+  try {
+    return parseArticle(indexText).frontmatter.url;
+  } catch {
+    return undefined;
+  }
+}
+
+function repairFile(text: string, context: RepairContext): string {
   const end = frontmatterLength(text);
-  if (end === null) return repairBody(text);
-  return text.slice(0, end) + repairBody(text.slice(end));
+  if (end === null) return repairBody(text, context);
+  return text.slice(0, end) + repairBody(text.slice(end), context);
 }
 
 function bodyOf(text: string): string {

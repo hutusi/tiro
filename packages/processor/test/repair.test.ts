@@ -123,8 +123,7 @@ describe("rejoinSplitFootnotes", () => {
 
 describe("stripHeadingAnchors", () => {
   test("drops the trailing permalink anchor, keeping the heading", () => {
-    const broken =
-      "#### Model selection [#](https://ex.com/p/#model-selection)";
+    const broken = "#### Model selection [#](#model-selection)";
     expect(splitBlocks(broken).map((b) => b.type)).toEqual(["heading"]);
     const fixed = stripHeadingAnchors(broken);
     expect(fixed).toBe("#### Model selection");
@@ -135,8 +134,7 @@ describe("stripHeadingAnchors", () => {
     // Generators emit &nbsp; here so the marker cannot wrap onto its own
     // line. Every heading on the one article in the vault with this defect
     // uses U+00A0, so a pattern accepting only space/tab repairs none of them.
-    const broken =
-      "#### Model selection\u00a0[#](https://ex.com/p/#model-selection)";
+    const broken = "#### Model selection\u00a0[#](#model-selection)";
     expect(stripHeadingAnchors(broken)).toBe("#### Model selection");
   });
 
@@ -144,7 +142,9 @@ describe("stripHeadingAnchors", () => {
     // Turndown escapes rather than drops a parenthesis in a URL, so a
     // bare-paren character class rejects every Wikipedia-style link.
     const broken = "## Title [#](https://ex.com/a\\(b\\)#t)";
-    expect(stripHeadingAnchors(broken)).toBe("## Title");
+    expect(
+      stripHeadingAnchors(broken, { articleUrl: "https://ex.com/a(b)" }),
+    ).toBe("## Title");
   });
 
   test("strips an anchor that carries a title", () => {
@@ -172,10 +172,22 @@ describe("stripHeadingAnchors", () => {
     }
   });
 
-  test("strips an absolute permalink, as the vault actually spells it", () => {
-    const broken =
-      "#### Model selection [#](https://simonwillison.net/p/#model-selection)";
-    expect(stripHeadingAnchors(broken)).toBe("#### Model selection");
+  test("strips an absolute permalink only when it matches the article", () => {
+    // The vault's real case spells the anchor absolutely, so this must still
+    // be repaired — but only once the article's own url says it is a
+    // self-link. Without that, the conservative answer is to leave it.
+    const articleUrl = "https://simonwillison.net/2026/Aug/30/chatgpt-work";
+    const broken = `#### Model selection [#](${articleUrl}/#model-selection)`;
+    expect(stripHeadingAnchors(broken, { articleUrl })).toBe(
+      "#### Model selection",
+    );
+    expect(stripHeadingAnchors(broken)).toBe(broken);
+  });
+
+  test("leaves a deep link to another site even with the article url", () => {
+    const articleUrl = "https://simonwillison.net/2026/Aug/30/chatgpt-work";
+    const text = "## Syntax [§](https://html.spec.whatwg.org/#syntax)";
+    expect(stripHeadingAnchors(text, { articleUrl })).toBe(text);
   });
 
   test("leaves a heading whose trailing link is real content", () => {

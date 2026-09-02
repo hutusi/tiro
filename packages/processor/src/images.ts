@@ -41,11 +41,11 @@ const HTML_IMG_RE = /<img[^>]+src=["'](https?:\/\/[^"']+)["']/g;
  * a different URL than the page asked for.
  */
 function decodeAmpersands(url: string): string {
-  // Every spelling HTML allows for this one character: the named reference is
-  // case-insensitive, and a numeric reference may carry leading zeros. Missing
-  // one of them fetches a URL the page never named, which is the whole defect
-  // this exists to prevent.
-  return url.replace(/&(?:amp|#0*38|#[xX]0*26);/gi, "&");
+  // The two named spellings HTML actually defines, plus the numeric forms with
+  // their optional leading zeros. Not case-insensitive: `&amp;` and `&AMP;`
+  // are both in the character-reference table and `&aMp;` is not, so matching
+  // loosely would rewrite a URL that legitimately contains that text.
+  return url.replace(/&(?:amp|AMP|#0*38|#[xX]0*26);/g, "&");
 }
 
 // How a localized image is spelled once the stage has rewritten it.

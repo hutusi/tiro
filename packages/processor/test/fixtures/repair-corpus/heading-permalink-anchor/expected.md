@@ -7,3 +7,5 @@ ChatGPT Chat gets a fresh filesystem for each chat session.
 ###### Deep heading
 
 ## See [the docs](https://example.com/docs)
+
+## Syntax [§](https://html.spec.whatwg.org/#syntax)
