@@ -89,6 +89,52 @@ const options = (body: string, assetsDirAbs: string) => ({
 });
 
 describe("findImageUrls", () => {
+  test("decodes the ampersands an HTML attribute has to escape", () => {
+    // A src holding a query string must spell & as &amp; to be valid HTML.
+    // Fetched literally that is a different URL: the CDN ignores the
+    // parameters or 404s, and the image falls back to a hotlink for nothing.
+    const body =
+      '<figure><img src="https://cdn.ex.com/i.png?w=800&amp;format=webp" alt="x"><figcaption>C</figcaption></figure>';
+    expect(findImageUrls(body)).toEqual([
+      "https://cdn.ex.com/i.png?w=800&format=webp",
+    ]);
+  });
+
+  test("decodes every spelling HTML allows for the ampersand", () => {
+    // The named reference is case-insensitive and a numeric one may carry
+    // leading zeros; missing a spelling fetches a URL the page never named.
+    for (const entity of [
+      "&amp;",
+      "&AMP;",
+      "&#38;",
+      "&#038;",
+      "&#x26;",
+      "&#x000026;",
+    ]) {
+      const body = `<img src="https://cdn.ex.com/i.png?a=1${entity}b=2">`;
+      expect(findImageUrls(body)).toEqual(["https://cdn.ex.com/i.png?a=1&b=2"]);
+    }
+  });
+
+  test("leaves a mixed-case spelling HTML does not define", () => {
+    // `&amp;` and `&AMP;` are both in the character-reference table; `&aMp;`
+    // is not. Matching case-insensitively would rewrite a URL that
+    // legitimately contains that text.
+    const body = '<img src="https://cdn.ex.com/i.png?a=1&aMp;b=2">';
+    expect(findImageUrls(body)).toEqual([
+      "https://cdn.ex.com/i.png?a=1&aMp;b=2",
+    ]);
+  });
+
+  test("leaves a markdown image URL exactly as written", () => {
+    // Only HTML attributes are obliged to escape the ampersand; decoding a
+    // markdown URL would rewrite one the author spelled deliberately.
+    const body = "![x](https://cdn.ex.com/i.png?a=1&amp;b=2)";
+    expect(findImageUrls(body)).toEqual([
+      "https://cdn.ex.com/i.png?a=1&amp;b=2",
+    ]);
+  });
+
   test("finds markdown and inline <img> URLs, skipping relative and data URIs", () => {
     const body = [
       "![a](https://a.example/x.png)",

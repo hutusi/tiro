@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { splitBlocks } from "@tiro/shared";
 import {
+  deindentBlockImages,
   joinLinkTitles,
   liftDuplicateListMarkers,
   promoteTableHeaders,
@@ -19,6 +20,7 @@ import {
   rejoinSplitLinks,
   repairBody,
   repairVault,
+  stripHeadingAnchors,
 } from "../src/repair.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
@@ -69,6 +71,22 @@ describe("joinLinkTitles", () => {
     );
   });
 
+  test("flattens a title containing an escaped quote", () => {
+    // joinLinkTitles carried the same `[^"]*` limitation as the heading
+    // anchor; both now share one pattern.
+    const broken = '[x](/a "In S1.\n=\nsaid \\"hi\\"")';
+    expect(joinLinkTitles(broken)).toBe('[x](/a "In S1. = said \\"hi\\"")');
+  });
+
+  test("flattens a title holding a backslash before the line break", () => {
+    // The escape must consume any character, newlines included: `.` excludes
+    // them, and a title is exactly where newlines live — flattening them is
+    // what this transform is for. Spelling it `.` switches the transform off
+    // for the very input it exists to repair.
+    const broken = '[x](/a "line one\\\nline two")';
+    expect(joinLinkTitles(broken)).toBe('[x](/a "line one\\ line two")');
+  });
+
   test("leaves a single-line title alone", () => {
     const text = '[x](/a "a title")';
     expect(joinLinkTitles(text)).toBe(text);
@@ -100,6 +118,201 @@ describe("rejoinSplitFootnotes", () => {
   test("leaves a bracket that is not a footnote label", () => {
     const text = "\\[\n\nsomething else\\]";
     expect(rejoinSplitFootnotes(text)).toBe(text);
+  });
+});
+
+describe("stripHeadingAnchors", () => {
+  test("drops the trailing permalink anchor, keeping the heading", () => {
+    const broken = "#### Model selection [#](#model-selection)";
+    expect(splitBlocks(broken).map((b) => b.type)).toEqual(["heading"]);
+    const fixed = stripHeadingAnchors(broken);
+    expect(fixed).toBe("#### Model selection");
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual(["heading"]);
+  });
+
+  test("strips an anchor separated by a non-breaking space", () => {
+    // Generators emit &nbsp; here so the marker cannot wrap onto its own
+    // line. Every heading on the one article in the vault with this defect
+    // uses U+00A0, so a pattern accepting only space/tab repairs none of them.
+    const broken = "#### Model selection\u00a0[#](#model-selection)";
+    expect(stripHeadingAnchors(broken)).toBe("#### Model selection");
+  });
+
+  test("strips an anchor whose URL has escaped parentheses", () => {
+    // Turndown escapes rather than drops a parenthesis in a URL, so a
+    // bare-paren character class rejects every Wikipedia-style link.
+    const broken = "## Title [#](https://ex.com/a\\(b\\)#t)";
+    expect(
+      stripHeadingAnchors(broken, { articleUrl: "https://ex.com/a(b)" }),
+    ).toBe("## Title");
+  });
+
+  test("strips an anchor that carries a title", () => {
+    // Turndown appends `"Permalink"` when the anchor has a title attribute.
+    const broken = '## Title [#](#title "Permalink")';
+    expect(stripHeadingAnchors(broken)).toBe("## Title");
+  });
+
+  test("strips an anchor whose title contains an escaped quote", () => {
+    // The clipper writes title.replace(/"/g, '\\"'), so a title holding a
+    // quote arrives escaped and `[^"]*` stops at the wrong one.
+    const broken = '## Title [#](#t "Permalink to \\"Title\\"")';
+    expect(stripHeadingAnchors(broken)).toBe("## Title");
+  });
+
+  test("leaves a `#`-labelled link that is not a permalink", () => {
+    // The link text alone is far too weak a signal: a heading may genuinely
+    // end in a link labelled `#`, and deleting that is worse than leaving a
+    // stray marker. A permalink carries a fragment; this does not.
+    for (const text of [
+      "## Issues [#](https://example.com/issues)",
+      "## Refs [¶](https://example.com/refs)",
+    ]) {
+      expect(stripHeadingAnchors(text)).toBe(text);
+    }
+  });
+
+  test("strips an absolute permalink only when it matches the article", () => {
+    // The vault's real case spells the anchor absolutely, so this must still
+    // be repaired — but only once the article's own url says it is a
+    // self-link. Without that, the conservative answer is to leave it.
+    const articleUrl = "https://simonwillison.net/2026/Aug/30/chatgpt-work";
+    const broken = `#### Model selection [#](${articleUrl}/#model-selection)`;
+    expect(stripHeadingAnchors(broken, { articleUrl })).toBe(
+      "#### Model selection",
+    );
+    expect(stripHeadingAnchors(broken)).toBe(broken);
+  });
+
+  test("understands a root-relative permalink", () => {
+    // `new URL("/post#s")` with no base throws, and the catch would keep the
+    // anchor forever. Resolving against the article reads it correctly — and
+    // still distinguishes a link to a different page on the same site.
+    const articleUrl = "https://example.com/post";
+    expect(
+      stripHeadingAnchors("## Section [#](/post#section)", { articleUrl }),
+    ).toBe("## Section");
+    const other = "## Section [#](/other#section)";
+    expect(stripHeadingAnchors(other, { articleUrl })).toBe(other);
+  });
+
+  test("keeps a link to a different query on the same path", () => {
+    // A query string is part of an article's identity in this project by
+    // design, so these are two different pages and the link is worth keeping.
+    const articleUrl = "https://example.com/search?q=one";
+    const text = "## Results [#](https://example.com/search?q=two#result)";
+    expect(stripHeadingAnchors(text, { articleUrl })).toBe(text);
+  });
+
+  test("ignores tracking parameters when deciding sameness", () => {
+    // normalizeUrl is the project's answer to "same page", so the anchor is
+    // still a self-link once utm noise is discounted.
+    const articleUrl = "https://example.com/post";
+    const broken = "## Part [#](https://example.com/post?utm_source=rss#part)";
+    expect(stripHeadingAnchors(broken, { articleUrl })).toBe("## Part");
+  });
+
+  test("leaves a deep link to another site even with the article url", () => {
+    const articleUrl = "https://simonwillison.net/2026/Aug/30/chatgpt-work";
+    const text = "## Syntax [§](https://html.spec.whatwg.org/#syntax)";
+    expect(stripHeadingAnchors(text, { articleUrl })).toBe(text);
+  });
+
+  test("leaves a heading whose trailing link is real content", () => {
+    // Only the symbols generators use for the affordance may match, or a
+    // heading that simply ends in a link would lose it.
+    const text = "## See [the docs](https://ex.com/docs)";
+    expect(stripHeadingAnchors(text)).toBe(text);
+  });
+
+  test("leaves an anchor that is not in a heading", () => {
+    const text = "A paragraph ending in [#](https://ex.com/p/#x)";
+    expect(stripHeadingAnchors(text)).toBe(text);
+  });
+});
+
+describe("deindentBlockImages", () => {
+  test("lifts an image markdown was reading as code", () => {
+    const broken = "Regular text is okay:\n\n    ![](./assets/a.avif)";
+    expect(splitBlocks(broken).map((b) => b.type)).toEqual([
+      "paragraph",
+      "code",
+    ]);
+    const fixed = deindentBlockImages(broken);
+    expect(fixed).toBe("Regular text is okay:\n\n![](./assets/a.avif)");
+    // The block count must not move, or index.md and zh.md stop aligning.
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+  });
+
+  test("lifts images whose syntax a regex would reject", () => {
+    // Escaped parentheses in the destination and escaped brackets in the alt
+    // text are both ordinary Turndown output; a hand-written pattern declines
+    // them and silently leaves the defect in place.
+    for (const image of [
+      "![x](a\\(b\\).png)",
+      "![a\\]b](x.png)",
+      '![x](y.png "a title")',
+    ]) {
+      const broken = `Text:\n\n    ${image}`;
+      expect(deindentBlockImages(broken)).toBe(`Text:\n\n${image}`);
+    }
+  });
+
+  test("lifts consecutive images sharing one block", () => {
+    // Two images on adjacent lines are one paragraph containing image,
+    // whitespace, image — a paragraph of nothing but pictures by any reading,
+    // and still exactly one block, so alignment is unaffected.
+    const broken = "Text:\n\n    ![](a.png)\n    ![](b.png)";
+    const fixed = deindentBlockImages(broken);
+    expect(fixed).toBe("Text:\n\n![](a.png)\n![](b.png)");
+    expect(splitBlocks(fixed).map((b) => b.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+  });
+
+  test("lifts images separated by a hard break", () => {
+    // Two trailing spaces make mdast a `break` node rather than whitespace.
+    const broken = "Text:\n\n    ![](a.png)  \n    ![](b.png)";
+    expect(deindentBlockImages(broken)).toBe(
+      "Text:\n\n![](a.png)  \n![](b.png)",
+    );
+  });
+
+  test("leaves an indented block mixing images with prose", () => {
+    const code = "Example:\n\n    ![](a.png)\n    and some prose";
+    expect(deindentBlockImages(code)).toBe(code);
+  });
+
+  test("leaves indented code that is not purely images", () => {
+    const code = "Example:\n\n    const x = 1;\n    ![](./a.png)";
+    expect(deindentBlockImages(code)).toBe(code);
+  });
+
+  test("leaves an image already nested inside a list", () => {
+    // Indentation inside a list belongs to a `list` block, never a top-level
+    // `code` block, so this is out of reach by construction.
+    const list = "1.  Item\n\n    ![](./a.png)\n";
+    expect(splitBlocks(list).map((b) => b.type)).toEqual(["list"]);
+    expect(deindentBlockImages(list)).toBe(list);
+  });
+
+  test("repairs every image in a document, leaving prose between them", () => {
+    const broken =
+      "One:\n\n    ![](./a.png)\n\nTwo:\n\n    ![](./b.png)\n\nEnd.\n";
+    expect(deindentBlockImages(broken)).toBe(
+      "One:\n\n![](./a.png)\n\nTwo:\n\n![](./b.png)\n\nEnd.\n",
+    );
+  });
+
+  test("runs inside repairBody, which masks verbatim blocks", () => {
+    // The regression this pins: the block is `code`, so outsideVerbatim hides
+    // it from every transform in TRANSFORMS. Only the pre-pass can reach it.
+    const broken = "Text:\n\n    ![](./a.png)";
+    expect(repairBody(broken)).toBe("Text:\n\n![](./a.png)");
   });
 });
 

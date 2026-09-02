@@ -2,6 +2,9 @@ import { rename, rm } from "node:fs/promises";
 import {
   checkAlignment,
   frontmatterLength,
+  isImageOnlyParagraph,
+  normalizeUrl,
+  parseArticle,
   splitBlocks,
   translationPath,
   verbatimRanges,
@@ -191,6 +194,33 @@ function wholeLinesAround(
 const BLOCK_OPENING_PREFIX = /^[\s>]*(?:(?:[-*+]|\d+[.)])[\s>]*)*$/;
 
 /**
+ * A link destination as Turndown writes one: angle-bracketed, or a run in which
+ * parentheses appear escaped.
+ *
+ * `[^()]*` looks equivalent and is not. Turndown escapes rather than drops a
+ * parenthesis in a URL, so a bare-paren class rejects every Wikipedia-style
+ * `Foo_(disambiguation)` link — the same gap `joinLinkTitles` was fixed for,
+ * reappearing here because the pattern was written fresh instead of shared.
+ */
+const DESTINATION_BODY = String.raw`<[^<>\n]*>|(?:\\[()]|[^\s()])+`;
+
+/**
+ * The `"title"` Turndown appends after a destination, and its escaping.
+ *
+ * `[^"]*` stops at the first quote, and a title may contain one: the clipper
+ * writes `title.replace(/"/g, '\\"')`, so `Permalink to "Title"` arrives as
+ * `Permalink to \"Title\"`. Matching an escaped pair explicitly is the only
+ * way to reach the real closing quote.
+ *
+ * The escape consumes `[\s\S]`, not `.`, because `.` excludes newlines and a
+ * title is exactly where newlines live — flattening multi-line titles is what
+ * `joinLinkTitles` exists for. Spelling it `.` silently switched that transform
+ * off for any title holding a backslash before a line break.
+ */
+const TITLE_BODY = String.raw`(?:\\[\s\S]|[^"\\])*`;
+const TITLE = String.raw`(?:\s+"${TITLE_BODY}")?`;
+
+/**
  * Flatten a link title that spans lines.
  *
  * arXiv writes a section path into `title=`, and when the path contains a
@@ -208,7 +238,10 @@ const BLOCK_OPENING_PREFIX = /^[\s>]*(?:(?:[-*+]|\d+[.)])[\s>]*)*$/;
  */
 export function joinLinkTitles(body: string): string {
   return body.replace(
-    /\]\((<[^<>\n]*>|(?:\\[()]|[^\s()])+)\s+"([^"]*)"\)/g,
+    new RegExp(
+      String.raw`\]\((${DESTINATION_BODY})\s+"(${TITLE_BODY})"\)`,
+      "g",
+    ),
     (match, destination: string, title: string) => {
       const flat = title.replace(/\s+/g, " ").trim();
       if (flat === title) return match;
@@ -343,16 +376,159 @@ export function liftDuplicateListMarkers(body: string): string {
   return out.join("\n");
 }
 
-const TRANSFORMS = [
+/**
+ * What a repair needs to know about the article beyond its body text.
+ *
+ * Only `stripHeadingAnchors` reads it; the rest ignore the argument. It is
+ * threaded rather than looked up because `zh.md` has no frontmatter of its
+ * own, and both halves of a pair must reach the same verdict or the repair
+ * edits one file and not the other.
+ */
+export interface RepairContext {
+  /** The page this article was clipped from, from `index.md` frontmatter. */
+  articleUrl?: string;
+}
+
+/**
+ * Whether a heading's trailing link points back into this same article.
+ *
+ * Neither the link's text nor the presence of a fragment is sufficient. A
+ * heading may genuinely end in a deep link that carries one —
+ * `## Syntax [§](https://html.spec.whatwg.org/#syntax)` — and stripping that
+ * deletes something the page said, which is worse than leaving a marker
+ * behind. A permalink is by definition same-document, so that is what gets
+ * checked: a bare fragment, or an absolute URL agreeing with the article's own
+ * origin and path.
+ *
+ * Without a known article URL only the bare form qualifies. That is the
+ * conservative direction — an unrepaired heading, never a deleted link.
+ */
+function isSelfPermalink(destination: string, articleUrl?: string): boolean {
+  const raw = destination.replace(/^<|>$/g, "").replace(/\\([()])/g, "$1");
+  if (raw.startsWith("#")) return raw.length > 1;
+  if (articleUrl === undefined) return false;
+  try {
+    // Resolved against the article, so a root-relative or relative permalink
+    // is understood rather than thrown away: `new URL("/post#s")` with no base
+    // throws, and the catch below would keep the anchor forever.
+    const target = new URL(raw, articleUrl);
+    if (target.hash.length <= 1) return false;
+    // `normalizeUrl` is the project's own answer to "same page": it drops the
+    // fragment, strips tracking parameters, lowercases the host and removes a
+    // trailing slash — the vault's real case links `…/chatgpt-work/#two-products`
+    // from an article whose url has neither. Comparing origin and path by hand
+    // looked equivalent and was not: a query string is part of an article's
+    // identity here by design, so `…/search?q=one` and `…/search?q=two#result`
+    // are different pages and the second is a link worth keeping.
+    return normalizeUrl(target.href) === normalizeUrl(articleUrl);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A heading ending in its own permalink anchor: `## Title [#](#title)`.
+ *
+ * The link text is restricted to the symbols generators actually use for this
+ * affordance, so an ordinary heading that merely ends in a link — `## See
+ * [the docs](…)` — cannot match.
+ *
+ * The gap before the anchor is `[^\S\n]` — every whitespace character except a
+ * newline — not `[ \t]`. Generators emit `&nbsp;` there to stop the marker
+ * wrapping onto a line of its own, so the separator is routinely U+00A0. A
+ * `[ \t]` version of this pattern matched none of the 14 headings on the one
+ * article in the vault that has them, while every unit test still passed,
+ * because the fixtures used ordinary spaces.
+ */
+const HEADING_ANCHOR = new RegExp(
+  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\((${DESTINATION_BODY})${TITLE}\)[^\S\n]*$`,
+  "gm",
+);
+
+/**
+ * Drop a heading's trailing permalink anchor.
+ *
+ * Static-site generators append a self-link to every heading — typically
+ * `<a class="headerlink" href="#section">#</a>` — as the hover affordance that
+ * reveals the anchor. On the page it is invisible until hover; in markdown
+ * Turndown has no reason to treat it as anything but a link, so it survives as
+ * `[#](…)` and every heading publishes with a trailing `#`.
+ *
+ * Like `rejoinSplitFootnotes`, this has no counterpart in `apps/extension`, so
+ * a re-clip reproduces it. The clipper-side mirror would be a dom-prepare pass
+ * removing `a.headerlink`/`a.anchor` inside `h1`–`h6`.
+ */
+export function stripHeadingAnchors(
+  body: string,
+  context: RepairContext = {},
+): string {
+  return body.replace(
+    HEADING_ANCHOR,
+    (match, heading: string, destination: string) =>
+      isSelfPermalink(destination, context.articleUrl) ? heading : match,
+  );
+}
+
+/**
+ * Lift images that markdown is reading as an indented code block.
+ *
+ * A page that pretty-prints `<picture>` puts the `<img>` on its own line
+ * indented under the wrapper. Turndown has no rule for `<picture>`, so it keeps
+ * those whitespace text nodes, and the image lands four or more spaces in —
+ * which is an indented code block. The site then renders the literal text
+ * `![](…)` in a syntax-highlighted box and the image never appears at all. One
+ * article in the vault is five images, and all five are lost this way.
+ *
+ * Unlike every transform in `TRANSFORMS`, this cannot run inside
+ * `outsideVerbatim`: the damaged block *is* a `code` block, so the very
+ * protection that keeps the line transforms honest hides these lines from them.
+ * It therefore runs as a pre-pass over the whole body, and asks the parser
+ * rather than scanning lines — which is also what makes it safe. Indentation
+ * inside a list is part of a `list` block, never a top-level `code` block, so
+ * legitimately-nested content is unreachable here by construction rather than
+ * by a heuristic that has to recognise list context.
+ *
+ * The candidate is lifted and handed to the parser rather than matched line by
+ * line. A regex for image syntax is always narrower than the real thing —
+ * Turndown escapes parentheses in a destination and brackets in alt text, and
+ * a `[^()]`-style pattern rejects both, declining to repair the defect instead
+ * of failing visibly. Asking whether the lifted text is one image-only
+ * paragraph also states the property that matters directly: one `code` block
+ * becomes exactly one `paragraph`, so `index.md` and `zh.md` stay aligned.
+ *
+ * The residual risk is a markdown tutorial whose indented sample is nothing
+ * but image syntax; no parser signal separates that from this.
+ */
+export function deindentBlockImages(body: string): string {
+  let out = "";
+  let cursor = 0;
+  for (const block of splitBlocks(body)) {
+    if (block.type !== "code") continue;
+    const lines = block.text.split("\n");
+    const lifted = lines.map((line) => line.replace(/^\s+/, "")).join("\n");
+    if (!isImageOnlyParagraph(lifted)) continue;
+    // Blocks arrive in document order and each `text` is an exact slice, so a
+    // forward scan rebuilds the body with everything between blocks untouched.
+    const at = body.indexOf(block.text, cursor);
+    if (at === -1) continue;
+    out += body.slice(cursor, at);
+    out += lines.map((line) => line.replace(/^\s+/, "")).join("\n");
+    cursor = at + block.text.length;
+  }
+  return out + body.slice(cursor);
+}
+
+const TRANSFORMS: Array<(body: string, context: RepairContext) => string> = [
   joinLinkTitles,
   rejoinSplitLinks,
   rejoinSplitFootnotes,
   promoteTableHeaders,
   liftDuplicateListMarkers,
+  stripHeadingAnchors,
 ];
 
 /** Apply every repair to one markdown body. */
-export function repairBody(body: string): string {
+export function repairBody(body: string, context: RepairContext = {}): string {
   // Normalize once here rather than teaching each transform about `\r`. Three
   // separate CRLF defects were fixed one at a time and each left the next
   // standing, because every transform was individually responsible for line
@@ -360,13 +536,19 @@ export function repairBody(body: string): string {
   // other three worked, which is worse than not running at all. Converting at
   // the boundary makes every transform LF-only by construction, including ones
   // written later by someone who never thinks about this.
-  if (!isUniformlyCrlf(body)) return repairLf(body);
-  return repairLf(body.replaceAll("\r\n", "\n")).replaceAll("\n", "\r\n");
+  if (!isUniformlyCrlf(body)) return repairLf(body, context);
+  return repairLf(body.replaceAll("\r\n", "\n"), context).replaceAll(
+    "\n",
+    "\r\n",
+  );
 }
 
-function repairLf(body: string): string {
-  return outsideVerbatim(body, (prose) =>
-    TRANSFORMS.reduce((text, transform) => transform(text), prose),
+function repairLf(body: string, context: RepairContext): string {
+  // The pre-pass runs first and outside the masking, because the block it
+  // repairs is itself verbatim — see `deindentBlockImages`. Once lifted, the
+  // image is ordinary prose and the line transforms see it like any other.
+  return outsideVerbatim(deindentBlockImages(body), (prose) =>
+    TRANSFORMS.reduce((text, transform) => transform(text, context), prose),
   );
 }
 
@@ -447,8 +629,12 @@ export async function repairVault(
     const hasZh = await zhFile.exists();
     const zhText = hasZh ? await zhFile.text() : null;
 
-    const newIndex = repairFile(indexText);
-    const newZh = zhText === null ? null : repairFile(zhText);
+    // Read once from index.md and used for both files: zh.md carries no
+    // frontmatter, and a repair that ran on one side only would edit a pair
+    // out of agreement.
+    const context: RepairContext = { articleUrl: articleUrlOf(indexText) };
+    const newIndex = repairFile(indexText, context);
+    const newZh = zhText === null ? null : repairFile(zhText, context);
 
     const files: string[] = [];
     if (newIndex !== indexText) files.push("index.md");
@@ -532,10 +718,20 @@ async function writePairAtomically(
 }
 
 /** Frontmatter is YAML, not markdown — repair the body and leave it alone. */
-function repairFile(text: string): string {
+/** The article's own url, or undefined when the frontmatter cannot be read —
+ * a repair must never fail because it could not learn its context. */
+function articleUrlOf(indexText: string): string | undefined {
+  try {
+    return parseArticle(indexText).frontmatter.url;
+  } catch {
+    return undefined;
+  }
+}
+
+function repairFile(text: string, context: RepairContext): string {
   const end = frontmatterLength(text);
-  if (end === null) return repairBody(text);
-  return text.slice(0, end) + repairBody(text.slice(end));
+  if (end === null) return repairBody(text, context);
+  return text.slice(0, end) + repairBody(text.slice(end), context);
 }
 
 function bodyOf(text: string): string {

@@ -108,8 +108,19 @@ A clipper fix only helps the *next* clip: the vault keeps whatever Turndown
 produced at the time. `repair` rewrites the defects the clipper used to emit —
 link titles that span lines (which markdown reads as a setext heading, turning
 a paragraph into a giant `<h1>`), links whose text was pushed onto its own
-lines by a block child, synthesized empty table header rows, and LaTeXML's
-duplicated list-item labels.
+lines by a block child, synthesized empty table header rows, LaTeXML's
+duplicated list-item labels, the permalink `#` a generator appends to every
+heading, and images indented far enough that markdown reads them as code.
+
+Two of those have no clipper counterpart, so a re-clip reproduces them: the
+split footnote labels Readability itself creates on `<br><br>` pages, and the
+heading permalinks. The indented-image repair is the one transform that runs
+*before* the verbatim masking rather than inside it — the block it fixes is a
+code block, so the protection that keeps every other transform from touching
+code would otherwise hide it. It asks the parser for top-level code blocks
+whose every line is an image, which is also why content legitimately indented
+inside a list is out of reach: that belongs to a `list` block, never a
+top-level `code` block.
 
 ```sh
 bun run packages/processor/src/cli.ts repair --vault ../tiro-vault --dry-run

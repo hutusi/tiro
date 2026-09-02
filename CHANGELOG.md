@@ -21,15 +21,40 @@ versions follow the `0.x` line while Tiro is a personal system.
   partway leaves both files as they were — checking 1:1 block alignment before writing
   and reporting the pair untouched when a repair would break it (invariant 4).
   A refusal means the two sides were not damaged identically, which no
-  symmetric edit can fix: re-clip the page instead. One of its repairs has no
-  clipper counterpart: pages that separate paragraphs with `<br><br>` make
-  Readability rebuild the blocks itself, and it cuts through the middle of a
-  footnote label, so every note published as a stray bracket above its own text.
-  That happens inside Readability, before the clipper's markdown exists, so a
-  re-clip of such a page reproduces it.
+  symmetric edit can fix: re-clip the page instead. Two of its repairs have no
+  clipper counterpart, so a re-clip reproduces what they fix. Pages that
+  separate paragraphs with `<br><br>` make Readability rebuild the blocks
+  itself, and it cuts through the middle of a footnote label, so every note
+  published as a stray bracket above its own text — that happens inside
+  Readability, before the clipper's markdown exists. The heading permalinks are
+  the other: nothing in the clipper removes them yet.
 
 ### Fixed
 
+- **Images inside `<picture>` are no longer published as code.** Turndown has no
+  `<picture>` rule and does not treat it as a block, so it re-attached the
+  whitespace flanking the element's content around the converted image. On a page
+  that pretty-prints its markup that whitespace is a newline and an indent, which
+  put the image four spaces into its line — an indented code block. The site
+  rendered the literal `![](…)` in a syntax-highlighted box, so one article's
+  five images, the entire subject of the piece, published as five boxes of
+  markup. Fixed in `dom-prepare`, not Turndown: the whitespace is added outside a
+  rule's return value, so trimming inside the replacement is a no-op. Unwrapping
+  before Readability also changes what its scorer sees, and a DIY article now
+  keeps 16 images instead of 10.
+- **Images whose URL carries a query string download again.** A `src` in raw
+  HTML must spell `&` as `&amp;` to be valid, and the image stage fetched that
+  literally — a different URL, which the CDN answers wrongly or not at all, so
+  the image was hotlinked for no reason. Decoding is scoped to the HTML
+  pattern; a markdown URL is under no such obligation, and decoding one would
+  rewrite what the author wrote.
+- **Headings no longer end in a stray `#`.** Generators append a self-link to
+  every heading as the hover affordance that reveals its anchor; it is invisible
+  until hover on the source page and survives conversion as `[#](…)`. Repaired in
+  the vault by `tiro-process repair`, which also gained the ability to reach
+  indented images: that repair cannot run inside the verbatim masking, because
+  the block it fixes *is* a code block, so it runs as a parser-driven pre-pass
+  over the whole body.
 - **The clipper no longer writes markdown that cannot be parsed.** Four Turndown
   defects, all of them visible on the published site. A link title containing
   newlines — arXiv writes a whole section path into one — left the link
