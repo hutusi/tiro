@@ -723,6 +723,143 @@ function foldFigureCaptions(doc: Document): void {
 }
 
 /**
+ * Unwrap a `<div>` that exists only to lay a figure out, so Readability cannot
+ * mistake the page's CSS for a verdict on the content.
+ *
+ * `_cleanConditionally` scores an element by its class name before it looks at
+ * what the element holds, and Readability's `negative` regex contains
+ * **`media`**. A CSS-module class like
+ * `MediaGalleryView-module-scss-module__6QZEyW__media-gallery` matches it, so
+ * `weight` is -25, so `weight + contentScore < 0` returns true and the subtree
+ * is deleted — before any of the checks written to protect images
+ * (`img > 1 && p / img < 0.5`, the list-of-images exception) is reached. One
+ * clipped article lost all three of its images and a `<figcaption>` this way,
+ * and published as if the page had never had a picture in it.
+ *
+ * The same shape as `unhideGuessedHeaderTables` below: Readability judging
+ * content by a regex over class names, and a class name colliding with it by
+ * accident. The remedy is the same too — hand it a DOM it judges correctly
+ * rather than re-deriving its rules here, which this file knows better than to
+ * attempt.
+ *
+ * Unwrapping rather than only stripping the class, because the wrapper costs a
+ * second thing. Readability rewrites a phrasing-only `<div>` into a `<p>`, so a
+ * declassified `<figure><div><img></div><figcaption>` arrives as
+ * `<figure><p><img></p><figcaption>` — and `foldFigureCaptions` reads the
+ * figure's children as `[p, figcaption]`, does not find the picture among them,
+ * and declines to fold. Measured on that article: stripping the class restores
+ * 3 images and 0 of 3 captions; unwrapping restores 3 and 3.
+ *
+ * Dropping the element is markdown-neutral. Turndown calls `<div>` a block and
+ * surrounds it with blank lines whether or not it is there, which is the same
+ * ground `unwrapPictures` stands on.
+ *
+ * **Scoped to figure markup**, and that guard is the point rather than a
+ * detail. This runs *before* Readability and removes the very attributes
+ * Readability selects on — the hazard ADR 0011 recorded when figure folding had
+ * to be moved after extraction, because folding first republished images a page
+ * had marked hidden. Requiring a `<figure>` in reach means the pass can only
+ * act on markup the page itself has declared to be a figure: a
+ * `<div class="sidebar"><img></div>` is untouched and Readability's rejection
+ * of it still stands. The unscoped variant produced byte-identical output on
+ * the article that prompted this, so the guard costs nothing there and bounds
+ * the blast radius everywhere else.
+ */
+function unwrapMediaWrappers(doc: Document): void {
+  for (const div of Array.from(doc.querySelectorAll("div"))) {
+    // An ancestor unwrapped earlier in this loop takes its descendants with it.
+    const parent = div.parentNode;
+    if (parent === null) continue;
+    // Never a wrapper the page has hidden: unwrapping drops the attribute
+    // Readability excludes on, and the image the page took care to hide gets
+    // published. Only this element's own hiding matters — unwrapping a visible
+    // parent leaves a hidden child hidden.
+    if (readabilityHides(div)) continue;
+    if (
+      div.closest("figure") === null &&
+      div.querySelector("figure") === null
+    ) {
+      continue;
+    }
+    if (!holdsOnlyMedia(div)) continue;
+    while (div.firstChild !== null) parent.insertBefore(div.firstChild, div);
+    parent.removeChild(div);
+  }
+}
+
+/**
+ * Mirrors Readability's `_isProbablyVisible`, which is what decides whether an
+ * element's subtree is dropped before scoring even begins.
+ *
+ * Stricter than the original in one place — Readability's `fallback-image`
+ * escape hatch is a substring test over the whole `className`, and this is a
+ * class-name test — because the two failures are not symmetric. Reporting
+ * "hidden" for something Readability would keep only means the wrapper stays,
+ * which is exactly today's behaviour. The reverse republishes a picture the
+ * page hid.
+ */
+function readabilityHides(element: Element): boolean {
+  if (element.hasAttribute("hidden")) return true;
+  if (
+    element.getAttribute("aria-hidden") === "true" &&
+    !classListOf(element).includes("fallback-image")
+  ) {
+    return true;
+  }
+  const style = (element as HTMLElement).style;
+  return style?.display === "none" || style?.visibility === "hidden";
+}
+
+/**
+ * Elements a layout wrapper may hold and still be nothing but layout.
+ *
+ * An allow-list for the same reason `CAPTION_INLINE` is one: an element nobody
+ * has considered leaves the wrapper in place, which is what happens today.
+ * A reject-list would have to name every element that means something.
+ */
+const MEDIA_ONLY: ReadonlySet<string> = new Set([
+  "FIGURE",
+  "FIGCAPTION",
+  "IMG",
+  "PICTURE",
+  "SOURCE",
+]);
+
+/**
+ * True when `div` holds at least one image and nothing but media around it.
+ *
+ * The image requirement is what keeps this from unwrapping arbitrary layout:
+ * the pass exists to save pictures, and a wrapper with no picture in it has
+ * nothing to save. Text is disqualifying wherever it appears outside a
+ * `<figcaption>` — a wrapper that carries a sentence is carrying content, and
+ * the class name Readability objected to may well be about that sentence.
+ */
+function holdsOnlyMedia(div: Element, seen: Set<Element> = new Set()): boolean {
+  // Defensive against a malformed tree; a cycle would otherwise not terminate.
+  if (seen.has(div)) return false;
+  seen.add(div);
+  if (div.getElementsByTagName("img").length === 0) return false;
+  for (const node of meaningfulChildren(div)) {
+    if (node.nodeName.startsWith("#")) return false;
+    const element = node as Element;
+    if (MEDIA_ONLY.has(element.nodeName)) continue;
+    // A link is media only when it is a picture link and nothing else — the
+    // same reading `pictureOf` takes, and for the same reason: overlay text
+    // beside the image is content, and unwrapping would strand it.
+    if (element.nodeName === "A") {
+      const images = element.getElementsByTagName("img");
+      const image = images.length === 1 ? images[0] : undefined;
+      if (image === undefined) return false;
+      if (!isWrapperChain(element, image)) return false;
+      continue;
+    }
+    if (element.nodeName === "DIV" && holdsOnlyMedia(element, seen)) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
  * Drop the one LaTeXML class name that makes Readability delete a data table.
  *
  * `_removeUnlikelyCandidates` tests an element's class and id against a
@@ -803,9 +940,11 @@ export function prepareForClipping(doc: Document): void {
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
   unhideGuessedHeaderTables(doc);
-  // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
-  // line-number gutters). Promoting headers first would rewrite the very cells
-  // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
+  unwrapMediaWrappers(doc);
+  // Last: `unwrapEquationTables` and `recoverCodeBlocks` delete whole tables
+  // (LaTeXML equations, Chroma line-number gutters). Promoting headers first
+  // would rewrite the very cells they select on — `td.lntd` becomes a `<th>`
+  // and the code block stays a table.
   promoteTableHeaders(doc);
 }
 

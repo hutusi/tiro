@@ -921,3 +921,154 @@ describe("figure folding runs after Readability", () => {
     expect(htmlToMarkdown(html).markdown).toContain("![d](shown.png)  \nCap.");
   });
 });
+
+describe("media wrappers Readability would delete", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The clipper's real order: prepare, extract, then fold. */
+  function clip(markup: string): string {
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    const prepared = doc.body.innerHTML;
+    let extracted = "";
+    try {
+      extracted = new Readability(doc as never).parse()?.content ?? "";
+    } catch {
+      extracted = "";
+    }
+    return foldFiguresIn(extracted === "" ? prepared : extracted, doc);
+  }
+
+  /** Prepare and fold, without Readability in the way. */
+  function clipFigures(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return foldFiguresIn(prepared, doc);
+  }
+
+  /** The shape that lost an article all three of its images. */
+  const gallery =
+    '<div class="MediaGalleryView-module__media-gallery">' +
+    '<figure class="media-item"><div class="media-content">' +
+    '<img src="venus.png" alt="Radar image"></div>' +
+    "<figcaption>Magellan radar</figcaption></figure></div>";
+
+  test("keeps a gallery whose class name trips the negative regex", () => {
+    // _cleanConditionally scores the class before it looks at the content, and
+    // Readability's negative regex contains `media`, so weight is -25 and the
+    // subtree goes before any image-aware check runs. Asserting after
+    // Readability is the point: the image is present either way before it.
+    const html = clip(gallery);
+    expect(html).toContain("venus.png");
+    expect(html).toContain("Magellan radar");
+  });
+
+  test("the surviving figure still folds into one block", () => {
+    const md = htmlToMarkdown(clip(gallery)).markdown.trim();
+    expect(md).toContain("![Radar image](venus.png)  \nMagellan radar");
+  });
+
+  test("leaves a wrapper carrying a sentence alone", () => {
+    // Text is content, and the class name Readability objected to may well be
+    // about the text rather than the picture.
+    const { html } = prepare(
+      '<figure><div class="media-note"><img src="x.png" alt="d">' +
+        "<p>A sentence the page means.</p></div>" +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain('class="media-note"');
+    expect(html).toContain("A sentence the page means.");
+  });
+
+  test("leaves a media wrapper with no figure in reach alone", () => {
+    // The guard: this pass runs before Readability and removes the attributes
+    // Readability selects on, so it may only touch markup the page itself has
+    // called a figure. A sidebar thumbnail stays rejectable.
+    const { html } = prepare(
+      '<div class="media-sidebar"><img src="thumb.png" alt="t"></div>',
+    );
+    expect(html).toContain('class="media-sidebar"');
+  });
+
+  test("counts a link that wraps only its image as media", () => {
+    const md = htmlToMarkdown(
+      clipFigures(
+        '<figure><div class="media-content">' +
+          '<a href="full.png"><img src="x.png" alt="d"></a></div>' +
+          "<figcaption>Cap.</figcaption></figure>",
+      ),
+    ).markdown.trim();
+    expect(md).toBe("[![d](x.png)](full.png)  \nCap.");
+  });
+
+  test("leaves a wrapper whose link carries overlay text alone", () => {
+    // Same reading pictureOf takes: text beside the image is content, and
+    // unwrapping would strand it.
+    const { html } = prepare(
+      '<figure><div class="media-content">' +
+        '<a href="full.png"><img src="x.png" alt="d"><span>Zoom</span></a>' +
+        "</div><figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain('class="media-content"');
+    expect(html).toContain("Zoom");
+  });
+
+  test("leaves a wrapper holding no image alone", () => {
+    const { html } = prepare(
+      '<figure><div class="media-empty"><span>No picture here.</span></div>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain('class="media-empty"');
+  });
+
+  test("unwraps a nested chain without disturbing the figure", () => {
+    const { doc } = prepare(
+      '<div class="media-wrap"><div class="media-inner">' +
+        '<figure><div class="media-content"><img src="x.png" alt="d"></div>' +
+        "<figcaption>Cap.</figcaption></figure></div></div>",
+    );
+    expect(doc.querySelectorAll("div")).toHaveLength(0);
+    const figure = doc.querySelector("figure");
+    expect(figure?.children).toHaveLength(2);
+    expect(figure?.firstElementChild?.nodeName).toBe("IMG");
+    expect(figure?.lastElementChild?.nodeName).toBe("FIGCAPTION");
+  });
+
+  test("leaves a hidden wrapper alone, however it is hidden", () => {
+    // Caught by an existing test, and worth its own: unwrapping drops the very
+    // attribute Readability excludes on, so a picture the page hid would be
+    // published. This is the ADR 0011 hazard, one pass earlier.
+    for (const attr of [
+      "hidden",
+      'aria-hidden="true"',
+      'style="display: none"',
+      'style="visibility: hidden"',
+    ]) {
+      const { html } = prepare(
+        `<figure><div class="media-content" ${attr}>` +
+          '<img src="hidden.png" alt="d"></div>' +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(html).toContain('class="media-content"');
+    }
+  });
+
+  test("unwrapping a visible wrapper leaves a hidden child hidden", () => {
+    const html = clip(
+      '<div class="media-gallery"><figure>' +
+        '<div hidden><img src="hidden.png"></div>' +
+        '<img src="shown.png" alt="d">' +
+        "<figcaption>Cap.</figcaption></figure></div>",
+    );
+    expect(html).not.toContain("hidden.png");
+    expect(html).toContain("shown.png");
+  });
+
+  test("is idempotent", () => {
+    const once = prepare(gallery);
+    prepareForClipping(once.doc);
+    expect(once.doc.body.innerHTML).toBe(once.html);
+  });
+});
