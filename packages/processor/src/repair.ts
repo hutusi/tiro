@@ -3,6 +3,7 @@ import {
   checkAlignment,
   frontmatterLength,
   isImageOnlyParagraph,
+  normalizeUrl,
   parseArticle,
   splitBlocks,
   translationPath,
@@ -202,7 +203,6 @@ const BLOCK_OPENING_PREFIX = /^[\s>]*(?:(?:[-*+]|\d+[.)])[\s>]*)*$/;
  * reappearing here because the pattern was written fresh instead of shared.
  */
 const DESTINATION_BODY = String.raw`<[^<>\n]*>|(?:\\[()]|[^\s()])+`;
-const DESTINATION = String.raw`(?:${DESTINATION_BODY})`;
 
 /**
  * The `"title"` Turndown appends after a destination, and its escaping.
@@ -408,14 +408,15 @@ function isSelfPermalink(destination: string, articleUrl?: string): boolean {
   if (raw.startsWith("#")) return raw.length > 1;
   if (articleUrl === undefined) return false;
   try {
-    const target = new URL(raw);
-    if (target.hash.length <= 1) return false;
-    // Trailing slashes are not a difference: the vault's own case links
-    // `…/understanding-chatgpt-work/#two-products` from an article whose url
-    // has no trailing slash.
-    const place = (url: URL) =>
-      `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
-    return place(target) === place(new URL(articleUrl));
+    if (new URL(raw).hash.length <= 1) return false;
+    // `normalizeUrl` is the project's own answer to "same page": it drops the
+    // fragment, strips tracking parameters, lowercases the host and removes a
+    // trailing slash — the vault's real case links `…/chatgpt-work/#two-products`
+    // from an article whose url has neither. Comparing origin and path by hand
+    // looked equivalent and was not: a query string is part of an article's
+    // identity here by design, so `…/search?q=one` and `…/search?q=two#result`
+    // are different pages and the second is a link worth keeping.
+    return normalizeUrl(raw) === normalizeUrl(articleUrl);
   } catch {
     return false;
   }

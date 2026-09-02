@@ -184,6 +184,22 @@ describe("stripHeadingAnchors", () => {
     expect(stripHeadingAnchors(broken)).toBe(broken);
   });
 
+  test("keeps a link to a different query on the same path", () => {
+    // A query string is part of an article's identity in this project by
+    // design, so these are two different pages and the link is worth keeping.
+    const articleUrl = "https://example.com/search?q=one";
+    const text = "## Results [#](https://example.com/search?q=two#result)";
+    expect(stripHeadingAnchors(text, { articleUrl })).toBe(text);
+  });
+
+  test("ignores tracking parameters when deciding sameness", () => {
+    // normalizeUrl is the project's answer to "same page", so the anchor is
+    // still a self-link once utm noise is discounted.
+    const articleUrl = "https://example.com/post";
+    const broken = "## Part [#](https://example.com/post?utm_source=rss#part)";
+    expect(stripHeadingAnchors(broken, { articleUrl })).toBe("## Part");
+  });
+
   test("leaves a deep link to another site even with the article url", () => {
     const articleUrl = "https://simonwillison.net/2026/Aug/30/chatgpt-work";
     const text = "## Syntax [§](https://html.spec.whatwg.org/#syntax)";
