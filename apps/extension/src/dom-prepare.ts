@@ -381,6 +381,97 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * Elements a caption cannot carry into a paragraph. Each needs blank lines
+ * around it in markdown, and a blank line would end the block — which is the
+ * whole thing this fold exists to avoid.
+ */
+const CAPTION_BLOCK =
+  "p, div, ul, ol, table, blockquote, pre, figure, h1, h2, h3, h4, h5, h6";
+
+/**
+ * The link wrapping `image` inside `figure`, if the figure holds one.
+ *
+ * A captioned image linking to its full-size version is the common lightbox
+ * shape; rebuilding the paragraph from the image alone would silently drop it.
+ */
+function linkWrapping(image: Element, figure: Element): Element | null {
+  let current: Node | null = image.parentNode;
+  while (current !== null && current !== figure) {
+    if (current.nodeName === "A") return current as Element;
+    current = current.parentNode;
+  }
+  return null;
+}
+
+/**
+ * The element whose children hold the caption's inline content, or `null` when
+ * the caption carries block structure a paragraph cannot absorb.
+ */
+function captionSource(caption: Element): Element | null {
+  const blocks = Array.from(caption.querySelectorAll(CAPTION_BLOCK));
+  if (blocks.length === 0) return caption;
+  const [only] = blocks;
+  // A caption marked up as a single paragraph is the common shape and unwraps
+  // cleanly. Anything richer — two paragraphs, a list — would need the blank
+  // lines this cannot emit, so leave that figure alone rather than flattening
+  // structure the page meant.
+  if (
+    blocks.length === 1 &&
+    only?.nodeName === "P" &&
+    only.parentNode === caption
+  ) {
+    return only;
+  }
+  return null;
+}
+
+/**
+ * Fold a `<figure>`'s caption into the same paragraph as its image.
+ *
+ * Turndown has no figure rule, so `<figure>`/`<figcaption>` convert as two
+ * plain blocks: a markdown image, a blank line, then an ordinary paragraph.
+ * Nothing downstream can then tell the caption from the article's next
+ * sentence — on an academic post a credit line reads as the author's own
+ * prose, and 12 of the vault's 32 articles carry figures.
+ *
+ * Emitting a real `<figure>` was tried and reverted (ADR 0011): markdown
+ * cannot express the association, so the rule emitted raw HTML, and raw HTML
+ * is opaque to every service this pipeline provides. What markdown *can*
+ * express is co-location — one paragraph holding both — which is what this
+ * builds. The block stays a single block, so alignment and translation are
+ * untouched, and the association cannot desync from the content because it is
+ * the content's shape.
+ *
+ * A `<br>` rather than a bare newline: Turndown collapses whitespace in text
+ * nodes, so a newline would leave the caption running on from the image, while
+ * a hard break keeps the two legible as separate lines in the raw markdown.
+ *
+ * Anything the pairing would have to guess at is left alone, converting
+ * exactly as it does today: a figure with no caption, an empty caption, more
+ * than one image, or a caption holding block structure.
+ */
+function foldFigureCaptions(doc: Document): void {
+  for (const figure of Array.from(doc.querySelectorAll("figure"))) {
+    const images = figure.querySelectorAll("img");
+    // Exactly one, or which picture the caption describes is a guess.
+    if (images.length !== 1) continue;
+    const image = images[0];
+    if (image == null) continue;
+    const caption = figure.querySelector("figcaption");
+    if (caption === null || (caption.textContent ?? "").trim() === "") continue;
+    const source = captionSource(caption);
+    if (source === null) continue;
+    const paragraph = doc.createElement("p");
+    paragraph.appendChild(linkWrapping(image, figure) ?? image);
+    paragraph.appendChild(doc.createElement("br"));
+    while (source.firstChild !== null) {
+      paragraph.appendChild(source.firstChild);
+    }
+    figure.replaceWith(paragraph);
+  }
+}
+
+/**
  * Drop the one LaTeXML class name that makes Readability delete a data table.
  *
  * `_removeUnlikelyCandidates` tests an element's class and id against a
@@ -460,6 +551,9 @@ export function prepareForClipping(doc: Document): void {
   recoverCodeBlocks(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
+  // After unwrapPictures, so a <picture> inside a figure is already the
+  // <img> this needs to find.
+  foldFigureCaptions(doc);
   unhideGuessedHeaderTables(doc);
   // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
   // line-number gutters). Promoting headers first would rewrite the very cells

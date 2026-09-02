@@ -564,3 +564,98 @@ describe("shapes found by clipping real pages", () => {
     expect(html).toContain("ltx_pagination");
   });
 });
+
+describe("figure captions (ADR 0011)", () => {
+  /** The markdown a prepared figure actually converts to. */
+  function markdownFor(html: string): string {
+    return htmlToMarkdown(prepare(html).html).markdown.trim();
+  }
+
+  test("folds a caption into its image's paragraph", () => {
+    const md = markdownFor(
+      '<figure><img src="fig.png" alt="A diagram">' +
+        "<figcaption>Figure 2.2: what it shows.</figcaption></figure>",
+    );
+    // One block: image, hard break, caption. A blank line here would make the
+    // caption a separate paragraph again, which is the whole defect.
+    expect(md).toBe("![A diagram](fig.png)  \nFigure 2.2: what it shows.");
+    expect(splitBlocks(md)).toHaveLength(1);
+  });
+
+  test("the folded block is one block and stays one after translation", () => {
+    const md = markdownFor(
+      '<figure><img src="fig.png" alt="d"><figcaption>A caption.</figcaption>' +
+        "</figure>",
+    );
+    const translated = "![d](fig.png)  \n一段说明。";
+    expect(splitBlocks(md)).toHaveLength(1);
+    expect(splitBlocks(translated)).toHaveLength(1);
+    expect(splitBlocks(md)[0]?.type).toBe(splitBlocks(translated)[0]?.type);
+  });
+
+  test("keeps the link wrapping a lightbox image", () => {
+    const md = markdownFor(
+      '<figure><a href="full.png"><img src="thumb.png" alt="d"></a>' +
+        "<figcaption>A caption.</figcaption></figure>",
+    );
+    expect(md).toBe("[![d](thumb.png)](full.png)  \nA caption.");
+  });
+
+  test("keeps inline markup inside the caption", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>Credit: ' +
+        '<a href="https://example.com">M. G.</a> and <em>others</em>.' +
+        "</figcaption></figure>",
+    );
+    expect(md).toBe(
+      "![d](f.png)  \nCredit: [M. G.](https://example.com) and _others_.",
+    );
+  });
+
+  test("unwraps a caption marked up as a single paragraph", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption><p>A caption.</p>' +
+        "</figcaption></figure>",
+    );
+    expect(md).toBe("![d](f.png)  \nA caption.");
+  });
+
+  test("leaves a figure with no caption as a plain image", () => {
+    const md = markdownFor('<figure><img src="f.png" alt="d"></figure>');
+    expect(md).toBe("![d](f.png)");
+  });
+
+  test("leaves an empty caption alone", () => {
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>  </figcaption></figure>',
+    );
+    expect(md).not.toContain("  \n");
+  });
+
+  test("leaves a multi-image figure alone — the pairing would be a guess", () => {
+    const { html } = prepare(
+      '<figure><img src="a.png"><img src="b.png">' +
+        "<figcaption>Both of them.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("leaves a caption holding block structure alone", () => {
+    // Two paragraphs cannot be folded without a blank line, and a blank line
+    // would end the block.
+    const { html } = prepare(
+      '<figure><img src="f.png"><figcaption><p>One.</p><p>Two.</p>' +
+        "</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("folds a <picture> inside a figure, which unwrapPictures ran first on", () => {
+    const md = markdownFor(
+      "<figure><picture><source srcset='big.webp'>" +
+        '<img src="f.png" alt="d"></picture>' +
+        "<figcaption>A caption.</figcaption></figure>",
+    );
+    expect(md).toBe("![d](f.png)  \nA caption.");
+  });
+});
