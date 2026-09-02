@@ -100,6 +100,22 @@ describe("findImageUrls", () => {
     ]);
   });
 
+  test("decodes every spelling HTML allows for the ampersand", () => {
+    // The named reference is case-insensitive and a numeric one may carry
+    // leading zeros; missing a spelling fetches a URL the page never named.
+    for (const entity of [
+      "&amp;",
+      "&AMP;",
+      "&#38;",
+      "&#038;",
+      "&#x26;",
+      "&#x000026;",
+    ]) {
+      const body = `<img src="https://cdn.ex.com/i.png?a=1${entity}b=2">`;
+      expect(findImageUrls(body)).toEqual(["https://cdn.ex.com/i.png?a=1&b=2"]);
+    }
+  });
+
   test("leaves a markdown image URL exactly as written", () => {
     // Only HTML attributes are obliged to escape the ampersand; decoding a
     // markdown URL would rewrite one the author spelled deliberately.

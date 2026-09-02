@@ -371,6 +371,18 @@ export function liftDuplicateListMarkers(body: string): string {
 }
 
 /**
+ * A destination that can only be a permalink: one carrying a fragment.
+ *
+ * The link *text* is far too weak a signal on its own. A heading may end in a
+ * genuine link whose label happens to be `#` — `[#](https://example.com/issues)`
+ * — and stripping that deletes content, which is a worse outcome than leaving
+ * a stray marker behind. Requiring a non-empty fragment separates the two
+ * without assuming the anchor is written as a bare `#section`: the real case in
+ * the vault spells it absolutely, `https://simonwillison.net/…/#two-products`.
+ */
+const PERMALINK = String.raw`(?:<[^<>\n#]*#[^<>\n]+>|(?:\\[()]|[^\s()])*#(?:\\[()]|[^\s()])+)`;
+
+/**
  * A heading ending in its own permalink anchor: `## Title [#](#title)`.
  *
  * The link text is restricted to the symbols generators actually use for this
@@ -385,7 +397,7 @@ export function liftDuplicateListMarkers(body: string): string {
  * because the fixtures used ordinary spaces.
  */
 const HEADING_ANCHOR = new RegExp(
-  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\(${DESTINATION}${TITLE}\)[^\S\n]*$`,
+  String.raw`^(#{1,6} +.*\S)[^\S\n]*\[[#¶§]\]\(${PERMALINK}${TITLE}\)[^\S\n]*$`,
   "gm",
 );
 

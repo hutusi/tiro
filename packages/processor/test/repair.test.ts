@@ -151,6 +151,24 @@ describe("stripHeadingAnchors", () => {
     expect(stripHeadingAnchors(broken)).toBe("## Title");
   });
 
+  test("leaves a `#`-labelled link that is not a permalink", () => {
+    // The link text alone is far too weak a signal: a heading may genuinely
+    // end in a link labelled `#`, and deleting that is worse than leaving a
+    // stray marker. A permalink carries a fragment; this does not.
+    for (const text of [
+      "## Issues [#](https://example.com/issues)",
+      "## Refs [¶](https://example.com/refs)",
+    ]) {
+      expect(stripHeadingAnchors(text)).toBe(text);
+    }
+  });
+
+  test("strips an absolute permalink, as the vault actually spells it", () => {
+    const broken =
+      "#### Model selection [#](https://simonwillison.net/p/#model-selection)";
+    expect(stripHeadingAnchors(broken)).toBe("#### Model selection");
+  });
+
   test("leaves a heading whose trailing link is real content", () => {
     // Only the symbols generators use for the affordance may match, or a
     // heading that simply ends in a link would lose it.
