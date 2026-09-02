@@ -751,6 +751,46 @@ describe("run budget", () => {
     }
   });
 
+  test("a hard failure during --force returns the article to pending", async () => {
+    // Invariant 7 leaves a failed article pending, which used to be automatic:
+    // an article was only discovered when it had no marker. A forced one
+    // enters with `processed_at`, so a provider outage mid-redo would leave it
+    // marked processed and quietly retired, while the report claimed it was
+    // pending and would be retried.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    await runPipeline({ vaultDir: vault, slug: RAW }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    const indexAbs = join(vault, "articles", RAW, "index.md");
+    expect(
+      needsProcessing(parseArticle(readFileSync(indexAbs, "utf8")).frontmatter),
+    ).toBe(false);
+
+    const forced = await runPipeline(
+      { vaultDir: vault, slug: RAW, force: true },
+      config,
+      {
+        ...deps,
+        chat: async () => {
+          throw new Error("provider 403");
+        },
+      },
+    );
+    expect(forced.errored.map((e) => e.slug)).toEqual([RAW]);
+    expect(forced.errored[0]?.staysPending).toBe(true);
+    // And it really is pending, so the next ordinary run picks it up.
+    expect(
+      needsProcessing(parseArticle(readFileSync(indexAbs, "utf8")).frontmatter),
+    ).toBe(true);
+    const followUp = await runPipeline({ vaultDir: vault, slug: RAW }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    expect(followUp.processed).toContain(RAW);
+  });
+
   test("budget deferral does not hand a failed invalidation back to the queue", async () => {
     // The main loop skips an article whose checkpoint could not be cleared,
     // but the bulk deferral ran over the unfiltered list: it cleared the

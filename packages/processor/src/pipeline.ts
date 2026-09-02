@@ -204,16 +204,35 @@ export async function runPipeline(
         }
       } else {
         // A hard failure (LLM outage, provider 403, disk error) must not kill
-        // the run: other articles still process, the workflow's commit step
-        // still runs for them, and this article stays unmarked so the next
-        // push retries it.
+        // the run: other articles still process and the workflow's commit step
+        // still runs for them. Invariant 7 also says the article is left
+        // pending so a later run retries it — which used to be automatic,
+        // because an article was only ever discovered when it had no marker.
+        //
+        // `--force` broke that assumption: a forced article entered with
+        // `processed_at`, nothing above clears it, and reporting "left
+        // pending" for one was simply false — an ordinary run skips it, so a
+        // provider outage during a forced redo quietly retired the article.
+        // `markPending` is a no-op on an unforced run, so this is the one call
+        // for both cases.
+        let staysPending = true;
+        try {
+          await markPending(article, options, log);
+        } catch (markError) {
+          staysPending = false;
+          log(
+            `${article.slug}: failed, and its marker could not be cleared, so an ordinary run will skip it: ${String(markError)}`,
+          );
+        }
         report.errored.push({
           slug: article.slug,
           error: String(error),
-          staysPending: true,
+          staysPending,
         });
         log(
-          `processing failed for ${article.slug}, left pending: ${String(error)}`,
+          staysPending
+            ? `processing failed for ${article.slug}, left pending: ${String(error)}`
+            : `processing failed for ${article.slug}, and it will NOT be retried by an ordinary run: ${String(error)}`,
         );
       }
       // Images are downloaded before the LLM stages, so a failure here leaves
