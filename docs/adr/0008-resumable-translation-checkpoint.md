@@ -33,6 +33,13 @@ The failure was also close to invisible: the run exits 0 by design (ADR: hard
 failures must not fail the workflow before its commit step), so the only
 evidence was a `processing <slug>` line with no matching completion.
 
+> **Partly superseded by [ADR 0010](0010-durable-translation-checkpoint.md)
+> (2026-09-02).** Two decisions below no longer hold: the checkpoint is *not*
+> discarded on success, and `--force` *does* clear it for an article that has
+> already finished. Everything else — the content-addressed key, the
+> misalignment discard, the non-fatal write, the ordering against `index.md` —
+> stands. The text is left as written; 0010 records what changed and why.
+
 ## Decision
 
 **A checkpoint file per article.** `articles/<slug>/.tiro-zh-cache.json` holds
@@ -47,22 +54,9 @@ hands its work to the next one.
   edits one paragraph keeps every other block's translation, and reuse is safe
   by construction: a cached translation is only ever returned for byte-identical
   input. Index keys would silently misapply translations across an edit.
-- **Discarded on misalignment, kept on success** — and either way only once
-  `index.md` has been written with its marker, not when translation returns.
-
-  *Amended 2026-09-02.* This originally said "discarded on both terminal
-  outcomes", which quietly contradicted the bullet above it: a checkpoint
-  deleted the moment an article finishes is always gone before any re-clip can
-  reuse it, so "a re-clip that edits one paragraph keeps every other block's
-  translation" was never true in practice. Measured cost of the gap: a 164 KB
-  paper took ~59 minutes across two workflow runs to re-translate work it had
-  already paid for. A finished article now keeps its checkpoint, pruned to the
-  blocks it still contains so it cannot accumulate every version of every
-  paragraph it has ever had.
-
-  `--force` on an article that already finished discards it first, because
-  "do it again" has to mean that; a *pending* article keeps it under `--force`
-  too, since that is the case which needs resuming. Between those two points sit the `zh.md` and `index.md` writes; a
+- **Discarded on both terminal outcomes** — success *and* misalignment — but
+  only once `index.md` has been written with its marker, not when translation
+  returns. Between those two points sit the `zh.md` and `index.md` writes; a
   kill there would lose every translated block *and* leave the article pending,
   which is the loss the checkpoint exists to prevent. Discarding on misalignment
   matters for the opposite reason: resuming from the very blocks that broke the
@@ -178,10 +172,10 @@ times — a timeout has already spent its full budget before it is observed.
   with a deliberately tight budget, it completes over four runs, advancing every
   time; the 27 KB article processes first, in run one.
 - Under the shipped 50-minute budget both articles finish in a single run.
-- Every translated article's checkpoint is committed to the vault, not just an
-  unfinished one's — about 830 KB across the corpus at the time of the
-  amendment, against a ~99 MB vault. It is inert to every reader. The site's loaders and `tiro-process validate` glob
-  `index.md` and `zh.md`, and asset reconciliation only looks inside `assets/`.
+- An unfinished article's checkpoint is committed to the vault, so partial state
+  is visible in `git log`. It is inert to every reader: the site's loaders and
+  `tiro-process validate` glob `index.md` and `zh.md`, and asset reconciliation
+  only looks inside `assets/`.
 - The summary call is not checkpointed, so it repeats on each run of an
   unfinished article — one cheap call against many expensive ones, not worth the
   extra state.

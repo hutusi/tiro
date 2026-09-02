@@ -643,7 +643,12 @@ describe("run budget", () => {
     // Simulate a re-clip: same body, one paragraph edited, markers stripped.
     const indexAbs = join(vault, "articles", BIG, "index.md");
     const { frontmatter, body } = parseArticle(readFileSync(indexAbs, "utf8"));
-    const edited = body.replace(/^First paragraph\./m, "Rewritten opening.");
+    const edited = body.replace(
+      /^Paragraph 0 of the paper\.$/m,
+      "Paragraph 0 rewritten after the re-clip.",
+    );
+    // The edit must actually land, or this test silently proves nothing.
+    expect(edited).not.toBe(body);
     const {
       processed_at: _gone,
       processor_version: _alsoGone,
@@ -667,14 +672,76 @@ describe("run budget", () => {
       }),
     });
     expect(after.translated).toEqual([BIG]);
-    // Everything unchanged came from the checkpoint, so the re-clip costs a
-    // handful of calls rather than the whole article.
+    // Selective, not wholesale: the edited block is paid for, everything else
+    // comes from the checkpoint. A full re-translation of this article batches
+    // into many more calls than this.
+    expect(translationCalls).toBeGreaterThan(0);
     expect(translationCalls).toBeLessThan(3);
+    // The superseded block's entry does not linger: the checkpoint holds this
+    // article's blocks, not every version it has ever had.
+    const afterCache = JSON.parse(
+      readFileSync(
+        join(vault, "articles", BIG, TRANSLATION_CACHE_FILE),
+        "utf8",
+      ),
+    ) as { blocks: Record<string, string> };
+    expect(Object.keys(afterCache.blocks).length).toBeLessThanOrEqual(
+      splitBlocks(edited).length,
+    );
     const zh = readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8");
     const fresh = parseArticle(readFileSync(indexAbs, "utf8"));
     expect(
       checkAlignment(splitBlocks(fresh.body), splitBlocks(zh)).errors,
     ).toEqual([]);
+  });
+
+  test("a --force redo survives being deferred before it reaches translation", async () => {
+    // The forced discard has to happen before anything that can spend budget.
+    // Images and summarisation both can, and deferring after them clears
+    // processed_at via markPending while leaving a complete checkpoint — so
+    // the next ordinary run saw a pending article, no --force, and reused
+    // every block. The forced redo evaporated silently.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+    expect(
+      existsSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
+    ).toBe(true);
+
+    // Forced redo with a budget too small to reach translation at all.
+    let clock = 0;
+    const forced = await runPipeline(
+      { vaultDir: vault, slug: BIG, force: true },
+      config,
+      {
+        ...deps,
+        chat: billingChat(() => {
+          clock += 1000;
+        }),
+        deadline: createDeadline(1, () => clock),
+      },
+    );
+    expect(forced.translated).toEqual([]);
+    // The checkpoint is gone, so the redo cannot be quietly skipped later.
+    expect(
+      existsSync(join(vault, "articles", BIG, TRANSLATION_CACHE_FILE)),
+    ).toBe(false);
+
+    // The ordinary run that picks it up really does re-translate.
+    let translationCalls = 0;
+    const followUp = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: (r) => {
+          if (r.response_format?.type !== "json_object") translationCalls += 1;
+        },
+      }),
+    });
+    expect(followUp.translated).toEqual([BIG]);
+    expect(translationCalls).toBeGreaterThan(0);
   });
 
   test("a budget-deferred --force article returns to pending and a normal run finishes it", async () => {

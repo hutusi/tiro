@@ -72,7 +72,14 @@ export interface TranslationCache {
    * every paragraph it has ever had.
    */
   retain(blockTexts: readonly string[]): void;
-  /** Drop the checkpoint — the article is finished and needs it no longer. */
+  /**
+   * Drop the checkpoint entirely.
+   *
+   * No longer what a finished article does — it keeps its work so a later
+   * re-clip can reuse it (ADR 0010). This is for the outcomes where the stored
+   * translations must not be reused: a misaligned result, an article that needs
+   * no translation, and a `--force` redo of one that already finished.
+   */
   discard(): Promise<void>;
 }
 

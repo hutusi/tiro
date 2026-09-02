@@ -98,6 +98,28 @@ export async function runPipeline(
     log(`invalid article skipped: ${bad.path}: ${bad.error}`);
   log(`${pending.length} article(s) to process`);
 
+  // `--force` means "redo these", and a checkpoint that survives success would
+  // otherwise make that a lie: the run would reuse every translation and
+  // re-bill nothing but the summary.
+  //
+  // Done in one pass before the loop, not per article, because an article can
+  // leave this run without ever starting — the budget check defers everything
+  // remaining — and a discard inside `processOne` never runs for those. Doing
+  // it here also keeps it clear of any checkpoint *this* run writes, so
+  // deferring mid-translation still saves partial work.
+  //
+  // Only articles that already finished: a pending one is either mid-flight or
+  // freshly clipped, and its checkpoint is progress rather than a stale result.
+  if (options.force === true) {
+    for (const article of pending) {
+      if (article.parsed.frontmatter.tiro.processed_at === undefined) continue;
+      await discardCheckpointQuietly(
+        `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`,
+        log,
+      );
+    }
+  }
+
   for (let i = 0; i < pending.length; i += 1) {
     const article = pending[i];
     if (article === undefined) continue;
@@ -127,15 +149,7 @@ export async function runPipeline(
       break;
     }
     try {
-      await processOne(
-        article,
-        config,
-        deps,
-        report,
-        log,
-        deadline,
-        options.force === true,
-      );
+      await processOne(article, config, deps, report, log, deadline);
     } catch (error) {
       // Budget exhaustion is an orderly stop, not a fault: the article's
       // translation checkpoint is on disk, so the next run resumes it rather
@@ -199,12 +213,12 @@ async function processOne(
   report: PipelineReport,
   log: (message: string) => void,
   deadline: Deadline,
-  /** Whether this run was asked to redo articles that already finished. */
-  force: boolean,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
   log(`processing ${article.slug}`);
+
+  const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
 
   const lang =
     frontmatter.lang ??
@@ -257,25 +271,11 @@ async function processOne(
   // and the site joins the two by filename alone, with no lang or
   // translation_failed check to save it (ADR 0003).
   const zhAbs = `${article.dirAbs}/zh.md`;
-  const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
   // Hoisted so the cleanup below can tell a finished translation from a
   // misaligned one: only the first may keep its work.
   let translationCache: TranslationCache | null = null;
   let translationSucceeded = false;
   if (lang !== config.translation.target) {
-    // `--force` on an article that already finished means "do it again", and
-    // now that the checkpoint survives success that has to be honoured
-    // explicitly or a forced redo would silently reuse every translation and
-    // re-bill nothing but the summary.
-    //
-    // Scoped to *finished* articles on purpose. A pending one — freshly
-    // clipped, re-clipped, or deferred mid-translation — keeps its checkpoint
-    // under `--force` too, because that is the one case that needs resuming:
-    // an article too long to finish in a single run could otherwise never be
-    // retried. Changing the model in tiro.yml still invalidates it wholesale.
-    if (force && frontmatter.tiro.processed_at !== undefined) {
-      await discardCheckpointQuietly(cacheAbs, log);
-    }
     // Resume whatever an earlier run got through: the checkpoint is keyed by
     // block source text, so a reuse is only ever the same input translated by
     // the same model.
