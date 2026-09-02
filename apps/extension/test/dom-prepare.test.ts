@@ -711,6 +711,52 @@ describe("figure captions — what must never be folded", () => {
     if (md.includes("  \n")) expect(splitBlocks(md)).toHaveLength(1);
   });
 
+  test("folds a caption whose lines are separated by a single break", () => {
+    // One break is `  \n`, which keeps the block whole — captions marked up
+    // over two lines are common and should still become figures.
+    const md = markdownFor(
+      '<figure><img src="f.png" alt="d"><figcaption>A<br>B</figcaption></figure>',
+    );
+    expect(splitBlocks(md)).toHaveLength(1);
+    expect(md).toBe("![d](f.png)  \nA  \nB");
+  });
+
+  test("leaves a caption with doubled breaks alone", () => {
+    // Two breaks in a row are `  \n  \n` — a blank line, and a blank line ends
+    // the block this pass promises is one.
+    const { html } = prepare(
+      '<figure><img src="f.png" alt="d"><figcaption>A<br><br>B</figcaption>' +
+        "</figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("leaves a caption that opens with a break alone", () => {
+    // The separator this inserts is itself a break, so a leading one doubles it.
+    const { html } = prepare(
+      '<figure><img src="f.png" alt="d"><figcaption><br>A</figcaption></figure>',
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("a doubled break nested inside inline markup is caught too", () => {
+    const { html } = prepare(
+      '<figure><img src="f.png" alt="d"><figcaption><em>A<br><br>B</em>' +
+        "</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
+  test("leaves a link carrying more than its image alone", () => {
+    // `[![](x)Zoom](full)` is not a picture by the site's definition, so the
+    // fold would produce a block the renderer declines to make a figure of.
+    const { html } = prepare(
+      '<figure><a href="full.png"><img src="f.png" alt="d"><span>Zoom</span>' +
+        "</a><figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain("<figcaption>");
+  });
+
   test("leaves a figure wrapped in a link unfolded", () => {
     const wrapped =
       '<a href="full.png"><figure><img src="f.png" alt="d">' +

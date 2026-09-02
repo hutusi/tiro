@@ -475,6 +475,61 @@ function linkWrapping(image: Element, figure: Element): Element | null {
 }
 
 /**
+ * The picture a figure holds — its image, or the link wrapping it — or `null`
+ * when that link carries anything besides the image.
+ *
+ * The site reads a link as a picture only when an image is its sole content
+ * (`isPicture` in `apps/site/src/lib/render.ts`). A wrapper holding overlay
+ * text converts to `[![](x)Zoom](full)`, which the renderer declines to make a
+ * figure of — so folding it would produce a block that buys nothing and quietly
+ * disagrees with the contract in ADR 0011. The two definitions have to move
+ * together; this is the clipper's half of that.
+ */
+function pictureOf(image: Element, figure: Element): Element | null {
+  const link = linkWrapping(image, figure);
+  if (link === null) return image;
+  const children = meaningfulChildren(link);
+  const [only] = children;
+  if (children.length !== 1 || only !== image) return null;
+  return link;
+}
+
+/**
+ * True when every line break in the caption survives the fold.
+ *
+ * Turndown writes a `<br>` as `"  \n"`, so two in a row make a blank line —
+ * and a blank line ends the block this pass promises is one. A break at the
+ * very start does the same, because the separator inserted before the caption
+ * is itself a break. A single break between lines, or one at the end, keeps
+ * the block whole and is worth allowing: captions marked up over two lines
+ * are common, and rejecting them would cost figures for nothing.
+ *
+ * Flattened across nesting, because `<em>A<br><br>B</em>` produces the same
+ * blank line as `A<br><br>B` does.
+ */
+function breaksAreSafe(source: Element): boolean {
+  const sequence: ("break" | "content")[] = [];
+  const collect = (node: Node): void => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeName === "BR") {
+        sequence.push("break");
+      } else if (child.nodeName === "#text") {
+        if ((child.textContent ?? "").trim() !== "") sequence.push("content");
+      } else if (child.nodeName === "IMG") {
+        sequence.push("content");
+      } else {
+        collect(child);
+      }
+    }
+  };
+  collect(source);
+  if (sequence[0] === "break") return false;
+  return !sequence.some(
+    (kind, index) => kind === "break" && sequence[index - 1] === "break",
+  );
+}
+
+/**
  * The element whose children hold the caption's inline content, or `null` when
  * the caption carries anything a paragraph cannot absorb.
  */
@@ -489,7 +544,8 @@ function captionSource(caption: Element): Element | null {
     children.length === 1 && only?.nodeName === "P"
       ? (only as Element)
       : caption;
-  return isFoldableContent(source) ? source : null;
+  if (!isFoldableContent(source) || !breaksAreSafe(source)) return null;
+  return source;
 }
 
 /**
@@ -534,7 +590,8 @@ function foldFigureCaptions(doc: Document): void {
     if (caption === null || (caption.textContent ?? "").trim() === "") continue;
     const source = captionSource(caption);
     if (source === null) continue;
-    const picture = linkWrapping(image, figure) ?? image;
+    const picture = pictureOf(image, figure);
+    if (picture === null) continue;
     // The figure must hold nothing beyond the picture and its caption.
     // Replacing it with a paragraph built from those two would drop anything
     // else it carries — a note after the caption, a stray sentence — and

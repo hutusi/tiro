@@ -112,7 +112,15 @@ function isBreak(node: ElementContent): boolean {
   return node.type === "element" && node.tagName === "br";
 }
 
-/** An image, or the link wrapping one — what a figure's picture looks like. */
+/**
+ * An image, or the link wrapping one — what a figure's picture looks like.
+ *
+ * The clipper's `pictureOf` in `apps/extension/src/dom-prepare.ts` draws this
+ * same line and declines to fold anything this would not accept. Loosening it
+ * here without loosening that would caption ordinary prose: a paragraph opening
+ * with an icon link — `[![icon](i.png) Read more](url) and then prose.` — is
+ * exactly the shape a laxer rule would misread as a figure.
+ */
 function isPicture(node: ElementContent): boolean {
   if (node.type !== "element") return false;
   if (node.tagName === "img") return true;
