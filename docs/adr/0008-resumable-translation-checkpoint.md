@@ -33,6 +33,12 @@ The failure was also close to invisible: the run exits 0 by design (ADR: hard
 failures must not fail the workflow before its commit step), so the only
 evidence was a `processing <slug>` line with no matching completion.
 
+> **Partly superseded by [ADR 0010](0010-durable-translation-checkpoint.md)
+> (2026-09-02).** One decision below no longer holds: the checkpoint is *not*
+> discarded on success. Everything else stands — including "`--force` does not
+> clear it", which 0010 briefly reversed and then restored, for the reason
+> given here.
+
 ## Decision
 
 **A checkpoint file per article.** `articles/<slug>/.tiro-zh-cache.json` holds

@@ -17,6 +17,7 @@ import {
   discardTranslationCache,
   loadTranslationCache,
   TRANSLATION_CACHE_FILE,
+  type TranslationCache,
 } from "./llm/cache.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import { summarize } from "./llm/summarize.ts";
@@ -49,7 +50,15 @@ export interface PipelineReport {
   translated: string[];
   summaryFailed: string[];
   translationFailed: string[];
-  errored: { slug: string; error: string }[];
+  errored: {
+    slug: string;
+    error: string;
+    /** Whether the article is left pending, so a later run retries it. A
+     * forced redo whose checkpoint could not be cleared is deliberately left
+     * processed instead: making it pending would hand it to an ordinary run
+     * that reuses the checkpoint nobody could remove. */
+    staysPending: boolean;
+  }[];
   /** Left for a later run because this one ran out of budget — not a failure:
    * their translation checkpoints are on disk and the next run resumes them. */
   skipped: string[];
@@ -145,12 +154,35 @@ export async function runPipeline(
         }
       } else {
         // A hard failure (LLM outage, provider 403, disk error) must not kill
-        // the run: other articles still process, the workflow's commit step
-        // still runs for them, and this article stays unmarked so the next
-        // push retries it.
-        report.errored.push({ slug: article.slug, error: String(error) });
+        // the run: other articles still process and the workflow's commit step
+        // still runs for them. Invariant 7 also says the article is left
+        // pending so a later run retries it — which used to be automatic,
+        // because an article was only ever discovered when it had no marker.
+        //
+        // `--force` broke that assumption: a forced article entered with
+        // `processed_at`, nothing above clears it, and reporting "left
+        // pending" for one was simply false — an ordinary run skips it, so a
+        // provider outage during a forced redo quietly retired the article.
+        // `markPending` is a no-op on an unforced run, so this is the one call
+        // for both cases.
+        let staysPending = true;
+        try {
+          await markPending(article, options, log);
+        } catch (markError) {
+          staysPending = false;
+          log(
+            `${article.slug}: failed, and its marker could not be cleared, so an ordinary run will skip it: ${String(markError)}`,
+          );
+        }
+        report.errored.push({
+          slug: article.slug,
+          error: String(error),
+          staysPending,
+        });
         log(
-          `processing failed for ${article.slug}, left pending: ${String(error)}`,
+          staysPending
+            ? `processing failed for ${article.slug}, left pending: ${String(error)}`
+            : `processing failed for ${article.slug}, and it will NOT be retried by an ordinary run: ${String(error)}`,
         );
       }
       // Images are downloaded before the LLM stages, so a failure here leaves
@@ -194,6 +226,8 @@ async function processOne(
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
   log(`processing ${article.slug}`);
+
+  const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
 
   const lang =
     frontmatter.lang ??
@@ -246,14 +280,14 @@ async function processOne(
   // and the site joins the two by filename alone, with no lang or
   // translation_failed check to save it (ADR 0003).
   const zhAbs = `${article.dirAbs}/zh.md`;
-  const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
+  // Hoisted so the cleanup below can tell a finished translation from a
+  // misaligned one: only the first may keep its work.
+  let translationCache: TranslationCache | null = null;
+  let translationSucceeded = false;
   if (lang !== config.translation.target) {
-    // Resume whatever an earlier run got through. `--force` deliberately does
-    // NOT clear this: the checkpoint is keyed by block source text, so a reuse
-    // is only ever the same input translated by the same model, and clearing
-    // it would make the one case that needs resuming — an article too long to
-    // finish in a single run — impossible to retry. Changing the model in
-    // tiro.yml invalidates it automatically; delete the file for a clean redo.
+    // Resume whatever an earlier run got through: the checkpoint is keyed by
+    // block source text, so a reuse is only ever the same input translated by
+    // the same model.
     const cache = await loadTranslationCache(
       cacheAbs,
       {
@@ -262,6 +296,7 @@ async function processOne(
       },
       log,
     );
+    translationCache = cache;
     const zhBody = await translateBlocks({
       chat: deps.chat,
       model: modelFor(config, "translation"),
@@ -279,6 +314,7 @@ async function processOne(
     });
     if (zhBody !== null) {
       await Bun.write(zhAbs, zhBody);
+      translationSucceeded = true;
       report.translated.push(article.slug);
     } else {
       // Deliberate: the article is still marked processed so a pathological
@@ -327,13 +363,27 @@ async function processOne(
   // commits whatever is on disk, so deleting against a body that was never
   // written would drop files the committed article still points at.
   //
-  // The checkpoint goes here for the same reason, and only now is it safe to:
-  // dropping it when translation finished would open a window — zh.md and
-  // index.md still unwritten — where a kill loses every translated block and
-  // leaves the article pending anyway. One call covers every branch: a finished
-  // translation, a misaligned one (whose blocks must not be resumed, or the
-  // misalignment repeats forever), and an article that needed none.
-  await discardCheckpointQuietly(cacheAbs, log);
+  // The checkpoint is settled here for the same reason, and only now is it
+  // safe to: touching it while zh.md and index.md are still unwritten would
+  // open a window where a kill loses every translated block and leaves the
+  // article pending anyway.
+  //
+  // A finished translation KEEPS its work, pruned to the blocks this article
+  // still contains (ADR 0008). That is what makes a later re-clip cheap: every
+  // block whose source text is unchanged is reused instead of re-sent, which
+  // is the property the ADR always claimed and the code did not deliver — the
+  // file was deleted by the very run that made the article "already processed",
+  // so it was always gone before any re-clip could benefit.
+  //
+  // The other two branches still discard. A misaligned translation must not be
+  // resumed or the misalignment repeats forever, and an article that needed no
+  // translation has nothing worth keeping.
+  if (translationSucceeded && translationCache !== null) {
+    translationCache.retain(blocks.map((block) => block.text));
+    await flushCheckpointQuietly(translationCache, log);
+  } else {
+    await discardCheckpointQuietly(cacheAbs, log);
+  }
   report.imagesPruned += await reconcileQuietly(
     `${article.dirAbs}/assets`,
     body,
@@ -369,6 +419,9 @@ async function deferArticle(
     report.errored.push({
       slug: article.slug,
       error: `deferred, but could not be returned to pending: ${String(error)}`,
+      // The marker is still there, so an ordinary run will skip it rather than
+      // pick it up — which is precisely what the log line below warns about.
+      staysPending: false,
     });
     log(
       `${article.slug}: deferred, but its marker could not be cleared, so it will not resume: ${String(error)}`,
@@ -421,6 +474,20 @@ async function markPending(
  * is not merely a wrong report — the handler reconciles assets against the
  * pre-download body, which references none of the downloaded files, so every
  * image would be deleted while the committed index.md still points at them. */
+/** Never fatal, for the same reason the discard is not: the article is already
+ * written and recorded, and a checkpoint that cannot be saved only costs the
+ * next re-clip its shortcut. */
+async function flushCheckpointQuietly(
+  cache: TranslationCache,
+  log: (message: string) => void,
+): Promise<void> {
+  try {
+    await cache.flush();
+  } catch (error) {
+    log(`could not keep translation checkpoint: ${String(error)}`);
+  }
+}
+
 async function discardCheckpointQuietly(
   cacheAbs: string,
   log: (message: string) => void,

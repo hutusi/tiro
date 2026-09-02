@@ -29,6 +29,22 @@ versions follow the `0.x` line while Tiro is a personal system.
   Readability, before the clipper's markdown exists. The heading permalinks are
   the other: nothing in the clipper removes them yet.
 
+### Changed
+
+- **A finished article keeps its translation checkpoint**, so a re-clip pays
+  only for the blocks whose source text actually changed. ADR 0008 always
+  claimed this — "a re-clip that edits one paragraph keeps every other block's
+  translation" — but the file was deleted by the very run that marked the
+  article processed, so it was always gone before any re-clip could use it. The
+  measured cost of the gap was a 164 KB paper spending ~59 minutes across two
+  workflow runs re-translating work it had already paid for. The checkpoint is
+  pruned to the blocks the article still contains, and a misaligned translation
+  still discards it so a broken result is never resumed. `--force` continues to
+  reuse it, as ADR 0008 decided: the content-addressed key means a reuse is only
+  ever the same input translated by the same model, so re-billing for identical
+  output is waste. ADR 0010 supersedes the one decision in ADR 0008 this
+  reverses.
+
 ### Fixed
 
 - **Images inside `<picture>` are no longer published as code.** Turndown has no
