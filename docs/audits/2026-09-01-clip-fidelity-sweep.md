@@ -135,10 +135,23 @@ wrapped rows, and one URL auto-linked. The theme is Chroma-like but not `table.l
 ### 7. `FIG-SEMANTICS` — systemic, 12 of 32 articles
 `arxiv…2404` (32), `kuleshov` (30), `arxiv…2608` (22), `lilianweng` (18), `cloudflare` (9),
 `greenlightning` (9), `powderworks` (8), `apple` (7), `unsung` (5), `claude.com` (4), `betonit` (1),
-`lyc8503` (1). It is the **only** defect class the 0.7.0 clipper still reproduces. Every `<figure>` becomes a
-bare image plus a paragraph; captions are indistinguishable from body prose. Worst in `kuleshov`,
-where a caption ending "Figure credit: M. Grootendorst & Gemma Diffusion." runs straight into the
-next body paragraph.
+`lyc8503` (1). Every `<figure>` becomes a bare image plus a paragraph; captions are
+indistinguishable from body prose. Worst in `kuleshov`, where a caption ending "Figure credit:
+M. Grootendorst & Gemma Diffusion." runs straight into the next body paragraph.
+
+**Fixed at clip time in 0.10.0 (ADR 0011), verified on real pages 2026-09-02.** The clipper folds a
+caption into its image's paragraph and the site renders that pair as a `<figure>` — co-location is
+the only association markdown can express, which is why the first attempt's raw `<figure>` HTML was
+reverted. `kuleshov` re-clipped at 30/30 folded and renders 60 `<figure>` elements live (30 per
+pane); `lilianweng` folded 17 of 18 and **correctly declined the 18th** — that page ships 18
+`<figure>` elements but only 17 `<figcaption>`s, so the paragraph after the uncaptioned one is body
+prose. Nine articles remain to re-clip; each only needs the click.
+
+Worth keeping from the design: a site-only fix was measured first and does not work. Of 116
+paragraphs sitting directly after an image in the vault, only 13 carry a `Figure N:` label, and
+length separates nothing — `kuleshov`'s real captions run a median of 292 characters against
+`swyx/create-luck`'s 355 characters of body prose. Position alone cannot tell a caption from an
+argument, which is exactly the `lilianweng` case above.
 
 ### 8. `FN-REF` — 4 articles, 3 different markup styles
 `calv.info` (`<sup><a href="#footnote-fn-1">1</a></sup>`), `brennan.day`
@@ -199,7 +212,8 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 ## Suggested fix order
 
 1. `unsung` — one article, total loss, and the root cause is unknown; diagnose first.
-2. `FIG-SEMANTICS` — one Turndown rule, 10 articles.
+2. `FIG-SEMANTICS` — **done in 0.10.0** (ADR 0011); see candidate 7. Not one Turndown rule as
+   guessed here: it is a DOM fold running after Readability, plus a renderer change.
 3. `FN-REF`/`FN-INLINE` — one rule family, 5 articles, most-cited content.
 4. `ANCHOR-HASH` and `CODE-FLAT`/`CODE-AS-TABLE` — narrow, per-theme.
 5. `gatesnotes` — **done, and the image half was a false finding** (see candidate 2). Both were
@@ -222,5 +236,5 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
    caption, and records `clipper_version: 0.9.0`.
 
 **Re-clipping is now a measured remedy, not a hope.** The two 0.7.0 clips clear every legacy class,
-so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` is the
-exception — 0.7.0 still reproduces it, so it needs a code fix.
+so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` was the
+exception — it needed a code fix, which shipped in 0.10.0.
