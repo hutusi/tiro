@@ -1072,3 +1072,40 @@ describe("media wrappers Readability would delete", () => {
     expect(once.doc.body.innerHTML).toBe(once.html);
   });
 });
+
+describe("chart svgs", () => {
+  function markdownForPrepared(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return htmlToMarkdown(foldFiguresIn(prepared, doc)).markdown.trim();
+  }
+
+  test("drops an svg that paints text", () => {
+    // Turndown has no rule for <svg>, so it emits every text node in document
+    // order with no separators — a chart arrives as one run of glyphs.
+    const md = markdownForPrepared(
+      "<p>Before.</p><figure><svg><text>0</text><text>1</text>" +
+        "<text>Speedup on an NVIDIA H100</text></svg>" +
+        "<figcaption>Inference speedup.</figcaption></figure><p>After.</p>",
+    );
+    expect(md).not.toContain("Speedup on an NVIDIA H100");
+    expect(md).toContain("Inference speedup.");
+  });
+
+  test("keeps an icon carrying only a title", () => {
+    // <title>/<desc> are accessibility labels, not painted glyphs, and a link
+    // around an icon would otherwise convert to `[](…)`.
+    const md = markdownForPrepared(
+      '<p><a href="/share"><svg><title>Share</title></svg></a></p>',
+    );
+    expect(md).toBe("[Share](/share)");
+    expect(md).not.toContain("[](");
+  });
+
+  test("runs after math recovery, so a MathJax formula survives", () => {
+    const { doc } = prepare(
+      '<p>Given <span class="MathJax_SVG"><svg><text>x2</text></svg></span>' +
+        '<script type="math/tex">x^2</script> holds.</p>',
+    );
+    expect(formulas(doc)).toEqual(["$x^2$"]);
+  });
+});

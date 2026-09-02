@@ -381,6 +381,48 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * Remove an `<svg>` that paints text, so a chart cannot arrive as glyph soup.
+ *
+ * Turndown has no rule for `<svg>` and does not call it a block, so it keeps
+ * walking and emits every text node inside — in document order, with no
+ * separators, because SVG lays its labels out by coordinate rather than by
+ * flow. A scatter plot's axis ticks, series names and value labels come out as
+ * one run: `0123Speedup on an NVIDIA H100 (×)Original implementationChromBPNet
+ * (6M)2.1-kb DNA sequence…1.6×1.8×1.4×`. The site renders that as a body
+ * paragraph and the processor sends it to the translator, which dutifully
+ * translates it.
+ *
+ * Deleting is the whole fix available here, and it is a real improvement
+ * rather than a concession: the chart is *already* lost — markdown has no
+ * element for it — so the only question is whether its labels are published as
+ * prose. Capturing the picture instead is not the alternative it looks like.
+ * The chart that prompted this fills its marks from `var(--chart-*)` tokens
+ * defined on an ancestor, so an `<svg>` lifted out of the page renders blank;
+ * making it an asset would mean inlining computed styles, which is a different
+ * change with its own ADR.
+ *
+ * Scoped to `<text>`/`<tspan>` — the only SVG elements that paint glyphs —
+ * rather than to `textContent`, which would also match `<title>` and `<desc>`.
+ * Those two are accessibility labels, and an icon carries them exactly where
+ * dropping it hurts: `<a><svg><title>Share</title></svg></a>` converts to
+ * `[Share](…)` today and would become `[](…)`, a link with no text at all.
+ *
+ * Must run after `normalizeMath`, which replaces MathJax's rendered SVG with
+ * its TeX. MathJax paints with `<path>`, so the scoping above spares it
+ * anyway; the ordering is what makes that a guarantee instead of a
+ * coincidence.
+ */
+function dropChartSvgs(doc: Document): void {
+  for (const svg of Array.from(doc.querySelectorAll("svg"))) {
+    const paintsText = Array.from(svg.querySelectorAll("text, tspan")).some(
+      (node) => (node.textContent ?? "").trim() !== "",
+    );
+    if (!paintsText) continue;
+    svg.remove();
+  }
+}
+
+/**
  * Inline elements a caption may carry into a paragraph.
  *
  * An allow-list, not a list of blocks to reject, because the two failures are
@@ -939,6 +981,9 @@ export function prepareForClipping(doc: Document): void {
   recoverCodeBlocks(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
+  // After normalizeMath, so a MathJax formula has already become its TeX
+  // marker rather than an <svg> this could delete.
+  dropChartSvgs(doc);
   unhideGuessedHeaderTables(doc);
   unwrapMediaWrappers(doc);
   // Last: `unwrapEquationTables` and `recoverCodeBlocks` delete whole tables
