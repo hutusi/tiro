@@ -365,7 +365,11 @@ no `externally_connectable`).
 
 `apps/extension/manifest.json` holds the only version string in the repo.
 
-1. Bump `version` there and commit.
+1. Bump `version` there and commit — **patch** for a narrow or per-site fix,
+   **minor** for a new capability or a batch of them. The number is what
+   `tiro.clipper_version` stamps into every article, so it is how a later audit
+   identifies which clips predate a given fix; a version that moves for reasons
+   other than what changed makes that question harder to answer.
 2. Tag `ext-v<version>` (matching exactly) and push the tag.
 3. "Release extension" builds, verifies the tag against the manifest, zips
    `dist/` with `manifest.json` at the archive root, and attaches it to a new
