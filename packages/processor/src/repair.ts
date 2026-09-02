@@ -408,7 +408,11 @@ function isSelfPermalink(destination: string, articleUrl?: string): boolean {
   if (raw.startsWith("#")) return raw.length > 1;
   if (articleUrl === undefined) return false;
   try {
-    if (new URL(raw).hash.length <= 1) return false;
+    // Resolved against the article, so a root-relative or relative permalink
+    // is understood rather than thrown away: `new URL("/post#s")` with no base
+    // throws, and the catch below would keep the anchor forever.
+    const target = new URL(raw, articleUrl);
+    if (target.hash.length <= 1) return false;
     // `normalizeUrl` is the project's own answer to "same page": it drops the
     // fragment, strips tracking parameters, lowercases the host and removes a
     // trailing slash — the vault's real case links `…/chatgpt-work/#two-products`
@@ -416,7 +420,7 @@ function isSelfPermalink(destination: string, articleUrl?: string): boolean {
     // looked equivalent and was not: a query string is part of an article's
     // identity here by design, so `…/search?q=one` and `…/search?q=two#result`
     // are different pages and the second is a link worth keeping.
-    return normalizeUrl(raw) === normalizeUrl(articleUrl);
+    return normalizeUrl(target.href) === normalizeUrl(articleUrl);
   } catch {
     return false;
   }

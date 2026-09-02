@@ -184,6 +184,18 @@ describe("stripHeadingAnchors", () => {
     expect(stripHeadingAnchors(broken)).toBe(broken);
   });
 
+  test("understands a root-relative permalink", () => {
+    // `new URL("/post#s")` with no base throws, and the catch would keep the
+    // anchor forever. Resolving against the article reads it correctly — and
+    // still distinguishes a link to a different page on the same site.
+    const articleUrl = "https://example.com/post";
+    expect(
+      stripHeadingAnchors("## Section [#](/post#section)", { articleUrl }),
+    ).toBe("## Section");
+    const other = "## Section [#](/other#section)";
+    expect(stripHeadingAnchors(other, { articleUrl })).toBe(other);
+  });
+
   test("keeps a link to a different query on the same path", () => {
     // A query string is part of an article's identity in this project by
     // design, so these are two different pages and the link is worth keeping.
