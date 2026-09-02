@@ -475,13 +475,28 @@ function linkWrapping(image: Element, figure: Element): Element | null {
 }
 
 /**
- * True when `link` holds `image` through a chain of single-child wrappers and
- * nothing else — no sibling, at any depth, textual or not.
+ * Elements that may be dropped from between a link and its image.
  *
- * Structural rather than a text test, because the content that has to be
- * protected here is not all textual: an `<hr>` or an `<svg>` beside the image
- * carries no text but is still content, and dropping it would be exactly the
- * silent loss this pass has to avoid.
+ * The test a wrapper has to pass is that removing it leaves the markdown
+ * unchanged. `<div>` and `<span>` carry no meaning and no Turndown rule, so
+ * `<a><div><img></div></a>` and `<a><img></a>` convert identically. `<em>`,
+ * `<del>`, `<code>` and their kind do not: dropping `<del>` turns
+ * `[~~![](x)~~](full)` into `[![](x)](full)`, which says the page struck the
+ * image through when it did not.
+ *
+ * An allow-list, so an element nobody has considered leaves the figure
+ * unfolded rather than being silently discarded.
+ */
+const DISPOSABLE_WRAPPERS: ReadonlySet<string> = new Set(["DIV", "SPAN"]);
+
+/**
+ * True when `link` holds `image` through a chain of disposable wrappers and
+ * nothing else — no sibling at any depth, and nothing between them that means
+ * something.
+ *
+ * Structural rather than a text test, because what has to be protected here is
+ * not all textual: an `<hr>` or an `<svg>` beside the image carries no text but
+ * is still content, and `<em>` carries no text of its own at all.
  */
 function isWrapperChain(link: Element, image: Element): boolean {
   let current: Element = link;
@@ -492,6 +507,7 @@ function isWrapperChain(link: Element, image: Element): boolean {
     // "#text" and "#comment" cannot wrap anything, and the walk has to reach
     // the image for the chain to be one.
     if (only.nodeName.startsWith("#")) return false;
+    if (only !== image && !DISPOSABLE_WRAPPERS.has(only.nodeName)) return false;
     current = only as Element;
   }
   return true;

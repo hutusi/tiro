@@ -780,6 +780,40 @@ describe("figure captions — what must never be folded", () => {
     expect(html).toContain("<svg");
   });
 
+  test("leaves a link whose wrapper means something alone", () => {
+    // <em> and <del> are not layout: dropping them changes the markdown, and
+    // for <del> it changes what the page said — the image was struck through.
+    for (const tag of ["em", "del", "code", "strong"]) {
+      const { html } = prepare(
+        `<figure><a href="full"><${tag}><img src="x.png" alt="d"></${tag}></a>` +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(html).toContain("<figcaption>");
+      expect(html).toContain(`<${tag}`);
+    }
+  });
+
+  test("a dropped wrapper leaves the picture markdown unchanged", () => {
+    // The property that makes a wrapper disposable: removing it produces the
+    // markdown the same link would have produced without it.
+    const bare = htmlToMarkdown(
+      '<a href="full"><img src="x.png" alt="d"></a>',
+    ).markdown.trim();
+    for (const wrapper of [
+      "<div>%</div>",
+      "<span>%</span>",
+      "<div><span>%</span></div>",
+    ]) {
+      const inner = wrapper.replace("%", '<img src="x.png" alt="d">');
+      const md = markdownFor(
+        `<figure><a href="full">${inner}</a>` +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(md).toBe(`${bare}  \nCap.`);
+      expect(splitBlocks(md)).toHaveLength(1);
+    }
+  });
+
   test("leaves a link carrying more than its image alone", () => {
     // `[![](x)Zoom](full)` is not a picture by the site's definition, so the
     // fold would produce a block the renderer declines to make a figure of.
