@@ -78,6 +78,15 @@ describe("joinLinkTitles", () => {
     expect(joinLinkTitles(broken)).toBe('[x](/a "In S1. = said \\"hi\\"")');
   });
 
+  test("flattens a title holding a backslash before the line break", () => {
+    // The escape must consume any character, newlines included: `.` excludes
+    // them, and a title is exactly where newlines live — flattening them is
+    // what this transform is for. Spelling it `.` switches the transform off
+    // for the very input it exists to repair.
+    const broken = '[x](/a "line one\\\nline two")';
+    expect(joinLinkTitles(broken)).toBe('[x](/a "line one\\ line two")');
+  });
+
   test("leaves a single-line title alone", () => {
     const text = '[x](/a "a title")';
     expect(joinLinkTitles(text)).toBe(text);

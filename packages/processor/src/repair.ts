@@ -210,8 +210,13 @@ const DESTINATION = String.raw`(?:${DESTINATION_BODY})`;
  * writes `title.replace(/"/g, '\\"')`, so `Permalink to "Title"` arrives as
  * `Permalink to \"Title\"`. Matching an escaped pair explicitly is the only
  * way to reach the real closing quote.
+ *
+ * The escape consumes `[\s\S]`, not `.`, because `.` excludes newlines and a
+ * title is exactly where newlines live — flattening multi-line titles is what
+ * `joinLinkTitles` exists for. Spelling it `.` silently switched that transform
+ * off for any title holding a backslash before a line break.
  */
-const TITLE_BODY = String.raw`(?:\\.|[^"\\])*`;
+const TITLE_BODY = String.raw`(?:\\[\s\S]|[^"\\])*`;
 const TITLE = String.raw`(?:\s+"${TITLE_BODY}")?`;
 
 /**
