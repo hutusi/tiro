@@ -50,7 +50,15 @@ export interface PipelineReport {
   translated: string[];
   summaryFailed: string[];
   translationFailed: string[];
-  errored: { slug: string; error: string }[];
+  errored: {
+    slug: string;
+    error: string;
+    /** Whether the article is left pending, so a later run retries it. A
+     * forced redo whose checkpoint could not be cleared is deliberately left
+     * processed instead: making it pending would hand it to an ordinary run
+     * that reuses the checkpoint nobody could remove. */
+    staysPending: boolean;
+  }[];
   /** Left for a later run because this one ran out of budget — not a failure:
    * their translation checkpoints are on disk and the next run resumes them. */
   skipped: string[];
@@ -134,6 +142,7 @@ export async function runPipeline(
         report.errored.push({
           slug: article.slug,
           error: `could not clear the translation checkpoint for a forced redo, so it would have reused the old translation: ${String(error)}`,
+          staysPending: false,
         });
         log(
           `skipping ${article.slug}: its checkpoint could not be cleared, and --force must not reuse it`,
@@ -163,6 +172,10 @@ export async function runPipeline(
       // in the summary after taking it out of the per-article line.
       let deferredCount = 0;
       for (const candidate of pending.slice(i)) {
+        // Never a forced-invalidation failure: deferring clears its marker,
+        // and the next ordinary run would then process it against the very
+        // checkpoint that could not be removed.
+        if (forcedFailures.has(candidate.slug)) continue;
         if (await deferArticle(candidate, options, report, log))
           deferredCount += 1;
       }
@@ -194,7 +207,11 @@ export async function runPipeline(
         // the run: other articles still process, the workflow's commit step
         // still runs for them, and this article stays unmarked so the next
         // push retries it.
-        report.errored.push({ slug: article.slug, error: String(error) });
+        report.errored.push({
+          slug: article.slug,
+          error: String(error),
+          staysPending: true,
+        });
         log(
           `processing failed for ${article.slug}, left pending: ${String(error)}`,
         );
@@ -213,6 +230,7 @@ export async function runPipeline(
       if (outOfBudget) {
         let deferredCount = 0;
         for (const candidate of pending.slice(i + 1)) {
+          if (forcedFailures.has(candidate.slug)) continue;
           if (await deferArticle(candidate, options, report, log))
             deferredCount += 1;
         }
@@ -433,6 +451,9 @@ async function deferArticle(
     report.errored.push({
       slug: article.slug,
       error: `deferred, but could not be returned to pending: ${String(error)}`,
+      // The marker is still there, so an ordinary run will skip it rather than
+      // pick it up — which is precisely what the log line below warns about.
+      staysPending: false,
     });
     log(
       `${article.slug}: deferred, but its marker could not be cleared, so it will not resume: ${String(error)}`,

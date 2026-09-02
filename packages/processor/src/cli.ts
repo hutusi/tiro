@@ -106,8 +106,15 @@ async function run(vault: string): Promise<number> {
   }
   if (report.errored.length > 0) {
     for (const failure of report.errored) {
+      // "stays pending" is a promise about the next run, and it is not always
+      // true: an article whose marker could not be cleared, or whose forced
+      // checkpoint could not be removed, keeps `processed_at` and will be
+      // skipped rather than retried. Saying so either way beats a reassurance
+      // that sends the operator back to a queue the article is not in.
       console.warn(
-        `warning: ${failure.slug} failed and stays pending: ${failure.error}`,
+        failure.staysPending
+          ? `warning: ${failure.slug} failed and stays pending: ${failure.error}`
+          : `warning: ${failure.slug} failed and will NOT be retried by an ordinary run: ${failure.error}`,
       );
     }
   }

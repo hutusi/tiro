@@ -751,6 +751,47 @@ describe("run budget", () => {
     }
   });
 
+  test("budget deferral does not hand a failed invalidation back to the queue", async () => {
+    // The main loop skips an article whose checkpoint could not be cleared,
+    // but the bulk deferral ran over the unfiltered list: it cleared the
+    // marker, so the next ordinary run picked the article up and reused the
+    // very checkpoint nobody could remove.
+    const vault = withBigArticle();
+    const config = await tinyConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat(),
+    });
+
+    const dir = join(vault, "articles", BIG);
+    chmodSync(dir, 0o555);
+    try {
+      let clock = 0;
+      const forced = await runPipeline(
+        { vaultDir: vault, force: true },
+        config,
+        {
+          ...deps,
+          chat: billingChat(() => {
+            clock += 1000;
+          }),
+          deadline: createDeadline(1200, () => clock),
+        },
+      );
+      expect(forced.errored.map((e) => e.slug)).toContain(BIG);
+      // Not deferred, and still marked processed: an ordinary run must not
+      // pick it up and quietly reuse the checkpoint.
+      expect(forced.skipped).not.toContain(BIG);
+      const after = parseArticle(readFileSync(join(dir, "index.md"), "utf8"));
+      expect(needsProcessing(after.frontmatter)).toBe(false);
+      // And the report says so, rather than promising a retry.
+      const failure = forced.errored.find((e) => e.slug === BIG);
+      expect(failure?.staysPending).toBe(false);
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+  });
+
   test("a --force redo survives being deferred before it reaches translation", async () => {
     // The forced discard has to happen before anything that can spend budget.
     // Images and summarisation both can, and deferring after them clears
