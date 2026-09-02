@@ -54,7 +54,6 @@ These cost real effort to learn and should survive into the next sweep.
 | `ANCHOR-HASH` | clip | Every heading ends in a stray permalink `#` |
 | `CITE-DROP` | clip | Citation elements vanish, leaving orphan `) ,` spacing |
 | `EMBED-LOSS` | clip | A content video disappears with no placeholder |
-| `IMG-LOSS` | clip | In-body images missing relative to source (lazy-load race) |
 | `TABLE-DROP` | Readability | Data table pruned; its caption is left stranded on the page |
 | `DUP-IDENTITY` | product | Same essay stored twice under two URLs |
 | `BOILER` | clip | Subscribe/share/"opens in new window" text inside the body |
@@ -77,13 +76,29 @@ Shiki-highlighted code blocks showing literal `![](/vault-assets/…)`. The live
 which the images *are* the argument — the article is entirely non-functional.
 Source has 5 `<figure>`, 0 `<pre>`; rendered has 0 `<img>`, 5 `<pre>`.
 
-### 2. `gatesnotes` ×2 — duplicate identity plus catastrophic image loss
-`DUP-IDENTITY` + `IMG-LOSS`. The same Bill Gates essay is stored twice, clipped 11 seconds apart
-under two nav paths both ending `a-turbulent-ai-era-and-critical-choices-to-make`. The source page
-carries **15 substantial in-body images**; the `work/` clip captured **0**, the `home/` clip **10**.
-166 of 221 images use `loading="lazy"` + `srcset`, so this is a **clip-time lazy-load race** — the
-clipper serialises whatever is in the DOM at click time. The two clips also disagree on title, and
-the live page now serves the `home/` title at the `work/` URL.
+### 2. `gatesnotes` ×2 — duplicate identity. **The image loss was a false finding.**
+`DUP-IDENTITY` only. The same Bill Gates essay is stored twice under two nav paths both ending
+`a-turbulent-ai-era-and-critical-choices-to-make`. That part is real, and is a product decision
+rather than a defect — the owner chose to keep both.
+
+**Retracted 2026-09-02: there was no image loss.** This entry claimed the source carried 15
+substantial in-body images and that the `work/` clip lost all of them to a lazy-load race. Both
+halves were wrong, and the error was in the measurement: the page has no `<article>` element, so the
+selector fell back to a broad container and counted **site chrome and hero banners** as body images.
+Re-measured by scrolling the whole page and testing containment in the reading area, there are
+**zero** loaded images inside it.
+
+The `home/` clip's ten images were not content either: `play_circle56.svg`, `Pause.svg`,
+`icon_SoundOn.svg`, `icon_Captions.svg`, `icon_FullScreen.svg`, `icon_Close.svg`, a decorative
+`quote.png` and a video poster frame — **video-player UI leaking into the article body**. The `work/`
+clip's zero was the *cleaner* result all along.
+
+Both were re-clipped 2026-09-02 and now hold 5,830 words with 0 images each (from 5,852: the delta
+is the stripped player chrome). That is correct for this page. **Do not "restore" the old version
+and do not re-clip again** — either would reinstate the icons.
+
+*Lesson worth more than the finding*: an image count is only meaningful once containment in the
+reading area is established. Filtering by pixel size finds a site's logo and its nav thumbnails.
 
 ### 3. `arxiv…2608-23691` — three tables dropped, captions left stranded
 `TABLE-DROP`. The paper has three numbered data tables. **All three captions render; none of the
@@ -164,6 +179,11 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
   first three probes matched body text elsewhere and produced a false "table survived" reading.
 - **arXiv indented math is correct** — it sits inside numbered-list items and renders as KaTeX. An
   earlier reading of this as "math rendering as a code block" was wrong.
+- **`gatesnotes` never lost in-body images.** Retracted 2026-09-02 — the 15 "in-body images" were
+  site chrome counted by a selector that fell back to a broad container on a page with no
+  `<article>` element, and the 10 the `home/` clip held were video-player icons. Scrolling the whole
+  page and testing containment in the reading area finds zero images there. An image count means
+  nothing until containment is established; size filtering finds logos and nav thumbnails.
 - **`gatesnotes-home` is not missing tags/category** — both are present at lines 22-23. An earlier
   claim to the contrary came from a truncated `head -20`.
 - **swyx indented blockquotes** are legitimate list nesting.
@@ -182,7 +202,8 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 2. `FIG-SEMANTICS` — one Turndown rule, 10 articles.
 3. `FN-REF`/`FN-INLINE` — one rule family, 5 articles, most-cited content.
 4. `ANCHOR-HASH` and `CODE-FLAT`/`CODE-AS-TABLE` — narrow, per-theme.
-5. `gatesnotes` — decide the duplicate, then re-clip to beat the lazy-load race.
+5. `gatesnotes` — **done, and the image half was a false finding** (see candidate 2). Both were
+   re-clipped 2026-09-02 and are correct at 0 images; the duplicate remains by choice.
 6. `TABLE-DROP` — **diagnosed and fixed at clip time, 2026-09-02.** Readability's
    `_removeUnlikelyCandidates` matches an element's class against a boilerplate regex *before* any
    scoring, and that regex contains `header`. LaTeXML's `ltx_guessed_headers` — marking a table whose
