@@ -183,8 +183,21 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 3. `FN-REF`/`FN-INLINE` — one rule family, 5 articles, most-cited content.
 4. `ANCHOR-HASH` and `CODE-FLAT`/`CODE-AS-TABLE` — narrow, per-theme.
 5. `gatesnotes` — decide the duplicate, then re-clip to beat the lazy-load race.
-6. `TABLE-DROP` — needs a pre-Readability `preserveDataTables` pass in `dom-prepare.ts`; a
-   post-Readability rule cannot reach it. Affects `arxiv…2608` today and any table-heavy paper next.
+6. `TABLE-DROP` — **diagnosed and fixed at clip time, 2026-09-02.** Readability's
+   `_removeUnlikelyCandidates` matches an element's class against a boilerplate regex *before* any
+   scoring, and that regex contains `header`. LaTeXML's `ltx_guessed_headers` — marking a table whose
+   header row it inferred — matched, so the table was deleted as furniture. Dropping that one class
+   in `dom-prepare` recovers all five of 2608's data tables (1 markdown table before, 5 after).
+   `ltx_pagination` matches the same regex and is left alone: those really are page-break markers.
+
+   Three guesses were wrong first, kept here so nobody retries them. It is **not** our dom-prepare
+   passes — the tables vanish from unprepared Readability too. **Not** math density — the first
+   table has no math at all and still goes, and stripping every `<math>` rescues nothing. **Not**
+   the data-table marking `promoteTableHeaders` was assumed to satisfy — `<th>`→`<td>` and
+   unwrapping `<thead>` change nothing, and the only surviving table is the one *without* them. The
+   `<th>` correlation was real; the causation ran through the class name attached alongside it.
+
+   **Still needs a re-clip of 2608** for the tables to appear: a clipper fix only helps the next clip.
 
 **Re-clipping is now a measured remedy, not a hope.** The two 0.7.0 clips clear every legacy class,
 so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` is the
