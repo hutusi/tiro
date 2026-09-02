@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { Readability } from "@mozilla/readability";
 import { splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
-import { MATH_ATTR, prepareForClipping } from "../src/dom-prepare.ts";
+import {
+  foldFiguresIn,
+  MATH_ATTR,
+  prepareForClipping,
+} from "../src/dom-prepare.ts";
 import { htmlToMarkdown } from "../src/markdown.ts";
 
 /**
@@ -566,9 +571,15 @@ describe("shapes found by clipping real pages", () => {
 });
 
 describe("figure captions (ADR 0011)", () => {
+  /** Prepared, then folded — the order clipper.ts runs them in. */
+  function clipHtml(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return foldFiguresIn(prepared, doc);
+  }
+
   /** The markdown a prepared figure actually converts to. */
   function markdownFor(html: string): string {
-    return htmlToMarkdown(prepare(html).html).markdown.trim();
+    return htmlToMarkdown(clipHtml(html)).markdown.trim();
   }
 
   test("folds a caption into its image's paragraph", () => {
@@ -633,7 +644,7 @@ describe("figure captions (ADR 0011)", () => {
   });
 
   test("leaves a multi-image figure alone — the pairing would be a guess", () => {
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><img src="a.png"><img src="b.png">' +
         "<figcaption>Both of them.</figcaption></figure>",
     );
@@ -643,7 +654,7 @@ describe("figure captions (ADR 0011)", () => {
   test("leaves a caption holding block structure alone", () => {
     // Two paragraphs cannot be folded without a blank line, and a blank line
     // would end the block.
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><img src="f.png"><figcaption><p>One.</p><p>Two.</p>' +
         "</figcaption></figure>",
     );
@@ -661,8 +672,14 @@ describe("figure captions (ADR 0011)", () => {
 });
 
 describe("figure captions — what must never be folded", () => {
+  /** Prepared, then folded — the order clipper.ts runs them in. */
+  function clipHtml(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return foldFiguresIn(prepared, doc);
+  }
+
   function markdownFor(html: string): string {
-    return htmlToMarkdown(prepare(html).html).markdown.trim();
+    return htmlToMarkdown(clipHtml(html)).markdown.trim();
   }
   function katexDisplay(tex: string): string {
     return (
@@ -724,7 +741,7 @@ describe("figure captions — what must never be folded", () => {
   test("leaves a caption with doubled breaks alone", () => {
     // Two breaks in a row are `  \n  \n` — a blank line, and a blank line ends
     // the block this pass promises is one.
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><img src="f.png" alt="d"><figcaption>A<br><br>B</figcaption>' +
         "</figure>",
     );
@@ -733,14 +750,14 @@ describe("figure captions — what must never be folded", () => {
 
   test("leaves a caption that opens with a break alone", () => {
     // The separator this inserts is itself a break, so a leading one doubles it.
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><img src="f.png" alt="d"><figcaption><br>A</figcaption></figure>',
     );
     expect(html).toContain("<figcaption>");
   });
 
   test("a doubled break nested inside inline markup is caught too", () => {
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><img src="f.png" alt="d"><figcaption><em>A<br><br>B</em>' +
         "</figcaption></figure>",
     );
@@ -763,7 +780,7 @@ describe("figure captions — what must never be folded", () => {
   test("leaves a link holding a textless sibling alone", () => {
     // <hr> and <svg> carry no text, so a textContent check called this link
     // "nothing but the image" and the unwrap then deleted them.
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><a href="full"><div><img src="x.png" alt="d"></div><hr></a>' +
         "<figcaption>Cap.</figcaption></figure>",
     );
@@ -772,7 +789,7 @@ describe("figure captions — what must never be folded", () => {
   });
 
   test("leaves a link holding an svg beside its image alone", () => {
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><a href="full"><img src="x.png" alt="d"><svg></svg></a>' +
         "<figcaption>Cap.</figcaption></figure>",
     );
@@ -784,7 +801,7 @@ describe("figure captions — what must never be folded", () => {
     // <em> and <del> are not layout: dropping them changes the markdown, and
     // for <del> it changes what the page said — the image was struck through.
     for (const tag of ["em", "del", "code", "strong"]) {
-      const { html } = prepare(
+      const html = clipHtml(
         `<figure><a href="full"><${tag}><img src="x.png" alt="d"></${tag}></a>` +
           "<figcaption>Cap.</figcaption></figure>",
       );
@@ -802,6 +819,9 @@ describe("figure captions — what must never be folded", () => {
     for (const wrapper of [
       "<div>%</div>",
       "<span>%</span>",
+      // What Readability turns a wrapper <div> into, and so the shape the
+      // fold actually meets in production.
+      "<p>%</p>",
       "<div><span>%</span></div>",
     ]) {
       const inner = wrapper.replace("%", '<img src="x.png" alt="d">');
@@ -817,7 +837,7 @@ describe("figure captions — what must never be folded", () => {
   test("leaves a link carrying more than its image alone", () => {
     // `[![](x)Zoom](full)` is not a picture by the site's definition, so the
     // fold would produce a block the renderer declines to make a figure of.
-    const { html } = prepare(
+    const html = clipHtml(
       '<figure><a href="full.png"><img src="f.png" alt="d"><span>Zoom</span>' +
         "</a><figcaption>Cap.</figcaption></figure>",
     );
@@ -831,7 +851,7 @@ describe("figure captions — what must never be folded", () => {
     // Folding here would put the caption inside the link's text, because
     // inlineLinkRule flattens a link's content onto one line — the paragraph
     // would open with a link rather than an image and stop reading as a figure.
-    expect(prepare(wrapped).html).toContain("<figcaption>");
+    expect(clipHtml(wrapped)).toContain("<figcaption>");
 
     // That flattening is inlineLinkRule's own behaviour for any link wrapping
     // block content, not something this pass introduces: the identical markdown
@@ -841,5 +861,63 @@ describe("figure captions — what must never be folded", () => {
         '<a href="full.png"><img src="f.png" alt="d"><p>A caption.</p></a>',
       ).markdown.trim(),
     );
+  });
+});
+
+describe("figure folding runs after Readability", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The clipper's real order: prepare, extract, then fold. */
+  function clip(markup: string): string {
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    const prepared = doc.body.innerHTML;
+    let extracted = "";
+    try {
+      extracted = new Readability(doc as never).parse()?.content ?? "";
+    } catch {
+      extracted = "";
+    }
+    return foldFiguresIn(extracted === "" ? prepared : extracted, doc);
+  }
+
+  test("a hidden figure stays out of the clip", () => {
+    // Folding before Readability turned <figure hidden> into a plain <p>,
+    // stripping the attribute Readability excludes on, and the image the page
+    // had hidden was published.
+    const html = clip(
+      '<figure hidden><img src="hidden.png"><figcaption>Cap.</figcaption>' +
+        "</figure>",
+    );
+    expect(html).not.toContain("hidden.png");
+  });
+
+  test("a hidden wrapper inside a figure's link stays out of the clip", () => {
+    const html = clip(
+      '<figure><a href="full"><div hidden><img src="hidden.png"></div></a>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).not.toContain("hidden.png");
+  });
+
+  test("an aria-hidden figure stays out of the clip", () => {
+    const html = clip(
+      '<figure aria-hidden="true"><img src="hidden.png">' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).not.toContain("hidden.png");
+  });
+
+  test("a visible figure survives extraction and still folds", () => {
+    const html = clip(
+      '<figure><img src="shown.png" alt="d"><figcaption>Cap.</figcaption>' +
+        "</figure>",
+    );
+    expect(html).toContain("shown.png");
+    expect(html).not.toContain("<figcaption>");
+    expect(htmlToMarkdown(html).markdown).toContain("![d](shown.png)  \nCap.");
   });
 });

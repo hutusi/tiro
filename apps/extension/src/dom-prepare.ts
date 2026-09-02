@@ -478,8 +478,12 @@ function linkWrapping(image: Element, figure: Element): Element | null {
  * Elements that may be dropped from between a link and its image.
  *
  * The test a wrapper has to pass is that removing it leaves the markdown
- * unchanged. `<div>` and `<span>` carry no meaning and no Turndown rule, so
- * `<a><div><img></div></a>` and `<a><img></a>` convert identically. `<em>`,
+ * unchanged. `<div>`, `<p>` and `<span>` carry no meaning of their own around
+ * a lone image, so `<a><div><img></div></a>` and `<a><img></a>` convert
+ * identically. `<p>` is on the list because **Readability rewrites a wrapper
+ * `<div>` into one**: by the time this runs, Substack's shape is
+ * `<a><p><img></p></a>`, and leaving `<p>` off meant the fold quietly stopped
+ * happening for the one page shape the wrapper handling exists for. `<em>`,
  * `<del>`, `<code>` and their kind do not: dropping `<del>` turns
  * `[~~![](x)~~](full)` into `[![](x)](full)`, which says the page struck the
  * image through when it did not.
@@ -487,7 +491,7 @@ function linkWrapping(image: Element, figure: Element): Element | null {
  * An allow-list, so an element nobody has considered leaves the figure
  * unfolded rather than being silently discarded.
  */
-const DISPOSABLE_WRAPPERS: ReadonlySet<string> = new Set(["DIV", "SPAN"]);
+const DISPOSABLE_WRAPPERS: ReadonlySet<string> = new Set(["DIV", "P", "SPAN"]);
 
 /**
  * True when `link` holds `image` through a chain of disposable wrappers and
@@ -637,11 +641,44 @@ function captionSource(caption: Element): Element | null {
  * nodes, so a newline would leave the caption running on from the image, while
  * a hard break keeps the two legible as separate lines in the raw markdown.
  *
+ * Runs after Readability — see `foldFiguresIn`, the exported entry point.
+ *
  * Every bail-out below leaves the figure converting exactly as it does today.
  * That is the cheap direction: a figure that keeps reading as loose prose is
  * the defect this fixes, while a fold that guesses wrong drops content off the
  * page or breaks the one-block promise the site and `zh.md` both rely on.
  */
+/**
+ * Fold every figure in already-extracted article HTML.
+ *
+ * Runs **after** Readability, unlike everything else in this file, and that is
+ * the whole point. Readability decides what to keep by reading attributes —
+ * `hidden`, `aria-hidden`, inline `display: none`, and the class and id names
+ * it scores against — and folding replaces the elements carrying them. Done
+ * first, `<figure hidden>` became a plain `<p>` and Readability then published
+ * an image the page had deliberately hidden; a `hidden` wrapper inside the
+ * figure's link did the same. Verified end to end, both ways round.
+ *
+ * Guarding those attributes instead would mean re-deriving Readability's
+ * selection rules here, which this file already knows better than to attempt:
+ * `unhideGuessedHeaderTables` exists only because one of those rules is a
+ * regex over class names. Running afterwards means no fold can change what was
+ * selected, whatever attributes it drops.
+ *
+ * Safe this late because the shapes it needs survive extraction: Readability
+ * keeps `<figure>` and `<figcaption>`, and `<picture>` was already unwrapped
+ * before it.
+ *
+ * Takes a `Document` only to borrow its implementation for a scratch document;
+ * the HTML passed in is what gets folded.
+ */
+export function foldFiguresIn(html: string, doc: Document): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  foldFigureCaptions(scratch);
+  return scratch.body.innerHTML;
+}
+
 function foldFigureCaptions(doc: Document): void {
   for (const figure of Array.from(doc.querySelectorAll("figure"))) {
     // A link around the whole figure would swallow the caption:
@@ -765,9 +802,6 @@ export function prepareForClipping(doc: Document): void {
   recoverCodeBlocks(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
-  // After unwrapPictures, so a <picture> inside a figure is already the
-  // <img> this needs to find.
-  foldFigureCaptions(doc);
   unhideGuessedHeaderTables(doc);
   // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
   // line-number gutters). Promoting headers first would rewrite the very cells

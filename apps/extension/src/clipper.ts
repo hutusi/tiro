@@ -1,5 +1,5 @@
 import { Readability } from "@mozilla/readability";
-import { prepareForClipping } from "./dom-prepare.ts";
+import { foldFiguresIn, prepareForClipping } from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipResultMessage } from "./messages.ts";
 
@@ -30,7 +30,11 @@ import type { ClipResultMessage } from "./messages.ts";
   const readabilityFailed = article?.content == null || article.content === "";
   // Readability resolves relative URLs to absolute ones; the raw-body
   // fallback does not, which is one reason the failure is flagged.
-  const html = readabilityFailed ? preparedBody : (article?.content ?? "");
+  const extracted = readabilityFailed ? preparedBody : (article?.content ?? "");
+  // Figures fold only now: doing it before Readability replaces the elements
+  // carrying the attributes it selects on, which republished hidden images
+  // (ADR 0011, foldFiguresIn).
+  const html = foldFiguresIn(extracted, document);
 
   // hasMath comes from the HTML actually being converted, so a formula
   // Readability discarded with the page furniture cannot set the flag.

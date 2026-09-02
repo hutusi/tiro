@@ -59,6 +59,14 @@ separated by a soft line break rather than a blank line:
 Figure 2.2: Left: notations of activations that flow through the network.
 ```
 
+The fold runs on Readability's output, not on the page before it: Readability
+decides what to keep by reading attributes the fold replaces, so folding first
+published images a page had marked `hidden` (verified end to end, both ways
+round). Guarding those attributes instead would mean re-deriving Readability's
+selection rules, which `unhideGuessedHeaderTables` already shows to be a losing
+game. A consequence worth recording: Readability rewrites a wrapper `<div>`
+into a `<p>`, so the shapes the fold meets are its output's, not the page's.
+
 The site renders any paragraph whose **first child is an image and which has
 further inline content** as a `<figure>` with a `<figcaption>`, reusing the
 existing block pipeline in `apps/site/src/lib/render.ts`. A paragraph of nothing

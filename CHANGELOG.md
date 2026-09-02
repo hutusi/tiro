@@ -10,7 +10,9 @@ versions follow the `0.x` line while Tiro is a personal system.
 ### Added
 
 - **A figure's caption stays attached to its figure.** The clipper folds a
-  `<figure>`'s caption into the same paragraph as its image, and the site
+  `<figure>`'s caption into the same paragraph as its image — after Readability
+  has chosen the article, since it selects on the attributes folding replaces —
+  and the site
   renders any paragraph that opens with an image and continues with prose as a
   real `<figure>`/`<figcaption>`. Twelve of the vault's 32 articles carry
   figures; until now every one of them published as a bare image followed by a
