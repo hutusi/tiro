@@ -23,18 +23,24 @@ versions follow the `0.x` line while Tiro is a personal system.
   Unwrapping rather than just clearing the class, because the wrapper cost a
   second thing: Readability rewrites a phrasing-only `<div>` into a `<p>`, and a
   figure holding `<p><img></p>` does not fold its caption (0.10.0). Removing the
-  wrapper fixes both. A wrapper the page has *hidden* is left strictly alone —
-  unwrapping it would drop the attribute Readability excludes on and publish a
-  picture the page took care to hide.
+  wrapper fixes both. A wrapper Readability would itself have dropped is left
+  strictly alone — one the page has hidden, or one marked as furniture by class,
+  id or role — since unwrapping discards exactly the attributes those verdicts
+  are read from. `media` costs an element *score*; `sidebar` and
+  `role="complementary"` get it deleted outright, and only the first is a false
+  positive worth correcting.
 
 - **An inline chart no longer arrives as a run of glyphs.** Turndown has no
   rendering for `<svg>`, so it emitted every text node inside one in document
   order with no separators, and a chart's axis ticks, series names and values
   landed as a single unreadable paragraph — which the site rendered as body text
-  and the translator dutifully translated. An `<svg>` that paints text is now
-  dropped. The chart itself is lost either way, markdown having no element for
-  it; what changes is that the reader gets the real caption beside it instead of
-  the debris.
+  and the translator dutifully translated. An `<svg>` painting a chart's worth
+  of labels is now dropped. The chart itself is lost either way, markdown having
+  no element for it; what changes is that the reader gets the real caption
+  beside it instead of the debris. A single painted label is left alone, and so
+  is any `<svg>` inside a link, whose text is the link's only label — measured
+  against the seven real charts that prompted this, which carry 17 to 31 labels
+  each.
 
   Measured across all 34 vault articles by clipping every source page with both
   versions: 30 come out byte-identical, and the four that change lose nothing —

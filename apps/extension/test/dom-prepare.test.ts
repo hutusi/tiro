@@ -1066,6 +1066,34 @@ describe("media wrappers Readability would delete", () => {
     expect(html).toContain("shown.png");
   });
 
+  test("leaves a region Readability rejects as furniture alone", () => {
+    // The class this pass works around only contributes a *score*
+    // (`_getClassWeight`). These are read by `_removeUnlikelyCandidates`, which
+    // deletes outright and before scoring — a different judgement, and one that
+    // must survive. Unwrapping discards the attribute it is read from, so a
+    // sidebar holding a lone figure would publish its picture as the article's.
+    for (const attr of [
+      'class="sidebar"',
+      'class="related"',
+      'class="social share"',
+      'id="footer"',
+      'role="complementary"',
+      'role="navigation"',
+    ]) {
+      const html = clip(
+        `<div ${attr}><figure><img src="furniture.png" alt="f">` +
+          "<figcaption>Cap.</figcaption></figure></div>",
+      );
+      expect(html).not.toContain("furniture.png");
+    }
+  });
+
+  test("still rescues a wrapper whose class only loses it weight", () => {
+    // The whole point: `media` is in the negative-weight regex and not in the
+    // unlikely-candidate one, so the two verdicts must not be conflated.
+    expect(clip(gallery)).toContain("venus.png");
+  });
+
   test("is idempotent", () => {
     const once = prepare(gallery);
     prepareForClipping(once.doc);
@@ -1084,6 +1112,7 @@ describe("chart svgs", () => {
     // order with no separators — a chart arrives as one run of glyphs.
     const md = markdownForPrepared(
       "<p>Before.</p><figure><svg><text>0</text><text>1</text>" +
+        "<text>2</text><text>3</text><text>Original implementation</text>" +
         "<text>Speedup on an NVIDIA H100</text></svg>" +
         "<figcaption>Inference speedup.</figcaption></figure><p>After.</p>",
     );
@@ -1099,6 +1128,35 @@ describe("chart svgs", () => {
     );
     expect(md).toBe("[Share](/share)");
     expect(md).not.toContain("[](");
+  });
+
+  test("keeps a link whose label is painted text", () => {
+    // An <a>'s SVG text is the link's only label; deleting it leaves `[](…)`.
+    const md = markdownForPrepared(
+      '<p><a href="/d"><svg><text>Download PDF</text></svg></a></p>',
+    );
+    expect(md).toBe("[Download PDF](/d)");
+  });
+
+  test("keeps a lone painted label", () => {
+    // One label is not soup — it converts to a sensible word, so leaving it
+    // alone is the same output as before this pass existed.
+    const md = markdownForPrepared(
+      "<p>Before <svg><text>Status: ok</text></svg> after</p>",
+    );
+    expect(md).toBe("Before Status: ok after");
+  });
+
+  test("drops only once there are a chart's worth of labels", () => {
+    const label = (n: number) => `<text>L${n}</text>`;
+    const three = markdownForPrepared(
+      `<p>A <svg>${[1, 2, 3].map(label).join("")}</svg> B</p>`,
+    );
+    expect(three).toContain("L1L2L3");
+    const many = markdownForPrepared(
+      `<p>A <svg>${[1, 2, 3, 4, 5].map(label).join("")}</svg> B</p>`,
+    );
+    expect(many).toBe("A B");
   });
 
   test("runs after math recovery, so a MathJax formula survives", () => {

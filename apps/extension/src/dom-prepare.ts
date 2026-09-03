@@ -401,23 +401,41 @@ function unwrapPictures(doc: Document): void {
  * making it an asset would mean inlining computed styles, which is a different
  * change with its own ADR.
  *
- * Scoped to `<text>`/`<tspan>` — the only SVG elements that paint glyphs —
- * rather than to `textContent`, which would also match `<title>` and `<desc>`.
- * Those two are accessibility labels, and an icon carries them exactly where
- * dropping it hurts: `<a><svg><title>Share</title></svg></a>` converts to
- * `[Share](…)` today and would become `[](…)`, a link with no text at all.
+ * Three things keep this off text that is not debris. It reads `<text>`, the
+ * only SVG element that paints glyphs, so `<title>` and `<desc>` — which are
+ * accessibility labels — are never a reason to delete anything. It never
+ * touches an `<svg>` inside a link, whose text is the link's label. And it
+ * requires `SOUP_LABELS` of them, so a single painted label is left alone and
+ * converts exactly as it does today; only a chart's worth of them is soup.
  *
  * Must run after `normalizeMath`, which replaces MathJax's rendered SVG with
  * its TeX. MathJax paints with `<path>`, so the scoping above spares it
  * anyway; the ordering is what makes that a guarantee instead of a
  * coincidence.
  */
+/**
+ * How many painted labels make an `<svg>` a chart rather than a caption.
+ *
+ * Measured, not guessed: the seven charts on the article that prompted this
+ * carry 17 to 31 `<text>` elements each. A label — a button, a badge, a
+ * diagram's single annotation — carries one. Four is far above anything a
+ * label plausibly reaches and far below the smallest real chart, so the rule
+ * does not depend on where in that gap it sits.
+ *
+ * Counting `<text>` rather than `<text>, <tspan>` keeps it that way: a label
+ * split across three `<tspan>`s is still one label.
+ */
+const SOUP_LABELS = 4;
+
 function dropChartSvgs(doc: Document): void {
   for (const svg of Array.from(doc.querySelectorAll("svg"))) {
-    const paintsText = Array.from(svg.querySelectorAll("text, tspan")).some(
+    // An `<a>`'s SVG text is the link's only label. Deleting it leaves `[](…)`,
+    // a link with no text — strictly worse than the soup this pass removes.
+    if (svg.closest("a") !== null) continue;
+    const labels = Array.from(svg.querySelectorAll("text")).filter(
       (node) => (node.textContent ?? "").trim() !== "",
-    );
-    if (!paintsText) continue;
+    ).length;
+    if (labels < SOUP_LABELS) continue;
     svg.remove();
   }
 }
@@ -812,11 +830,13 @@ function unwrapMediaWrappers(doc: Document): void {
     // An ancestor unwrapped earlier in this loop takes its descendants with it.
     const parent = div.parentNode;
     if (parent === null) continue;
-    // Never a wrapper the page has hidden: unwrapping drops the attribute
-    // Readability excludes on, and the image the page took care to hide gets
-    // published. Only this element's own hiding matters — unwrapping a visible
-    // parent leaves a hidden child hidden.
-    if (readabilityHides(div)) continue;
+    // Never a wrapper Readability would itself have dropped — hidden, or
+    // marked as furniture by class, id or role. Unwrapping discards exactly
+    // the attributes those verdicts are read from, so a sidebar holding one
+    // figure would lose the only thing marking it as a sidebar and publish its
+    // picture as the article's. Only this element's own attributes matter:
+    // unwrapping a wrapper inside a rejected region leaves the region rejected.
+    if (readabilityHides(div) || readabilityRejects(div)) continue;
     if (
       div.closest("figure") === null &&
       div.querySelector("figure") === null
@@ -827,6 +847,56 @@ function unwrapMediaWrappers(doc: Document): void {
     while (div.firstChild !== null) parent.insertBefore(div.firstChild, div);
     parent.removeChild(div);
   }
+}
+
+/**
+ * Readability's `unlikelyCandidates` / `okMaybeItsACandidate` pair and its
+ * `UNLIKELY_ROLES`, copied from `Readability.js:140` and `:177`.
+ *
+ * These are a *different* judgement from the one this pass exists to correct.
+ * `_removeUnlikelyCandidates` deletes a region outright, before scoring, on the
+ * strength of these; `media` is deliberately not among them. The regex this
+ * pass works around lives in `_getClassWeight` and only contributes a score.
+ * Keeping the two apart is what lets a gallery be rescued without a sidebar
+ * being rescued alongside it.
+ */
+const UNLIKELY_CANDIDATES =
+  /-ad-|ai2html|banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|footer|gdpr|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote/i;
+const MAYBE_A_CANDIDATE = /and|article|body|column|content|main|shadow/i;
+const UNLIKELY_ROLES: ReadonlySet<string> = new Set([
+  "menu",
+  "menubar",
+  "complementary",
+  "navigation",
+  "alert",
+  "alertdialog",
+  "dialog",
+]);
+
+/**
+ * True when Readability would delete this element as boilerplate on its own.
+ *
+ * The companion to `readabilityHides`, and needed for the same reason: this
+ * pass drops the element's attributes, so any verdict Readability would have
+ * reached from them has to be reached here first. Without it a
+ * `<div class="sidebar">` or `<div role="complementary">` holding a lone figure
+ * is unwrapped, loses the only signal marking it as furniture, and its picture
+ * and caption are published as though they were the article's.
+ *
+ * Only the element's own attributes matter. Unwrapping a wrapper *inside* a
+ * rejected region is harmless: the region keeps its class, so Readability still
+ * removes the whole subtree.
+ *
+ * Deliberately stricter than the original, which also spares a node inside a
+ * `<table>` or `<code>`. Refusing to unwrap something Readability would have
+ * kept only leaves today's markup in place; the reverse publishes furniture.
+ */
+function readabilityRejects(element: Element): boolean {
+  const match = `${element.className} ${element.id}`;
+  if (UNLIKELY_CANDIDATES.test(match) && !MAYBE_A_CANDIDATE.test(match)) {
+    return true;
+  }
+  return UNLIKELY_ROLES.has(element.getAttribute("role") ?? "");
 }
 
 /**
