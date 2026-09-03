@@ -282,26 +282,25 @@ exception — it needed a code fix, which shipped in extension 0.10.0.
    *substring* test, and Tailwind's compound utilities collide with it: `overflow-hidden` and
    `outline-hidden` contain `hidden`, `code-block-scroll` contains `scroll`. A clipped
    platform.claude.com page lost **all 15** of its code blocks and published with the examples
-   simply missing from between the paragraphs. Fixed by unwrapping the layout `<div>`s around a code
-   block, widening one container at a time — the depth varies by site, and the three shapes on that
-   page nest two, three and five deep, so a fixed walk recovers 8 of 15.
+   simply missing from between the paragraphs. Fixed by clearing those class tokens from the
+   containers around a code block, widening one container at a time — the depth varies by site, and
+   the three shapes on that page nest two, three and five deep. A token goes only when Readability
+   docks it, it does not really hide the element, and removing the two colliding words leaves
+   nothing it still objects to; so `overflow-hidden` goes and `promo-hidden` stays.
 
-   The guard diverges from `unwrapMediaWrappers` in two places, both deliberate. `id`, `role` and
-   `tabindex` are admitted as layout, because a scrollable code panel is a focusable widget and
-   refusing them left a tabbed API sample deleted by its own `outline-hidden`. And the
-   negative-weight regex keeps every token but the two that collide, `hidden` and `scroll` — the
-   same one-exception-per-diagnosed-word shape `media` already has. Declining it wholesale was
-   tried first and was wrong: `promo`, `widget`, `contact`, `shopping`, `tags`, `meta`, `outbrain`
-   and `share` each handed back a code block Readability had been deleting, those being the tokens
-   that carry negative weight without also being unlikely candidates. `hidden` is exempted because
-   it is a visibility signal rather than a furniture one, and is re-established as a whole-token
-   test with `data-[…]` variants read against the element's actual attributes, so an inactive tab
-   panel is refused and an idle exit animation is not; `scroll` is exempted outright, having no
-   furniture meaning for a wrapper holding one `<pre>` and nothing else.
+   **Shipped twice.** Extension 0.11.1 *unwrapped* those containers instead, which discards the
+   element and every attribute Readability judges on, so the clipper had to re-derive its rules —
+   an attribute allow-list, a copy of `UNLIKELY_ROLES`, a copy of the negative regex minus two
+   tokens, a byline check. Seven defects were found in that apparatus across five review rounds,
+   and the last surfaced only from a clip taken in a real browser: React adds `aria-labelledby` to
+   a tabbed code panel on hydration, the allow-list refused it, and 14 of 15 blocks landed in the
+   vault while the sweep and 664 tests all reported 15. **A guard that enumerates attributes cannot
+   be validated against raw HTML.** The pass now clears the colliding tokens instead, leaves the
+   element alone, and the apparatus is deleted.
 
-   A third defect surfaced in review and is fixed alongside them: both `data-tiro-*` markers were
-   trusted when the *page* had written them. Nothing legitimately authors an attribute in that
-   namespace, so clearing them before each pass writes its own costs nothing.
+   Reproducing a rendered-DOM defect offline is worth writing down: take the one attribute delta
+   from the live page and patch it into the cached fixture. `page-rendered.html` was built that way
+   — the cached page plus `aria-labelledby` — and reproduced 14-of-15 exactly.
 
    `CODE-NOLANG` is the quieter one and it is corpus-wide: **all 50 fences in the vault are bare**,
    across 0.7.0 through 0.11.0. `_cleanClasses` strips `class` from everything Readability returns,
