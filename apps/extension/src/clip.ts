@@ -24,6 +24,13 @@ export interface ClipInput {
    * `clippedAt` is: this function stays pure and testable.
    */
   clipperVersion: string;
+  /**
+   * The build that produced the clip — `git describe` output, injected at
+   * build time. Injected here rather than read, for the same reason
+   * `clipperVersion` is: there is no runtime source for it at all, so keeping
+   * it an input is what lets this function be tested without a build.
+   */
+  clipperCommit?: string;
 }
 
 export interface ClipFile {
@@ -62,6 +69,12 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       schema: TIRO_SCHEMA_VERSION,
       ...(input.clipperVersion !== ""
         ? { clipper_version: input.clipperVersion }
+        : {}),
+      // Absent when the build had no git to ask — a source zip, or a checkout
+      // without history. Omitted rather than recorded empty, so "no commit
+      // known" and "commit is the empty string" cannot be confused.
+      ...(input.clipperCommit !== undefined && input.clipperCommit !== ""
+        ? { clipper_commit: input.clipperCommit }
         : {}),
     },
   });

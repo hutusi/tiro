@@ -85,16 +85,21 @@ describe("parseArticle / stringifyArticle", () => {
     expect(back.body).toBe(body);
   });
 
-  test("preserves clipper_version through a processor round-trip", () => {
+  test("preserves the clipper's provenance through a processor round-trip", () => {
     // The trap this guards: zod strips keys an object does not name, and the
     // processor reparses and rewrites frontmatter on every run — so a field the
     // clipper records but ArticleFrontmatterSchema omits is not merely
     // unvalidated, it is deleted the first time the article is processed.
     const clipped = ArticleFrontmatterSchema.parse({
       ...validClip,
-      tiro: { schema: 1, clipper_version: "0.7.0" },
+      tiro: {
+        schema: 1,
+        clipper_version: "0.7.0",
+        clipper_commit: "ext-v0.7.0-3-gabc1234",
+      },
     });
     expect(clipped.tiro.clipper_version).toBe("0.7.0");
+    expect(clipped.tiro.clipper_commit).toBe("ext-v0.7.0-3-gabc1234");
 
     // What the processor does: parse what is on disk, add its own markers,
     // write it back.
@@ -114,6 +119,7 @@ describe("parseArticle / stringifyArticle", () => {
     expect(processed.frontmatter.tiro).toEqual({
       schema: 1,
       clipper_version: "0.7.0",
+      clipper_commit: "ext-v0.7.0-3-gabc1234",
       processed_at: "2026-08-22T11:00:00.000Z",
       processor_version: "0.1.0",
     });

@@ -7,6 +7,25 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Articles record which clipper *build* wrote them**, not only which release.
+  `tiro.clipper_version` comes from the manifest, so it names a release — but
+  the extension is normally run by loading `dist/` unpacked, built from
+  whatever is checked out. Every clip taken across the seven commits of one
+  branch reported the same `0.11.0`, and that version batched four separate
+  fixes, so it could not answer the question it exists for: which clips predate
+  a given fix. `tiro.clipper_commit` records `git describe` output
+  (`ext-v0.11.0-8-gbe3dcc8`), injected at build time, and
+  `git merge-base --is-ancestor` answers it exactly.
+
+  A `-dirty` suffix marks a build from a modified tree — the common case for an
+  unpacked build — because recording the bare commit would claim a cleanliness
+  the build does not have. The field is omitted entirely when the build had no
+  git to ask, so "unknown" and "empty" stay distinguishable, and a failing
+  `git` can never fail the build. Optional and additive, so no `tiro.schema`
+  bump, and no version bump: what a page clips to is unchanged.
+
 <!-- Headings here are *repo* versions, matching the `v*` tags; the extension
      ships on its own `ext-v*` line and its number lives only in
      apps/extension/manifest.json. Extension work is recorded under the repo
