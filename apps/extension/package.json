@@ -5,7 +5,8 @@
   "scripts": {
     "build": "vite build && vite build -c vite.clipper.config.ts",
     "package": "bun run build && cd dist && rm -f ../tiro-clipper.zip && zip -qr ../tiro-clipper.zip . -x '.DS_Store' '**/.DS_Store'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sweep": "bun run scripts/sweep.ts"
   },
   "dependencies": {
     "@joplin/turndown-plugin-gfm": "^1.0.67",

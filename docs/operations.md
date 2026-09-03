@@ -361,6 +361,49 @@ An unpacked extension's ID is derived from its folder path, so the ID differs
 per machine. Harmless here: nothing depends on a stable ID (no OAuth redirect,
 no `externally_connectable`).
 
+### Sweeping the corpus for clip damage
+
+A clipper failure is silent by construction: an image Readability deleted leaves
+nothing behind to notice, so nothing in the vault records that it is missing.
+Two of the three articles that lost every image to `MEDIA-DROP` had been live
+for a week. The sweep asks the only question that finds those — clip the page
+again and compare.
+
+```sh
+# Which articles would gain from a re-clip? (the usual one)
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault
+
+# Did my clipper change break anything on the corpus?
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --baseline main
+
+# One article, by slug fragment
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --only apple
+```
+
+Pages are cached under `apps/extension/.sweep-cache/` (gitignored), so the first
+run costs one request per article and later runs cost none — which is also what
+makes a `--baseline` comparison compare the *clipper* rather than whatever the
+sites served that minute. Delete the directory to refresh. `--baseline` checks
+its ref out as a git worktree beside the cache; `git worktree remove` disposes
+of it, and a ref older than `apps/extension/src/clip-page.ts` is refused with an
+explanation rather than a module error.
+
+Read the output as a prompt for judgement, not a verdict:
+
+- **A positive delta is a re-clip candidate**, and worth confirming is caused by
+  a fix rather than by the page having changed since it was clipped. Run the
+  same sweep with `--baseline <the ref that shipped the fix>` to separate them.
+- **A negative delta needs a look before acting.** Both that the first run found
+  were correct: one article's four "lost" images are commenter avatars, and the
+  other is a pre-existing extraction gap that both clipper versions share. Two
+  clips differing is not the same as the newer one being wrong.
+
+**What this is not.** It finds regressions *on the corpus*, and the corpus
+contains the shapes it contains. Every guard in `unwrapMediaWrappers` exists for
+a failure this sweep reported as byte-identical, because no vault page wraps a
+lone figure in a sidebar. A green sweep is not a safety argument — adversarial
+shapes belong in `apps/extension/test/dom-prepare.test.ts`.
+
 ### Cutting an extension release
 
 `apps/extension/manifest.json` holds the only version string in the repo.
