@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { countMarkdown } from "../scripts/sweep.ts";
+import { backfill, countMarkdown } from "../scripts/sweep.ts";
 
 describe("countMarkdown", () => {
   test("counts images and the subset that carry a folded caption", () => {
@@ -85,5 +85,120 @@ describe("countMarkdown ignores code, however it is written", () => {
 
   test("counts an image in a list item that is not code", () => {
     expect(countMarkdown("- ![x](x.png)").images).toBe(1);
+  });
+});
+
+describe("backfill", () => {
+  const FRONTMATTER = [
+    "---",
+    "url: https://example.com/a",
+    "title: A",
+    "domain: example.com",
+    "clipped_at: 2026-09-04T00:00:00.000Z",
+    "tiro:",
+    "  schema: 1",
+    "  clipper_version: 0.11.1",
+    "---",
+    "",
+  ].join("\n");
+
+  const article = (body: string) => FRONTMATTER + body;
+
+  test("copies a fresh clip's language onto a bare fence", () => {
+    const result = backfill(
+      article("Intro.\n\n```\nlet x = 1;\n```\n"),
+      null,
+      "Intro.\n\n```rust\nlet x = 1;\n```\n",
+    );
+    expect(result?.languages).toEqual(["rust"]);
+    expect(result?.index).toContain("```rust\nlet x = 1;\n```");
+    expect(result?.index).toContain("url: https://example.com/a");
+  });
+
+  /**
+   * `checkAlignment` compares a code block's source slice, fence lines
+   * included, so a language written into `index.md` alone breaks byte-identity
+   * and drops the article out of side-by-side rendering entirely (ADR 0003).
+   */
+  test("writes the same language into zh.md", () => {
+    const result = backfill(
+      article("Intro.\n\n```\nlet x = 1;\n```\n"),
+      "介绍。\n\n```\nlet x = 1;\n```\n",
+      "Intro.\n\n```rust\nlet x = 1;\n```\n",
+    );
+    expect(result?.index).toContain("```rust");
+    expect(result?.zh).toContain("```rust");
+    expect(result?.refused).toBeUndefined();
+  });
+
+  test("refuses when the two files do not correspond", () => {
+    const result = backfill(
+      article("Intro.\n\n```\nlet x = 1;\n```\n"),
+      "介绍。\n\n```\nlet y = 2;\n```\n",
+      "Intro.\n\n```rust\nlet x = 1;\n```\n",
+    );
+    expect(result?.refused).toContain("do not correspond");
+    expect(result?.languages).toEqual([]);
+  });
+
+  test("leaves a fence that already declares a language", () => {
+    expect(
+      backfill(
+        article("```ts\nlet x = 1;\n```\n"),
+        null,
+        "```rust\nlet x = 1;\n```\n",
+      ),
+    ).toBeNull();
+  });
+
+  test("leaves a fence the fresh clip does not name", () => {
+    expect(
+      backfill(
+        article("```\nlet x = 1;\n```\n"),
+        null,
+        "```\nlet x = 1;\n```\n",
+      ),
+    ).toBeNull();
+  });
+
+  test("declines a snippet the page shows under two languages", () => {
+    // The same code in two tabs is a real shape, and nothing in the vault says
+    // which copy is which.
+    expect(
+      backfill(
+        article("```\nprint(1)\n```\n"),
+        null,
+        "```python\nprint(1)\n```\n\n```ruby\nprint(1)\n```\n",
+      ),
+    ).toBeNull();
+  });
+
+  test("matches across trailing-whitespace drift", () => {
+    const result = backfill(
+      article("```\nlet x = 1;  \n```\n"),
+      null,
+      "```rust\nlet x = 1;\n```\n",
+    );
+    expect(result?.languages).toEqual(["rust"]);
+  });
+
+  test("labels each of several fences independently", () => {
+    const body = "```\nlet x = 1;\n```\n\ntext\n\n```\nprint(1)\n```\n";
+    const result = backfill(
+      article(body),
+      null,
+      "```rust\nlet x = 1;\n```\n\ntext\n\n```python\nprint(1)\n```\n",
+    );
+    expect(result?.languages).toEqual(["rust", "python"]);
+    expect(result?.index).toContain("```rust");
+    expect(result?.index).toContain("```python");
+  });
+
+  test("changes nothing but the fence's opening line", () => {
+    const body = "Intro.\n\n```\nlet x = 1;\n```\n\nOutro.\n";
+    const result = backfill(article(body), null, "```rust\nlet x = 1;\n```\n");
+    expect(result?.index).toBe(
+      article(body).replace("```\nlet", "```rust\nlet"),
+    );
   });
 });
