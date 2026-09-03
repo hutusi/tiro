@@ -1,15 +1,19 @@
+/** Everything one clip produces. Named separately from the message so the
+ * sweep script can hold a clip without inventing a message around it. */
+export interface ClipPayload {
+  url: string;
+  title: string;
+  excerpt: string;
+  author: string;
+  markdown: string;
+  readabilityFailed: boolean;
+  hasMath: boolean;
+}
+
 /** Message sent by the injected clipper back to the popup. */
 export interface ClipResultMessage {
   type: "tiro-clip-result";
-  payload: {
-    url: string;
-    title: string;
-    excerpt: string;
-    author: string;
-    markdown: string;
-    readabilityFailed: boolean;
-    hasMath: boolean;
-  };
+  payload: ClipPayload;
 }
 
 /** The popup's one message boundary. Today only this extension's own clipper
