@@ -95,6 +95,29 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   traversals is how a formula in a list item ended up neither copied verbatim
   nor hidden from the model, and how an unclosed fence one level down survived
   the repair written for it.
+- **A recovered language crosses Readability on a `data-*` attribute, not on
+  the class.** *(Amended 2026-09-03, extension 0.11.1.)* As first written, this
+  decision was not reached by anything that shipped. `recoverCodeBlocks`
+  normalizes a page's language markup into the `language-*` class Turndown
+  reads, but `clip-page.ts` runs Readability between them and `_cleanClasses`
+  strips `class` from every element it returns — so Turndown never saw one. All
+  50 fenced blocks in the vault, written by clipper 0.7.0 through 0.11.0, are
+  bare, and the site renders them grey. The decision stands; what changed is the
+  carrier. The language is copied onto `data-tiro-lang` before extraction and
+  restored as the class afterwards, generalising the marker contract the math
+  half of this ADR already relies on: **anything computed before Readability
+  must ride a `data-*` attribute to get past it.** The class is restored rather
+  than read by a Turndown rule of our own, so fence-width arithmetic stays
+  Turndown's.
+
+  Two things this cost, worth recording. The ten tests covering language
+  recovery all passed throughout, because every one of them calls
+  `prepareForClipping` and `htmlToMarkdown` directly — the erasing step is the
+  one between them. A clipper test that does not run Readability cannot see a
+  clipper defect. And the language is not in the markdown, so nothing downstream
+  can repair it: an article clipped before 0.11.1 keeps its bare fences until it
+  is re-clipped.
+
 - **The clipper recovers TeX before Readability runs**, normalizing KaTeX,
   MathJax, and MathML (`annotation[encoding="application/x-tex"]`, then
   `<math alttext>`, then MathJax v2's `script[type="math/tex"]`) into a single

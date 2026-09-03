@@ -47,6 +47,8 @@ These cost real effort to learn and should survive into the next sweep.
 | `IMG-AS-CODE` | render | Image markup displayed as literal text in a code block |
 | `CODE-FLAT` | clip | A code block reflowed as proportional-font prose |
 | `CODE-AS-TABLE` | clip | A code block rendered as a table, gutter line numbers as column 1 |
+| `CODE-DROP` | Readability | Every code block vanishes; the article reads as if its examples were described but never shown |
+| `CODE-NOLANG` | Readability | Every fence is bare, so all code on the site renders grey |
 | `FIG-SEMANTICS` | clip | `<figure>`/`<figcaption>` lost; caption becomes ordinary body prose |
 | `FN-REF` | clip | Footnote reference collapses to a bare digit glued to the sentence |
 | `FN-INLINE` | clip | Footnote *body* inlined mid-sentence, interrupting the text |
@@ -172,6 +174,12 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 
 ## Non-findings — do not re-investigate
 
+- **`brennan.day` loses four `<pre>` blocks to Readability, correctly.** They are citation-export
+  snippets (BibTeX, APA, MLA) inside a collapsed `<details class="cite-export">`, not the article's
+  code. There is no `<div>` in that chain, so the 0.11.1 code-wrapper unwrap never touches them, and
+  a test pins that. Do not "fix" it.
+
+
 - **No truncation anywhere.** All 32 land at 92–108% of the Readability-extracted source
   (`arxiv…2608` 98%, `powderworks` 101%).
 - **The 0.7.0 re-clips are clean on every legacy class.** Both score 0 for boilerplate, anchor-`#`
@@ -263,3 +271,52 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 **Re-clipping is now a measured remedy, not a hope.** The two 0.7.0 clips clear every legacy class,
 so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` was the
 exception — it needed a code fix, which shipped in extension 0.10.0.
+
+8. `CODE-DROP` and `CODE-NOLANG` — **found and fixed 2026-09-03, in extension 0.11.1.** Neither was
+   in this sweep, and the reason is the same blind spot `MEDIA-DROP` exposed one rung up: the sweep
+   counts images and folded captions, so a clip that lost *every code block* reported no change at
+   all, and a clip whose fences are all bare has nothing to compare against.
+
+   `CODE-DROP` is `MEDIA-DROP`'s twin, one word over. `_cleanConditionally` deletes an element once
+   `weight + contentScore < 0` with `contentScore` hardcoded to 0, `_getClassWeight`'s regex is a
+   *substring* test, and Tailwind's compound utilities collide with it: `overflow-hidden` and
+   `outline-hidden` contain `hidden`, `code-block-scroll` contains `scroll`. A clipped
+   platform.claude.com page lost **all 15** of its code blocks and published with the examples
+   simply missing from between the paragraphs. Fixed by unwrapping the layout `<div>`s around a code
+   block, widening one container at a time — the depth varies by site, and the three shapes on that
+   page nest two, three and five deep, so a fixed walk recovers 8 of 15.
+
+   The guard diverges from `unwrapMediaWrappers` in two places, both deliberate. `id`, `role` and
+   `tabindex` are admitted as layout, because a scrollable code panel is a focusable widget and
+   refusing them left a tabbed API sample deleted by its own `outline-hidden`. And the
+   negative-weight regex keeps every token but the two that collide, `hidden` and `scroll` — the
+   same one-exception-per-diagnosed-word shape `media` already has. Declining it wholesale was
+   tried first and was wrong: `promo`, `widget`, `contact`, `shopping`, `tags`, `meta`, `outbrain`
+   and `share` each handed back a code block Readability had been deleting, those being the tokens
+   that carry negative weight without also being unlikely candidates. `hidden` is exempted because
+   it is a visibility signal rather than a furniture one, and is re-established as a whole-token
+   test with `data-[…]` variants read against the element's actual attributes, so an inactive tab
+   panel is refused and an idle exit animation is not; `scroll` is exempted outright, having no
+   furniture meaning for a wrapper holding one `<pre>` and nothing else.
+
+   A third defect surfaced in review and is fixed alongside them: both `data-tiro-*` markers were
+   trusted when the *page* had written them. Nothing legitimately authors an attribute in that
+   namespace, so clearing them before each pass writes its own costs nothing.
+
+   `CODE-NOLANG` is the quieter one and it is corpus-wide: **all 50 fences in the vault are bare**,
+   across 0.7.0 through 0.11.0. `_cleanClasses` strips `class` from everything Readability returns,
+   and Turndown reads a fence's language only from `language-*` on the `<code>`, so the clipper's
+   entire language-recovery pass has been dead on the shipping path since it was written. Its ten
+   tests never caught it because they call `prepareForClipping` and `htmlToMarkdown` directly and
+   the erasing step is the one between them. Fixed by carrying the language across on
+   `data-tiro-lang` and restoring the class after extraction (ADR 0009, amended).
+
+   **Measured over the 35 cached source pages.** `CODE-DROP`'s fix is byte-identical on every one of
+   them — no vault page carries the shape, so its guards are argued from the markup and pinned by
+   tests rather than by the corpus. `CODE-NOLANG`'s fix changes exactly two, and only their fence
+   info strings: `claude.com/blog/the-ai-native-sdlc-playbook` gains bash/javascript/json/markdown/
+   yaml across 13 blocks, `simonwillison.net` gains `js` on one. Every language produced resolves to
+   a grammar the site already loads.
+
+   **Re-clips owed**: the platform.claude.com article, for its 15 code blocks; those two, for their
+   languages. A bare fence cannot be repaired after the fact — the language is not in the markdown.

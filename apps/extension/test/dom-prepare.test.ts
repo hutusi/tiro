@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Readability } from "@mozilla/readability";
 import { splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
+import { clipPage } from "../src/clip-page.ts";
 import {
+  CODE_LANG_ATTR,
   foldFiguresIn,
   MATH_ATTR,
   prepareForClipping,
@@ -1240,5 +1242,460 @@ describe("chart svgs", () => {
         '<script type="math/tex">x^2</script> holds.</p>',
     );
     expect(formulas(doc)).toEqual(["$x^2$"]);
+  });
+});
+
+describe("code wrappers Readability would delete", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The clipper's real order: prepare, then extract. */
+  function clip(markup: string): string {
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    const extracted = new Readability(doc as never).parse()?.content ?? "";
+    // Never fall back to the raw body the way the clipper does. A case that
+    // accidentally starved Readability would exercise the path where this whole
+    // defect is invisible, and pass for the wrong reason.
+    if (extracted === "") throw new Error("Readability extracted nothing");
+    return extracted;
+  }
+
+  /** The copy control these wrappers carry, live region and all. */
+  const controls =
+    '<div class="absolute top-3 right-3">' +
+    '<button type="button" aria-label="Copy code"><span></span></button>' +
+    '<span role="status" class="sr-only"></span></div>';
+
+  /** Shape A: the plain block. `overflow-hidden` is what costs it its life. */
+  const plain =
+    '<div data-not-prose="true" class="overflow-hidden rounded-card border ' +
+    'bg-surface-2 group relative">' +
+    '<div class="code-block-scroll relative py-4 pl-4 text-code">' +
+    '<pre class="block w-full pr-4"><code>const answer = 42;\nconsole.log(answer);</code></pre>' +
+    `</div>${controls}</div>`;
+
+  /** Shape B: highlighter output, one level deeper and with no `<code>`. */
+  const highlighted =
+    '<div data-not-prose="true" class="overflow-hidden rounded-card border ' +
+    'bg-surface-2 group relative">' +
+    '<div class="code-block-scroll relative py-4 pl-4 text-code">' +
+    '<div class="block w-full pr-4"><pre class="shiki shiki-themes">' +
+    '<span class="line"><span>const shiki = true;</span></span></pre></div>' +
+    `</div>${controls}</div>`;
+
+  /** Shape C: a tabbed sample — the one a layout-only allow-list refuses. */
+  const tabbed =
+    '<div data-cds="Tabs" data-not-prose="true" class="overflow-hidden ' +
+    'rounded-card border bg-surface-2">' +
+    '<div id="panel-py" role="tabpanel" tabindex="-1" ' +
+    'aria-labelledby="tab-py" class="cds-reset ' +
+    'outline-none focus-visible:outline-hidden">' +
+    '<div class="h-full py-4 pl-4 text-code overflow-x-auto" tabindex="0">' +
+    '<div class="inline-block min-w-full pr-4">' +
+    '<pre class="shiki shiki-themes"><span class="line">import anthropic' +
+    "</span></pre></div></div></div></div>";
+
+  test("keeps a block whose wrapper class trips the negative regex", () => {
+    // `overflow-hidden` contains `hidden`, and _getClassWeight's regex is a
+    // substring test, so weight is -25 and _cleanConditionally deletes the
+    // subtree at `weight + contentScore < 0` — with contentScore hardcoded to
+    // 0 — before anything looks at what the wrapper holds.
+    expect(clip(plain)).toContain("console.log(answer);");
+  });
+
+  test("keeps a highlighter's block, nested one level deeper", () => {
+    expect(clip(highlighted)).toContain("const shiki = true;");
+  });
+
+  test("keeps a tabbed block, whose panel is labelled and focusable", () => {
+    // `aria-labelledby` is the attribute this fixture was missing, and the gap
+    // was invisible to every offline test: the served HTML carries no `aria-*`
+    // on that panel, React adds it on hydration, so only a clip taken in a real
+    // browser could show the block being lost. It was — 14 of 15 blocks landed
+    // in the vault while the sweep and this suite both reported 15.
+    //
+    // The divergence from carriesMoreThanLayout in one test: this panel carries
+    // `id`, `role` and `tabindex`, a layout-only allow-list refuses it, and its
+    // own `outline-hidden` class then deletes the sample.
+    expect(clip(tabbed)).toContain("import anthropic");
+  });
+
+  test("keeps a block too short to be mistaken for furniture", () => {
+    // A one-line install command is the shortest real code block there is, and
+    // `_cleanConditionally` has a `contentLength < 25` clause. It does not fire
+    // here — it also requires `linkDensity > 0` and code has no links — so this
+    // pins the outcome rather than that mechanism. An earlier comment claimed
+    // the clause as the reason unwrapping beats declassifying; it is not.
+    expect(
+      clip('<div class="overflow-hidden"><pre><code>npm i</code></pre></div>'),
+    ).toContain("npm i");
+  });
+
+  test("the recovered block is a verbatim code block", () => {
+    // ADR 0003: a block that stops being `code` leaves VERBATIM_BLOCK_TYPES and
+    // is sent to the translator. Recovering it has to recover it *as* code.
+    const md = htmlToMarkdown(clip(plain)).markdown;
+    const block = splitBlocks(md).find((b) => b.type === "code");
+    expect(block?.text).toContain("console.log(answer);");
+  });
+
+  test("leaves a hidden block hidden", () => {
+    // Unwrapping discards the attributes Readability excludes on, so a wrapper
+    // the page hid must never become one it did not. ADR 0011 records this as
+    // the failure this file guards against.
+    const markup =
+      '<div hidden class="overflow-hidden"><pre><code>secret()</code></pre>' +
+      "</div>";
+    // The wrapper still carries the attribute Readability excludes on...
+    expect(prepare(markup).html).toContain('hidden=""');
+    // ...so the block Readability would have dropped is still dropped.
+    expect(clip(markup)).not.toContain("secret()");
+  });
+
+  test("leaves a block hidden by an inline style hidden", () => {
+    // `style` is admitted as layout, so the display:none it can carry has to be
+    // read rather than assumed absent.
+    const { html } = prepare(
+      '<div style="display: none" class="overflow-hidden"><pre><code>' +
+        "secret()</code></pre></div>",
+    );
+    expect(html).toContain("display: none");
+  });
+
+  test("leaves a sidebar's code block rejectable", () => {
+    // Only the negative *weight* regex is declined. Readability's genuine
+    // rejection pass, _removeUnlikelyCandidates, still stands — so furniture
+    // holding nothing but a snippet stays furniture.
+    const { html } = prepare(
+      '<div class="sidebar"><pre><code>side()</code></pre></div>',
+    );
+    expect(html).toContain('class="sidebar"');
+  });
+
+  test("leaves a byline wrapper alone", () => {
+    const { html } = prepare(
+      '<div class="p-author"><pre><code>whoami</code></pre></div>',
+    );
+    expect(html).toContain('class="p-author"');
+  });
+
+  test.each([
+    ['aria-hidden="true"', "the one ARIA attribute Readability reads"],
+    ['aria-modal="true" role="dialog"', "the other, with the role it needs"],
+  ])("leaves a wrapper carrying %s alone", (attrs) => {
+    // ARIA is admitted as labelling, but not the two entries Readability acts
+    // on. Enumerated from its source rather than assumed.
+    const { html } = prepare(
+      `<div ${attrs} class="overflow-hidden"><pre><code>run()</code></pre></div>`,
+    );
+    expect(html).toContain('class="overflow-hidden"');
+  });
+
+  test("leaves a dialog alone", () => {
+    // UNLIKELY_ROLES is not a heuristic to second-guess: a code sample inside a
+    // dialog is not the article's.
+    const { html } = prepare(
+      '<div role="dialog" class="overflow-hidden"><pre><code>modal()' +
+        "</code></pre></div>",
+    );
+    expect(html).toContain('role="dialog"');
+  });
+
+  test("leaves a wrapper carrying an attribute that could mean something", () => {
+    const { html } = prepare(
+      '<div rel="author" class="overflow-hidden"><pre><code>who()' +
+        "</code></pre></div>",
+    );
+    expect(html).toContain('rel="author"');
+  });
+
+  test("leaves a wrapper carrying a sentence alone", () => {
+    // Text beside the code is content, and the class Readability objected to
+    // may well be about the sentence rather than the sample.
+    const { html } = prepare(
+      '<div class="overflow-hidden"><p>What this shows.</p>' +
+        "<pre><code>run()</code></pre></div>",
+    );
+    expect(html).toContain('class="overflow-hidden"');
+    expect(html).toContain("What this shows.");
+  });
+
+  test("leaves a wrapper holding two blocks alone", () => {
+    // A side-by-side comparison is a shape, and this pass has no reading of it.
+    const { html } = prepare(
+      '<div class="overflow-hidden"><pre><code>before()</code></pre>' +
+        "<pre><code>after()</code></pre></div>",
+    );
+    expect(html).toContain('class="overflow-hidden"');
+  });
+
+  test.each([
+    ['class="hidden"', "Tailwind's display:none"],
+    ['class="is-hidden"', "Bulma"],
+    ['class="d-none"', "Bootstrap"],
+    ['class="sr-only"', "the screen-reader convention"],
+    ['class="u-hidden"', "a compound nobody enumerated"],
+    ['class="js-hidden"', "another"],
+    ['class="hidden-sm"', "and another"],
+    ['class="always-hidden"', "and another"],
+    ['class="md:hidden"', "a breakpoint this cannot evaluate"],
+    ['class="dark:hidden"', "a theme this cannot evaluate"],
+    ['class="group-hover:hidden"', "a pointer state this cannot evaluate"],
+    ['class="md:data-[x]:hidden"', "two conditions, one unanswerable"],
+    [
+      'class="data-[state=inactive]:hidden" data-state="inactive"',
+      "a panel that really is inactive",
+    ],
+    [
+      'class="data-[state=\'inactive\']:hidden" data-state="inactive"',
+      "the same, written with quotes as HTML forces",
+    ],
+    [
+      'class="data-[state=&quot;inactive&quot;]:hidden" data-state="inactive"',
+      "and with the double quotes entity-escaped",
+    ],
+    [
+      'class="data-[state~=inactive]:hidden" data-state="inactive"',
+      "a selector operator this does not model",
+    ],
+  ])("leaves %s for Readability to judge", (attrs) => {
+    // The assertion is about *this* pass, not about the verdict: a wrapper left
+    // standing keeps whatever Readability makes of it, which for `d-none` and
+    // `sr-only` is nothing — its regex has never known those. Unwrapping is
+    // what would take even that verdict away.
+    const { html } = prepare(
+      `<div ${attrs}><pre><code>secret()</code></pre></div>`,
+    );
+    // The wrapper still stands between the body and the code block.
+    expect(html).toMatch(/<div[^>]*><pre/);
+  });
+
+  test("a block hidden with a bare class stays out of the clip", () => {
+    // End to end for the token Readability does catch, so the guard is pinned
+    // by consequence and not only by structure. `hidden` is how Tailwind spells
+    // `display: none`, and it is caught in the negative-weight regex alone —
+    // the regex this pass declines — so nothing else would stop it.
+    expect(
+      clip('<div class="hidden"><pre><code>secret()</code></pre></div>'),
+    ).not.toContain("secret()");
+  });
+
+  test.each([
+    ['class="overflow-hidden"', "the collision this pass exists for"],
+    ['class="focus-visible:outline-hidden"', "a variant of the same"],
+    ['class="code-block-scroll"', "the other colliding token"],
+    ['class="overflow-x-hidden"', "the axis variants of the same"],
+    ['class="not-sr-only"', "contains a hiding word, does the opposite"],
+    ['class="backface-hidden"', "contains one, hides nothing"],
+    ['class="data-[ending-style]:hidden"', "an animation that is not running"],
+    [
+      'class="data-[state=inactive]:hidden" data-state="active"',
+      "the panel that is showing",
+    ],
+    [
+      'class="data-[state=\'inactive\']:hidden" data-state="active"',
+      "quotes normalized, condition still false",
+    ],
+    ['class="data-[disabled]:hidden"', "a flag the element does not carry"],
+  ])("still unwraps %s", (attrs) => {
+    // The other half of the same rule. Whole-token matching separates
+    // `overflow-hidden` from `hidden`; reading the `data-[…]` condition against
+    // the element separates a panel that really is inactive from one merely
+    // capable of becoming so.
+    expect(
+      clip(`<div ${attrs}><pre><code>shown()</code></pre></div>`),
+    ).toContain("shown()");
+  });
+
+  test.each([
+    "promo",
+    "widget",
+    "contact",
+    "shopping",
+    "tags",
+    "meta",
+    "outbrain",
+    "share",
+  ])('leaves furniture classed "%s" rejectable', (cls) => {
+    // Only `hidden` and `scroll` are excepted from the negative-weight regex.
+    // Declining it wholesale handed each of these eight back a code block
+    // Readability had been deleting — they are the tokens that are
+    // negative-weight *without* also being unlikely candidates, so nothing
+    // else in the guard was catching them.
+    const { html } = prepare(
+      `<div class="${cls}"><pre><code>furniture()</code></pre></div>`,
+    );
+    expect(html).toContain(`class="${cls}"`);
+  });
+
+  test("leaves a citation export dropped", () => {
+    // A real corpus shape: four <pre> citation blocks inside a collapsed
+    // <details>. Readability is right to drop them as furniture, and there is
+    // no <div> in the chain for this pass to touch. It must stay that way.
+    const { html } = prepare(
+      '<details class="cite-export"><ul class="citation-formats"><li>' +
+        "<pre>Brown, B. K. (2026). Title.</pre></li></ul></details>",
+    );
+    expect(html).toContain('class="cite-export"');
+  });
+
+  test("leaves an image beside the code alone", () => {
+    // Structural, not textual: an <img> carries no text and is still content.
+    const { html } = prepare(
+      '<div class="overflow-hidden"><img src="d.png" alt="d">' +
+        "<pre><code>run()</code></pre></div>",
+    );
+    expect(html).toContain('class="overflow-hidden"');
+  });
+});
+
+describe("code languages survive Readability", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /**
+   * The whole clip, through the shipped entry point.
+   *
+   * Every other code test in this file goes straight from `prepareForClipping`
+   * to `htmlToMarkdown`, and that is exactly why this defect shipped: the step
+   * that erases the language sits between them. A test that does not run
+   * Readability cannot see it.
+   */
+  function fenceOf(markup: string): string {
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const payload = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    // The raw-body fallback never lost the class in the first place, so a case
+    // that quietly took it would pass without proving anything.
+    expect(payload.readabilityFailed).toBe(false);
+    return (payload.markdown.match(/^```.*$/m) ?? ["<no fence>"])[0];
+  }
+
+  test("a language the page declared reaches the fence", () => {
+    // The case the ten tests above cannot see. `_cleanClasses` strips `class`
+    // from everything Readability returns, and a page that marks its code up
+    // correctly is the common case — so this is most of the vault's 50 bare
+    // fences, not an edge.
+    expect(
+      fenceOf('<pre><code class="language-python">import os</code></pre>'),
+    ).toBe("```python");
+  });
+
+  test.each([
+    ['<pre><code class="lang-ruby">puts 1</code></pre>', "```ruby"],
+    ['<pre><code data-lang="go">package main</code></pre>', "```go"],
+    [
+      '<div class="highlight-source-js"><pre><code>let a = 1;</code></pre></div>',
+      "```js",
+    ],
+    [
+      '<pre><code class="sourceCode haskell">main = pure ()</code></pre>',
+      "```haskell",
+    ],
+  ])("a recovered language reaches it too: %s", (markup, expected) => {
+    expect(fenceOf(markup)).toBe(expected);
+  });
+
+  test("a page that names no language still gets a bare fence", () => {
+    expect(fenceOf("<pre><code>plain text here</code></pre>")).toBe("```");
+  });
+
+  test("a highlighter's block with no language stays bare", () => {
+    // Shape B/C from platform.claude.com: Shiki output carries no language
+    // anywhere in the DOM, and the tab labels beside it are a guess this
+    // deliberately does not make.
+    expect(
+      fenceOf(
+        '<pre class="shiki"><span class="line">const a = 1;</span></pre>',
+      ),
+    ).toBe("```");
+  });
+
+  test("a junk language class writes no marker", () => {
+    expect(
+      fenceOf('<pre><code class="language-&lt;script&gt;">x</code></pre>'),
+    ).toBe("```");
+  });
+
+  test("a fence still widens around backticks in the code", () => {
+    // Restoring the class rather than adding a Turndown rule is what keeps this
+    // working: the arithmetic stays Turndown's.
+    expect(
+      fenceOf('<pre><code class="language-md">a\n```\nb</code></pre>'),
+    ).toBe("````md");
+  });
+
+  test("the marker is what crosses Readability, not the class", () => {
+    // The mechanism itself, so a future change to either half is caught rather
+    // than merely observed through the fence.
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}<pre><code class="language-python">import os</code></pre>${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    expect(doc.body.innerHTML).toContain(`${CODE_LANG_ATTR}="python"`);
+    const extracted = new Readability(doc as never).parse()?.content ?? "";
+    expect(extracted).toContain(`${CODE_LANG_ATTR}="python"`);
+    expect(extracted).not.toContain("language-python");
+  });
+
+  test("a marker the page wrote itself is discarded", () => {
+    // The marker is a private contract between dom-prepare and Turndown, and a
+    // page is untrusted input. Backticks in a page-authored value open a fence
+    // markdown cannot close: the block stops being `code`, so it goes to the
+    // translator, and the stray closer swallows the prose after it (ADR 0003).
+    expect(
+      fenceOf('<pre><code data-tiro-lang="js```">payload()</code></pre>'),
+    ).toBe("```");
+  });
+
+  test("a page-authored marker cannot cost a block its type", () => {
+    const window = new Window({ url: "https://evil.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<pre><code data-tiro-lang="js\`\`\`">payload()</code></pre>${filler}</article>`;
+    const { markdown } = clipPage(
+      window.document as unknown as Document,
+      "https://evil.test/a",
+    );
+    const block = splitBlocks(markdown).find((b) =>
+      b.text.includes("payload()"),
+    );
+    expect(block?.type).toBe("code");
+  });
+
+  test("the marker never reaches the markdown", () => {
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<pre><code class="language-python">import os</code></pre>${filler}</article>`;
+    const { markdown } = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    expect(markdown).not.toContain(CODE_LANG_ATTR);
+  });
+});
+
+describe("markers the page wrote itself", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  test("a page-authored math marker cannot split a paragraph", () => {
+    // `data-tiro-math` has the same exposure `data-tiro-lang` does, and had it
+    // first: the Turndown rule fires on the attribute alone, so a page that
+    // writes one gets `$$…$$` emitted mid-paragraph — three blocks where the
+    // article has one, which is the ADR 0003 alignment contract.
+    const window = new Window({ url: "https://evil.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<p>Before. <span ${MATH_ATTR}="display">x$$ INJECTED</span> After.</p>${filler}</article>`;
+    const { markdown, hasMath } = clipPage(
+      window.document as unknown as Document,
+      "https://evil.test/a",
+    );
+    expect(markdown).toContain("Before. x$$ INJECTED After.");
+    // And it cannot set the flag that turns every price on the page into a
+    // formula, which is what `escapeLiteralDollars` exists to prevent.
+    expect(hasMath).toBe(false);
   });
 });

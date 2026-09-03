@@ -33,6 +33,118 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A page cannot forge the clipper's own markers.** `data-tiro-math` and
+  `data-tiro-lang` are private contracts between `dom-prepare` and a Turndown
+  rule, and the rule fires on the attribute alone — so a page that wrote one
+  itself was obeyed. `<span data-tiro-math="display">` split the paragraph it
+  sat in into three blocks and set `has_math`, which turns every price on the
+  page into a formula; the language marker had the same shape, where backticks
+  in a forged value opened a fence markdown cannot close. Both markers are now
+  cleared across the document before either pass writes its own. The math half
+  predates the language half by two releases and was found while fixing it.
+
+- **Fence languages survive extraction, so code is highlighted again.** Every
+  one of the vault's 50 fenced blocks is bare, across articles clipped with
+  0.7.0 through 0.11.0, and the site renders all of them grey. Readability's
+  `_cleanClasses` strips `class` from every element it returns, and Turndown
+  reads a fence's language *only* from `language-*` on the `<code>` — so the
+  language the clipper works out is erased between the two. The whole of the
+  clipper's language handling, and the ten tests covering it, has been dead on
+  the shipping path since it was written: those tests go straight from
+  `prepareForClipping` to `htmlToMarkdown` and never run Readability, which is
+  the one step that erases the answer.
+
+  The language now crosses on a `data-tiro-lang` attribute — `data-*` survives
+  Readability untouched — and becomes a class again once extraction is out of
+  the way. That is the contract `data-tiro-math` already established for
+  recovered formulas, generalised: **anything computed before Readability has to
+  ride a `data-*` attribute to get past it.** Restoring the class rather than
+  teaching Turndown to read the marker is deliberate — Turndown's own rule
+  already widens a fence when the code contains backticks, and a rule of ours
+  would have to carry a copy of that arithmetic forever.
+
+  The marker is taken from the *finished* class, not from the recovery branch
+  that computes it, so a page that already marks its code up correctly — the
+  common case, and the one the recovery branch returns early for — is covered by
+  the same rule.
+
+  Measured across the cached source pages: the only thing that changes anywhere
+  is fence info strings. Already-clipped articles keep their bare fences until
+  they are re-clipped; the language is not in the markdown, so nothing can
+  repair it after the fact.
+
+- **Code blocks no longer vanish because of the page's CSS class names.** The
+  same accident as the gallery below, arriving through a different word.
+  Readability's negative-weight regex is a *substring* test over the class
+  attribute, and Tailwind's compound utilities collide with it by chance:
+  `overflow-hidden` and `outline-hidden` contain `hidden`, `code-block-scroll`
+  contains `scroll`. `_cleanConditionally` deletes an element outright once
+  `weight + contentScore < 0`, and its `contentScore` is hardcoded to 0, so one
+  such class deleted the whole subtree before anything looked at what it held.
+  One clipped article lost **all 15** of its code blocks and published as prose
+  with the examples simply missing from between the paragraphs — a page reading
+  as if its author had described every sample without ever showing one.
+  The clipper now unwraps the layout `<div>`s around a code block, widening out
+  one container at a time until it reaches one that carries something besides
+  the code. The depth varies by site — the three shapes on that article nest
+  two, three and five deep — so a fixed walk is not enough.
+
+  Unwrapping rather than clearing the class, on the ground the gallery fix
+  already stands on: removing a layout `<div>` is markdown-neutral, since
+  Turndown surrounds one with blank lines whether or not it is there. Not, as
+  this entry first claimed, because `_cleanConditionally` deletes blocks under
+  25 characters — that clause also requires a positive link density, and code
+  has no links, so it never fires. The claim was read out of the source and
+  written up as measured, which it was not. Clearing only the colliding tokens
+  is a real alternative that keeps every judgement Readability makes; what it
+  does not reach is a wrapper whose collision is not a compound suffix, which is
+  the tabbed sample above.
+
+  The guard is the gallery's, diverging in two places. Its attribute allow-list
+  admits only `class`, `style` and `data-*`; a scrollable code panel is a
+  focusable widget, so `id`, `role` and `tabindex` are admitted here too, each
+  with its own reading — `role` against Readability's unlikely-role list, `id`
+  against the same regexes as the class. Refusing them left a tabbed API sample
+  deleted by its own `outline-hidden`. And the negative-weight regex keeps every
+  token but the two that collide, `hidden` and `scroll` — the same shape the
+  gallery's `media` exception already has, one exception per diagnosed word.
+  Declining it wholesale was tried first and was wrong: `promo`, `widget`,
+  `contact`, `shopping`, `tags`, `meta`, `outbrain` and `share` each then handed
+  back a code block Readability had been deleting, because those are exactly the
+  tokens that carry negative weight *without* also being unlikely candidates, so
+  nothing else in the guard caught them. Every genuine rejection pass still
+  applies — the `hidden` attribute, unlikely candidates, bylines, unlikely
+  roles, furniture class names, and any attribute that could mean something.
+
+  `hidden` is exempted rather than kept because it is not a furniture signal at
+  all — it is a visibility signal, and it is the only way Readability ever sees
+  a page hiding something with a stylesheet, so it is re-established on its own
+  terms instead — on Readability's own substring terms, with the collisions
+  named one at a time: `overflow-hidden`, `outline-hidden` and their axis
+  variants, plus `not-sr-only` and `backface-hidden`, which contain a hiding
+  word while doing the opposite or nothing. Naming them is what makes the rule
+  hold in both directions. Matching *whole tokens* instead was tried and let
+  `u-hidden`, `js-hidden`, `hidden-sm` and `always-hidden` through — every
+  framework's own spelling of `display: none`, each one Readability had been
+  excluding. An allow-list fails the cheap way round: a missing entry costs a
+  code block, which then converts exactly as it does today, while a missing
+  hiding form publishes markup nobody was shown.
+
+  A conditional utility is then read as the condition it is, where the condition
+  can be read at all: `data-[state=inactive]:hidden` counts only on an element
+  that really carries `data-state="inactive"`, and `data-[ending-style]:hidden`
+  on an element with no such attribute is an exit animation that is not running
+  — reading it is what keeps a live tabbed code sample. Every other variant
+  (`md:`, `dark:`, `print:`, `hover:`) names a state there is no viewport, theme
+  or pointer here to evaluate, and **unanswerable counts as hidden**: at the
+  reader's own breakpoint `md:hidden` really is `display: none`. `scroll` is
+  exempted with no replacement, having no furniture meaning for a wrapper that
+  holds one `<pre>` and nothing else: that is a code block's scroll box.
+
+  Byte-identical across all 35 cached source pages, which is the whole of what
+  the corpus can say: no vault page carries this shape, so the guards above are
+  argued from the markup and pinned by tests rather than by the sweep.
+
 - **Images no longer vanish because of the page's CSS class names.** Readability
   scores an element by its class before it looks at what the element holds, and
   its "this is furniture" regex contains `media` — so a gallery wrapped in a
