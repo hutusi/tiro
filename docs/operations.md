@@ -403,7 +403,13 @@ Read the output as a prompt for judgement, not a verdict:
   differing is not the same as the newer one being wrong.
 - **`?` lines are the sweep's own blind spots**, not findings. Fetch failures,
   and pages that clip to almost nothing because they build their article in
-  JavaScript (`--min-chars`, default 500).
+  JavaScript (`--min-chars`, default 500). Every article failing exits non-zero;
+  some failing does not, because that is a fact about those articles.
+
+Refreshing `pages/` is not free: several sites in the corpus answer a second
+cold run with 403 or 429, so a refresh can leave you with fewer readable
+articles than you started with. Refresh when you mean to re-measure against
+today's web, not as routine hygiene.
 
 #### What it cannot see
 
@@ -420,6 +426,9 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    and Turndown. That is what you want when judging your own change and exactly
    wrong when judging a dependency bump, which would read as byte-identical. The
    run warns when the baseline's `bun.lock` differs; believe the warning.
+   The shell heuristic is suspended in `--baseline` mode unless *both* sides are
+   thin — when the baseline reads a page fine and the working tree gets nothing
+   from it, that is the worst regression the clipper can have, not a shell.
 3. **The corpus contains the shapes it contains.** Every guard in
    `unwrapMediaWrappers` exists for a failure this sweep reports as
    byte-identical, because no vault page wraps a lone figure in a sidebar. It

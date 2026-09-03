@@ -46,6 +46,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArticle, verbatimRanges } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 
@@ -63,55 +64,62 @@ interface Counts {
 
 /** Global: a line may carry more than one image, and each one counts. */
 const IMAGE = /!\[[^\]]*\]\(/g;
-const FENCE = /^\s{0,3}(?:```|~~~)/;
 
 /**
  * Count images, and the subset that carry a folded caption (ADR 0011).
  *
  * Per image rather than per line, because Turndown emits adjacent images with
  * nothing between them — `![a](a.png)![b](b.png)` — and a per-line count
- * reports losing one of them as no change at all. Fenced code is skipped for
- * the same reason: an article *about* markdown contains image syntax that is
- * not an image, and counting it makes every diff of that article noise.
+ * reports losing one of them as no change at all. One vault article carries two
+ * side by side, and the advisor under-reported it by three.
+ *
+ * What counts as code comes from `verbatimRanges`, not from looking at the
+ * line. An article *about* markdown is otherwise pure noise in every diff, and
+ * recognising code by line shape means naming every way one can be written —
+ * fence length, a four-backtick fence around three, indented code, a fence
+ * inside a blockquote or list, an inline span. That function exists because
+ * this repo already learned that lesson once; the first version of this counter
+ * had to learn it again.
  *
  * A caption stays per line: a folded figure is one paragraph, however many
  * images the page put in it.
  */
 export function countMarkdown(markdown: string): Counts {
+  const verbatim = verbatimRanges(markdown);
+  const isCode = (offset: number) =>
+    verbatim.some((r) => offset >= r.start && offset < r.end);
+
   let images = 0;
   let captions = 0;
-  let fenced = false;
+  let offset = 0;
   for (const line of markdown.split("\n")) {
-    if (FENCE.test(line)) {
-      fenced = !fenced;
-      continue;
+    let found = 0;
+    for (const match of line.matchAll(IMAGE)) {
+      if (!isCode(offset + (match.index ?? 0))) found++;
     }
-    if (fenced) continue;
-    const found = line.match(IMAGE)?.length ?? 0;
-    if (found === 0) continue;
-    images += found;
-    // Trailing whitespace is the whole signal, so test the raw line.
-    if (line.endsWith("  ")) captions++;
+    if (found > 0) {
+      images += found;
+      // Trailing whitespace is the whole signal, so test the raw line.
+      if (line.endsWith("  ")) captions++;
+    }
+    offset += line.length + 1;
   }
   return { images, captions };
 }
 
 /**
- * Strip YAML frontmatter. Deliberately not a YAML parse: the body is
- * everything after the second `---`, and a malformed head should surface as a
- * wrong count rather than a thrown error mid-sweep.
+ * Read a vault's articles through the shared contract parser.
+ *
+ * `parseArticle` rather than a regex over the frontmatter, because the contract
+ * is a keystone this repo already owns and hand-parsing it gets the edge cases
+ * wrong: a quoted `url: "https://…"` — which is how every fixture article
+ * writes it — came back with its quotes attached, and the fetch then failed on
+ * every one of them while the run still exited 0.
+ *
+ * A malformed article is reported and skipped rather than ending the sweep, on
+ * the same reasoning as a page that will not load: it is a fact about one
+ * article, not about the corpus.
  */
-export function stripFrontmatter(source: string): string {
-  if (!source.startsWith("---\n")) return source;
-  const end = source.indexOf("\n---\n", 4);
-  return end === -1 ? source : source.slice(end + 5);
-}
-
-export function readUrl(frontmatter: string): string | null {
-  const match = /^url:[ \t]*(\S+)[ \t]*$/m.exec(frontmatter);
-  return match?.[1] ?? null;
-}
-
 async function loadArticles(vault: string): Promise<Article[]> {
   const root = join(vault, "articles");
   const entries = await readdir(root, { withFileTypes: true });
@@ -120,13 +128,13 @@ async function loadArticles(vault: string): Promise<Article[]> {
     if (!entry.isDirectory()) continue;
     const path = join(root, entry.name, "index.md");
     if (!existsSync(path)) continue;
-    const source = await readFile(path, "utf-8");
-    const url = readUrl(source);
-    if (url === null) {
-      console.warn(`  ${entry.name}: no url in frontmatter, skipped`);
-      continue;
+    try {
+      const { frontmatter, body } = parseArticle(await readFile(path, "utf-8"));
+      articles.push({ slug: entry.name, url: frontmatter.url, body });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`  ?  ${entry.name}: unreadable frontmatter (${reason})`);
     }
-    articles.push({ slug: entry.name, url, body: stripFrontmatter(source) });
   }
   return articles;
 }
@@ -217,8 +225,22 @@ function parseArgs(argv: string[]) {
     // leaves git refusing to re-create it at the same path.
     pages: join(cache, "pages"),
     baselines: join(cache, "baselines"),
-    minChars: Number(get("min-chars") ?? 500),
+    minChars: minChars(get("min-chars")),
   };
+}
+
+/**
+ * `Number("abc")` is NaN, and every `length < NaN` is false — so a typo here
+ * silently turned the shell detection off rather than complaining.
+ */
+function minChars(raw: string | undefined): number {
+  if (raw === undefined) return 500;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    console.error(`--min-chars must be a non-negative number, got ${raw}`);
+    process.exit(2);
+  }
+  return value;
 }
 
 async function main() {
@@ -275,7 +297,16 @@ async function main() {
 
     // A page whose article is built in JavaScript arrives as a shell, and its
     // "losses" are the sweep's blind spot rather than the clipper's doing.
-    if (after.length < args.minChars) {
+    //
+    // In baseline mode both sides read the *same* fetched HTML, so a baseline
+    // that got 10,000 characters out of it is proof the page is readable — and
+    // a working tree that gets zero from it is the most catastrophic regression
+    // the clipper can have, not a shell. Requiring both to be thin is what
+    // keeps this heuristic from hiding exactly what the tool is for. In advisor
+    // mode there is no such proof: the committed body was clipped from Chrome's
+    // rendered DOM, which this cannot see, so the fresh clip stands alone.
+    const bothThin = baselineClip === null || before.length < args.minChars;
+    if (after.length < args.minChars && bothThin) {
       console.log(
         `  ?  ${article.slug}: clipped to ${after.length} chars — likely client-rendered, ignore its delta`,
       );
@@ -300,6 +331,11 @@ async function main() {
     `\n${changed} of ${articles.length} ${scope}` +
       (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
   );
+
+  // Some articles failing is information about those articles. *Every* article
+  // failing is information about the invocation — a wrong --vault, no network —
+  // and must not read as a clean sweep to a caller that only checks the status.
+  if (failed === articles.length) process.exit(1);
 }
 
 /**
