@@ -46,7 +46,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { imageOffsets, parseArticle } from "@tiro/shared";
+import { foldedFigureCount, imageOffsets, parseArticle } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 
@@ -63,44 +63,20 @@ interface Counts {
 }
 
 /**
- * Count images, and the subset that carry a folded caption (ADR 0011).
+ * Count images, and the paragraphs shaped like a folded figure (ADR 0011).
  *
- * Every image comes from `imageOffsets`, which asks the markdown parser. A
- * regex gets this wrong in both directions and this counter proved both: the
- * clipper writes `![a\]b](x.png)` for `alt="a]b"`, which `!\[[^\]]*\]\(`
- * does not match at all, and it matches `\![x](x.png)`, an escaped bang that
- * is literal text. Asking the parser also settles what counts as code for
- * free — an image inside a fence, an indented block or an inline span never
- * becomes an image node, so there is nothing left to exclude by hand.
- *
- * Counted per image rather than per line, because Turndown emits adjacent
- * images with nothing between them and one vault article carries two side by
- * side; a per-line count reported it three short.
- *
- * A caption stays per line: a folded figure is one paragraph, however many
- * images the page put in it.
+ * Both come from the markdown parser via `@tiro/shared`, and nothing here reads
+ * the text by line any more. Every version of this counter that did was wrong
+ * in a way the vault happened not to expose: a regex over `[^\]]` missed the
+ * escaped alt text the clipper really emits, a fence check by line shape missed
+ * four-backtick and blockquoted fences, and splitting on `\n` left a `\r` that
+ * made every folded caption in a CRLF document invisible.
  */
 export function countMarkdown(markdown: string): Counts {
-  const offsets = imageOffsets(markdown);
-  if (offsets.length === 0) return { images: 0, captions: 0 };
-
-  // Walk lines and offsets together, both in ascending order, so attributing
-  // an image to its line stays linear rather than a scan per image.
-  let captions = 0;
-  let cursor = 0;
-  let lineStart = 0;
-  for (const line of markdown.split("\n")) {
-    const lineEnd = lineStart + line.length;
-    let onThisLine = false;
-    while (cursor < offsets.length && (offsets[cursor] as number) <= lineEnd) {
-      onThisLine = true;
-      cursor++;
-    }
-    // Trailing whitespace is the whole signal, so test the raw line.
-    if (onThisLine && line.endsWith("  ")) captions++;
-    lineStart = lineEnd + 1;
-  }
-  return { images: offsets.length, captions };
+  return {
+    images: imageOffsets(markdown).length,
+    captions: foldedFigureCount(markdown),
+  };
 }
 
 /**

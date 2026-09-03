@@ -167,9 +167,23 @@ export function isImageOnlyParagraph(text: string): boolean {
 }
 
 /**
+ * The two mdast node types that are an image.
+ *
+ * `![a](x.png)` is an `image`; `![a][ref]`, `![a][]` and `![ref]` are an
+ * `imageReference`, resolved against a definition elsewhere in the document.
+ * Turndown writes the inline form and no vault article uses the other, so this
+ * distinction is invisible today — which is exactly the kind of latent wrongness
+ * that this file's other comments were written after discovering the hard way.
+ */
+const IMAGE_NODE_TYPES: ReadonlySet<string> = new Set([
+  "image",
+  "imageReference",
+]);
+
+/**
  * Start offset of every image in `text`, in document order.
  *
- * The counting counterpart to `isImageOnlyParagraph` above, and it exists for
+ * The counting counterpart to `isImageOnlyParagraph` below, and it exists for
  * the reason that function's comment already gives: Turndown escapes brackets
  * in alt text, so the clipper writes `![a\]b](x.png)` for `alt="a]b"`, and a
  * pattern built from `[^\]]` sees no image there at all. The same pattern
@@ -180,27 +194,75 @@ export function isImageOnlyParagraph(text: string): boolean {
  * a fence, an indented block or an inline span never becomes an image node, so
  * a caller has nothing left to exclude by hand.
  *
- * Offsets rather than a count, so a caller can attribute each image to the line
- * it sits on — which is how a folded figure caption is recognised (ADR 0011).
+ * Offsets rather than a count, so a caller can attribute each image to the part
+ * of the document it sits in.
  */
 export function imageOffsets(text: string): number[] {
   const found: number[] = [];
-  const walk = (node: unknown): void => {
-    const n = node as {
-      type?: string;
-      children?: unknown[];
-      position?: { start: { offset?: number } };
-    };
-    if (n.type === "image") {
-      const start = n.position?.start.offset;
+  walkNodes(parser.parse(text) as Root, (node) => {
+    if (node.type !== undefined && IMAGE_NODE_TYPES.has(node.type)) {
+      const start = node.position?.start.offset;
       if (start !== undefined) found.push(start);
     }
-    // Images nest — inside a link, emphasis, a table cell, a list item — so the
-    // walk continues through every node rather than stopping at the first.
-    for (const child of n.children ?? []) walk(child);
-  };
-  walk(parser.parse(text) as Root);
+  });
   return found.sort((a, b) => a - b);
+}
+
+/**
+ * How many paragraphs are shaped like a folded figure: an image immediately
+ * followed by a hard break, which is how a caption is co-located with its
+ * picture (ADR 0011).
+ *
+ * Read from the tree rather than from the text, because the textual form of a
+ * hard break is not one thing. Turndown writes two trailing spaces, markdown
+ * also accepts a trailing backslash, and a CRLF document leaves a `\r` between
+ * the spaces and the newline — so a `line.endsWith("  ")` test silently
+ * undercounts a vault written on Windows, which `parseArticle` explicitly
+ * supports. The parser calls all three a `break`.
+ *
+ * Per paragraph, not per image: a folded figure is one block however many
+ * pictures the page put in it, which is the property that keeps `index.md` and
+ * `zh.md` aligned.
+ */
+export function foldedFigureCount(text: string): number {
+  let count = 0;
+  walkNodes(parser.parse(text) as Root, (node) => {
+    if (node.type !== "paragraph") return;
+    // "An image somewhere before a break", not "an image immediately before
+    // one": the picture may be a link wrapping the image, which is what
+    // `pictureOf` produces for a figure whose image links to a larger copy, and
+    // then the paragraph's own children are link, break, text. Checking direct
+    // children only lost every such figure — seven in one vault article.
+    let seenImage = false;
+    for (const child of (node.children ?? []) as WalkNode[]) {
+      if (child.type === "break") {
+        if (seenImage) {
+          count++;
+          return;
+        }
+        continue;
+      }
+      walkNodes(child, (inner) => {
+        if (inner.type !== undefined && IMAGE_NODE_TYPES.has(inner.type)) {
+          seenImage = true;
+        }
+      });
+    }
+  });
+  return count;
+}
+
+interface WalkNode {
+  type?: string;
+  children?: unknown[];
+  position?: { start: { offset?: number } };
+}
+
+/** Depth-first over every node — images nest inside links, emphasis, cells. */
+function walkNodes(root: unknown, visit: (node: WalkNode) => void): void {
+  const node = root as WalkNode;
+  visit(node);
+  for (const child of node.children ?? []) walkNodes(child, visit);
 }
 
 /**
