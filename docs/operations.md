@@ -444,6 +444,29 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    `tiro.clipper_version` stamps into every article, so it is how a later audit
    identifies which clips predate a given fix; a version that moves for reasons
    other than what changed makes that question harder to answer.
+
+   A build with git available also records `tiro.clipper_commit` — `git
+   describe --tags --always --dirty --match 'ext-v*'`, run by the Vite build —
+   so provenance does not depend on remembering to bump. Use it when the
+   version cannot answer the question: an unpacked build reports the release it
+   is *near*, and a minor that batched several fixes cannot say which of them a
+   clip predates. The field is absent entirely from a build with no git to ask
+   (a source zip, a checkout without history), which is why it is optional.
+
+   To ask whether a clip contains a given fix, **strip any `-dirty` suffix
+   first** — git rejects the full description as a revision:
+
+   ```sh
+   commit=${recorded%-dirty}
+   git merge-base --is-ancestor <fix-commit> "$commit" && echo "has the fix"
+   ```
+
+   A `-dirty` suffix means the build came from a modified tree, so it records
+   *the commit the build was based on, plus the fact that it differed* — not
+   the build itself. Two different dirty builds off the same commit record the
+   same value, so it narrows an investigation rather than settling it; only the
+   artifact or the diff identifies such a build exactly. Expect this on
+   anything loaded unpacked.
 2. Tag `ext-v<version>` (matching exactly) and push the tag.
 3. "Release extension" builds, verifies the tag against the manifest, zips
    `dist/` with `manifest.json` at the archive root, and attaches it to a new

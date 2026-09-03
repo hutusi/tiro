@@ -30,6 +30,27 @@ const isoDatetime = z.preprocess(
  */
 const clipperVersion = z.string().optional();
 
+/**
+ * Which clipper *build* wrote the article — `git describe` output, e.g.
+ * `ext-v0.11.0-8-gbe3dcc8`, or a bare commit when no release tag is reachable.
+ *
+ * `clipper_version` above names a release, and the extension is normally run by
+ * loading `dist/` unpacked, which is built from whatever is checked out. So the
+ * version says which release a build is *near*, not which build it is: every
+ * clip taken across the seven commits of one branch reports the same number,
+ * and a minor that batches several fixes cannot say which of them a given
+ * article predates. This can, via `git merge-base --is-ancestor`.
+ *
+ * A `-dirty` suffix means the build came from a modified working tree, so the
+ * commit names the nearest thing to it rather than the thing itself. That is
+ * the common case for an unpacked build and the reason the suffix is kept
+ * rather than trimmed.
+ *
+ * Optional and additive for the same reason `clipper_version` is — no
+ * `tiro.schema` bump — and, like it, named on both schemas below.
+ */
+const clipperCommit = z.string().optional();
+
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
@@ -53,6 +74,7 @@ export const ClipFrontmatterSchema = z.object({
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,
+    clipper_commit: clipperCommit,
   }),
 });
 export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
@@ -66,6 +88,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,
+    clipper_commit: clipperCommit,
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),

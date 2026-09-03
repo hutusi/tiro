@@ -95,9 +95,16 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   to stacked rendering, and the processor never writes a misaligned `zh.md`.
   The shared parser runs remark-math, so `$$…$$` is a single `math` block even
   with blank lines inside, the way a fenced code block already is (ADR 0009).
-- **Each article records what produced it**: `tiro.clipper_version` alongside
-  `tiro.processor_version`, both optional so articles predating either simply
-  lack them. Answering "which clipper wrote this?" per article beats comparing
+- **Each article records what produced it**: `tiro.clipper_version` and
+  `tiro.clipper_commit` alongside `tiro.processor_version`, all optional so
+  articles predating any of them simply lack them. The version names a
+  *release*; the commit — `git describe` output injected at build time, e.g.
+  `ext-v0.11.0-8-gbe3dcc8` — names the *source* it was built from, which is the
+  honest answer when the extension is loaded unpacked from a working tree
+  rather than installed from a release. A `-dirty` suffix records that the tree
+  differed from that commit without saying how, so two dirty builds off one
+  commit are indistinguishable: it narrows an investigation rather than
+  settling it. Answering "which clipper wrote this?" per article beats comparing
   `clipped_at` against the extension's git history, which is how the arXiv
   equation regression had to be traced. Note that both must be named on
   `ArticleFrontmatterSchema`, not just the clip schema: zod strips keys an

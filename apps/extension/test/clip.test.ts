@@ -10,6 +10,7 @@ const input = {
   author: "Jane Doe",
   clippedAt: "2026-08-22T10:00:00.000Z",
   clipperVersion: "0.7.0",
+  clipperCommit: "ext-v0.7.0-3-gabc1234",
 };
 
 describe("buildClipFile", () => {
@@ -26,16 +27,49 @@ describe("buildClipFile", () => {
     expect(frontmatter.clipped_at).toBe(input.clippedAt);
     expect(frontmatter.excerpt).toBe(input.excerpt);
     expect(frontmatter.author).toBe(input.author);
-    expect(frontmatter.tiro).toEqual({ schema: 1, clipper_version: "0.7.0" });
+    expect(frontmatter.tiro).toEqual({
+      schema: 1,
+      clipper_version: "0.7.0",
+      clipper_commit: "ext-v0.7.0-3-gabc1234",
+    });
     expect(body).toBe("# Hello\n\nA paragraph.\n");
   });
 
   test("omits the clipper version when it is unavailable", async () => {
     // `chrome.runtime.getManifest()` is the only source, and an article with no
     // version recorded is better than one claiming an empty string.
-    const file = await buildClipFile({ ...input, clipperVersion: "" });
+    const file = await buildClipFile({
+      ...input,
+      clipperVersion: "",
+      clipperCommit: "",
+    });
     expect(parseArticle(file.content).frontmatter.tiro).toEqual({ schema: 1 });
     expect(file.content).not.toContain("clipper_version:");
+  });
+
+  test("omits the commit when the build had no git to ask", async () => {
+    // A source zip, or a checkout with no history: the build injects "" and an
+    // absent field is honest where an empty one would not be.
+    for (const clipperCommit of ["", undefined]) {
+      const file = await buildClipFile({ ...input, clipperCommit });
+      expect(parseArticle(file.content).frontmatter.tiro).toEqual({
+        schema: 1,
+        clipper_version: "0.7.0",
+      });
+      expect(file.content).not.toContain("clipper_commit:");
+    }
+  });
+
+  test("records a dirty build as dirty", async () => {
+    // The common case for an unpacked build. Recording the bare commit would
+    // claim the tree was clean, which is the one thing the field must not do.
+    const file = await buildClipFile({
+      ...input,
+      clipperCommit: "ext-v0.11.0-8-gbe3dcc8-dirty",
+    });
+    expect(parseArticle(file.content).frontmatter.tiro.clipper_commit).toBe(
+      "ext-v0.11.0-8-gbe3dcc8-dirty",
+    );
   });
 
   test("falls back to the domain when the title is empty", async () => {
