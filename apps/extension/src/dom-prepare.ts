@@ -15,6 +15,7 @@
  * subtrees, and a formula it drops cannot be recovered afterwards.
  */
 
+import { languageFromFilename, languageFromLabel } from "@tiro/shared";
 import type TurndownService from "turndown";
 
 /** Marks a recovered formula for the Turndown rule in clipper.ts. */
@@ -363,6 +364,173 @@ export function restoreCodeLanguagesIn(html: string, doc: Document): string {
   return scratch.body.innerHTML;
 }
 
+/**
+ * How far above a `<pre>` its own chrome can sit. Three levels covers a header
+ * bar nested inside a rounded wrapper inside a scroll container, and stops
+ * short of the article.
+ */
+const CHROME_MAX_DEPTH = 3;
+
+/** Attributes a code block's chrome writes its filename into. */
+const TITLE_ATTRS = [
+  "data-rehype-pretty-code-title",
+  "data-code-title",
+  "data-title",
+];
+
+/** Elements that hold a code block's filename as text. */
+const TITLE_SELECTOR = [
+  "[data-rehype-pretty-code-title]",
+  "[data-code-title]",
+  "[data-title]",
+  "[class*='codeBlockTitle']",
+  "[class*='code-block-title']",
+  "[class*='code-title']",
+  "[class*='filename']",
+  "figcaption",
+].join(",");
+
+function resolveLabel(text: string): string | null {
+  return languageFromLabel(text) ?? languageFromFilename(text);
+}
+
+function textOf(element: Element): string {
+  return (element.textContent ?? "").trim();
+}
+
+/**
+ * The outermost ancestor holding this `<pre>` and nothing but its own chrome.
+ *
+ * `holdsOnlyCode` is the same structural test the figure fold uses: one `<pre>`
+ * and no prose beside it. That is the right guard for a tab strip found by
+ * proximity, because a tab strip near a code block is as likely to be the
+ * page's own — Cloudflare puts a *human*-language switcher in exactly that
+ * markup — and nothing about the widget itself says which.
+ */
+function chromeContainer(pre: Element): Element | null {
+  let container: Element | null = null;
+  let node = pre.parentElement;
+  for (let depth = 0; depth < CHROME_MAX_DEPTH && node !== null; depth += 1) {
+    if (!holdsOnlyCode(node)) break;
+    container = node;
+    node = node.parentElement;
+  }
+  return container;
+}
+
+/**
+ * The outermost ancestor within reach holding this `<pre>` and no other.
+ *
+ * Deliberately looser than `chromeContainer`, because a title is text beside
+ * the code — the strict test rejects the very shape this one exists to find.
+ * Holding exactly one `<pre>` is what does the work instead: any title inside
+ * the result can only describe this block, since there is no other block for it
+ * to belong to.
+ */
+function singleCodeAncestor(pre: Element): Element | null {
+  let container: Element | null = null;
+  let node = pre.parentElement;
+  for (let depth = 0; depth < CHROME_MAX_DEPTH && node !== null; depth += 1) {
+    if (node.getElementsByTagName("pre").length !== 1) break;
+    container = node;
+    node = node.parentElement;
+  }
+  return container;
+}
+
+/** The element holding both the tab strip and this block's panel. */
+function tabGroup(panel: Element): Element | null {
+  let node = panel.parentElement;
+  for (let depth = 0; depth < CHROME_MAX_DEPTH && node !== null; depth += 1) {
+    if (node.querySelector('[role="tab"]') !== null) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/**
+ * The tab that names this block, in a multi-language tab group.
+ *
+ * Which tab is *this* block's is the whole difficulty. A page that renders one
+ * panel at a time has a single selected tab and no ambiguity; a page that
+ * renders every panel has one `<pre>` per language, and taking the selected tab
+ * would label all of them `Python`. So a panel is matched to its own tab —
+ * through `aria-labelledby`, or by position when the counts agree — and the
+ * selected-tab reading is kept for the case where there is nothing to confuse
+ * it with.
+ */
+function tabLabelFor(pre: Element): string | null {
+  const panel = pre.closest('[role="tabpanel"]');
+  const group = panel === null ? chromeContainer(pre) : tabGroup(panel);
+  if (group === null) return null;
+  const tabs = Array.from(group.querySelectorAll('[role="tab"]'));
+  if (tabs.length === 0) return null;
+  if (panel !== null) {
+    const labelledBy = panel.getAttribute("aria-labelledby");
+    if (labelledBy !== null && labelledBy !== "") {
+      const tab = tabs.find((one) => one.getAttribute("id") === labelledBy);
+      return tab === undefined ? null : textOf(tab);
+    }
+    const panels = Array.from(group.querySelectorAll('[role="tabpanel"]'));
+    if (panels.length === tabs.length) {
+      const tab = tabs[panels.indexOf(panel)];
+      return tab === undefined ? null : textOf(tab);
+    }
+    // Panels rendered, but not one per tab and not identified: no reading of
+    // this shape is safe.
+    if (panels.length > 1) return null;
+  }
+  const selected =
+    tabs.find((one) => one.getAttribute("aria-selected") === "true") ??
+    tabs.find((one) => one.hasAttribute("data-active")) ??
+    (tabs.length === 1 ? tabs[0] : undefined);
+  return selected === undefined ? null : textOf(selected);
+}
+
+/** A filename written into the block's chrome, as an attribute or as text. */
+function titleLabelFor(pre: Element): string | null {
+  // The `<pre>` itself gets the attributes only. Its text is the code, and a
+  // one-line block reading `python` would otherwise name itself.
+  for (const attr of TITLE_ATTRS) {
+    const value = pre.getAttribute(attr);
+    if (value !== null && value.trim() !== "") return value;
+  }
+  const container = singleCodeAncestor(pre);
+  if (container === null) return null;
+  for (const element of Array.from(
+    container.querySelectorAll(TITLE_SELECTOR),
+  )) {
+    for (const attr of TITLE_ATTRS) {
+      const value = element.getAttribute(attr);
+      if (value !== null && value.trim() !== "") return value;
+    }
+    const text = textOf(element);
+    if (text !== "") return text;
+  }
+  return null;
+}
+
+/**
+ * The language a page states in a code block's chrome rather than its markup.
+ *
+ * The last resort in `recoverCodeBlocks`' chain, and the only one that reads
+ * text meant for a human. Pages that pre-highlight with Shiki emit
+ * `<pre class="shiki shiki-themes …">` and no language at all, so on a growing
+ * share of docs sites and engineering blogs the tab reading `Python` is the
+ * only place the language survives.
+ *
+ * Everything found here goes through `@tiro/shared`'s allowlists, which is what
+ * keeps `Copy` and `Output` — words that sit in exactly these positions — out
+ * of the vault as fence languages.
+ */
+function languageFromChrome(pre: Element): string | null {
+  const tab = tabLabelFor(pre);
+  const fromTab = tab === null ? null : resolveLabel(tab);
+  if (fromTab !== null) return fromTab;
+  const title = titleLabelFor(pre);
+  return title === null ? null : resolveLabel(title);
+}
+
 function recoverCodeBlocks(doc: Document): void {
   unwrapChromaTables(doc);
   for (const pre of Array.from(doc.querySelectorAll("pre"))) {
@@ -393,7 +561,9 @@ function recoverCodeBlocks(doc: Document): void {
       languageFromClasses(
         pre.parentElement?.parentElement ?? null,
         CONTAINER_LANG_PATTERNS,
-      );
+      ) ??
+      // Last: text the page wrote for a human, not markup. See above.
+      languageFromChrome(pre);
     if (language === null) continue;
     const classes = (code.getAttribute("class") ?? "").trim();
     code.setAttribute(

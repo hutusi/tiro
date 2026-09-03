@@ -192,6 +192,120 @@ describe("code language recovery", () => {
     ).toBe(null);
   });
 
+  test("reads the selected tab when a page renders one panel at a time", () => {
+    // The shape platform.claude.com ships: seven tabs, one rendered panel, and
+    // <pre class="shiki shiki-themes …"> carrying no language at all.
+    expect(
+      languageOf(
+        '<div><div><div role="tablist" aria-label="Code block tabs">' +
+          '<button role="tab" aria-selected="true">Python</button>' +
+          '<button role="tab" aria-selected="false">TypeScript</button>' +
+          '<button role="tab" aria-selected="false">Go</button>' +
+          "</div></div>" +
+          '<div role="tabpanel"><pre class="shiki shiki-themes github-light dark-plus">' +
+          "<code>import anthropic</code></pre></div></div>",
+      ),
+    ).toBe("python");
+  });
+
+  test("reads data-active when no tab claims aria-selected", () => {
+    expect(
+      languageOf(
+        '<div><div role="tablist">' +
+          '<button role="tab">Java</button>' +
+          '<button role="tab" data-active="">Rust</button>' +
+          "</div>" +
+          '<div role="tabpanel"><pre><code>x</code></pre></div></div>',
+      ),
+    ).toBe("rust");
+  });
+
+  test("matches a panel to its own tab when every panel is rendered", () => {
+    // Taking the *selected* tab here would label all three blocks Python.
+    const group =
+      '<div><div role="tablist">' +
+      '<button role="tab" aria-selected="true">Python</button>' +
+      '<button role="tab" aria-selected="false">Ruby</button>' +
+      "</div>" +
+      '<div role="tabpanel"><pre><code>a</code></pre></div>' +
+      '<div role="tabpanel"><pre id="second"><code>b</code></pre></div></div>';
+    const { doc } = prepare(group);
+    const second = doc.querySelector("#second code");
+    expect(second?.getAttribute("class")).toBe("language-ruby");
+  });
+
+  test("matches a panel to its tab through aria-labelledby", () => {
+    const { doc } = prepare(
+      '<div><div role="tablist">' +
+        '<button role="tab" id="t-go" aria-selected="false">Go</button>' +
+        '<button role="tab" id="t-sql" aria-selected="true">SQL</button>' +
+        "</div>" +
+        '<div role="tabpanel" aria-labelledby="t-go">' +
+        "<pre><code>x</code></pre></div></div>",
+    );
+    expect(doc.querySelector("pre code")?.getAttribute("class")).toBe(
+      "language-go",
+    );
+  });
+
+  /**
+   * The reason the tab reading goes through an allowlist. Every one of these
+   * sits exactly where a language name sits, and any of them written into a
+   * fence is a wrong language in the vault for good.
+   */
+  test("refuses tab text that is not a language", () => {
+    for (const label of ["Copy", "Output", "Response", "Terminal"]) {
+      expect(
+        languageOf(
+          '<div><div role="tablist">' +
+            `<button role="tab" aria-selected="true">${label}</button>` +
+            "</div>" +
+            '<div role="tabpanel"><pre><code>x</code></pre></div></div>',
+        ),
+      ).toBe(null);
+    }
+  });
+
+  test("does not read a tab strip that belongs to something else", () => {
+    // Prose beside the code means this wrapper is not the block's own chrome.
+    expect(
+      languageOf(
+        '<div><div role="tablist">' +
+          '<button role="tab" aria-selected="true">Python</button></div>' +
+          "<p>Some prose that is not part of any code block.</p>" +
+          "<pre><code>x</code></pre></div>",
+      ),
+    ).toBe(null);
+  });
+
+  test("reads a filename from the block's title chrome", () => {
+    expect(
+      languageOf(
+        '<div><div class="code-block-title">src/main.rs</div>' +
+          "<pre><code>x</code></pre></div>",
+      ),
+    ).toBe("rust");
+    expect(
+      languageOf(
+        "<figure><figcaption>Dockerfile</figcaption>" +
+          "<pre><code>x</code></pre></figure>",
+      ),
+    ).toBe("docker");
+  });
+
+  test("reads a title attribute off the block itself", () => {
+    expect(
+      languageOf(
+        '<pre data-rehype-pretty-code-title="app.ts"><code>x</code></pre>',
+      ),
+    ).toBe("typescript");
+  });
+
+  test("does not read a one-word code block as its own title", () => {
+    // The <pre> contributes attributes only; its text is the code.
+    expect(languageOf("<pre><code>python</code></pre>")).toBe(null);
+  });
+
   test("removes line-number gutters from the code text", () => {
     const { doc } = prepare(
       '<pre><code><span class="linenos">1\n2</span>const a = 1;</code></pre>',
