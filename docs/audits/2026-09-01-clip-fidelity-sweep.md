@@ -55,6 +55,8 @@ These cost real effort to learn and should survive into the next sweep.
 | `CITE-DROP` | clip | Citation elements vanish, leaving orphan `) ,` spacing |
 | `EMBED-LOSS` | clip | A content video disappears with no placeholder |
 | `TABLE-DROP` | Readability | Data table pruned; its caption is left stranded on the page |
+| `MEDIA-DROP` | Readability | Every image in a gallery vanishes; the page reads as if it never had one |
+| `SVG-SOUP` | clip | An inline chart arrives as an unbroken run of its axis labels and values |
 | `DUP-IDENTITY` | product | Same essay stored twice under two URLs |
 | `BOILER` | clip | Subscribe/share/"opens in new window" text inside the body |
 
@@ -139,7 +141,7 @@ wrapped rows, and one URL auto-linked. The theme is Chroma-like but not `table.l
 indistinguishable from body prose. Worst in `kuleshov`, where a caption ending "Figure credit:
 M. Grootendorst & Gemma Diffusion." runs straight into the next body paragraph.
 
-**Fixed at clip time in 0.10.0 (ADR 0011), verified on real pages 2026-09-02.** The clipper folds a
+**Fixed at clip time in extension 0.10.0 (ADR 0011), verified on real pages 2026-09-02.** The clipper folds a
 caption into its image's paragraph and the site renders that pair as a `<figure>` — co-location is
 the only association markdown can express, which is why the first attempt's raw `<figure>` HTML was
 reverted. `kuleshov` re-clipped at 30/30 folded and renders 60 `<figure>` elements live (30 per
@@ -212,7 +214,7 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 ## Suggested fix order
 
 1. `unsung` — one article, total loss, and the root cause is unknown; diagnose first.
-2. `FIG-SEMANTICS` — **done in 0.10.0** (ADR 0011); see candidate 7. Not one Turndown rule as
+2. `FIG-SEMANTICS` — **done in extension 0.10.0** (ADR 0011); see candidate 7. Not one Turndown rule as
    guessed here: it is a DOM fold running after Readability, plus a renderer change.
 3. `FN-REF`/`FN-INLINE` — one rule family, 5 articles, most-cited content.
 4. `ANCHOR-HASH` and `CODE-FLAT`/`CODE-AS-TABLE` — narrow, per-theme.
@@ -235,6 +237,29 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
    **Re-clipped 2026-09-02 and confirmed**: 2608 now carries all five tables, each rendering next to its
    caption, and records `clipper_version: 0.9.0`.
 
+7. `MEDIA-DROP` and `SVG-SOUP` — **found and fixed 2026-09-03, in extension 0.11.0.** Neither was in this
+   sweep, because the sweep counted what the clip contained and these articles' clips contained no
+   images to count. `MEDIA-DROP` is `TABLE-DROP`'s twin: `_cleanConditionally` scores an element's
+   class before it looks inside, Readability's `negative` regex contains **`media`**, and a
+   CSS-module class like `…__media-gallery` matches it — so the subtree is deleted at `weight = -25`
+   before any of the checks written to protect images is reached. Fixed by unwrapping a layout
+   `<div>` that holds nothing but media and sits in figure markup; unwrapping rather than clearing
+   the class, because Readability rewrites a phrasing-only `<div>` into a `<p>` and that `<p>` then
+   blocks the `FIG-SEMANTICS` fold. `SVG-SOUP` is Turndown emitting every text node of an inline
+   `<svg>` in document order with no separators, so a chart lands as
+   `0123Speedup on an NVIDIA H100 (×)Original implementation…`; fixed by dropping an `<svg>` that
+   paints `<text>`, the picture being unrepresentable in markdown either way.
+
+   **Measured over all 34 vault articles**, clipping each source page with both versions: 30 come
+   out byte-identical, and the 4 that change lose nothing — 12 images and 8 folded captions gained,
+   3 glyph-soup paragraphs removed. Four articles are affected, three of which nobody had noticed:
+   `anthropic` (3 images, 3 captions, 3 soup blocks), `apple` (**7 images**, every one it has, and
+   no captions), `greenlightning` (2 images, 2 captions), `claude.com` (no images, 3 captions — its
+   `<figure><div><img></div>` is Webflow's shape, so the fold, not the deletion, is what it was
+   losing). Images 3 + 7 + 2 + 0 = 12; captions 3 + 0 + 2 + 3 = 8.
+
+   **Re-clip needed** for those four. Only `anthropic` has been re-clipped so far.
+
 **Re-clipping is now a measured remedy, not a hope.** The two 0.7.0 clips clear every legacy class,
 so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` was the
-exception — it needed a code fix, which shipped in 0.10.0.
+exception — it needed a code fix, which shipped in extension 0.10.0.

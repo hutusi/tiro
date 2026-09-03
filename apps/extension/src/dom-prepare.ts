@@ -381,6 +381,66 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * Remove an `<svg>` that paints text, so a chart cannot arrive as glyph soup.
+ *
+ * Turndown has no rule for `<svg>` and does not call it a block, so it keeps
+ * walking and emits every text node inside — in document order, with no
+ * separators, because SVG lays its labels out by coordinate rather than by
+ * flow. A scatter plot's axis ticks, series names and value labels come out as
+ * one run: `0123Speedup on an NVIDIA H100 (×)Original implementationChromBPNet
+ * (6M)2.1-kb DNA sequence…1.6×1.8×1.4×`. The site renders that as a body
+ * paragraph and the processor sends it to the translator, which dutifully
+ * translates it.
+ *
+ * Deleting is the whole fix available here, and it is a real improvement
+ * rather than a concession: the chart is *already* lost — markdown has no
+ * element for it — so the only question is whether its labels are published as
+ * prose. Capturing the picture instead is not the alternative it looks like.
+ * The chart that prompted this fills its marks from `var(--chart-*)` tokens
+ * defined on an ancestor, so an `<svg>` lifted out of the page renders blank;
+ * making it an asset would mean inlining computed styles, which is a different
+ * change with its own ADR.
+ *
+ * Three things keep this off text that is not debris. It reads `<text>`, the
+ * only SVG element that paints glyphs, so `<title>` and `<desc>` — which are
+ * accessibility labels — are never a reason to delete anything. It never
+ * touches an `<svg>` inside a link, whose text is the link's label. And it
+ * requires `SOUP_LABELS` of them, so a single painted label is left alone and
+ * converts exactly as it does today; only a chart's worth of them is soup.
+ *
+ * Must run after `normalizeMath`, which replaces MathJax's rendered SVG with
+ * its TeX. MathJax paints with `<path>`, so the scoping above spares it
+ * anyway; the ordering is what makes that a guarantee instead of a
+ * coincidence.
+ */
+/**
+ * How many painted labels make an `<svg>` a chart rather than a caption.
+ *
+ * Measured, not guessed: the seven charts on the article that prompted this
+ * carry 17 to 31 `<text>` elements each. A label — a button, a badge, a
+ * diagram's single annotation — carries one. Four is far above anything a
+ * label plausibly reaches and far below the smallest real chart, so the rule
+ * does not depend on where in that gap it sits.
+ *
+ * Counting `<text>` rather than `<text>, <tspan>` keeps it that way: a label
+ * split across three `<tspan>`s is still one label.
+ */
+const SOUP_LABELS = 4;
+
+function dropChartSvgs(doc: Document): void {
+  for (const svg of Array.from(doc.querySelectorAll("svg"))) {
+    // An `<a>`'s SVG text is the link's only label. Deleting it leaves `[](…)`,
+    // a link with no text — strictly worse than the soup this pass removes.
+    if (svg.closest("a") !== null) continue;
+    const labels = Array.from(svg.querySelectorAll("text")).filter(
+      (node) => (node.textContent ?? "").trim() !== "",
+    ).length;
+    if (labels < SOUP_LABELS) continue;
+    svg.remove();
+  }
+}
+
+/**
  * Inline elements a caption may carry into a paragraph.
  *
  * An allow-list, not a list of blocks to reject, because the two failures are
@@ -723,6 +783,236 @@ function foldFigureCaptions(doc: Document): void {
 }
 
 /**
+ * Unwrap a `<div>` that exists only to lay a figure out, so Readability cannot
+ * mistake the page's CSS for a verdict on the content.
+ *
+ * `_cleanConditionally` scores an element by its class name before it looks at
+ * what the element holds, and Readability's `negative` regex contains
+ * **`media`**. A CSS-module class like
+ * `MediaGalleryView-module-scss-module__6QZEyW__media-gallery` matches it, so
+ * `weight` is -25, so `weight + contentScore < 0` returns true and the subtree
+ * is deleted — before any of the checks written to protect images
+ * (`img > 1 && p / img < 0.5`, the list-of-images exception) is reached. One
+ * clipped article lost all three of its images and a `<figcaption>` this way,
+ * and published as if the page had never had a picture in it.
+ *
+ * The same shape as `unhideGuessedHeaderTables` below: Readability judging
+ * content by a regex over class names, and a class name colliding with it by
+ * accident. The remedy is the same too — hand it a DOM it judges correctly
+ * rather than re-deriving its rules here, which this file knows better than to
+ * attempt.
+ *
+ * Unwrapping rather than only stripping the class, because the wrapper costs a
+ * second thing. Readability rewrites a phrasing-only `<div>` into a `<p>`, so a
+ * declassified `<figure><div><img></div><figcaption>` arrives as
+ * `<figure><p><img></p><figcaption>` — and `foldFigureCaptions` reads the
+ * figure's children as `[p, figcaption]`, does not find the picture among them,
+ * and declines to fold. Measured on that article: stripping the class restores
+ * 3 images and 0 of 3 captions; unwrapping restores 3 and 3.
+ *
+ * Dropping the element is markdown-neutral. Turndown calls `<div>` a block and
+ * surrounds it with blank lines whether or not it is there, which is the same
+ * ground `unwrapPictures` stands on.
+ *
+ * **Scoped to figure markup**, and that guard is the point rather than a
+ * detail. This runs *before* Readability and removes the very attributes
+ * Readability selects on — the hazard ADR 0011 recorded when figure folding had
+ * to be moved after extraction, because folding first republished images a page
+ * had marked hidden. Requiring a `<figure>` in reach means the pass can only
+ * act on markup the page itself has declared to be a figure: a
+ * `<div class="sidebar"><img></div>` is untouched and Readability's rejection
+ * of it still stands. The unscoped variant produced byte-identical output on
+ * the article that prompted this, so the guard costs nothing there and bounds
+ * the blast radius everywhere else.
+ */
+function unwrapMediaWrappers(doc: Document): void {
+  for (const div of Array.from(doc.querySelectorAll("div"))) {
+    // An ancestor unwrapped earlier in this loop takes its descendants with it.
+    const parent = div.parentNode;
+    if (parent === null) continue;
+    // Never a wrapper that carries anything beyond layout. Unwrapping discards
+    // the element's attributes, and Readability reaches several verdicts from
+    // them before it scores anything — hidden, furniture, byline. Rather than
+    // mirror each, refuse anything whose attributes could mean something.
+    if (readabilityHides(div) || carriesMoreThanLayout(div)) continue;
+    if (
+      div.closest("figure") === null &&
+      div.querySelector("figure") === null
+    ) {
+      continue;
+    }
+    if (!holdsOnlyMedia(div)) continue;
+    while (div.firstChild !== null) parent.insertBefore(div.firstChild, div);
+    parent.removeChild(div);
+  }
+}
+
+/**
+ * Readability's `unlikelyCandidates` / `okMaybeItsACandidate` pair and its
+ * `byline` regex, copied from `Readability.js:140` and `:150`.
+ *
+ * These are a *different* judgement from the one this pass exists to correct.
+ * `_getClassWeight` gives an element a score and its regex contains `media`;
+ * these delete a region outright, before scoring, and deliberately do not.
+ * Keeping the two apart is what lets a gallery be rescued without a sidebar
+ * being rescued alongside it.
+ */
+const UNLIKELY_CANDIDATES =
+  /-ad-|ai2html|banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|footer|gdpr|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote/i;
+const MAYBE_A_CANDIDATE = /and|article|body|column|content|main|shadow/i;
+const BYLINE = /byline|author|dateline|writtenby|p-author/i;
+
+/**
+ * Readability's `negative` regex (`Readability.js:146`) with the single token
+ * `media` removed — the one collision this pass exists to correct.
+ *
+ * `_getClassWeight` docks 25 points for any of these, and `_cleanConditionally`
+ * deletes an element outright once `weight + contentScore < 0`. That is how a
+ * gallery is lost, so every *other* token here deletes furniture the same way
+ * and is doing its job: `promo`, `widget`, `contact`, `share`, `tags` and the
+ * rest name things a reader did not ask for.
+ *
+ * `hidden` is the one that would hurt most. `class="hidden"` is how Tailwind
+ * and Bootstrap spell `display: none`, and Readability catches it *only* here —
+ * `_isProbablyVisible` reads the inline style attribute, not a stylesheet — so
+ * discarding this class is enough to publish content the page never rendered.
+ * `readabilityHides` cannot cover it: there is no stylesheet in scope to ask.
+ *
+ * Splitting one token out of a copied regex is worth the awkwardness. The
+ * alternative — matching `negative` and then re-testing to see whether `media`
+ * was the reason — has to decide what a class matching both `media` and `promo`
+ * means, and the answer is "leave it alone", which is what this already says.
+ */
+const NEGATIVE_EXCEPT_MEDIA =
+  /-ad-|hidden|^hid$| hid$| hid |^hid |banner|combx|comment|com-|contact|footer|gdpr|masthead|meta|outbrain|promo|related|scroll|share|shoutbox|sidebar|skyscraper|sponsor|shopping|tags|widget/i;
+
+/**
+ * Attributes a wrapper may carry and still be nothing but layout.
+ *
+ * `data-*` joins them because Readability reads none of it on a `<div>`, and
+ * real wrappers do carry it: across the 34-article corpus the only attributes
+ * ever seen on an unwrap candidate are `class`, `data-*`, and none at all.
+ */
+const LAYOUT_ATTRS: ReadonlySet<string> = new Set(["class", "style"]);
+
+/**
+ * True when the wrapper carries anything beyond layout — in which case leave it
+ * exactly as it is.
+ *
+ * This is written as an allow-list, and that is the whole point of it. The
+ * alternative — enumerating the verdicts Readability reaches before scoring and
+ * mirroring each — was tried and failed three times running: first the
+ * visibility checks were mirrored but not `_removeUnlikelyCandidates`, so a
+ * `<div class="sidebar">` published its picture as the article's; then that was
+ * mirrored but not `_isValidByline`, so a `<div rel="author">` around a
+ * portrait cost the article its byline *and* published the portrait as content.
+ * Every one of those was an attribute this pass discards on the way past.
+ *
+ * So the question asked here is not "which of Readability's rules apply?" but
+ * "is there anything here that could mean something?" — `rel`, `itemprop`,
+ * `role`, `hidden`, `aria-*`, `id` and anything not yet invented all fail it
+ * together, and a rule nobody has read yet cannot be missed. What remains is
+ * `class`, and there the rule is narrower than "it only costs weight": exactly
+ * one token, `media`, is treated as a false positive. Every other reason
+ * Readability has to reject a class still stands — the rest of the
+ * negative-weight regex, the unlikely-candidate pair, the byline signals.
+ *
+ * Only the element's own attributes matter. Unwrapping a wrapper *inside* a
+ * rejected region is harmless: the region keeps its own, so Readability still
+ * removes the whole subtree.
+ */
+function carriesMoreThanLayout(element: Element): boolean {
+  for (const attribute of Array.from(element.attributes)) {
+    const name = attribute.name;
+    if (!LAYOUT_ATTRS.has(name) && !name.startsWith("data-")) return true;
+  }
+  // `id` is refused above, so the class is the whole of what Readability would
+  // have matched on.
+  const names = element.className;
+  // Every negative-weight verdict but the diagnosed one still stands. Note the
+  // asymmetry with the line below: `okMaybeItsACandidate` rescues an unlikely
+  // candidate, and Readability has no equivalent rescue here, so neither does
+  // this — a positive token cancels the *score*, not the reason for caution.
+  if (NEGATIVE_EXCEPT_MEDIA.test(names)) return true;
+  if (UNLIKELY_CANDIDATES.test(names) && !MAYBE_A_CANDIDATE.test(names)) {
+    return true;
+  }
+  return BYLINE.test(names);
+}
+
+/**
+ * Mirrors Readability's `_isProbablyVisible`, which is what decides whether an
+ * element's subtree is dropped before scoring even begins.
+ *
+ * Stricter than the original in one place — Readability's `fallback-image`
+ * escape hatch is a substring test over the whole `className`, and this is a
+ * class-name test — because the two failures are not symmetric. Reporting
+ * "hidden" for something Readability would keep only means the wrapper stays,
+ * which is exactly today's behaviour. The reverse republishes a picture the
+ * page hid.
+ */
+function readabilityHides(element: Element): boolean {
+  if (element.hasAttribute("hidden")) return true;
+  if (
+    element.getAttribute("aria-hidden") === "true" &&
+    !classListOf(element).includes("fallback-image")
+  ) {
+    return true;
+  }
+  const style = (element as HTMLElement).style;
+  return style?.display === "none" || style?.visibility === "hidden";
+}
+
+/**
+ * Elements a layout wrapper may hold and still be nothing but layout.
+ *
+ * An allow-list for the same reason `CAPTION_INLINE` is one: an element nobody
+ * has considered leaves the wrapper in place, which is what happens today.
+ * A reject-list would have to name every element that means something.
+ */
+const MEDIA_ONLY: ReadonlySet<string> = new Set([
+  "FIGURE",
+  "FIGCAPTION",
+  "IMG",
+  "PICTURE",
+  "SOURCE",
+]);
+
+/**
+ * True when `div` holds at least one image and nothing but media around it.
+ *
+ * The image requirement is what keeps this from unwrapping arbitrary layout:
+ * the pass exists to save pictures, and a wrapper with no picture in it has
+ * nothing to save. Text is disqualifying wherever it appears outside a
+ * `<figcaption>` — a wrapper that carries a sentence is carrying content, and
+ * the class name Readability objected to may well be about that sentence.
+ */
+function holdsOnlyMedia(div: Element, seen: Set<Element> = new Set()): boolean {
+  // Defensive against a malformed tree; a cycle would otherwise not terminate.
+  if (seen.has(div)) return false;
+  seen.add(div);
+  if (div.getElementsByTagName("img").length === 0) return false;
+  for (const node of meaningfulChildren(div)) {
+    if (node.nodeName.startsWith("#")) return false;
+    const element = node as Element;
+    if (MEDIA_ONLY.has(element.nodeName)) continue;
+    // A link is media only when it is a picture link and nothing else — the
+    // same reading `pictureOf` takes, and for the same reason: overlay text
+    // beside the image is content, and unwrapping would strand it.
+    if (element.nodeName === "A") {
+      const images = element.getElementsByTagName("img");
+      const image = images.length === 1 ? images[0] : undefined;
+      if (image === undefined) return false;
+      if (!isWrapperChain(element, image)) return false;
+      continue;
+    }
+    if (element.nodeName === "DIV" && holdsOnlyMedia(element, seen)) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
  * Drop the one LaTeXML class name that makes Readability delete a data table.
  *
  * `_removeUnlikelyCandidates` tests an element's class and id against a
@@ -802,10 +1092,15 @@ export function prepareForClipping(doc: Document): void {
   recoverCodeBlocks(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
+  // After normalizeMath, so a MathJax formula has already become its TeX
+  // marker rather than an <svg> this could delete.
+  dropChartSvgs(doc);
   unhideGuessedHeaderTables(doc);
-  // Last: the two passes above delete whole tables (LaTeXML equations, Chroma
-  // line-number gutters). Promoting headers first would rewrite the very cells
-  // they select on — `td.lntd` becomes a `<th>` and the code block stays a table.
+  unwrapMediaWrappers(doc);
+  // Last: `unwrapEquationTables` and `recoverCodeBlocks` delete whole tables
+  // (LaTeXML equations, Chroma line-number gutters). Promoting headers first
+  // would rewrite the very cells they select on — `td.lntd` becomes a `<th>`
+  // and the code block stays a table.
   promoteTableHeaders(doc);
 }
 

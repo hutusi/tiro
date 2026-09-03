@@ -7,6 +7,56 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+<!-- Headings here are *repo* versions, matching the `v*` tags; the extension
+     ships on its own `ext-v*` line and its number lives only in
+     apps/extension/manifest.json. Extension work is recorded under the repo
+     release that carries it — 0.10.0's figure captions are under [0.3.0]. -->
+
+### Fixed
+
+- **Images no longer vanish because of the page's CSS class names.** Readability
+  scores an element by its class before it looks at what the element holds, and
+  its "this is furniture" regex contains `media` — so a gallery wrapped in a
+  CSS-module class like `MediaGalleryView-module__…__media-gallery` was deleted
+  whole, at a weight of -25, before any of the checks written to protect images
+  was reached. One clipped article published without the three photographs it is
+  partly about; another lost all seven of its images and nobody had noticed.
+  The clipper now unwraps a layout `<div>` that holds nothing but media and sits
+  in markup the page itself calls a figure — the same remedy `TABLE-DROP` needed
+  in 0.9.0, and for the same underlying reason.
+
+  Unwrapping rather than just clearing the class, because the wrapper cost a
+  second thing: Readability rewrites a phrasing-only `<div>` into a `<p>`, and a
+  figure holding `<p><img></p>` does not fold its caption (0.10.0). Removing the
+  wrapper fixes both. Only a wrapper carrying *nothing but layout* is unwrapped
+  — `class`, `style`, `data-*` and no more. Unwrapping discards the element's
+  attributes, and Readability reads several verdicts from them before it scores
+  anything: `hidden`, furniture (`class="sidebar"`, `role="complementary"`), and
+  a byline (`rel="author"`, `itemprop`, `class="byline"`). Asking "is there
+  anything here that could mean something?" rather than mirroring each rule is
+  what makes a rule nobody has read yet impossible to miss. What remains is the
+  class, and there exactly one token — `media` — is treated as a false positive.
+  Every other reason Readability has to reject a class still stands, including
+  the rest of the negative-weight regex: `promo`, `widget`, `contact` and their
+  kind name things a reader did not ask for, and `class="hidden"` is how
+  Tailwind spells `display: none`, caught only there.
+
+- **An inline chart no longer arrives as a run of glyphs.** Turndown has no
+  rendering for `<svg>`, so it emitted every text node inside one in document
+  order with no separators, and a chart's axis ticks, series names and values
+  landed as a single unreadable paragraph — which the site rendered as body text
+  and the translator dutifully translated. An `<svg>` painting a chart's worth
+  of labels is now dropped. The chart itself is lost either way, markdown having
+  no element for it; what changes is that the reader gets the real caption
+  beside it instead of the debris. A single painted label is left alone, and so
+  is any `<svg>` inside a link, whose text is the link's only label — measured
+  against the seven real charts that prompted this, which carry 17 to 31 labels
+  each.
+
+  Measured across all 34 vault articles by clipping every source page with both
+  versions: 30 come out byte-identical, and the four that change lose nothing —
+  12 images and 8 captions gained, 3 glyph-soup paragraphs removed.
+
 ## [0.3.0] - 2026-09-02
 
 ### Added

@@ -921,3 +921,324 @@ describe("figure folding runs after Readability", () => {
     expect(htmlToMarkdown(html).markdown).toContain("![d](shown.png)  \nCap.");
   });
 });
+
+describe("media wrappers Readability would delete", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The clipper's real order: prepare, extract, then fold. */
+  function clip(markup: string): string {
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    const prepared = doc.body.innerHTML;
+    let extracted = "";
+    try {
+      extracted = new Readability(doc as never).parse()?.content ?? "";
+    } catch {
+      extracted = "";
+    }
+    return foldFiguresIn(extracted === "" ? prepared : extracted, doc);
+  }
+
+  /** Prepare and fold, without Readability in the way. */
+  function clipFigures(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return foldFiguresIn(prepared, doc);
+  }
+
+  /** The shape that lost an article all three of its images. */
+  const gallery =
+    '<div class="MediaGalleryView-module__media-gallery">' +
+    '<figure class="media-item"><div class="media-content">' +
+    '<img src="venus.png" alt="Radar image"></div>' +
+    "<figcaption>Magellan radar</figcaption></figure></div>";
+
+  test("keeps a gallery whose class name trips the negative regex", () => {
+    // _cleanConditionally scores the class before it looks at the content, and
+    // Readability's negative regex contains `media`, so weight is -25 and the
+    // subtree goes before any image-aware check runs. Asserting after
+    // Readability is the point: the image is present either way before it.
+    const html = clip(gallery);
+    expect(html).toContain("venus.png");
+    expect(html).toContain("Magellan radar");
+  });
+
+  test("the surviving figure still folds into one block", () => {
+    const md = htmlToMarkdown(clip(gallery)).markdown.trim();
+    expect(md).toContain("![Radar image](venus.png)  \nMagellan radar");
+  });
+
+  test("leaves a wrapper carrying a sentence alone", () => {
+    // Text is content, and the class name Readability objected to may well be
+    // about the text rather than the picture.
+    const { html } = prepare(
+      '<figure><div class="media-note"><img src="x.png" alt="d">' +
+        "<p>A sentence the page means.</p></div>" +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain('class="media-note"');
+    expect(html).toContain("A sentence the page means.");
+  });
+
+  test("leaves a media wrapper with no figure in reach alone", () => {
+    // The guard: this pass runs before Readability and removes the attributes
+    // Readability selects on, so it may only touch markup the page itself has
+    // called a figure. A sidebar thumbnail stays rejectable.
+    const { html } = prepare(
+      '<div class="media-sidebar"><img src="thumb.png" alt="t"></div>',
+    );
+    expect(html).toContain('class="media-sidebar"');
+  });
+
+  test("counts a link that wraps only its image as media", () => {
+    const md = htmlToMarkdown(
+      clipFigures(
+        '<figure><div class="media-content">' +
+          '<a href="full.png"><img src="x.png" alt="d"></a></div>' +
+          "<figcaption>Cap.</figcaption></figure>",
+      ),
+    ).markdown.trim();
+    expect(md).toBe("[![d](x.png)](full.png)  \nCap.");
+  });
+
+  test("leaves a wrapper whose link carries overlay text alone", () => {
+    // Same reading pictureOf takes: text beside the image is content, and
+    // unwrapping would strand it.
+    const { html } = prepare(
+      '<figure><div class="media-content">' +
+        '<a href="full.png"><img src="x.png" alt="d"><span>Zoom</span></a>' +
+        "</div><figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain('class="media-content"');
+    expect(html).toContain("Zoom");
+  });
+
+  test("leaves a wrapper holding no image alone", () => {
+    const { html } = prepare(
+      '<figure><div class="media-empty"><span>No picture here.</span></div>' +
+        "<figcaption>Cap.</figcaption></figure>",
+    );
+    expect(html).toContain('class="media-empty"');
+  });
+
+  test("unwraps a nested chain without disturbing the figure", () => {
+    const { doc } = prepare(
+      '<div class="media-wrap"><div class="media-inner">' +
+        '<figure><div class="media-content"><img src="x.png" alt="d"></div>' +
+        "<figcaption>Cap.</figcaption></figure></div></div>",
+    );
+    expect(doc.querySelectorAll("div")).toHaveLength(0);
+    const figure = doc.querySelector("figure");
+    expect(figure?.children).toHaveLength(2);
+    expect(figure?.firstElementChild?.nodeName).toBe("IMG");
+    expect(figure?.lastElementChild?.nodeName).toBe("FIGCAPTION");
+  });
+
+  test("leaves a hidden wrapper alone, however it is hidden", () => {
+    // Caught by an existing test, and worth its own: unwrapping drops the very
+    // attribute Readability excludes on, so a picture the page hid would be
+    // published. This is the ADR 0011 hazard, one pass earlier.
+    for (const attr of [
+      "hidden",
+      'aria-hidden="true"',
+      'style="display: none"',
+      'style="visibility: hidden"',
+    ]) {
+      const { html } = prepare(
+        `<figure><div class="media-content" ${attr}>` +
+          '<img src="hidden.png" alt="d"></div>' +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(html).toContain('class="media-content"');
+    }
+  });
+
+  test("unwrapping a visible wrapper leaves a hidden child hidden", () => {
+    const html = clip(
+      '<div class="media-gallery"><figure>' +
+        '<div hidden><img src="hidden.png"></div>' +
+        '<img src="shown.png" alt="d">' +
+        "<figcaption>Cap.</figcaption></figure></div>",
+    );
+    expect(html).not.toContain("hidden.png");
+    expect(html).toContain("shown.png");
+  });
+
+  test("leaves a region Readability rejects as furniture alone", () => {
+    // The class this pass works around only contributes a *score*
+    // (`_getClassWeight`). These are read by `_removeUnlikelyCandidates`, which
+    // deletes outright and before scoring — a different judgement, and one that
+    // must survive. Unwrapping discards the attribute it is read from, so a
+    // sidebar holding a lone figure would publish its picture as the article's.
+    for (const attr of [
+      'class="sidebar"',
+      'class="related"',
+      'class="social share"',
+      'id="footer"',
+      'role="complementary"',
+      'role="navigation"',
+    ]) {
+      const html = clip(
+        `<div ${attr}><figure><img src="furniture.png" alt="f">` +
+          "<figcaption>Cap.</figcaption></figure></div>",
+      );
+      expect(html).not.toContain("furniture.png");
+    }
+  });
+
+  test("keeps a byline as metadata instead of publishing it as content", () => {
+    // `_isValidByline` runs before the furniture checks and reads `rel`,
+    // `itemprop` and the class. Unwrapping discarded all three, so the article
+    // lost its byline *and* gained a portrait it was never meant to show.
+    const filler2 = filler;
+    for (const attr of [
+      'class="byline"',
+      'class="author"',
+      'rel="author"',
+      'itemprop="author"',
+    ]) {
+      const window = new Window();
+      window.document.body.innerHTML =
+        `<article>${filler2}<div ${attr}><figure>` +
+        '<img src="portrait.png"><figcaption>Jane Doe</figcaption>' +
+        `</figure></div>${filler2}</article>`;
+      const doc = window.document as unknown as Document;
+      prepareForClipping(doc);
+      const article = new Readability(doc as never).parse();
+      expect(article?.byline).toBe("Jane Doe");
+      expect(article?.content).not.toContain("portrait.png");
+      expect(article?.content).not.toContain("Jane Doe");
+    }
+  });
+
+  test("refuses any wrapper carrying more than layout", () => {
+    // An allow-list, so an attribute nobody has considered leaves the wrapper
+    // in place rather than being discarded with whatever it meant.
+    const carriers: [string, string][] = [
+      ["id", 'id="fig"'],
+      ["role", 'role="note"'],
+      ["lang", 'lang="fr"'],
+      ["rel", 'rel="license"'],
+    ];
+    for (const [name, attr] of carriers) {
+      const { html } = prepare(
+        `<figure><div ${attr}><img src="x.png" alt="d"></div>` +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(html).toContain(name);
+    }
+  });
+
+  test("unwraps a wrapper carrying only layout attributes", () => {
+    // class, style and data-* are the only things real wrappers carry.
+    const { doc } = prepare(
+      '<figure><div class="media" data-testid="fig" style="margin:0">' +
+        '<img src="x.png" alt="d"></div><figcaption>Cap.</figcaption></figure>',
+    );
+    expect(doc.querySelectorAll("div")).toHaveLength(0);
+  });
+
+  test("leaves every negative-weight class but the diagnosed one alone", () => {
+    // `_getClassWeight` docks 25 for all of these and `_cleanConditionally`
+    // deletes on a negative total — the same mechanism that loses a gallery, so
+    // for every token except `media` it is doing its job. `hidden` matters
+    // most: it is how Tailwind spells `display: none`, and Readability catches
+    // it only here, so discarding the class publishes unrendered content.
+    for (const name of [
+      "hidden",
+      "promo",
+      "widget",
+      "contact",
+      "share",
+      "tags",
+      "masthead",
+      "shopping",
+    ]) {
+      const html = clip(
+        `<div class="${name}"><figure><img src="furniture.png" alt="f">` +
+          "<figcaption>Cap.</figcaption></figure></div>",
+      );
+      expect(html).not.toContain("furniture.png");
+    }
+  });
+
+  test("still rescues the one collision the pass exists for", () => {
+    // `media` is the single token treated as a false positive.
+    expect(clip(gallery)).toContain("venus.png");
+  });
+
+  test("is idempotent", () => {
+    const once = prepare(gallery);
+    prepareForClipping(once.doc);
+    expect(once.doc.body.innerHTML).toBe(once.html);
+  });
+});
+
+describe("chart svgs", () => {
+  function markdownForPrepared(html: string): string {
+    const { doc, html: prepared } = prepare(html);
+    return htmlToMarkdown(foldFiguresIn(prepared, doc)).markdown.trim();
+  }
+
+  test("drops an svg that paints text", () => {
+    // Turndown has no rule for <svg>, so it emits every text node in document
+    // order with no separators — a chart arrives as one run of glyphs.
+    const md = markdownForPrepared(
+      "<p>Before.</p><figure><svg><text>0</text><text>1</text>" +
+        "<text>2</text><text>3</text><text>Original implementation</text>" +
+        "<text>Speedup on an NVIDIA H100</text></svg>" +
+        "<figcaption>Inference speedup.</figcaption></figure><p>After.</p>",
+    );
+    expect(md).not.toContain("Speedup on an NVIDIA H100");
+    expect(md).toContain("Inference speedup.");
+  });
+
+  test("keeps an icon carrying only a title", () => {
+    // <title>/<desc> are accessibility labels, not painted glyphs, and a link
+    // around an icon would otherwise convert to `[](…)`.
+    const md = markdownForPrepared(
+      '<p><a href="/share"><svg><title>Share</title></svg></a></p>',
+    );
+    expect(md).toBe("[Share](/share)");
+    expect(md).not.toContain("[](");
+  });
+
+  test("keeps a link whose label is painted text", () => {
+    // An <a>'s SVG text is the link's only label; deleting it leaves `[](…)`.
+    const md = markdownForPrepared(
+      '<p><a href="/d"><svg><text>Download PDF</text></svg></a></p>',
+    );
+    expect(md).toBe("[Download PDF](/d)");
+  });
+
+  test("keeps a lone painted label", () => {
+    // One label is not soup — it converts to a sensible word, so leaving it
+    // alone is the same output as before this pass existed.
+    const md = markdownForPrepared(
+      "<p>Before <svg><text>Status: ok</text></svg> after</p>",
+    );
+    expect(md).toBe("Before Status: ok after");
+  });
+
+  test("drops only once there are a chart's worth of labels", () => {
+    const label = (n: number) => `<text>L${n}</text>`;
+    const three = markdownForPrepared(
+      `<p>A <svg>${[1, 2, 3].map(label).join("")}</svg> B</p>`,
+    );
+    expect(three).toContain("L1L2L3");
+    const many = markdownForPrepared(
+      `<p>A <svg>${[1, 2, 3, 4, 5].map(label).join("")}</svg> B</p>`,
+    );
+    expect(many).toBe("A B");
+  });
+
+  test("runs after math recovery, so a MathJax formula survives", () => {
+    const { doc } = prepare(
+      '<p>Given <span class="MathJax_SVG"><svg><text>x2</text></svg></span>' +
+        '<script type="math/tex">x^2</script> holds.</p>',
+    );
+    expect(formulas(doc)).toEqual(["$x^2$"]);
+  });
+});
