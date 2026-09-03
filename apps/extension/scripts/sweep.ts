@@ -173,14 +173,45 @@ type Clip = (doc: Document, url: string) => { markdown: string };
  * `documentElement.innerHTML` rather than a full parse because happy-dom has
  * no document parser that keeps `<head>`; the regex trims the wrapper so the
  * head's `<link>` and `<meta>` still land where Readability looks for them.
+ *
+ * Subresource loading is off because it is not inert: happy-dom really does
+ * issue a request for every `<link rel=preload as=style|script>`, through its
+ * own Fetch rather than the global one, and nine pages in the corpus carry
+ * them. Left on, a sweep quietly reaches the network while parsing a cached
+ * page — which is both slower and a straight contradiction of the reason the
+ * cache exists, since a `--baseline` run would be comparing two clips taken
+ * against whatever those CDNs served each time. (JavaScript evaluation needs no
+ * flag; happy-dom disables it by default.)
+ *
+ * Each window is closed rather than dropped. One per article per side, held for
+ * the life of the process, is exactly the shape that turns a long corpus into a
+ * memory problem.
  */
-function clipHtml(html: string, url: string, clip: Clip): string {
-  const window = new Window({ url });
-  const doc = window.document as unknown as Document;
-  doc.documentElement.innerHTML = html
-    .replace(/^[\s\S]*?<html[^>]*>/i, "")
-    .replace(/<\/html>[\s\S]*$/i, "");
-  return clip(doc, url).markdown;
+async function clipHtml(
+  html: string,
+  url: string,
+  clip: Clip,
+): Promise<string> {
+  const window = new Window({
+    url,
+    settings: {
+      disableCSSFileLoading: true,
+      disableJavaScriptFileLoading: true,
+      navigation: {
+        disableChildFrameNavigation: true,
+        disableChildPageNavigation: true,
+      },
+    },
+  });
+  try {
+    const doc = window.document as unknown as Document;
+    doc.documentElement.innerHTML = html
+      .replace(/^[\s\S]*?<html[^>]*>/i, "")
+      .replace(/<\/html>[\s\S]*$/i, "");
+    return clip(doc, url).markdown;
+  } finally {
+    await window.happyDOM.close();
+  }
 }
 
 function describe(before: Counts, after: Counts): string | null {
@@ -277,11 +308,11 @@ async function main() {
     let before: string;
     try {
       const html = await fetchPage(article.url, args.pages, article.slug);
-      after = clipHtml(html, article.url, clipPage);
+      after = await clipHtml(html, article.url, clipPage);
       before =
         baselineClip === null
           ? article.body
-          : clipHtml(html, article.url, baselineClip);
+          : await clipHtml(html, article.url, baselineClip);
     } catch (error) {
       // Neither a page that will not load nor one that will not clip is a
       // finding about the corpus, and neither may stop the rest being reported.
