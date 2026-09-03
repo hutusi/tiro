@@ -198,6 +198,15 @@ function unwrapEquationTables(doc: Document): void {
 }
 
 function normalizeMath(doc: Document): void {
+  // Same reasoning as `markCodeLanguages`: the marker is a private contract
+  // between this file and a Turndown rule, and a page that writes one itself is
+  // untrusted input the rule has no way to tell apart. `<span
+  // data-tiro-math="display">` splits the paragraph it sits in into three
+  // blocks and sets `has_math`, which turns every price on the page into a
+  // formula — the failure `escapeLiteralDollars` exists to prevent.
+  for (const stale of Array.from(doc.querySelectorAll(`[${MATH_ATTR}]`))) {
+    stale.removeAttribute(MATH_ATTR);
+  }
   normalizeMathJaxV2(doc);
   // Document order puts a container ahead of the `<math>` nested inside it, so
   // the container wins and the descendant is skipped as already detached.

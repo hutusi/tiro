@@ -1677,3 +1677,25 @@ describe("code languages survive Readability", () => {
     expect(markdown).not.toContain(CODE_LANG_ATTR);
   });
 });
+
+describe("markers the page wrote itself", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  test("a page-authored math marker cannot split a paragraph", () => {
+    // `data-tiro-math` has the same exposure `data-tiro-lang` does, and had it
+    // first: the Turndown rule fires on the attribute alone, so a page that
+    // writes one gets `$$…$$` emitted mid-paragraph — three blocks where the
+    // article has one, which is the ADR 0003 alignment contract.
+    const window = new Window({ url: "https://evil.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<p>Before. <span ${MATH_ATTR}="display">x$$ INJECTED</span> After.</p>${filler}</article>`;
+    const { markdown, hasMath } = clipPage(
+      window.document as unknown as Document,
+      "https://evil.test/a",
+    );
+    expect(markdown).toContain("Before. x$$ INJECTED After.");
+    // And it cannot set the flag that turns every price on the page into a
+    // formula, which is what `escapeLiteralDollars` exists to prevent.
+    expect(hasMath).toBe(false);
+  });
+});

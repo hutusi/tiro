@@ -33,6 +33,16 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A page cannot forge the clipper's own markers.** `data-tiro-math` and
+  `data-tiro-lang` are private contracts between `dom-prepare` and a Turndown
+  rule, and the rule fires on the attribute alone — so a page that wrote one
+  itself was obeyed. `<span data-tiro-math="display">` split the paragraph it
+  sat in into three blocks and set `has_math`, which turns every price on the
+  page into a formula; the language marker had the same shape, where backticks
+  in a forged value opened a fence markdown cannot close. Both markers are now
+  cleared across the document before either pass writes its own. The math half
+  predates the language half by two releases and was found while fixing it.
+
 - **Fence languages survive extraction, so code is highlighted again.** Every
   one of the vault's 50 fenced blocks is bare, across articles clipped with
   0.7.0 through 0.11.0, and the site renders all of them grey. Readability's
