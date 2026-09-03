@@ -141,7 +141,7 @@ wrapped rows, and one URL auto-linked. The theme is Chroma-like but not `table.l
 indistinguishable from body prose. Worst in `kuleshov`, where a caption ending "Figure credit:
 M. Grootendorst & Gemma Diffusion." runs straight into the next body paragraph.
 
-**Fixed at clip time in 0.10.0 (ADR 0011), verified on real pages 2026-09-02.** The clipper folds a
+**Fixed at clip time in extension 0.10.0 (ADR 0011), verified on real pages 2026-09-02.** The clipper folds a
 caption into its image's paragraph and the site renders that pair as a `<figure>` — co-location is
 the only association markdown can express, which is why the first attempt's raw `<figure>` HTML was
 reverted. `kuleshov` re-clipped at 30/30 folded and renders 60 `<figure>` elements live (30 per
@@ -214,7 +214,7 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
 ## Suggested fix order
 
 1. `unsung` — one article, total loss, and the root cause is unknown; diagnose first.
-2. `FIG-SEMANTICS` — **done in 0.10.0** (ADR 0011); see candidate 7. Not one Turndown rule as
+2. `FIG-SEMANTICS` — **done in extension 0.10.0** (ADR 0011); see candidate 7. Not one Turndown rule as
    guessed here: it is a DOM fold running after Readability, plus a renderer change.
 3. `FN-REF`/`FN-INLINE` — one rule family, 5 articles, most-cited content.
 4. `ANCHOR-HASH` and `CODE-FLAT`/`CODE-AS-TABLE` — narrow, per-theme.
@@ -237,7 +237,7 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
    **Re-clipped 2026-09-02 and confirmed**: 2608 now carries all five tables, each rendering next to its
    caption, and records `clipper_version: 0.9.0`.
 
-7. `MEDIA-DROP` and `SVG-SOUP` — **found and fixed 2026-09-03, in 0.11.0.** Neither was in this
+7. `MEDIA-DROP` and `SVG-SOUP` — **found and fixed 2026-09-03, in extension 0.11.0.** Neither was in this
    sweep, because the sweep counted what the clip contained and these articles' clips contained no
    images to count. `MEDIA-DROP` is `TABLE-DROP`'s twin: `_cleanConditionally` scores an element's
    class before it looks inside, Readability's `negative` regex contains **`media`**, and a
@@ -253,12 +253,13 @@ demo, the payoff of a DIY post — is dropped silently, poster frame included.
    **Measured over all 34 vault articles**, clipping each source page with both versions: 30 come
    out byte-identical, and the 4 that change lose nothing — 12 images and 8 folded captions gained,
    3 glyph-soup paragraphs removed. Four articles are affected, three of which nobody had noticed:
-   `anthropic` (3 images, 2 captions, 3 soup blocks), `apple` (**7 images**, every one it has),
-   `greenlightning` (2 images + captions), `claude.com` (3 captions — its `<figure><div><img></div>`
-   is Webflow's shape, so the fold, not the deletion, is what it was losing).
+   `anthropic` (3 images, 3 captions, 3 soup blocks), `apple` (**7 images**, every one it has, and
+   no captions), `greenlightning` (2 images, 2 captions), `claude.com` (no images, 3 captions — its
+   `<figure><div><img></div>` is Webflow's shape, so the fold, not the deletion, is what it was
+   losing). Images 3 + 7 + 2 + 0 = 12; captions 3 + 0 + 2 + 3 = 8.
 
    **Re-clip needed** for those four. Only `anthropic` has been re-clipped so far.
 
 **Re-clipping is now a measured remedy, not a hope.** The two 0.7.0 clips clear every legacy class,
 so items 3–5 below the systemic ones are largely "re-clip and re-measure". `FIG-SEMANTICS` was the
-exception — it needed a code fix, which shipped in 0.10.0.
+exception — it needed a code fix, which shipped in extension 0.10.0.

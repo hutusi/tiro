@@ -7,6 +7,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+<!-- Headings here are *repo* versions, matching the `v*` tags; the extension
+     ships on its own `ext-v*` line and its number lives only in
+     apps/extension/manifest.json. Extension work is recorded under the repo
+     release that carries it — 0.10.0's figure captions are under [0.3.0]. -->
+
 ### Fixed
 
 - **Images no longer vanish because of the page's CSS class names.** Readability
