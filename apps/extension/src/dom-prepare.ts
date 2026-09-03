@@ -1013,6 +1013,377 @@ function holdsOnlyMedia(div: Element, seen: Set<Element> = new Set()): boolean {
 }
 
 /**
+ * Unwrap the layout `<div>`s around a code block, so Readability cannot read
+ * the page's CSS as a verdict on the content.
+ *
+ * The same accident as `unwrapMediaWrappers`, arriving through a different
+ * class name. `_cleanConditionally` deletes an element outright once
+ * `weight + contentScore < 0`, and `contentScore` is a literal `0` there, so a
+ * single negative-weight token deletes the subtree before any check that looks
+ * at what the element holds. `_getClassWeight`'s regex is a *substring* test,
+ * and Tailwind's compound utilities collide with it by accident:
+ * `overflow-hidden` and `outline-hidden` contain `hidden`, `code-block-scroll`
+ * and `overflow-y-scroll` contain `scroll`. One clipped article lost all 15 of
+ * its code blocks that way and published as prose with the examples simply
+ * missing from between the paragraphs — a page that reads as if its author had
+ * described every example without ever showing one.
+ *
+ * Unwrapping rather than stripping the offending class tokens, on
+ * `unwrapMediaWrappers`' ground rather than on any advantage of its own:
+ * removing a layout `<div>` is markdown-neutral, since Turndown calls it a
+ * block and surrounds it with blank lines whether or not it is there.
+ *
+ * An earlier version of this comment claimed a second, decisive reason — that a
+ * wrapper left in place is deleted by `_cleanConditionally`'s
+ * `contentLength < 25` clause, so short blocks need the unwrap. That is wrong
+ * for the pinned Readability: the clause also requires `linkDensity > 0`, and a
+ * code block has no links, so it never fires. It was read from the source and
+ * written up as measured, which it was not. Stripping only the colliding tokens
+ * is a real alternative and keeps every judgement Readability makes; what it
+ * does not reach is a wrapper whose collision is not a compound suffix, which
+ * is the tabbed sample below. Worth revisiting if these guards keep growing.
+ *
+ * Runs after `recoverCodeBlocks`, which reads a language from the very
+ * containers this removes (`CONTAINER_LANG_PATTERNS`). The other order trades
+ * this defect for a fence that has lost its highlighting.
+ */
+function unwrapCodeWrappers(doc: Document): void {
+  for (const pre of Array.from(doc.querySelectorAll("pre"))) {
+    // Widen out from the code block one container at a time, stopping at the
+    // first that carries something besides it — the same shape as the language
+    // walk in `recoverCodeBlocks`, and for the same reason: the depth varies by
+    // site. The three shapes on the article that prompted this nest two, three
+    // and five deep, so a fixed walk recovers 8 of its 15 blocks.
+    const wrappers: Element[] = [];
+    let candidate = pre.parentElement;
+    while (
+      candidate !== null &&
+      candidate.nodeName === "DIV" &&
+      isCodeLayoutWrapper(candidate) &&
+      holdsOnlyCode(candidate)
+    ) {
+      wrappers.push(candidate);
+      candidate = candidate.parentElement;
+    }
+    // Collected before anything moves: unwrapping re-parents the node the walk
+    // is standing on, so widening and rewriting cannot be the same loop.
+    for (const wrapper of wrappers) {
+      const parent = wrapper.parentNode;
+      if (parent === null) continue;
+      while (wrapper.firstChild !== null) {
+        parent.insertBefore(wrapper.firstChild, wrapper);
+      }
+      parent.removeChild(wrapper);
+    }
+  }
+}
+
+/**
+ * Roles Readability deletes outright, from `UNLIKELY_ROLES` (`Readability.js`).
+ *
+ * Unlike its class regexes this one is not a heuristic to be second-guessed: a
+ * `<div role="dialog">` is a dialog, and a code sample inside one is not the
+ * article's.
+ */
+const UNLIKELY_ROLES: ReadonlySet<string> = new Set([
+  "menu",
+  "menubar",
+  "complementary",
+  "navigation",
+  "alert",
+  "alertdialog",
+  "dialog",
+]);
+
+/**
+ * Attributes a code wrapper may carry and still be nothing but layout.
+ *
+ * Wider than `LAYOUT_ATTRS` by `id`, `role` and `tabindex`, and that widening
+ * is the one place this pass deliberately parts company with
+ * `carriesMoreThanLayout`. A scrollable code panel is a focusable widget, so
+ * the markup that carries code on a docs site really does carry those three:
+ * the tabbed sample on the article that prompted this sits in
+ * `<div id="…" role="tabpanel" tabindex="-1" class="…outline-hidden…">`, and
+ * refusing it leaves that block deleted by the very class this pass exists to
+ * neutralise. Each is admitted only with its own reading below — `role` against
+ * `UNLIKELY_ROLES`, `id` against the same regexes as the class — rather than
+ * waved through.
+ *
+ * Everything else is still refused, `rel`, `itemprop`, `aria-*`, `hidden` and
+ * anything not yet invented together, because unwrapping discards attributes
+ * and Readability reaches several verdicts from them before it scores anything.
+ */
+const CODE_WRAPPER_ATTRS: ReadonlySet<string> = new Set([
+  "class",
+  "style",
+  "id",
+  "role",
+  "tabindex",
+]);
+
+/**
+ * The only two ARIA attributes Readability reads (`Readability.js:1074`,
+ * `:2701`), so the only two that can mean something to discard.
+ *
+ * `aria-modal` matters solely alongside `role="dialog"`, which `UNLIKELY_ROLES`
+ * already refuses; it is listed anyway so the set is the source's set rather
+ * than a subset that happens to be sufficient today.
+ */
+const READABILITY_ARIA: ReadonlySet<string> = new Set([
+  "aria-hidden",
+  "aria-modal",
+]);
+
+/**
+ * Readability's `negative` regex with `hidden` and `scroll` removed — the two
+ * tokens Tailwind's compound utilities collide with, and *only* those two.
+ *
+ * The sibling of `NEGATIVE_EXCEPT_MEDIA`, written the same way for the same
+ * reason: every other token here names furniture a reader did not ask for.
+ * Declining the regex wholesale was tried and was wrong — `promo`, `widget`,
+ * `contact`, `shopping`, `tags`, `meta`, `outbrain` and `share` each handed
+ * back a code block Readability had been deleting, those being exactly the
+ * tokens that carry negative weight *without* also being unlikely candidates,
+ * so nothing else in the guard caught them.
+ *
+ * The two exceptions each have their own reason.
+ *
+ * `hidden` goes because it is *both* the collision and the one token here that
+ * is not a furniture signal at all — it is a visibility signal, and
+ * `HIDDEN_WORDS` reads it on Readability's own substring terms, with the layout
+ * collisions named individually in `LAYOUT_NOT_HIDDEN` and variant conditions
+ * evaluated where they can be. Nothing Readability excluded is given up.
+ *
+ * `scroll` goes because it carries no furniture meaning for the only elements
+ * this pass can reach. A wrapper holding exactly one `<pre>` and nothing else
+ * is a code block's scroll box, which is what the class is describing.
+ */
+const NEGATIVE_EXCEPT_LAYOUT =
+  /-ad-|banner|combx|comment|com-|contact|footer|gdpr|masthead|meta|outbrain|promo|related|share|shoutbox|sidebar|skyscraper|sponsor|shopping|tags|widget/i;
+
+/**
+ * Utility classes that contain a visibility word without hiding the element —
+ * the collisions this pass exists to correct, named one at a time.
+ *
+ * An allow-list, and the direction matters. Missing an entry here costs a code
+ * block, which then converts exactly as it does today; missing a *hiding* form
+ * publishes markup the reader was never shown. That asymmetry is the same one
+ * `readabilityHides` is written on, so the list stays short and explicit rather
+ * than clever. `not-sr-only` and `backface-hidden` are on it because they
+ * contain a hiding word while doing the opposite, or nothing.
+ */
+const LAYOUT_NOT_HIDDEN: ReadonlySet<string> = new Set([
+  "overflow-hidden",
+  "overflow-x-hidden",
+  "overflow-y-hidden",
+  "outline-hidden",
+  "backface-hidden",
+  "not-sr-only",
+]);
+
+/**
+ * Words that mean "not rendered", matched as substrings the way Readability's
+ * own regex does.
+ *
+ * A substring test, deliberately, and this is the second correction to it. The
+ * first draft dropped the negative regex wholesale and published furniture. The
+ * second matched whole tokens only, which fixed `overflow-hidden` but let
+ * `u-hidden`, `js-hidden`, `hidden-sm` and `always-hidden` through — every
+ * framework's own spelling of `display: none`, each one excluded by Readability
+ * before this pass ran. Worse, the comment here argued they were fine as
+ * "conditionally hidden, the same category as `md:hidden`" *after* `md:hidden`
+ * had already been moved to the refusing side, so the category had been settled
+ * the other way and half of it was left behind.
+ *
+ * Matching the way Readability does and naming the exceptions is what keeps the
+ * two halves consistent: a class hides its element unless this file can say
+ * exactly why it does not.
+ *
+ * Readability catches `class="hidden"` here alone — `_isProbablyVisible` reads
+ * the inline style attribute, and there is no stylesheet in scope to ask — so
+ * this test is the only thing standing between the unwrap and republishing an
+ * inactive tab panel. That is the ADR 0011 failure, one pass earlier.
+ */
+const HIDDEN_WORDS = /hidden|invisible|sr-only|screen-reader|^d-none$|^hide$/i;
+
+/**
+ * True when one class token hides `element` outright.
+ *
+ * A Tailwind utility can carry variant prefixes — `md:hidden`,
+ * `data-[state=inactive]:hidden` — and the question is whether the condition
+ * holds *here*. Only one kind can be answered from a detached DOM:
+ *
+ * - A `data-[…]` variant names an attribute that can simply be looked up, so it
+ *   is: a tab panel that is really inactive carries `data-state="inactive"`,
+ *   and an exit animation that is not running leaves no `data-ending-style` at
+ *   all. Reading it is what keeps a live tabbed code sample.
+ * - Every other variant — `md:`, `dark:`, `print:`, `hover:` — names a state
+ *   there is no viewport, theme or pointer here to evaluate. **Unanswerable
+ *   counts as hidden.** An earlier draft reasoned that such an element is
+ *   rendered in the complementary state and published it, which is backwards:
+ *   at the reader's own breakpoint `md:hidden` really is `display: none`, and
+ *   Readability was excluding it before this pass ran. Refusing costs the block
+ *   nothing it was not already losing; admitting publishes markup the page did
+ *   not render.
+ *
+ * A doubly-prefixed token (`md:data-[x]:hidden`) is unanswerable for the same
+ * reason and is refused with them.
+ */
+function hidesElement(token: string, element: Element): boolean {
+  const cut = token.lastIndexOf(":");
+  const base = token.slice(cut + 1).toLowerCase();
+  if (LAYOUT_NOT_HIDDEN.has(base)) return false;
+  if (!HIDDEN_WORDS.test(base)) return false;
+  if (cut === -1) return true;
+  // The attribute name is deliberately narrow. `data-[state~=inactive]` and its
+  // kind are CSS attribute *operators*, which this does not model, and letting
+  // one through as an unknown name would answer "not hidden" for a condition
+  // that was never read.
+  const condition = token
+    .slice(0, cut)
+    .match(/^data-\[([a-z0-9_-]+)(?:=(.*))?\]$/i);
+  // Not a condition this can evaluate, so it is not one this may dismiss.
+  if (condition === null) return true;
+  const actual = element.getAttribute(`data-${condition[1]}`);
+  if (actual === null) return false;
+  const wanted = condition[2];
+  if (wanted === undefined) return true;
+  const value = attributeValue(wanted);
+  return value === null ? true : actual === value;
+}
+
+/**
+ * The plain attribute value a `data-[…=…]` variant is asking about, or `null`
+ * when the form is one this does not model.
+ *
+ * Tailwind accepts the value quoted or bare — `data-[state='inactive']` and
+ * `data-[state=inactive]` generate the same selector — and a page written the
+ * first way was comparing `'inactive'` against the DOM's `inactive`, finding
+ * them different, and concluding the panel was *not* hidden. Quotes are the
+ * common case in HTML, where the class attribute's own `"` forces the inner
+ * ones to be `'` or entities.
+ *
+ * Anything left holding whitespace or a stray quote is a selector flag or a
+ * form nobody has modelled here — `data-[state=inactive i]` asks for a
+ * case-insensitive match — and returns `null` so the caller can fall back to
+ * treating it as hidden.
+ */
+function attributeValue(raw: string): string | null {
+  const quoted = raw.match(/^(['"])(.*)\1$/);
+  const value = quoted?.[2] ?? raw;
+  return /^[^\s'"]*$/.test(value) ? value : null;
+}
+
+function hiddenByClass(element: Element): boolean {
+  return classListOf(element).some((name) => hidesElement(name, element));
+}
+
+/**
+ * True when the wrapper is layout Readability should not have judged.
+ *
+ * Note what is *not* consulted: `NEGATIVE_EXCEPT_MEDIA`, the negative-weight
+ * regex. That is the divergence from `carriesMoreThanLayout`, and it is the
+ * point of this pass rather than an oversight in it. The figure case had one
+ * token to except; here the collision arrives through `hidden` *and* `scroll`,
+ * and excepting both wholesale would discard `class="hidden"` — how Tailwind
+ * spells `display: none`, and the token `NEGATIVE_EXCEPT_MEDIA` names as the
+ * costliest to lose.
+ *
+ * What licenses dropping it is that Readability does not treat a `<pre>` as
+ * doubtful in the first place: `pre` is in `DEFAULT_TAGS_TO_SCORE` and
+ * `_initializeNode` gives it **+3**. The negative regex is a *scoring* signal,
+ * which `_cleanConditionally` promotes to an outright deletion only because its
+ * `contentScore` is hardcoded to 0 — and that promotion is the accident. So the
+ * genuine rejection passes are all still applied below, and only the score is
+ * declined, for a subtree Readability itself scores positively.
+ *
+ * One thing that regex carried is not a score, though, and is re-established
+ * separately: `class="hidden"` is the only way Readability sees a page hiding
+ * something with a stylesheet. See `HIDDEN_WORDS`.
+ */
+function isCodeLayoutWrapper(div: Element): boolean {
+  for (const attribute of Array.from(div.attributes)) {
+    const name = attribute.name;
+    if (CODE_WRAPPER_ATTRS.has(name) || name.startsWith("data-")) continue;
+    // ARIA is a labelling vocabulary, and Readability reads exactly two of it
+    // — enumerated rather than assumed, the way `UNLIKELY_ROLES` is. Refusing
+    // the rest cost a real code sample and was invisible to every offline
+    // test: the served HTML has no `aria-*` on that tab panel, and React adds
+    // `aria-labelledby` on hydration, so only a clip from a live browser could
+    // show it. The panel was then left standing and deleted for its own
+    // `outline-hidden`.
+    if (name.startsWith("aria-") && !READABILITY_ARIA.has(name)) continue;
+    return false;
+  }
+  // `style` is admitted above, so the inline `display: none` it can carry has
+  // to be read here; `hidden` and `aria-hidden` are already refused as
+  // attributes, which is why this cannot be dropped as redundant.
+  // `hiddenByClass` is the half of the negative-weight regex that is not a
+  // score, re-established on its own terms; see its comment.
+  if (readabilityHides(div) || hiddenByClass(div)) return false;
+  const role = (div.getAttribute("role") ?? "").trim().toLowerCase();
+  if (role !== "" && UNLIKELY_ROLES.has(role)) return false;
+  // Readability matches an element's class and id together, so this does too.
+  const names = `${div.className} ${div.id}`;
+  if (NEGATIVE_EXCEPT_LAYOUT.test(names)) return false;
+  if (UNLIKELY_CANDIDATES.test(names) && !MAYBE_A_CANDIDATE.test(names)) {
+    return false;
+  }
+  return !BYLINE.test(names);
+}
+
+/**
+ * True when `div` holds one code block and nothing but chrome around it.
+ *
+ * An allow-list of element names, for the reason `MEDIA_ONLY` is one: an
+ * element nobody has considered stops the walk, which leaves the wrapper
+ * exactly as it converts today. A reject-list would have to name everything
+ * that means something.
+ *
+ * `<button>` is on it because these wrappers carry a copy-to-clipboard control
+ * and Readability deletes every `<button>` from the article anyway
+ * (`_clean(articleContent, "button")`), so keeping one is not a way to preserve
+ * anything. Bare text is not: a wrapper carrying a sentence is carrying
+ * content, and the class Readability objected to may well be about that
+ * sentence.
+ *
+ * `<div>` and `<span>` are admitted only as *containers*, never waved through:
+ * the recursion asks the same question of what they hold, so an empty
+ * `<span role="status" class="sr-only">` — the live region a copy button
+ * announces into, and the element that first stopped this pass — passes, while
+ * `<span>Note: …</span>` is refused on the bare-text rule like any other prose.
+ *
+ * Structural rather than a text test, on `holdsOnlyMedia`'s reasoning — an
+ * `<hr>` or an `<svg>` beside the code carries no text and is still content.
+ * The single-`<pre>` requirement is what keeps this off arbitrary layout, and
+ * it also declines a wrapper holding two code blocks: a side-by-side comparison
+ * is a shape, and this pass has no reading of it.
+ */
+const CODE_CHROME_WRAPPERS: ReadonlySet<string> = new Set(["DIV", "SPAN"]);
+
+function holdsOnlyCode(div: Element, seen: Set<Element> = new Set()): boolean {
+  if (div.getElementsByTagName("pre").length !== 1) return false;
+  return isCodeChrome(div, seen);
+}
+
+function isCodeChrome(element: Element, seen: Set<Element>): boolean {
+  // Defensive against a malformed tree; a cycle would otherwise not terminate.
+  if (seen.has(element)) return false;
+  seen.add(element);
+  for (const node of meaningfulChildren(element)) {
+    // "#text" is a sentence beside the code; "#comment" is already filtered.
+    if (node.nodeName.startsWith("#")) return false;
+    const child = node as Element;
+    if (child.nodeName === "PRE" || child.nodeName === "BUTTON") continue;
+    if (CODE_CHROME_WRAPPERS.has(child.nodeName) && isCodeChrome(child, seen)) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+/**
  * Drop the one LaTeXML class name that makes Readability delete a data table.
  *
  * `_removeUnlikelyCandidates` tests an element's class and id against a
@@ -1090,6 +1461,9 @@ export function prepareForClipping(doc: Document): void {
   unwrapEquationTables(doc);
   normalizeMath(doc);
   recoverCodeBlocks(doc);
+  // After recoverCodeBlocks, which reads a language from the very containers
+  // this removes; the other order trades a dropped block for a bare fence.
+  unwrapCodeWrappers(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
   // After normalizeMath, so a MathJax formula has already become its TeX
