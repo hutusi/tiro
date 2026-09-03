@@ -46,7 +46,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseArticle, verbatimRanges } from "@tiro/shared";
+import { imageOffsets, parseArticle } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 
@@ -62,49 +62,45 @@ interface Counts {
   captions: number;
 }
 
-/** Global: a line may carry more than one image, and each one counts. */
-const IMAGE = /!\[[^\]]*\]\(/g;
-
 /**
  * Count images, and the subset that carry a folded caption (ADR 0011).
  *
- * Per image rather than per line, because Turndown emits adjacent images with
- * nothing between them — `![a](a.png)![b](b.png)` — and a per-line count
- * reports losing one of them as no change at all. One vault article carries two
- * side by side, and the advisor under-reported it by three.
+ * Every image comes from `imageOffsets`, which asks the markdown parser. A
+ * regex gets this wrong in both directions and this counter proved both: the
+ * clipper writes `![a\]b](x.png)` for `alt="a]b"`, which `!\[[^\]]*\]\(`
+ * does not match at all, and it matches `\![x](x.png)`, an escaped bang that
+ * is literal text. Asking the parser also settles what counts as code for
+ * free — an image inside a fence, an indented block or an inline span never
+ * becomes an image node, so there is nothing left to exclude by hand.
  *
- * What counts as code comes from `verbatimRanges`, not from looking at the
- * line. An article *about* markdown is otherwise pure noise in every diff, and
- * recognising code by line shape means naming every way one can be written —
- * fence length, a four-backtick fence around three, indented code, a fence
- * inside a blockquote or list, an inline span. That function exists because
- * this repo already learned that lesson once; the first version of this counter
- * had to learn it again.
+ * Counted per image rather than per line, because Turndown emits adjacent
+ * images with nothing between them and one vault article carries two side by
+ * side; a per-line count reported it three short.
  *
  * A caption stays per line: a folded figure is one paragraph, however many
  * images the page put in it.
  */
 export function countMarkdown(markdown: string): Counts {
-  const verbatim = verbatimRanges(markdown);
-  const isCode = (offset: number) =>
-    verbatim.some((r) => offset >= r.start && offset < r.end);
+  const offsets = imageOffsets(markdown);
+  if (offsets.length === 0) return { images: 0, captions: 0 };
 
-  let images = 0;
+  // Walk lines and offsets together, both in ascending order, so attributing
+  // an image to its line stays linear rather than a scan per image.
   let captions = 0;
-  let offset = 0;
+  let cursor = 0;
+  let lineStart = 0;
   for (const line of markdown.split("\n")) {
-    let found = 0;
-    for (const match of line.matchAll(IMAGE)) {
-      if (!isCode(offset + (match.index ?? 0))) found++;
+    const lineEnd = lineStart + line.length;
+    let onThisLine = false;
+    while (cursor < offsets.length && (offsets[cursor] as number) <= lineEnd) {
+      onThisLine = true;
+      cursor++;
     }
-    if (found > 0) {
-      images += found;
-      // Trailing whitespace is the whole signal, so test the raw line.
-      if (line.endsWith("  ")) captions++;
-    }
-    offset += line.length + 1;
+    // Trailing whitespace is the whole signal, so test the raw line.
+    if (onThisLine && line.endsWith("  ")) captions++;
+    lineStart = lineEnd + 1;
   }
-  return { images, captions };
+  return { images: offsets.length, captions };
 }
 
 /**
@@ -332,10 +328,12 @@ async function main() {
       (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
   );
 
-  // Some articles failing is information about those articles. *Every* article
-  // failing is information about the invocation — a wrong --vault, no network —
-  // and must not read as a clean sweep to a caller that only checks the status.
-  if (failed === articles.length) process.exit(1);
+  // Some articles failing is information about those articles. *No* article
+  // being comparable is information about the invocation — a wrong --vault, no
+  // network, a corpus this cannot read — and must not read as a clean sweep to
+  // a caller that only checks the status. A page skipped as a shell is as
+  // uncompared as one that would not load, so both count.
+  if (failed + thin === articles.length) process.exit(1);
 }
 
 /**

@@ -40,6 +40,22 @@ describe("countMarkdown", () => {
       captions: 0,
     });
   });
+
+  test("counts an image whose alt text carries an escaped bracket", () => {
+    // What the clipper actually writes for alt="a]b" — verified against
+    // htmlToMarkdown, not imagined. A `[^\]]` pattern sees no image here.
+    expect(countMarkdown(String.raw`![a\]b](x.png)`).images).toBe(1);
+    expect(countMarkdown(String.raw`![a\[b](x.png)`).images).toBe(1);
+  });
+
+  test("does not count an escaped bang, which is literal text", () => {
+    expect(countMarkdown(String.raw`\![x](x.png)`).images).toBe(0);
+  });
+
+  test("counts an image nested in a link", () => {
+    // The shape the figure fold produces for a linked picture.
+    expect(countMarkdown("[![a](a.png)](full.png)").images).toBe(1);
+  });
 });
 
 describe("countMarkdown ignores code, however it is written", () => {

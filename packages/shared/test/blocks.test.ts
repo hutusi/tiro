@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkAlignment,
+  imageOffsets,
   joinBlocks,
   mathRanges,
   normalizeBlockMath,
@@ -612,5 +613,47 @@ describe("normalizeBlockMath", () => {
     expect(normalizeBlockMath("$$\nE = mc^2\n$$")).toBe("$$\nE = mc^2\n$$");
     expect(normalizeBlockMath("costs $5 to $10")).toBe("costs $5 to $10");
     expect(normalizeBlockMath("plain prose")).toBe("plain prose");
+  });
+});
+
+describe("imageOffsets", () => {
+  test("finds an image whose alt text carries an escaped bracket", () => {
+    // Turndown escapes brackets in alt text, so this is what the clipper
+    // writes for alt="a]b". A pattern built from `[^\]]` matches none of it.
+    expect(imageOffsets(String.raw`![a\]b](x.png)`)).toHaveLength(1);
+    expect(imageOffsets(String.raw`![a\[b](x.png)`)).toHaveLength(1);
+  });
+
+  test("ignores an escaped bang, which is literal text", () => {
+    expect(imageOffsets(String.raw`\![x](x.png)`)).toEqual([]);
+  });
+
+  test("ignores images inside code, however the code is written", () => {
+    for (const source of [
+      "`![x](x.png)`",
+      "```\n![x](x.png)\n```",
+      "````\n```\n![x](x.png)\n```\n````",
+      "    ![x](x.png)",
+      "> ```\n> ![x](x.png)\n> ```",
+    ]) {
+      expect(imageOffsets(source)).toEqual([]);
+    }
+  });
+
+  test("finds images nested in links, emphasis and list items", () => {
+    expect(imageOffsets("[![a](a.png)](full)")).toHaveLength(1);
+    expect(imageOffsets("*![a](a.png)*")).toHaveLength(1);
+    expect(imageOffsets("- ![a](a.png)")).toHaveLength(1);
+  });
+
+  test("returns each image on a shared line, in document order", () => {
+    const offsets = imageOffsets("![a](a.png)![b](b.png)");
+    expect(offsets).toHaveLength(2);
+    expect(offsets[0]).toBeLessThan(offsets[1] as number);
+  });
+
+  test("offsets point at the image's own start", () => {
+    const source = "Text before ![a](a.png) after.";
+    expect(source.slice(imageOffsets(source)[0])).toStartWith("![a](a.png)");
   });
 });

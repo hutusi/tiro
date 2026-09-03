@@ -167,6 +167,43 @@ export function isImageOnlyParagraph(text: string): boolean {
 }
 
 /**
+ * Start offset of every image in `text`, in document order.
+ *
+ * The counting counterpart to `isImageOnlyParagraph` above, and it exists for
+ * the reason that function's comment already gives: Turndown escapes brackets
+ * in alt text, so the clipper writes `![a\]b](x.png)` for `alt="a]b"`, and a
+ * pattern built from `[^\]]` sees no image there at all. The same pattern
+ * counts `\![x](x.png)` — an escaped bang, which is literal text — as one.
+ * Both were measured against the real clipper, not imagined.
+ *
+ * Asking the parser also settles what counts as code for free: an image inside
+ * a fence, an indented block or an inline span never becomes an image node, so
+ * a caller has nothing left to exclude by hand.
+ *
+ * Offsets rather than a count, so a caller can attribute each image to the line
+ * it sits on — which is how a folded figure caption is recognised (ADR 0011).
+ */
+export function imageOffsets(text: string): number[] {
+  const found: number[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number } };
+    };
+    if (n.type === "image") {
+      const start = n.position?.start.offset;
+      if (start !== undefined) found.push(start);
+    }
+    // Images nest — inside a link, emphasis, a table cell, a list item — so the
+    // walk continues through every node rather than stopping at the first.
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(parser.parse(text) as Root);
+  return found.sort((a, b) => a - b);
+}
+
+/**
  * True when a paragraph's entire content is one inline-math node — i.e. the
  * author wrote `$$E = mc^2$$` on a single line. micromark needs the `$$`
  * fences on their own lines to produce a `math` block, so on one line it is
