@@ -1088,6 +1088,58 @@ describe("media wrappers Readability would delete", () => {
     }
   });
 
+  test("keeps a byline as metadata instead of publishing it as content", () => {
+    // `_isValidByline` runs before the furniture checks and reads `rel`,
+    // `itemprop` and the class. Unwrapping discarded all three, so the article
+    // lost its byline *and* gained a portrait it was never meant to show.
+    const filler2 = filler;
+    for (const attr of [
+      'class="byline"',
+      'class="author"',
+      'rel="author"',
+      'itemprop="author"',
+    ]) {
+      const window = new Window();
+      window.document.body.innerHTML =
+        `<article>${filler2}<div ${attr}><figure>` +
+        '<img src="portrait.png"><figcaption>Jane Doe</figcaption>' +
+        `</figure></div>${filler2}</article>`;
+      const doc = window.document as unknown as Document;
+      prepareForClipping(doc);
+      const article = new Readability(doc as never).parse();
+      expect(article?.byline).toBe("Jane Doe");
+      expect(article?.content).not.toContain("portrait.png");
+      expect(article?.content).not.toContain("Jane Doe");
+    }
+  });
+
+  test("refuses any wrapper carrying more than layout", () => {
+    // An allow-list, so an attribute nobody has considered leaves the wrapper
+    // in place rather than being discarded with whatever it meant.
+    const carriers: [string, string][] = [
+      ["id", 'id="fig"'],
+      ["role", 'role="note"'],
+      ["lang", 'lang="fr"'],
+      ["rel", 'rel="license"'],
+    ];
+    for (const [name, attr] of carriers) {
+      const { html } = prepare(
+        `<figure><div ${attr}><img src="x.png" alt="d"></div>` +
+          "<figcaption>Cap.</figcaption></figure>",
+      );
+      expect(html).toContain(name);
+    }
+  });
+
+  test("unwraps a wrapper carrying only layout attributes", () => {
+    // class, style and data-* are the only things real wrappers carry.
+    const { doc } = prepare(
+      '<figure><div class="media" data-testid="fig" style="margin:0">' +
+        '<img src="x.png" alt="d"></div><figcaption>Cap.</figcaption></figure>',
+    );
+    expect(doc.querySelectorAll("div")).toHaveLength(0);
+  });
+
   test("still rescues a wrapper whose class only loses it weight", () => {
     // The whole point: `media` is in the negative-weight regex and not in the
     // unlikely-candidate one, so the two verdicts must not be conflated.

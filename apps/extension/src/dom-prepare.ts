@@ -830,13 +830,11 @@ function unwrapMediaWrappers(doc: Document): void {
     // An ancestor unwrapped earlier in this loop takes its descendants with it.
     const parent = div.parentNode;
     if (parent === null) continue;
-    // Never a wrapper Readability would itself have dropped — hidden, or
-    // marked as furniture by class, id or role. Unwrapping discards exactly
-    // the attributes those verdicts are read from, so a sidebar holding one
-    // figure would lose the only thing marking it as a sidebar and publish its
-    // picture as the article's. Only this element's own attributes matter:
-    // unwrapping a wrapper inside a rejected region leaves the region rejected.
-    if (readabilityHides(div) || readabilityRejects(div)) continue;
+    // Never a wrapper that carries anything beyond layout. Unwrapping discards
+    // the element's attributes, and Readability reaches several verdicts from
+    // them before it scores anything — hidden, furniture, byline. Rather than
+    // mirror each, refuse anything whose attributes could mean something.
+    if (readabilityHides(div) || carriesMoreThanLayout(div)) continue;
     if (
       div.closest("figure") === null &&
       div.querySelector("figure") === null
@@ -851,52 +849,65 @@ function unwrapMediaWrappers(doc: Document): void {
 
 /**
  * Readability's `unlikelyCandidates` / `okMaybeItsACandidate` pair and its
- * `UNLIKELY_ROLES`, copied from `Readability.js:140` and `:177`.
+ * `byline` regex, copied from `Readability.js:140` and `:150`.
  *
  * These are a *different* judgement from the one this pass exists to correct.
- * `_removeUnlikelyCandidates` deletes a region outright, before scoring, on the
- * strength of these; `media` is deliberately not among them. The regex this
- * pass works around lives in `_getClassWeight` and only contributes a score.
+ * `_getClassWeight` gives an element a score and its regex contains `media`;
+ * these delete a region outright, before scoring, and deliberately do not.
  * Keeping the two apart is what lets a gallery be rescued without a sidebar
  * being rescued alongside it.
  */
 const UNLIKELY_CANDIDATES =
   /-ad-|ai2html|banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|footer|gdpr|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote/i;
 const MAYBE_A_CANDIDATE = /and|article|body|column|content|main|shadow/i;
-const UNLIKELY_ROLES: ReadonlySet<string> = new Set([
-  "menu",
-  "menubar",
-  "complementary",
-  "navigation",
-  "alert",
-  "alertdialog",
-  "dialog",
-]);
+const BYLINE = /byline|author|dateline|writtenby|p-author/i;
 
 /**
- * True when Readability would delete this element as boilerplate on its own.
+ * Attributes a wrapper may carry and still be nothing but layout.
  *
- * The companion to `readabilityHides`, and needed for the same reason: this
- * pass drops the element's attributes, so any verdict Readability would have
- * reached from them has to be reached here first. Without it a
- * `<div class="sidebar">` or `<div role="complementary">` holding a lone figure
- * is unwrapped, loses the only signal marking it as furniture, and its picture
- * and caption are published as though they were the article's.
+ * `data-*` joins them because Readability reads none of it on a `<div>`, and
+ * real wrappers do carry it: across the 34-article corpus the only attributes
+ * ever seen on an unwrap candidate are `class`, `data-*`, and none at all.
+ */
+const LAYOUT_ATTRS: ReadonlySet<string> = new Set(["class", "style"]);
+
+/**
+ * True when the wrapper carries anything beyond layout — in which case leave it
+ * exactly as it is.
+ *
+ * This is written as an allow-list, and that is the whole point of it. The
+ * alternative — enumerating the verdicts Readability reaches before scoring and
+ * mirroring each — was tried and failed three times running: first the
+ * visibility checks were mirrored but not `_removeUnlikelyCandidates`, so a
+ * `<div class="sidebar">` published its picture as the article's; then that was
+ * mirrored but not `_isValidByline`, so a `<div rel="author">` around a
+ * portrait cost the article its byline *and* published the portrait as content.
+ * Every one of those was an attribute this pass discards on the way past.
+ *
+ * So the question asked here is not "which of Readability's rules apply?" but
+ * "is there anything here that could mean something?" — `rel`, `itemprop`,
+ * `role`, `hidden`, `aria-*`, `id` and anything not yet invented all fail it
+ * together, and a rule nobody has read yet cannot be missed. What remains is
+ * `class`, whose two outright-rejection verdicts are named above; a class that
+ * merely costs the element *weight* is exactly what this pass is here to
+ * rescue, so it is deliberately not among them.
  *
  * Only the element's own attributes matter. Unwrapping a wrapper *inside* a
- * rejected region is harmless: the region keeps its class, so Readability still
+ * rejected region is harmless: the region keeps its own, so Readability still
  * removes the whole subtree.
- *
- * Deliberately stricter than the original, which also spares a node inside a
- * `<table>` or `<code>`. Refusing to unwrap something Readability would have
- * kept only leaves today's markup in place; the reverse publishes furniture.
  */
-function readabilityRejects(element: Element): boolean {
-  const match = `${element.className} ${element.id}`;
-  if (UNLIKELY_CANDIDATES.test(match) && !MAYBE_A_CANDIDATE.test(match)) {
+function carriesMoreThanLayout(element: Element): boolean {
+  for (const attribute of Array.from(element.attributes)) {
+    const name = attribute.name;
+    if (!LAYOUT_ATTRS.has(name) && !name.startsWith("data-")) return true;
+  }
+  // `id` is refused above, so the class is the whole of what Readability would
+  // have matched on.
+  const names = element.className;
+  if (UNLIKELY_CANDIDATES.test(names) && !MAYBE_A_CANDIDATE.test(names)) {
     return true;
   }
-  return UNLIKELY_ROLES.has(element.getAttribute("role") ?? "");
+  return BYLINE.test(names);
 }
 
 /**

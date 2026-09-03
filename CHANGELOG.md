@@ -23,12 +23,16 @@ versions follow the `0.x` line while Tiro is a personal system.
   Unwrapping rather than just clearing the class, because the wrapper cost a
   second thing: Readability rewrites a phrasing-only `<div>` into a `<p>`, and a
   figure holding `<p><img></p>` does not fold its caption (0.10.0). Removing the
-  wrapper fixes both. A wrapper Readability would itself have dropped is left
-  strictly alone — one the page has hidden, or one marked as furniture by class,
-  id or role — since unwrapping discards exactly the attributes those verdicts
-  are read from. `media` costs an element *score*; `sidebar` and
-  `role="complementary"` get it deleted outright, and only the first is a false
-  positive worth correcting.
+  wrapper fixes both. Only a wrapper carrying *nothing but layout* is unwrapped
+  — `class`, `style`, `data-*` and no more. Unwrapping discards the element's
+  attributes, and Readability reads several verdicts from them before it scores
+  anything: `hidden`, furniture (`class="sidebar"`, `role="complementary"`), and
+  a byline (`rel="author"`, `itemprop`, `class="byline"`). Asking "is there
+  anything here that could mean something?" rather than mirroring each rule is
+  what makes a rule nobody has read yet impossible to miss. What remains is the
+  class, and only its two outright-rejection verdicts block the unwrap — a class
+  that merely costs the element *weight*, which is what `media` does, is the
+  whole point of the pass.
 
 - **An inline chart no longer arrives as a run of glyphs.** Turndown has no
   rendering for `<svg>`, so it emitted every text node inside one in document
