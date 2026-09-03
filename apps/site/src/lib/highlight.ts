@@ -1,4 +1,5 @@
 import bash from "@shikijs/langs/bash";
+import bibtex from "@shikijs/langs/bibtex";
 import c from "@shikijs/langs/c";
 import cpp from "@shikijs/langs/cpp";
 import csharp from "@shikijs/langs/csharp";
@@ -46,6 +47,7 @@ import type { Element, Root } from "hast";
 import { createHighlighterCoreSync } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { visit } from "unist-util-visit";
+import { detectLanguage } from "./detect-language.ts";
 
 const THEME = "github-dark-dimmed";
 /** Shiki special-cases this one — it needs no grammar. */
@@ -87,6 +89,7 @@ const highlighter = createHighlighterCoreSync({
   themes: [githubDarkDimmed],
   langs: [
     bash,
+    bibtex,
     c,
     cpp,
     csharp,
@@ -221,8 +224,14 @@ export function rehypeShiki() {
       // remark-rehype terminates the code text with a newline; passing it
       // through would give every block a trailing blank line.
       const text = codeText(node).replace(/\n$/, "");
+      // Every fence in the vault is bare — the pages they came from state no
+      // language anywhere in their markup — so without a fallback the whole
+      // corpus renders as plain text. `detectLanguage` answers only where a
+      // signature is unambiguous and returns null otherwise, which lands on
+      // `languageFor`'s plaintext fallback exactly as an absent info string
+      // does today.
       const highlighted = highlighter.codeToHast(text, {
-        lang: languageFor(info),
+        lang: languageFor(info ?? detectLanguage(text) ?? undefined),
         theme: THEME,
       });
       const root = highlighted.children[0];

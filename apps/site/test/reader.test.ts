@@ -132,6 +132,35 @@ describe("renderBlockHtml", () => {
     expect(html.match(/class="line"/g)).toHaveLength(1);
   });
 
+  test("infers a language for a bare fence and highlights it", () => {
+    // Every fence in the vault is bare, so this is the path the whole corpus
+    // takes. detect-language.test.ts owns which answer is right; this owns
+    // that the answer reaches the rendered HTML at all.
+    const html = renderBlockHtml(
+      "```\npub enum Data {\n    A(Ipv4Addr),\n    B(Txt),\n}\n```",
+      "s",
+    );
+    expect(html).toContain('<span style="color:');
+    expect(html).toContain("pub");
+  });
+
+  test("leaves a bare fence of prose unhighlighted", () => {
+    const html = renderBlockHtml(
+      "```\nPlease remove all mannered prose.\n```",
+      "s",
+    );
+    expect(html).toContain('class="shiki');
+    expect(html).not.toContain('<span style="color:');
+  });
+
+  test("a declared language still wins over inference", () => {
+    // `# Heading` plus a list is markdown to the detector; the fence says
+    // otherwise and the fence is what the page told us.
+    const html = renderBlockHtml("```yaml\n# Heading\n- a\n- b\n```", "s");
+    expect(html).toContain('class="shiki');
+    expect(html).toContain("# Heading");
+  });
+
   test("keeps every child of a <pre>, not just the first <code>", () => {
     // The replacement discards the <pre>, so reading only the <code> the
     // language came from drops anything beside it — both shapes reachable

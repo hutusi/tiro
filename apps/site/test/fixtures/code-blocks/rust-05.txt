@@ -1,0 +1,7 @@
+pub struct Record {
+    owner: Option<Box<Name>>,
+    class: Class,
+    ttl: Ttl,
+    rtype: Rtype,
+    data: RecordData,
+}

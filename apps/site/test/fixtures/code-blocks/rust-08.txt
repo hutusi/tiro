@@ -1,0 +1,10 @@
+pub enum RecordData {
+    // Small and common variants are stored inline
+    A(Ipv4Addr),
+    Aaaa(Ipv6Addr),
+    // Large variants are stored on the heap
+    Txt(Box<Txt>),
+    Naptr(Box<Naptr>),
+    Svcb(Box<Svcb>),
+    // ...
+}
