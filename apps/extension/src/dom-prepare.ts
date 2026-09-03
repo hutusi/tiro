@@ -863,6 +863,30 @@ const MAYBE_A_CANDIDATE = /and|article|body|column|content|main|shadow/i;
 const BYLINE = /byline|author|dateline|writtenby|p-author/i;
 
 /**
+ * Readability's `negative` regex (`Readability.js:146`) with the single token
+ * `media` removed — the one collision this pass exists to correct.
+ *
+ * `_getClassWeight` docks 25 points for any of these, and `_cleanConditionally`
+ * deletes an element outright once `weight + contentScore < 0`. That is how a
+ * gallery is lost, so every *other* token here deletes furniture the same way
+ * and is doing its job: `promo`, `widget`, `contact`, `share`, `tags` and the
+ * rest name things a reader did not ask for.
+ *
+ * `hidden` is the one that would hurt most. `class="hidden"` is how Tailwind
+ * and Bootstrap spell `display: none`, and Readability catches it *only* here —
+ * `_isProbablyVisible` reads the inline style attribute, not a stylesheet — so
+ * discarding this class is enough to publish content the page never rendered.
+ * `readabilityHides` cannot cover it: there is no stylesheet in scope to ask.
+ *
+ * Splitting one token out of a copied regex is worth the awkwardness. The
+ * alternative — matching `negative` and then re-testing to see whether `media`
+ * was the reason — has to decide what a class matching both `media` and `promo`
+ * means, and the answer is "leave it alone", which is what this already says.
+ */
+const NEGATIVE_EXCEPT_MEDIA =
+  /-ad-|hidden|^hid$| hid$| hid |^hid |banner|combx|comment|com-|contact|footer|gdpr|masthead|meta|outbrain|promo|related|scroll|share|shoutbox|sidebar|skyscraper|sponsor|shopping|tags|widget/i;
+
+/**
  * Attributes a wrapper may carry and still be nothing but layout.
  *
  * `data-*` joins them because Readability reads none of it on a `<div>`, and
@@ -888,9 +912,10 @@ const LAYOUT_ATTRS: ReadonlySet<string> = new Set(["class", "style"]);
  * "is there anything here that could mean something?" — `rel`, `itemprop`,
  * `role`, `hidden`, `aria-*`, `id` and anything not yet invented all fail it
  * together, and a rule nobody has read yet cannot be missed. What remains is
- * `class`, whose two outright-rejection verdicts are named above; a class that
- * merely costs the element *weight* is exactly what this pass is here to
- * rescue, so it is deliberately not among them.
+ * `class`, and there the rule is narrower than "it only costs weight": exactly
+ * one token, `media`, is treated as a false positive. Every other reason
+ * Readability has to reject a class still stands — the rest of the
+ * negative-weight regex, the unlikely-candidate pair, the byline signals.
  *
  * Only the element's own attributes matter. Unwrapping a wrapper *inside* a
  * rejected region is harmless: the region keeps its own, so Readability still
@@ -904,6 +929,11 @@ function carriesMoreThanLayout(element: Element): boolean {
   // `id` is refused above, so the class is the whole of what Readability would
   // have matched on.
   const names = element.className;
+  // Every negative-weight verdict but the diagnosed one still stands. Note the
+  // asymmetry with the line below: `okMaybeItsACandidate` rescues an unlikely
+  // candidate, and Readability has no equivalent rescue here, so neither does
+  // this — a positive token cancels the *score*, not the reason for caution.
+  if (NEGATIVE_EXCEPT_MEDIA.test(names)) return true;
   if (UNLIKELY_CANDIDATES.test(names) && !MAYBE_A_CANDIDATE.test(names)) {
     return true;
   }

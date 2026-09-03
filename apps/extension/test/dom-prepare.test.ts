@@ -1140,9 +1140,32 @@ describe("media wrappers Readability would delete", () => {
     expect(doc.querySelectorAll("div")).toHaveLength(0);
   });
 
-  test("still rescues a wrapper whose class only loses it weight", () => {
-    // The whole point: `media` is in the negative-weight regex and not in the
-    // unlikely-candidate one, so the two verdicts must not be conflated.
+  test("leaves every negative-weight class but the diagnosed one alone", () => {
+    // `_getClassWeight` docks 25 for all of these and `_cleanConditionally`
+    // deletes on a negative total — the same mechanism that loses a gallery, so
+    // for every token except `media` it is doing its job. `hidden` matters
+    // most: it is how Tailwind spells `display: none`, and Readability catches
+    // it only here, so discarding the class publishes unrendered content.
+    for (const name of [
+      "hidden",
+      "promo",
+      "widget",
+      "contact",
+      "share",
+      "tags",
+      "masthead",
+      "shopping",
+    ]) {
+      const html = clip(
+        `<div class="${name}"><figure><img src="furniture.png" alt="f">` +
+          "<figcaption>Cap.</figcaption></figure></div>",
+      );
+      expect(html).not.toContain("furniture.png");
+    }
+  });
+
+  test("still rescues the one collision the pass exists for", () => {
+    // `media` is the single token treated as a false positive.
     expect(clip(gallery)).toContain("venus.png");
   });
 

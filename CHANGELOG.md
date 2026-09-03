@@ -30,9 +30,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   a byline (`rel="author"`, `itemprop`, `class="byline"`). Asking "is there
   anything here that could mean something?" rather than mirroring each rule is
   what makes a rule nobody has read yet impossible to miss. What remains is the
-  class, and only its two outright-rejection verdicts block the unwrap — a class
-  that merely costs the element *weight*, which is what `media` does, is the
-  whole point of the pass.
+  class, and there exactly one token — `media` — is treated as a false positive.
+  Every other reason Readability has to reject a class still stands, including
+  the rest of the negative-weight regex: `promo`, `widget`, `contact` and their
+  kind name things a reader did not ask for, and `class="hidden"` is how
+  Tailwind spells `display: none`, caught only there.
 
 - **An inline chart no longer arrives as a run of glyphs.** Turndown has no
   rendering for `<svg>`, so it emitted every text node inside one in document
