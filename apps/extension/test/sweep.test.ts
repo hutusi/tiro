@@ -194,6 +194,54 @@ describe("backfill", () => {
     expect(result?.index).toContain("```python");
   });
 
+  /**
+   * `claude.com/blog` mislabels 4 of its own 13 blocks — a markdown document
+   * tagged `javascript`, a GitHub Actions step tagged `markdown` — which is
+   * what a per-block language dropdown in a CMS produces. Writing those in
+   * makes them permanent, so a disagreement stops rather than resolves.
+   */
+  test("leaves a fence bare when the page and the code disagree", () => {
+    const markdownDoc =
+      "# Payments service\n\n## Commands\n- Build: make build\n- Test: make test\n";
+    const result = backfill(
+      article(`\`\`\`\n${markdownDoc}\`\`\`\n`),
+      null,
+      `\`\`\`javascript\n${markdownDoc}\`\`\`\n`,
+    );
+    expect(result?.languages).toEqual([]);
+    expect(result?.index).not.toContain("```javascript");
+    expect(result?.conflicts).toEqual([
+      {
+        declared: "javascript",
+        inferred: "markdown",
+        opening: "# Payments service",
+      },
+    ]);
+  });
+
+  test("does not call an alias a disagreement", () => {
+    // The page writes `ts`, the detector says `typescript`: one answer.
+    const code = "interface A { b: string }\nconst x: string = a.b;\n";
+    const result = backfill(
+      article(`\`\`\`\n${code}\`\`\`\n`),
+      null,
+      `\`\`\`ts\n${code}\`\`\`\n`,
+    );
+    expect(result?.languages).toEqual(["ts"]);
+    expect(result?.conflicts).toEqual([]);
+  });
+
+  test("writes a label the inference has no opinion about", () => {
+    // Most fences infer to null, and the page's label must still land.
+    const result = backfill(
+      article("```\nSELECT 1\n```\n"),
+      null,
+      "```sql\nSELECT 1\n```\n",
+    );
+    expect(result?.languages).toEqual(["sql"]);
+    expect(result?.conflicts).toEqual([]);
+  });
+
   test("changes nothing but the fence's opening line", () => {
     const body = "Intro.\n\n```\nlet x = 1;\n```\n\nOutro.\n";
     const result = backfill(article(body), null, "```rust\nlet x = 1;\n```\n");

@@ -47,7 +47,7 @@ A fence's language comes from the first of these that answers:
 2. **Chrome the page wrote for a human** — a tab strip's selected tab, a header
    naming `src/main.rs`. Resolved through allowlists in
    `@tiro/shared/languages.ts`, never through a pattern.
-3. **Inference from the code text** — `apps/site/src/lib/detect-language.ts`,
+3. **Inference from the code text** — `packages/shared/src/detect-language.ts`,
    at build time, high confidence only.
 4. **Plain text** — unchanged.
 
@@ -112,20 +112,47 @@ language written into `index.md` alone breaks byte-identity — and a misaligned
 article does not render wrong, it silently stops rendering side by side at all
 (ADR 0003).
 
+### A stated label the page got wrong
+
+The precedence above assumes a page that states a language is right about it.
+The first real backfill disproved that: `claude.com/blog` mislabels **4 of its
+own 13 blocks** — a markdown document tagged `javascript` (twice), an agent
+skill file tagged `javascript`, a GitHub Actions step tagged `markdown`. That is
+what a per-block language dropdown in a CMS produces, and it is not rare.
+
+Rendered, the markdown document tagged `javascript` colours `-` as a minus
+operator and `test` as a function call. Worse than plain, and permanent once
+written.
+
+So the backfill — and only the backfill, not the clipper — cross-checks a
+declared label against the inference and **leaves the fence bare when they
+disagree**, reporting it for a human. Aliases are normalized first, so `ts`
+against `typescript` is not a disagreement, and an inference of `null` is no
+opinion rather than a contradiction. The clipper keeps writing what the page
+says at clip time: it has no inference to check against, and the site's
+inference will not fire on a fence that carries a label anyway.
+
+The asymmetry is the same one that puts inference at render time. Precedence
+decides what to *believe*; this decides what to make *permanent*.
+
 ## Consequences
 
-- The vault gains 14 labels from layers 1–2 without a re-clip; inference covers
-  about 10 more; the remaining 16 are prose and correctly stay plain.
-- Built against the live vault, the site goes from **0 coloured tokens to 2684**.
+- The vault gains 14 labels from layers 1–2 without a re-clip — 10 written by
+  the backfill and 4 corrected by hand after it flagged them. Inference covers
+  about 10 more at build time; the remaining 16 are prose and correctly stay
+  plain.
+- Built against the live vault, the site goes from **0 coloured tokens to 2686**.
 - `detect-language.ts` is a heuristic and will be wrong eventually. The cost is
-  bounded to one build, and `apps/site/test/fixtures/code-blocks/` — all 40 real
-  blocks with their expected answers, `plain` included — is where a regression
-  shows up.
+  bounded to one build, and `packages/shared/test/fixtures/code-blocks/` — all 40
+  real blocks with their expected answers, `plain` included — is where a
+  regression shows up.
 - The grammar list in `highlight.ts` now has to cover what the detector can
   return; `bibtex` was added for exactly this reason.
 - Adding a language means three edits: a grammar import in `highlight.ts`, an
   entry in `languages.ts` if pages name it in chrome, and a signature in
   `detect-language.ts` if it should be inferable.
+- The detector lives in `@tiro/shared` rather than in the site because the
+  backfill needs it too, for the guard below.
 
 ## Alternatives considered
 

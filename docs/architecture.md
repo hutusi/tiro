@@ -95,7 +95,8 @@ flowchart LR
    (ADR 0009).
 
    A fence that still carries no language after the clipper's chain gets one
-   inferred from its code at build time (`detect-language.ts`), on unambiguous
+   inferred from its code at build time (`@tiro/shared`'s `detect-language.ts`),
+   on unambiguous
    signatures only. Inference lives here and not in the clipper because a guess
    written into the vault is permanent while a guess made at build time costs
    one build — and because roughly 16 of the vault's 40 fenced blocks are

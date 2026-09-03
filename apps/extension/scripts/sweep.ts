@@ -54,8 +54,10 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   checkAlignment,
+  detectLanguage,
   foldedFigureCount,
   imageOffsets,
+  languageFromLabel,
   parseArticle,
   splitBlocks,
 } from "@tiro/shared";
@@ -315,13 +317,49 @@ function declaredLanguages(markdown: string): Map<string, string> {
   return found;
 }
 
+interface Conflict {
+  declared: string;
+  inferred: string;
+  /** The block's first line, so the report can be judged without opening it. */
+  opening: string;
+}
+
 interface Backfill {
   /** Languages written, in document order, for the report. */
   languages: string[];
+  /** Fences left bare because the page and the inference disagree. */
+  conflicts: Conflict[];
   index: string;
   zh: string | null;
   /** Set when the edit was refused; nothing is written. */
   refused?: string;
+}
+
+/**
+ * Whether a page's stated language and the site's inference actually disagree.
+ *
+ * Not every difference is one: a page writes `ts` where the site says
+ * `typescript`, and both are the same answer, so the label is normalized before
+ * comparing. An inference of `null` is no opinion rather than a contradiction —
+ * most fences have none, and the page's label must still be written for those.
+ *
+ * A real disagreement is a signal worth stopping for, because this is the step
+ * that makes a label permanent. `claude.com/blog` mislabels 4 of its own 13
+ * blocks — a markdown document tagged `javascript`, a GitHub Actions step
+ * tagged `markdown` — which is what a per-block dropdown in a CMS produces, and
+ * writing those into the vault renders `- Build:` with the `-` coloured as a
+ * minus operator for as long as the article exists.
+ */
+function conflicts(declared: string, code: string): Conflict | null {
+  const inferred = detectLanguage(code);
+  if (inferred === null) return null;
+  const canonical = languageFromLabel(declared) ?? declared.toLowerCase();
+  if (canonical === inferred) return null;
+  return {
+    declared,
+    inferred,
+    opening: (code.split("\n", 1)[0] ?? "").slice(0, 60),
+  };
 }
 
 /**
@@ -346,6 +384,7 @@ export function backfill(
   const indexEdits: (Span & { text: string })[] = [];
   const zhEdits: (Span & { text: string })[] = [];
   const written: string[] = [];
+  const disputed: Conflict[] = [];
   const zhSpans = zhText === null ? [] : codeSpans(zhText);
 
   for (const span of codeSpans(body)) {
@@ -353,6 +392,12 @@ export function backfill(
     const key = fenceKey(span.text);
     const language = key === "" ? undefined : languages.get(key);
     if (language === undefined) continue;
+
+    const conflict = conflicts(language, key);
+    if (conflict !== null) {
+      disputed.push(conflict);
+      continue;
+    }
 
     if (zhText !== null) {
       // Matched on the whole slice, not the key: the translation holds this
@@ -368,6 +413,7 @@ export function backfill(
       if (mate === undefined) {
         return {
           languages: [],
+          conflicts: disputed,
           index: indexText,
           zh: zhText,
           refused: "index.md and zh.md do not correspond",
@@ -379,7 +425,11 @@ export function backfill(
     written.push(language);
   }
 
-  if (indexEdits.length === 0) return null;
+  if (indexEdits.length === 0) {
+    return disputed.length === 0
+      ? null
+      : { languages: [], conflicts: disputed, index: indexText, zh: zhText };
+  }
 
   const newBody = applyEdits(body, indexEdits);
   // `body` is a suffix of the file — `parseArticle` slices the frontmatter off
@@ -393,13 +443,19 @@ export function backfill(
     if (!result.ok) {
       return {
         languages: [],
+        conflicts: disputed,
         index: indexText,
         zh: zhText,
         refused: `alignment would break (${result.errors[0] ?? "unknown"})`,
       };
     }
   }
-  return { languages: written, index: newIndex, zh: newZh };
+  return {
+    languages: written,
+    conflicts: disputed,
+    index: newIndex,
+    zh: newZh,
+  };
 }
 
 function tally(languages: string[]): string {
@@ -422,6 +478,7 @@ async function fillLanguages(
   let filled = 0;
   let fences = 0;
   let failed = 0;
+  let disputed = 0;
   for (const article of articles) {
     const dir = join(args.vault, "articles", article.slug);
     const indexPath = join(dir, "index.md");
@@ -447,19 +504,32 @@ async function fillLanguages(
       failed++;
       continue;
     }
-    filled++;
-    fences += result.languages.length;
-    console.log(
-      `  ${article.slug}: ${result.languages.length} fence(s) — ${tally(result.languages)}`,
-    );
-    if (!args.write) continue;
+    if (result.languages.length > 0) {
+      filled++;
+      fences += result.languages.length;
+      console.log(
+        `  ${article.slug}: ${result.languages.length} fence(s) — ${tally(result.languages)}`,
+      );
+    }
+    for (const conflict of result.conflicts) {
+      disputed++;
+      console.log(
+        `  !  ${article.slug}: left bare — page says ${conflict.declared}, ` +
+          `code reads ${conflict.inferred}\n     ${conflict.opening}`,
+      );
+    }
+    if (!args.write || result.languages.length === 0) continue;
     await writeFile(indexPath, result.index);
     if (result.zh !== null) await writeFile(zhPath, result.zh);
   }
   const verb = args.write ? "labelled" : "would be labelled";
+  const notes = [
+    disputed > 0 ? `${disputed} left bare over a disagreement` : "",
+    failed > 0 ? `${failed} could not be read or were refused` : "",
+  ].filter((note) => note !== "");
   console.log(
     `\n${fences} fence(s) in ${filled} of ${articles.length} article(s) ${verb}` +
-      (failed > 0 ? ` (${failed} could not be read or were refused)` : ""),
+      (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
   );
 }
 

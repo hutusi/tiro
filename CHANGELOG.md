@@ -21,10 +21,13 @@ versions follow the `0.x` line while Tiro is a personal system.
   costs one build — which matters here because roughly 16 of those 40 blocks are
   English prose an author fenced for display, so the expensive failure is a
   paragraph painted as Ruby, not a block left plain. Built against the live
-  vault, the site goes from 0 coloured tokens to 2684. See ADR 0012.
+  vault, the site goes from 0 coloured tokens to 2686. See ADR 0012.
 - **`sweep --fill-languages`** backfills fence languages onto clips taken before
   the language chain existed, rewriting `index.md` and `zh.md` in lockstep so
-  block alignment survives. Reports by default; `--write` applies.
+  block alignment survives. Reports by default; `--write` applies. A fence whose
+  declared language disagrees with what the code reads as is left bare and
+  reported rather than written — pages do get this wrong, and the first real run
+  found `claude.com/blog` mislabelling 4 of its own 13 blocks.
 
 - **Articles record which clipper *build* wrote them**, not only which release.
   `tiro.clipper_version` comes from the manifest, so it names a release — but

@@ -43,11 +43,11 @@ import xml from "@shikijs/langs/xml";
 import yaml from "@shikijs/langs/yaml";
 import zig from "@shikijs/langs/zig";
 import githubDarkDimmed from "@shikijs/themes/github-dark-dimmed";
+import { detectLanguage } from "@tiro/shared";
 import type { Element, Root } from "hast";
 import { createHighlighterCoreSync } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { visit } from "unist-util-visit";
-import { detectLanguage } from "./detect-language.ts";
 
 const THEME = "github-dark-dimmed";
 /** Shiki special-cases this one — it needs no grammar. */

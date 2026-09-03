@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { detectLanguage } from "../src/lib/detect-language.ts";
+import { detectLanguage } from "../src/detect-language.ts";
 
 /**
  * Every bare fence in the live vault, with the language a reader would give it.
