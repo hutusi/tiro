@@ -1383,15 +1383,35 @@ describe("code wrappers Readability would delete", () => {
   });
 
   test.each([
-    ['aria-hidden="true"', "the one ARIA attribute Readability reads"],
-    ['aria-modal="true" role="dialog"', "the other, with the role it needs"],
-  ])("leaves a wrapper carrying %s alone", (attrs) => {
-    // ARIA is admitted as labelling, but not the two entries Readability acts
-    // on. Enumerated from its source rather than assumed.
-    const { html } = prepare(
-      `<div ${attrs} class="overflow-hidden"><pre><code>run()</code></pre></div>`,
-    );
-    expect(html).toContain('class="overflow-hidden"');
+    ['aria-hidden="true"', "hidden from assistive tech and from Readability"],
+    ['aria-modal="true" role="dialog"', "a dialog, not the article"],
+    ['rel="author"', "a byline"],
+    ['itemprop="author"', "the microdata spelling of one"],
+  ])("a wrapper carrying %s keeps its own verdict", (attrs) => {
+    // Nothing here is enumerated any more. The element is left in place with
+    // every attribute it arrived with, so Readability reaches these verdicts
+    // itself — which is the whole point of clearing tokens instead of
+    // unwrapping. The earlier design had to mirror each of these rules, and
+    // missed `aria-labelledby` in a way no offline test could see.
+    expect(
+      clip(
+        `<div ${attrs} class="overflow-hidden"><pre><code>run()</code></pre></div>`,
+      ),
+    ).not.toContain("run()");
+  });
+
+  test("a hydrated tab panel keeps its code", () => {
+    // The shape that broke the unwrap design: React adds `aria-labelledby` on
+    // hydration, the attribute allow-list refused it, and the panel was then
+    // deleted for its own `outline-hidden`. Nothing reads attributes now.
+    expect(
+      clip(
+        '<div id="p" role="tabpanel" tabindex="-1" aria-labelledby="t" ' +
+          'class="cds-reset focus-visible:outline-hidden data-[ending-style]:hidden">' +
+          '<div class="inline-block"><pre><code>import anthropic</code></pre>' +
+          "</div></div>",
+      ),
+    ).toContain("import anthropic");
   });
 
   test("leaves a dialog alone", () => {
@@ -1462,15 +1482,15 @@ describe("code wrappers Readability would delete", () => {
       "a selector operator this does not model",
     ],
   ])("leaves %s for Readability to judge", (attrs) => {
-    // The assertion is about *this* pass, not about the verdict: a wrapper left
-    // standing keeps whatever Readability makes of it, which for `d-none` and
-    // `sr-only` is nothing — its regex has never known those. Unwrapping is
-    // what would take even that verdict away.
+    // The assertion is about *this* pass, not about the verdict: the class
+    // token survives, so whatever Readability makes of it still stands — which
+    // for `d-none` and `sr-only` is nothing, its regex having never known
+    // those. Clearing the token is what would take even that verdict away.
     const { html } = prepare(
       `<div ${attrs}><pre><code>secret()</code></pre></div>`,
     );
-    // The wrapper still stands between the body and the code block.
-    expect(html).toMatch(/<div[^>]*><pre/);
+    const token = attrs.match(/class="([^"]+)"/)?.[1] ?? attrs;
+    expect(html).toContain(token);
   });
 
   test("a block hidden with a bare class stays out of the clip", () => {
@@ -1500,7 +1520,7 @@ describe("code wrappers Readability would delete", () => {
       "quotes normalized, condition still false",
     ],
     ['class="data-[disabled]:hidden"', "a flag the element does not carry"],
-  ])("still unwraps %s", (attrs) => {
+  ])("still recovers the block behind %s", (attrs) => {
     // The other half of the same rule. Whole-token matching separates
     // `overflow-hidden` from `hidden`; reading the `data-[…]` condition against
     // the element separates a panel that really is inactive from one merely

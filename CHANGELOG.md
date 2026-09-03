@@ -84,62 +84,29 @@ versions follow the `0.x` line while Tiro is a personal system.
   One clipped article lost **all 15** of its code blocks and published as prose
   with the examples simply missing from between the paragraphs — a page reading
   as if its author had described every sample without ever showing one.
-  The clipper now unwraps the layout `<div>`s around a code block, widening out
-  one container at a time until it reaches one that carries something besides
-  the code. The depth varies by site — the three shapes on that article nest
-  two, three and five deep — so a fixed walk is not enough.
+  The clipper now clears just those class tokens from the containers around a
+  code block, widening out one container at a time until it reaches one that
+  carries something besides the code. A token is cleared only when Readability
+  docks it, it does not actually hide the element, and removing the two
+  colliding words leaves nothing Readability still objects to — so
+  `overflow-hidden` goes while `promo-hidden` and `sidebar-scroll` stay. Whether
+  a token really hides is read rather than guessed: `data-[state=inactive]:hidden`
+  counts only on an element that carries `data-state="inactive"`, quoted or not,
+  while `md:`, `dark:` and `hover:` name states there is no viewport, theme or
+  pointer here to evaluate, and **unanswerable counts as hidden**.
 
-  Unwrapping rather than clearing the class, on the ground the gallery fix
-  already stands on: removing a layout `<div>` is markdown-neutral, since
-  Turndown surrounds one with blank lines whether or not it is there. Not, as
-  this entry first claimed, because `_cleanConditionally` deletes blocks under
-  25 characters — that clause also requires a positive link density, and code
-  has no links, so it never fires. The claim was read out of the source and
-  written up as measured, which it was not. Clearing only the colliding tokens
-  is a real alternative that keeps every judgement Readability makes; what it
-  does not reach is a wrapper whose collision is not a compound suffix, which is
-  the tabbed sample above.
-
-  The guard is the gallery's, diverging in two places. Its attribute allow-list
-  admits only `class`, `style` and `data-*`; a scrollable code panel is a
-  focusable widget, so `id`, `role` and `tabindex` are admitted here too, each
-  with its own reading — `role` against Readability's unlikely-role list, `id`
-  against the same regexes as the class. Refusing them left a tabbed API sample
-  deleted by its own `outline-hidden`. And the negative-weight regex keeps every
-  token but the two that collide, `hidden` and `scroll` — the same shape the
-  gallery's `media` exception already has, one exception per diagnosed word.
-  Declining it wholesale was tried first and was wrong: `promo`, `widget`,
-  `contact`, `shopping`, `tags`, `meta`, `outbrain` and `share` each then handed
-  back a code block Readability had been deleting, because those are exactly the
-  tokens that carry negative weight *without* also being unlikely candidates, so
-  nothing else in the guard caught them. Every genuine rejection pass still
-  applies — the `hidden` attribute, unlikely candidates, bylines, unlikely
-  roles, furniture class names, and any attribute that could mean something.
-
-  `hidden` is exempted rather than kept because it is not a furniture signal at
-  all — it is a visibility signal, and it is the only way Readability ever sees
-  a page hiding something with a stylesheet, so it is re-established on its own
-  terms instead — on Readability's own substring terms, with the collisions
-  named one at a time: `overflow-hidden`, `outline-hidden` and their axis
-  variants, plus `not-sr-only` and `backface-hidden`, which contain a hiding
-  word while doing the opposite or nothing. Naming them is what makes the rule
-  hold in both directions. Matching *whole tokens* instead was tried and let
-  `u-hidden`, `js-hidden`, `hidden-sm` and `always-hidden` through — every
-  framework's own spelling of `display: none`, each one Readability had been
-  excluding. An allow-list fails the cheap way round: a missing entry costs a
-  code block, which then converts exactly as it does today, while a missing
-  hiding form publishes markup nobody was shown.
-
-  A conditional utility is then read as the condition it is, where the condition
-  can be read at all: `data-[state=inactive]:hidden` counts only on an element
-  that really carries `data-state="inactive"`, and `data-[ending-style]:hidden`
-  on an element with no such attribute is an exit animation that is not running
-  — reading it is what keeps a live tabbed code sample. Every other variant
-  (`md:`, `dark:`, `print:`, `hover:`) names a state there is no viewport, theme
-  or pointer here to evaluate, and **unanswerable counts as hidden**: at the
-  reader's own breakpoint `md:hidden` really is `display: none`. `scroll` is
-  exempted with no replacement, having no furniture meaning for a wrapper that
-  holds one `<pre>` and nothing else: that is a code block's scroll box.
+  Nothing else about the page changes, and that is the design. The first version
+  of this fix, released as extension 0.11.1, *unwrapped* those containers —
+  which discards the element, and with it every attribute and class Readability
+  judges on, so the clipper had to re-derive its rules: an attribute allow-list,
+  a copy of its unlikely-role list, a copy of the negative regex minus two
+  tokens, a byline check. Seven defects were found in that apparatus over five
+  review rounds, and the last of them was invisible to every offline test —
+  React adds `aria-labelledby` to a tabbed code panel on hydration, the
+  allow-list refused it, and the block was lost in a way only a clip taken in a
+  real browser could show. Clearing two proven-false tokens needs none of that
+  permission: the element stays, so Readability keeps making every judgement.
+  The pass is 114 lines shorter for it.
 
   Byte-identical across all 35 cached source pages, which is the whole of what
   the corpus can say: no vault page carries this shape, so the guards above are

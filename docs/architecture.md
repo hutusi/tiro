@@ -42,10 +42,13 @@ flowchart LR
    the recovered delimiters are the only bare ones left, and records `has_math`;
    and it normalizes however the page marked up its code languages into the
    `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
-   It also unwraps the layout `<div>`s around a code block, for the same reason
-   it unwraps a gallery's: Readability judges an element by its class name
-   before it looks at what the element holds, and Tailwind's `overflow-hidden`
-   and `code-block-scroll` collide with the regex that decides.
+   It also clears the class tokens that make Readability delete a code block:
+   that judgement is made on an element's class name before it looks at what the
+   element holds, and Tailwind's `overflow-hidden` and `code-block-scroll`
+   collide with the regex that decides. Only the colliding token is removed —
+   the element and every other class stay, so Readability keeps reaching its own
+   verdicts rather than having them re-derived here (contrast the gallery
+   wrapper, which is unwrapped and therefore needs an allow-list).
 
    Two things then have to survive Readability, and only one of them can travel
    as itself. Readability strips `class` from everything it returns, so a
