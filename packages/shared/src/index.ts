@@ -6,5 +6,6 @@
  */
 export * from "./blocks.ts";
 export * from "./frontmatter.ts";
+export * from "./languages.ts";
 export * from "./paths.ts";
 export * from "./slug.ts";
