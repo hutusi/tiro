@@ -30,6 +30,43 @@ describe("countMarkdown", () => {
   test("counts nothing in empty markdown", () => {
     expect(countMarkdown("")).toEqual({ images: 0, captions: 0 });
   });
+
+  test("counts each image on a shared line", () => {
+    // Turndown emits adjacent images with nothing between them, and one vault
+    // article really does carry two side by side. A per-line count reports
+    // losing one of them as no change at all.
+    expect(countMarkdown("![a](a.png) ![b](b.png)").images).toBe(2);
+    expect(countMarkdown("![a](a.png)![b](b.png)").images).toBe(2);
+  });
+
+  test("a shared line with a hard break is still one folded caption", () => {
+    // A folded figure is one paragraph however many images it holds.
+    expect(countMarkdown("![a](a.png)![b](b.png)  \nCap.")).toEqual({
+      images: 2,
+      captions: 1,
+    });
+  });
+
+  test("ignores image syntax inside a fenced code block", () => {
+    // An article about markdown is otherwise pure noise in every diff.
+    const md = [
+      "![real](r.png)",
+      "",
+      "```md",
+      "![example](e.png)",
+      "```",
+      "",
+      "~~~",
+      "![tilde](t.png)",
+      "~~~",
+    ].join("\n");
+    expect(countMarkdown(md).images).toBe(1);
+  });
+
+  test("counts images again after a fence closes", () => {
+    const md = "```\n![in](i.png)\n```\n\n![out](o.png)";
+    expect(countMarkdown(md).images).toBe(1);
+  });
 });
 
 describe("stripFrontmatter", () => {

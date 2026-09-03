@@ -20,16 +20,32 @@
  *                          body committed in the vault. Answers "which
  *                          articles would gain from being re-clipped?"
  *
- * What it is not: proof that a change is safe. A corpus of 34 articles contains
- * the shapes it contains — every guard in `unwrapMediaWrappers` was added for a
- * failure this sweep reported as byte-identical, because no vault page carries
- * a sidebar around a lone figure. It finds corpus regressions. Adversarial
- * shapes belong in `test/dom-prepare.test.ts`.
+ * Three things it cannot see, all of which can make a result wrong rather than
+ * merely incomplete. They are stated here, printed by the tool, and repeated in
+ * docs/operations.md, because a sweep that is quietly unsound is worse than no
+ * sweep at all.
+ *
+ * 1. **It reads raw HTML; the extension reads Chrome's rendered DOM.** A page
+ *    that builds its article in JavaScript arrives here as a shell — two
+ *    gatesnotes articles in the corpus do exactly that — and lazy-loaded images
+ *    resolve in a browser and not here. Only a headless browser fixes this, and
+ *    that is a different tool. `--min-chars` flags the shells it can detect.
+ * 2. **A `--baseline` run resolves dependencies from the working tree.** The
+ *    worktree holds source, not `node_modules`, so both sides import today's
+ *    Readability and Turndown. That is what you want when judging your own
+ *    change and exactly wrong when judging a dependency bump — which would show
+ *    as byte-identical. The run warns when the baseline's lockfile differs.
+ * 3. **The corpus contains the shapes it contains.** Every guard in
+ *    `unwrapMediaWrappers` exists for a failure this sweep reports as
+ *    byte-identical, because no vault page wraps a lone figure in a sidebar. It
+ *    finds corpus regressions; it is not a safety argument, and adversarial
+ *    shapes belong in `test/dom-prepare.test.ts`.
  */
 
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 
@@ -45,21 +61,36 @@ interface Counts {
   captions: number;
 }
 
-const IMAGE = /!\[[^\]]*\]\(/;
+/** Global: a line may carry more than one image, and each one counts. */
+const IMAGE = /!\[[^\]]*\]\(/g;
+const FENCE = /^\s{0,3}(?:```|~~~)/;
 
 /**
- * An image line ending in a hard break is a folded figure caption (ADR 0011).
+ * Count images, and the subset that carry a folded caption (ADR 0011).
  *
- * Spelled as `endsWith` rather than folded into the regex because the signal is
- * two literal trailing spaces, and a regex that ends in whitespace is the kind
- * of thing a formatter silently eats.
+ * Per image rather than per line, because Turndown emits adjacent images with
+ * nothing between them — `![a](a.png)![b](b.png)` — and a per-line count
+ * reports losing one of them as no change at all. Fenced code is skipped for
+ * the same reason: an article *about* markdown contains image syntax that is
+ * not an image, and counting it makes every diff of that article noise.
+ *
+ * A caption stays per line: a folded figure is one paragraph, however many
+ * images the page put in it.
  */
 export function countMarkdown(markdown: string): Counts {
   let images = 0;
   let captions = 0;
+  let fenced = false;
   for (const line of markdown.split("\n")) {
-    if (!IMAGE.test(line)) continue;
-    images++;
+    if (FENCE.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const found = line.match(IMAGE)?.length ?? 0;
+    if (found === 0) continue;
+    images += found;
+    // Trailing whitespace is the whole signal, so test the raw line.
     if (line.endsWith("  ")) captions++;
   }
   return { images, captions };
@@ -103,15 +134,19 @@ async function loadArticles(vault: string): Promise<Article[]> {
 /**
  * Fetch a page, caching it on disk.
  *
- * The cache is what makes the sweep usable: a run costs 34 requests the first
- * time and none afterwards, so comparing two clipper versions compares the
- * clipper rather than whatever the sites served that minute. Delete the
- * directory to refresh.
+ * The cache is what makes the sweep usable: a run costs one request per article
+ * the first time and none afterwards, so comparing two clipper versions
+ * compares the clipper rather than whatever the sites served that minute.
+ *
+ * The deadline is not optional. Without it one server that accepts a connection
+ * and then stops talking hangs the whole corpus indefinitely, and the run has
+ * no output to show for the articles it already did.
  */
-async function fetchPage(url: string, cache: string, slug: string) {
-  const path = join(cache, `${slug}.html`);
+async function fetchPage(url: string, pages: string, slug: string) {
+  const path = join(pages, `${slug}.html`);
   if (existsSync(path)) return readFile(path, "utf-8");
   const response = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
     headers: {
       // Several sites serve a stub to an unrecognised agent, and a stub clips
       // to an empty article that looks exactly like a regression.
@@ -121,7 +156,7 @@ async function fetchPage(url: string, cache: string, slug: string) {
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const html = await response.text();
-  await mkdir(cache, { recursive: true });
+  await mkdir(pages, { recursive: true });
   await writeFile(path, html);
   return html;
 }
@@ -164,15 +199,25 @@ function parseArgs(argv: string[]) {
   const vault = get("vault");
   if (vault === undefined) {
     console.error(
-      "usage: sweep --vault <dir> [--baseline <git-ref>] [--cache <dir>] [--only <slug>]",
+      "usage: sweep --vault <dir> [--baseline <git-ref>] [--cache <dir>]\n" +
+        "             [--only <slug>] [--min-chars <n>]",
     );
     process.exit(2);
   }
+  // Absolute: a relative cache path resolves against the *importing module*
+  // in a dynamic import(), not the working directory, so the baseline clipper
+  // would be looked for beside this script.
+  const cache = resolve(get("cache") ?? ".sweep-cache");
   return {
     vault,
     baseline: get("baseline"),
     only: get("only"),
-    cache: get("cache") ?? ".sweep-cache",
+    // Pages and worktrees are kept apart because the documented way to refresh
+    // pages is to delete them, and deleting a registered worktree's directory
+    // leaves git refusing to re-create it at the same path.
+    pages: join(cache, "pages"),
+    baselines: join(cache, "baselines"),
+    minChars: Number(get("min-chars") ?? 500),
   };
 }
 
@@ -191,7 +236,13 @@ async function main() {
   // fail for reasons that have nothing to do with any article.
   let baselineClip: Clip | null = null;
   if (args.baseline !== undefined) {
-    baselineClip = await loadBaseline(args.baseline);
+    try {
+      baselineClip = await loadBaseline(args.baseline, args.baselines);
+    } catch (error) {
+      // A ref that cannot be loaded is an operator error, not a stack trace.
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(2);
+    }
   }
 
   console.log(
@@ -202,23 +253,35 @@ async function main() {
 
   let changed = 0;
   let failed = 0;
+  let thin = 0;
   for (const article of articles) {
-    let html: string;
+    let after: string;
+    let before: string;
     try {
-      html = await fetchPage(article.url, args.cache, article.slug);
+      const html = await fetchPage(article.url, args.pages, article.slug);
+      after = clipHtml(html, article.url, clipPage);
+      before =
+        baselineClip === null
+          ? article.body
+          : clipHtml(html, article.url, baselineClip);
     } catch (error) {
-      // A page that will not load is not a finding about the clipper, and must
-      // not stop the other 33 from being reported.
-      console.log(`  ?  ${article.slug}: fetch failed (${String(error)})`);
+      // Neither a page that will not load nor one that will not clip is a
+      // finding about the corpus, and neither may stop the rest being reported.
+      const reason = error instanceof Error ? error.message : String(error);
+      console.log(`  ?  ${article.slug}: ${reason}`);
       failed++;
       continue;
     }
 
-    const after = clipHtml(html, article.url, clipPage);
-    const before =
-      baselineClip === null
-        ? article.body
-        : clipHtml(html, article.url, baselineClip);
+    // A page whose article is built in JavaScript arrives as a shell, and its
+    // "losses" are the sweep's blind spot rather than the clipper's doing.
+    if (after.length < args.minChars) {
+      console.log(
+        `  ?  ${article.slug}: clipped to ${after.length} chars — likely client-rendered, ignore its delta`,
+      );
+      thin++;
+      continue;
+    }
 
     if (baselineClip !== null && before === after) continue;
     const delta = describe(countMarkdown(before), countMarkdown(after));
@@ -229,9 +292,13 @@ async function main() {
   }
 
   const scope = baselineClip === null ? "would change" : "differ";
+  const notes = [
+    failed > 0 ? `${failed} could not be read` : "",
+    thin > 0 ? `${thin} likely client-rendered` : "",
+  ].filter((n) => n !== "");
   console.log(
     `\n${changed} of ${articles.length} ${scope}` +
-      (failed > 0 ? `, ${failed} could not be fetched` : ""),
+      (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
   );
 }
 
@@ -239,28 +306,53 @@ async function main() {
  * Import the clipper as of a git ref, via a worktree.
  *
  * A worktree rather than `git show`, because the pipeline is several modules
- * and they import each other by relative path. Left on disk under the cache so
- * a repeated comparison against the same ref does not re-check it out; it is a
- * normal worktree and `git worktree remove` disposes of it.
+ * importing each other by relative path.
+ *
+ * Keyed by the resolved commit, never by the ref that named it. A directory
+ * called `baseline-main` is right exactly until `main` moves, and then every
+ * later run silently compares against a commit nobody asked for — the worst
+ * failure available to a tool whose whole job is telling you what changed.
  */
-async function loadBaseline(ref: string): Promise<Clip> {
+async function loadBaseline(ref: string, baselines: string): Promise<Clip> {
   const { $ } = await import("bun");
-  const dir = join(process.cwd(), ".sweep-cache", `baseline-${ref}`);
+  const sha = (await $`git rev-parse ${ref}^{commit}`.text()).trim();
+  const dir = join(baselines, sha);
+  // Clears entries whose directory was deleted by hand; without it git refuses
+  // to re-create a worktree at a path it still has registered.
+  await $`git worktree prune`.quiet();
   if (!existsSync(dir)) {
-    await $`git worktree add --detach ${dir} ${ref}`.quiet();
+    await mkdir(baselines, { recursive: true });
+    await $`git worktree add --detach ${dir} ${sha}`.quiet();
   }
+
+  // The worktree has no node_modules, so both sides of the comparison import
+  // the working tree's dependencies. Say so when that is load-bearing rather
+  // than letting a dependency bump read as "no change".
+  const root = (await $`git rev-parse --show-toplevel`.text()).trim();
+  const theirs = await $`git show ${sha}:bun.lock`.text().catch(() => "");
+  const ours = await readFile(join(root, "bun.lock"), "utf-8").catch(() => "");
+  if (theirs !== "" && theirs !== ours) {
+    console.warn(
+      `  ! ${ref} has a different bun.lock, and both sides of this comparison\n` +
+        "    import the working tree's dependencies — a dependency change will\n" +
+        "    read as byte-identical here.",
+    );
+  }
+
   const entry = join(dir, "apps/extension/src/clip-page.ts");
   if (!existsSync(entry)) {
     // Before clip-page.ts existed the pipeline lived inside the injected IIFE,
     // which cannot be imported. Say so rather than failing on a module error.
     throw new Error(
-      `${ref} predates apps/extension/src/clip-page.ts, so its clipper cannot be imported`,
+      `${ref} (${sha.slice(0, 8)}) predates apps/extension/src/clip-page.ts, so its clipper cannot be imported`,
     );
   }
-  const module = (await import(entry)) as { clipPage: Clip };
+  const module = (await import(pathToFileURL(entry).href)) as {
+    clipPage: Clip;
+  };
   return module.clipPage;
 }
 
 // Guarded so the pure helpers above can be imported by tests without the
-// script fetching 34 pages as a side effect of the import.
+// script fetching a corpus as a side effect of the import.
 if (import.meta.main) await main();
