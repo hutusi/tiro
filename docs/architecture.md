@@ -42,7 +42,20 @@ flowchart LR
    the recovered delimiters are the only bare ones left, and records `has_math`;
    and it normalizes however the page marked up its code languages into the
    `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
-   Figures are the exception, folded *after* extraction instead: a `<figure>`'s
+   It also unwraps the layout `<div>`s around a code block, for the same reason
+   it unwraps a gallery's: Readability judges an element by its class name
+   before it looks at what the element holds, and Tailwind's `overflow-hidden`
+   and `code-block-scroll` collide with the regex that decides.
+
+   Two things then have to survive Readability, and only one of them can travel
+   as itself. Readability strips `class` from everything it returns, so a
+   recovered formula and a recovered code language both cross on a `data-tiro-*`
+   attribute and are turned back into markdown-bearing shapes afterwards — the
+   formula by a Turndown rule, the language by having its class restored in
+   `clip-page.ts`. Anything computed before extraction has to ride a `data-*`
+   attribute to get past it.
+
+   Figures are the other post-extraction step, folded *after* it instead: a `<figure>`'s
    caption joins its image's paragraph, so the two arrive as one block and the
    site can render them as a figure — co-location is the only association
    markdown can express (ADR 0011). It has to run second because Readability
@@ -140,6 +153,16 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   base64 via a chunked `TextEncoder` helper.
 - **Readability returns `null`** on SPAs/paywalls: fall back to capturing
   `document.body` with a `readability_failed` frontmatter flag.
+- **Readability judges content by a regex over class names**, before it looks at
+  what an element holds, and ordinary CSS collides with those regexes by
+  accident. Three collisions have cost published articles their content:
+  `ltx_guessed_headers` matched `header` and deleted arXiv's data tables
+  (0.9.0); a CSS-module `…media-gallery` matched `media` and deleted every image
+  in a gallery (0.11.0); Tailwind's `overflow-hidden` and `code-block-scroll`
+  matched `hidden` and `scroll` and deleted every code block on a docs page
+  (0.11.1). The remedy each time is to hand Readability a DOM it judges
+  correctly, never to re-derive its rules — see `dom-prepare.ts`. Expect a
+  fourth; the sweep is what finds them.
 - **Hotlink-protected or oversized images**: per-image fallback to the
   original URL; an image failure never fails the article. Stage-wide caps
   (`images.max_count`, `total_max_bytes`, `stage_timeout_ms`) stop an
