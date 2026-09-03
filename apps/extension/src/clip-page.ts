@@ -1,5 +1,9 @@
 import { Readability } from "@mozilla/readability";
-import { foldFiguresIn, prepareForClipping } from "./dom-prepare.ts";
+import {
+  foldFiguresIn,
+  prepareForClipping,
+  restoreCodeLanguagesIn,
+} from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipPayload } from "./messages.ts";
 
@@ -43,8 +47,11 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   const extracted = readabilityFailed ? preparedBody : (article?.content ?? "");
   // Figures fold only now: doing it before Readability replaces the elements
   // carrying the attributes it selects on, which republished hidden images
-  // (ADR 0011, foldFiguresIn).
-  const html = foldFiguresIn(extracted, doc);
+  // (ADR 0011, foldFiguresIn). Fence languages are restored here for the
+  // mirror-image reason: Readability strips the class Turndown reads them
+  // from, so they cross it on a `data-*` marker and become a class again once
+  // it is out of the way.
+  const html = foldFiguresIn(restoreCodeLanguagesIn(extracted, doc), doc);
 
   // hasMath comes from the HTML actually being converted, so a formula
   // Readability discarded with the page furniture cannot set the flag.

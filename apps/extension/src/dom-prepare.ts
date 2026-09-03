@@ -20,6 +20,22 @@ import type TurndownService from "turndown";
 /** Marks a recovered formula for the Turndown rule in clipper.ts. */
 export const MATH_ATTR = "data-tiro-math";
 
+/**
+ * Carries a fence's language across Readability, which strips `class`.
+ *
+ * The second marker on the `MATH_ATTR` contract, and it exists for a narrower
+ * reason: `_cleanClasses` removes the `class` attribute from every element
+ * Readability returns, and Turndown reads a fence's language *only* from
+ * `language-*` on the `<code>`. So the language this file works out is erased
+ * between the two, and every one of the vault's 50 fences is bare — the whole
+ * of `recoverCodeBlocks`' language handling, and the ten tests covering it, has
+ * been dead on the shipping path since it was written, because those tests go
+ * straight from `prepareForClipping` to `htmlToMarkdown` and never run
+ * Readability. A `data-*` attribute survives untouched, so the language rides
+ * one across and `restoreCodeLanguagesIn` puts the class back afterwards.
+ */
+export const CODE_LANG_ATTR = "data-tiro-lang";
+
 const TEX_ANNOTATION = 'annotation[encoding="application/x-tex"]';
 
 /** Rendered MathJax v2 output; the TeX lives in a sibling script tag. */
@@ -263,6 +279,81 @@ function unwrapChromaTables(doc: Document): void {
   }
 }
 
+/**
+ * Copy every fence's language onto `CODE_LANG_ATTR`, so extraction cannot erase
+ * it.
+ *
+ * A separate pass over the finished DOM rather than a line inside the loop
+ * above, and that is what makes it complete: `recoverCodeBlocks` returns early
+ * for a `<code>` that already declares `language-*`, which is the *common*
+ * case — a page that marks its code up correctly — and a marker written only on
+ * the recovery branch would leave exactly those pages bare. Reading the final
+ * class state covers both branches with one rule.
+ *
+ * Read with Turndown's own regex from the node Turndown reads, so the marker is
+ * a copy of the value that would have been used rather than a second opinion
+ * about it. `LANG_TOKEN` gates the write: a junk class writes no marker and the
+ * fence comes out bare, which is what happens today.
+ */
+function markCodeLanguages(doc: Document): void {
+  // A page's own attributes are untrusted input, and this one is read back
+  // after Readability with no record of who wrote it. Clearing the document
+  // first is what makes "the marker holds a value this pass produced" true
+  // rather than merely usual: a page-authored marker otherwise reaches
+  // `restoreCodeLanguagesIn` and, with backticks in it, opens a fence markdown
+  // cannot close — which drops the block out of `code`, hands it to the
+  // translator, and swallows the prose after it (ADR 0003).
+  for (const stale of Array.from(doc.querySelectorAll(`[${CODE_LANG_ATTR}]`))) {
+    stale.removeAttribute(CODE_LANG_ATTR);
+  }
+  for (const code of Array.from(doc.querySelectorAll("pre > code"))) {
+    const declared = (code.getAttribute("class") ?? "").match(/language-(\S+)/);
+    const language = declared?.[1];
+    if (language === undefined || !LANG_TOKEN.test(language)) continue;
+    code.setAttribute(CODE_LANG_ATTR, language);
+  }
+}
+
+/**
+ * Put the language back as the class Turndown reads.
+ *
+ * Runs **after** Readability, like `foldFiguresIn` and through the same scratch
+ * document. Restoring the class rather than adding a Turndown rule for the
+ * marker is the cheaper half of the contract by some distance: Turndown's
+ * `fencedCodeBlock` already widens a fence when the code itself contains
+ * backticks, and a rule of our own would have to carry a copy of that
+ * arithmetic and keep it in step with the library forever.
+ *
+ * The marker is always removed, so the raw-body fallback — where the class was
+ * never stripped and is found still in place below — does not carry a stray
+ * attribute into the markdown either.
+ */
+export function restoreCodeLanguagesIn(html: string, doc: Document): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  for (const code of Array.from(
+    scratch.querySelectorAll(`code[${CODE_LANG_ATTR}]`),
+  )) {
+    const language = code.getAttribute(CODE_LANG_ATTR);
+    code.removeAttribute(CODE_LANG_ATTR);
+    // Validated again rather than trusted from across the extraction boundary.
+    // The write side already gates on LANG_TOKEN, so this can only fire for a
+    // value that was never ours — and what it costs to be wrong is not a
+    // missing language but a fence whose info string breaks the block.
+    if (language === null || !LANG_TOKEN.test(language)) continue;
+    const classes = (code.getAttribute("class") ?? "").trim();
+    // Already there on the raw-body path, where nothing stripped it.
+    if (/(^|\s)language-\S/.test(classes)) continue;
+    code.setAttribute(
+      "class",
+      classes === ""
+        ? `language-${language}`
+        : `${classes} language-${language}`,
+    );
+  }
+  return scratch.body.innerHTML;
+}
+
 function recoverCodeBlocks(doc: Document): void {
   unwrapChromaTables(doc);
   for (const pre of Array.from(doc.querySelectorAll("pre"))) {
@@ -301,6 +392,7 @@ function recoverCodeBlocks(doc: Document): void {
       `${classes === "" ? "" : `${classes} `}language-${language.toLowerCase()}`,
     );
   }
+  markCodeLanguages(doc);
 }
 
 /**

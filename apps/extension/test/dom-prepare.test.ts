@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Readability } from "@mozilla/readability";
 import { splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
+import { clipPage } from "../src/clip-page.ts";
 import {
+  CODE_LANG_ATTR,
   foldFiguresIn,
   MATH_ATTR,
   prepareForClipping,
@@ -1547,5 +1549,131 @@ describe("code wrappers Readability would delete", () => {
         "<pre><code>run()</code></pre></div>",
     );
     expect(html).toContain('class="overflow-hidden"');
+  });
+});
+
+describe("code languages survive Readability", () => {
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /**
+   * The whole clip, through the shipped entry point.
+   *
+   * Every other code test in this file goes straight from `prepareForClipping`
+   * to `htmlToMarkdown`, and that is exactly why this defect shipped: the step
+   * that erases the language sits between them. A test that does not run
+   * Readability cannot see it.
+   */
+  function fenceOf(markup: string): string {
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}${markup}${filler}</article>`;
+    const payload = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    // The raw-body fallback never lost the class in the first place, so a case
+    // that quietly took it would pass without proving anything.
+    expect(payload.readabilityFailed).toBe(false);
+    return (payload.markdown.match(/^```.*$/m) ?? ["<no fence>"])[0];
+  }
+
+  test("a language the page declared reaches the fence", () => {
+    // The case the ten tests above cannot see. `_cleanClasses` strips `class`
+    // from everything Readability returns, and a page that marks its code up
+    // correctly is the common case — so this is most of the vault's 50 bare
+    // fences, not an edge.
+    expect(
+      fenceOf('<pre><code class="language-python">import os</code></pre>'),
+    ).toBe("```python");
+  });
+
+  test.each([
+    ['<pre><code class="lang-ruby">puts 1</code></pre>', "```ruby"],
+    ['<pre><code data-lang="go">package main</code></pre>', "```go"],
+    [
+      '<div class="highlight-source-js"><pre><code>let a = 1;</code></pre></div>',
+      "```js",
+    ],
+    [
+      '<pre><code class="sourceCode haskell">main = pure ()</code></pre>',
+      "```haskell",
+    ],
+  ])("a recovered language reaches it too: %s", (markup, expected) => {
+    expect(fenceOf(markup)).toBe(expected);
+  });
+
+  test("a page that names no language still gets a bare fence", () => {
+    expect(fenceOf("<pre><code>plain text here</code></pre>")).toBe("```");
+  });
+
+  test("a highlighter's block with no language stays bare", () => {
+    // Shape B/C from platform.claude.com: Shiki output carries no language
+    // anywhere in the DOM, and the tab labels beside it are a guess this
+    // deliberately does not make.
+    expect(
+      fenceOf(
+        '<pre class="shiki"><span class="line">const a = 1;</span></pre>',
+      ),
+    ).toBe("```");
+  });
+
+  test("a junk language class writes no marker", () => {
+    expect(
+      fenceOf('<pre><code class="language-&lt;script&gt;">x</code></pre>'),
+    ).toBe("```");
+  });
+
+  test("a fence still widens around backticks in the code", () => {
+    // Restoring the class rather than adding a Turndown rule is what keeps this
+    // working: the arithmetic stays Turndown's.
+    expect(
+      fenceOf('<pre><code class="language-md">a\n```\nb</code></pre>'),
+    ).toBe("````md");
+  });
+
+  test("the marker is what crosses Readability, not the class", () => {
+    // The mechanism itself, so a future change to either half is caught rather
+    // than merely observed through the fence.
+    const window = new Window();
+    window.document.body.innerHTML = `<article>${filler}<pre><code class="language-python">import os</code></pre>${filler}</article>`;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    expect(doc.body.innerHTML).toContain(`${CODE_LANG_ATTR}="python"`);
+    const extracted = new Readability(doc as never).parse()?.content ?? "";
+    expect(extracted).toContain(`${CODE_LANG_ATTR}="python"`);
+    expect(extracted).not.toContain("language-python");
+  });
+
+  test("a marker the page wrote itself is discarded", () => {
+    // The marker is a private contract between dom-prepare and Turndown, and a
+    // page is untrusted input. Backticks in a page-authored value open a fence
+    // markdown cannot close: the block stops being `code`, so it goes to the
+    // translator, and the stray closer swallows the prose after it (ADR 0003).
+    expect(
+      fenceOf('<pre><code data-tiro-lang="js```">payload()</code></pre>'),
+    ).toBe("```");
+  });
+
+  test("a page-authored marker cannot cost a block its type", () => {
+    const window = new Window({ url: "https://evil.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<pre><code data-tiro-lang="js\`\`\`">payload()</code></pre>${filler}</article>`;
+    const { markdown } = clipPage(
+      window.document as unknown as Document,
+      "https://evil.test/a",
+    );
+    const block = splitBlocks(markdown).find((b) =>
+      b.text.includes("payload()"),
+    );
+    expect(block?.type).toBe("code");
+  });
+
+  test("the marker never reaches the markdown", () => {
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<pre><code class="language-python">import os</code></pre>${filler}</article>`;
+    const { markdown } = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    expect(markdown).not.toContain(CODE_LANG_ATTR);
   });
 });

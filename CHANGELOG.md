@@ -33,6 +33,36 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Fence languages survive extraction, so code is highlighted again.** Every
+  one of the vault's 50 fenced blocks is bare, across articles clipped with
+  0.7.0 through 0.11.0, and the site renders all of them grey. Readability's
+  `_cleanClasses` strips `class` from every element it returns, and Turndown
+  reads a fence's language *only* from `language-*` on the `<code>` — so the
+  language the clipper works out is erased between the two. The whole of the
+  clipper's language handling, and the ten tests covering it, has been dead on
+  the shipping path since it was written: those tests go straight from
+  `prepareForClipping` to `htmlToMarkdown` and never run Readability, which is
+  the one step that erases the answer.
+
+  The language now crosses on a `data-tiro-lang` attribute — `data-*` survives
+  Readability untouched — and becomes a class again once extraction is out of
+  the way. That is the contract `data-tiro-math` already established for
+  recovered formulas, generalised: **anything computed before Readability has to
+  ride a `data-*` attribute to get past it.** Restoring the class rather than
+  teaching Turndown to read the marker is deliberate — Turndown's own rule
+  already widens a fence when the code contains backticks, and a rule of ours
+  would have to carry a copy of that arithmetic forever.
+
+  The marker is taken from the *finished* class, not from the recovery branch
+  that computes it, so a page that already marks its code up correctly — the
+  common case, and the one the recovery branch returns early for — is covered by
+  the same rule.
+
+  Measured across the cached source pages: the only thing that changes anywhere
+  is fence info strings. Already-clipped articles keep their bare fences until
+  they are re-clipped; the language is not in the markdown, so nothing can
+  repair it after the fact.
+
 - **Code blocks no longer vanish because of the page's CSS class names.** The
   same accident as the gallery below, arriving through a different word.
   Readability's negative-weight regex is a *substring* test over the class
