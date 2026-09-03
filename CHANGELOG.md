@@ -9,6 +9,23 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Code blocks are syntax-highlighted.** Shiki has been wired in since ADR
+  0009, but every one of the vault's 40 fences was bare, so every block rendered
+  as plain text — and re-clipping could not have fixed most of them, because the
+  pages they came from pre-highlight with Shiki themselves and state no language
+  anywhere in their markup. A fence's language now comes from the first of four
+  sources that answers: markup the page wrote, chrome the page wrote for a human
+  (a tab reading `Python`, a header naming `src/main.rs`), inference from the
+  code text at build time, or nothing. Inference stays at render time because a
+  guess written into the vault is permanent while a guess made at build time
+  costs one build — which matters here because roughly 16 of those 40 blocks are
+  English prose an author fenced for display, so the expensive failure is a
+  paragraph painted as Ruby, not a block left plain. Built against the live
+  vault, the site goes from 0 coloured tokens to 2684. See ADR 0012.
+- **`sweep --fill-languages`** backfills fence languages onto clips taken before
+  the language chain existed, rewriting `index.md` and `zh.md` in lockstep so
+  block alignment survives. Reports by default; `--write` applies.
+
 - **Articles record which clipper *build* wrote them**, not only which release.
   `tiro.clipper_version` comes from the manifest, so it names a release — but
   the extension is normally run by loading `dist/` unpacked, built from

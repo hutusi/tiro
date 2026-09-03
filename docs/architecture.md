@@ -42,6 +42,11 @@ flowchart LR
    the recovered delimiters are the only bare ones left, and records `has_math`;
    and it normalizes however the page marked up its code languages into the
    `language-*` class Turndown reads, dropping line-number gutters (ADR 0009).
+   When a page marks up no language at all — the Shiki-rendered case, now
+   common on docs sites and engineering blogs — it falls back to the chrome
+   around the block: a tab strip's selected tab, a header naming a file. That
+   text is resolved through an allowlist and never a pattern, because `Copy`
+   and `Output` sit exactly where a language name sits (ADR 0012).
    It also clears the class tokens that make Readability delete a code block:
    that judgement is made on an element's class name before it looks at what the
    element holds, and Tailwind's `overflow-hidden` and `code-block-scroll`
@@ -88,6 +93,14 @@ flowchart LR
    already-scrubbed text, so the allowlist never has to admit the classes and
    inline styles they emit — which would admit them from clipped markup too
    (ADR 0009).
+
+   A fence that still carries no language after the clipper's chain gets one
+   inferred from its code at build time (`detect-language.ts`), on unambiguous
+   signatures only. Inference lives here and not in the clipper because a guess
+   written into the vault is permanent while a guess made at build time costs
+   one build — and because roughly 16 of the vault's 40 fenced blocks are
+   English prose that an author fenced for display, so the failure that matters
+   is a paragraph painted as Ruby, not a block left plain (ADR 0012).
 
 ## The content contract
 
