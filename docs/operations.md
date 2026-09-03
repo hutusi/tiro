@@ -361,6 +361,80 @@ An unpacked extension's ID is derived from its folder path, so the ID differs
 per machine. Harmless here: nothing depends on a stable ID (no OAuth redirect,
 no `externally_connectable`).
 
+### Sweeping the corpus for clip damage
+
+A clipper failure is silent by construction: an image Readability deleted leaves
+nothing behind to notice, so nothing in the vault records that it is missing.
+Two of the three articles that lost every image to `MEDIA-DROP` had been live
+for a week. The sweep asks the only question that finds those — clip the page
+again and compare.
+
+```sh
+# Which articles would gain from a re-clip? (the usual one)
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault
+
+# Did my clipper change break anything on the corpus?
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --baseline main
+
+# One article, by slug fragment
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --only apple
+```
+
+Everything lives under `apps/extension/.sweep-cache/` (gitignored), in two
+directories that are deliberately separate. `pages/` holds the fetched HTML, so
+the first run costs one request per article and later runs cost none — which is
+also what makes a `--baseline` comparison compare the *clipper* rather than
+whatever the sites served that minute. **Delete `pages/` to refresh; leave
+`baselines/` alone.** `baselines/` holds git worktrees, and deleting a
+registered worktree's directory by hand leaves git refusing to re-create it at
+that path (the sweep runs `git worktree prune` first to recover from exactly
+that, but `git worktree remove` is the tidy way). Worktrees are named by the
+resolved commit, never by the ref, so a `--baseline main` run after `main` moves
+checks out the new commit instead of silently reusing the old one.
+
+Read the output as a prompt for judgement, not a verdict:
+
+- **A positive delta is a re-clip candidate**, and worth confirming is caused by
+  a fix rather than by the page having changed since it was clipped. Run again
+  with `--baseline <the ref that shipped the fix>` to separate them.
+- **A negative delta needs a look before acting.** Both that the first run found
+  were fine: one article's four "lost" images are commenter avatars, and the
+  other is a pre-existing extraction gap both clipper versions share. Two clips
+  differing is not the same as the newer one being wrong.
+- **`?` lines are the sweep's own blind spots**, not findings. Fetch failures,
+  and pages that clip to almost nothing because they build their article in
+  JavaScript (`--min-chars`, default 500). Every article failing exits non-zero;
+  some failing does not, because that is a fact about those articles.
+
+Refreshing `pages/` is not free: several sites in the corpus answer a second
+cold run with 403 or 429, so a refresh can leave you with fewer readable
+articles than you started with. Refresh when you mean to re-measure against
+today's web, not as routine hygiene.
+
+#### What it cannot see
+
+Three limits, each of which can make a result *wrong* rather than merely
+incomplete. A sweep that is quietly unsound is worse than no sweep.
+
+1. **It reads raw HTML; the extension reads Chrome's rendered DOM.** A page that
+   builds its article in JavaScript arrives as a shell — four articles in the
+   current corpus do — and lazy-loaded images resolve in a browser and not here.
+   Those are flagged, but the flag is a heuristic on length. Only a headless
+   browser fixes this properly, and that is a different tool.
+2. **`--baseline` resolves dependencies from the working tree.** The worktree
+   holds source, not `node_modules`, so both sides import today's Readability
+   and Turndown. That is what you want when judging your own change and exactly
+   wrong when judging a dependency bump, which would read as byte-identical. The
+   run warns when the baseline's `bun.lock` differs; believe the warning.
+   The shell heuristic is suspended in `--baseline` mode unless *both* sides are
+   thin — when the baseline reads a page fine and the working tree gets nothing
+   from it, that is the worst regression the clipper can have, not a shell.
+3. **The corpus contains the shapes it contains.** Every guard in
+   `unwrapMediaWrappers` exists for a failure this sweep reports as
+   byte-identical, because no vault page wraps a lone figure in a sidebar. It
+   finds corpus regressions; a green sweep is not a safety argument, and
+   adversarial shapes belong in `apps/extension/test/dom-prepare.test.ts`.
+
 ### Cutting an extension release
 
 `apps/extension/manifest.json` holds the only version string in the repo.

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkAlignment,
+  foldedFigureCount,
+  imageOffsets,
   joinBlocks,
   mathRanges,
   normalizeBlockMath,
@@ -612,5 +614,104 @@ describe("normalizeBlockMath", () => {
     expect(normalizeBlockMath("$$\nE = mc^2\n$$")).toBe("$$\nE = mc^2\n$$");
     expect(normalizeBlockMath("costs $5 to $10")).toBe("costs $5 to $10");
     expect(normalizeBlockMath("plain prose")).toBe("plain prose");
+  });
+});
+
+describe("imageOffsets", () => {
+  test("finds an image whose alt text carries an escaped bracket", () => {
+    // Turndown escapes brackets in alt text, so this is what the clipper
+    // writes for alt="a]b". A pattern built from `[^\]]` matches none of it.
+    expect(imageOffsets(String.raw`![a\]b](x.png)`)).toHaveLength(1);
+    expect(imageOffsets(String.raw`![a\[b](x.png)`)).toHaveLength(1);
+  });
+
+  test("ignores an escaped bang, which is literal text", () => {
+    expect(imageOffsets(String.raw`\![x](x.png)`)).toEqual([]);
+  });
+
+  test("ignores images inside code, however the code is written", () => {
+    for (const source of [
+      "`![x](x.png)`",
+      "```\n![x](x.png)\n```",
+      "````\n```\n![x](x.png)\n```\n````",
+      "    ![x](x.png)",
+      "> ```\n> ![x](x.png)\n> ```",
+    ]) {
+      expect(imageOffsets(source)).toEqual([]);
+    }
+  });
+
+  test("finds images nested in links, emphasis and list items", () => {
+    expect(imageOffsets("[![a](a.png)](full)")).toHaveLength(1);
+    expect(imageOffsets("*![a](a.png)*")).toHaveLength(1);
+    expect(imageOffsets("- ![a](a.png)")).toHaveLength(1);
+  });
+
+  test("returns each image on a shared line, in document order", () => {
+    const offsets = imageOffsets("![a](a.png)![b](b.png)");
+    expect(offsets).toHaveLength(2);
+    expect(offsets[0]).toBeLessThan(offsets[1] as number);
+  });
+
+  test("finds reference-style images in all three forms", () => {
+    // Turndown writes the inline form, so these are invisible in today's vault
+    // — which is the only reason a regex survived here as long as it did.
+    const definition = "\n\n[img]: x.png";
+    expect(imageOffsets(`![alt][img]${definition}`)).toHaveLength(1); // full
+    expect(imageOffsets(`![img][]${definition}`)).toHaveLength(1); // collapsed
+    expect(imageOffsets(`![img]${definition}`)).toHaveLength(1); // shortcut
+  });
+
+  test("offsets point at the image's own start", () => {
+    const source = "Text before ![a](a.png) after.";
+    expect(source.slice(imageOffsets(source)[0])).toStartWith("![a](a.png)");
+  });
+});
+
+describe("foldedFigureCount", () => {
+  test("counts an image followed by a hard break", () => {
+    expect(foldedFigureCount("![a](x.png)  \nA caption.")).toBe(1);
+  });
+
+  test("does not count a bare image", () => {
+    expect(foldedFigureCount("![a](x.png)\n\nSeparate prose.")).toBe(0);
+  });
+
+  test("counts a CRLF document the same as an LF one", () => {
+    // `parseArticle` supports CRLF explicitly, and splitting on \n leaves the
+    // \r behind — so a trailing-whitespace test called every folded caption in
+    // a Windows-written vault a bare image.
+    const lf = "![a](x.png)  \nA caption.";
+    expect(foldedFigureCount(lf.replace(/\n/g, "\r\n"))).toBe(
+      foldedFigureCount(lf),
+    );
+  });
+
+  test("counts a backslash hard break, which markdown also allows", () => {
+    expect(foldedFigureCount("![a](x.png)\\\nA caption.")).toBe(1);
+  });
+
+  test("counts a picture that is a link wrapping its image", () => {
+    // What `pictureOf` produces when a figure's image links to a larger copy
+    // (ADR 0011). The paragraph's own children are link, break, text — so a
+    // check over direct children alone misses it, as one did.
+    expect(foldedFigureCount("[![a](x.png)](full.png)  \nCap.")).toBe(1);
+  });
+
+  test("counts one per paragraph however many images it holds", () => {
+    expect(foldedFigureCount("![a](a.png)![b](b.png)  \nCap.")).toBe(1);
+  });
+
+  test("counts each folded paragraph separately", () => {
+    const md = "![a](a.png)  \nOne.\n\n![b](b.png)  \nTwo.";
+    expect(foldedFigureCount(md)).toBe(2);
+  });
+
+  test("counts a folded reference-style image", () => {
+    expect(foldedFigureCount("![a][img]  \nCap.\n\n[img]: x.png")).toBe(1);
+  });
+
+  test("ignores an image inside code", () => {
+    expect(foldedFigureCount("```\n![a](x.png)  \nCap.\n```")).toBe(0);
   });
 });

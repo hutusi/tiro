@@ -5,3 +5,4 @@ apps/extension/*.zip
 apps/site/public/vault-assets/
 *.log
 .DS_Store
+.sweep-cache/

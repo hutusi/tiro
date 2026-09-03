@@ -37,6 +37,7 @@ bun run --cwd apps/extension build   # two-pass Vite build → dist/ (load unpac
 bun run --cwd apps/site dev          # site dev against fixtures/vault — no vault clone needed
 bun run --cwd apps/site build        # assets + astro build + pagefind — part of the verify gate
 bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
+bun run --cwd apps/extension sweep -- --vault <dir> [--baseline <ref>] [--only S]
 ```
 
 ## Development workflow
