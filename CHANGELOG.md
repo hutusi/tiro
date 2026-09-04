@@ -23,8 +23,8 @@ versions follow the `0.x` line while Tiro is a personal system.
   paragraph painted as Ruby, not a block left plain. Built against the live
   vault, the site goes from 0 coloured tokens to 2686. See ADR 0012.
 - **`sweep --fill-languages`** backfills fence languages onto clips taken before
-  the language chain existed, rewriting `index.md` and `zh.md` in lockstep so
-  block alignment survives. Reports by default; `--write` applies. A fence whose
+  the language chain existed, rewriting `index.md` and `zh.md` in lockstep —
+  through a temporary and a rename — so block alignment survives. Reports by default; `--write` applies. A fence whose
   declared language disagrees with what the code reads as is left bare and
   reported rather than written — pages do get this wrong, and the first real run
   found `claude.com/blog` mislabelling 4 of its own 13 blocks.

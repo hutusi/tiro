@@ -49,7 +49,14 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -467,6 +474,40 @@ function tally(languages: string[]): string {
     .join(", ");
 }
 
+/**
+ * Write an article's files so a failure cannot leave them disagreeing.
+ *
+ * `index.md` and `zh.md` have to change together — a language in one alone
+ * breaks the byte-identity `checkAlignment` requires — and a plain pair of
+ * writes fails that in two ways: a torn write leaves one file corrupt, and a
+ * failure between the two leaves the article half-labelled. Neither is
+ * repairable by a later run, which skips a fence that already carries a
+ * language.
+ *
+ * Both files are written whole to temporaries first, so nothing is in place
+ * until everything has been produced, and then renamed. The window that
+ * remains is between two renames: no I/O happens in it, and this writes to a
+ * git repository whose diff the operator is about to read. A durable journal
+ * would close it, and would be a great deal of machinery for a local tool
+ * whose recovery is `git checkout`.
+ */
+async function writeTogether(
+  files: readonly (readonly [path: string, text: string])[],
+): Promise<void> {
+  const staged: [temp: string, path: string][] = [];
+  try {
+    for (const [path, text] of files) {
+      const temp = `${path}.tiro-tmp`;
+      await writeFile(temp, text);
+      staged.push([temp, path]);
+    }
+  } catch (error) {
+    await Promise.all(staged.map(([temp]) => rm(temp, { force: true })));
+    throw error;
+  }
+  for (const [temp, path] of staged) await rename(temp, path);
+}
+
 async function fillLanguages(
   articles: Article[],
   args: ReturnType<typeof parseArgs>,
@@ -519,8 +560,14 @@ async function fillLanguages(
       );
     }
     if (!args.write || result.languages.length === 0) continue;
-    await writeFile(indexPath, result.index);
-    if (result.zh !== null) await writeFile(zhPath, result.zh);
+    await writeTogether(
+      result.zh === null
+        ? [[indexPath, result.index]]
+        : [
+            [indexPath, result.index],
+            [zhPath, result.zh],
+          ],
+    );
   }
   const verb = args.write ? "labelled" : "would be labelled";
   const notes = [

@@ -415,8 +415,10 @@ blocks. Judge those by hand; writing one in makes it permanent. The edit touches
 fence's opening line, and it rewrites `index.md` and `zh.md` together — a
 language in one file alone breaks the byte-identity `checkAlignment` requires of
 code blocks, which drops the article out of side-by-side rendering silently. An
-article whose two files do not correspond is refused with `!` rather than half
-edited.
+article whose two files do not correspond is refused rather than half edited,
+and an article with no `zh.md` has only its `index.md` written. Both files go
+through a temporary and a rename, so an interrupted run leaves the article as it
+was rather than half-labelled.
 
 It does not touch `tiro.processed_at`, so nothing becomes pending and the
 processor will not re-run. `.tiro-zh-cache.json` is keyed by content hash but

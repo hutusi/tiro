@@ -225,11 +225,22 @@ const CORROBORATED: readonly (readonly [string, readonly RegExp[], number])[] =
   ];
 
 /** Single-match rules whose anchor prose cannot produce by accident. */
+/**
+ * YAML frontmatter closed by `---` with a body after it.
+ *
+ * The shape alone is not enough, because a *multi-document* YAML file is
+ * spelled the same way: `---` opens a document and `---` opens the next, so a
+ * pair of Kubernetes manifests matches this exactly. Frontmatter is therefore
+ * only frontmatter when what surrounds it is not itself YAML — which is true
+ * of a markdown file, whose body is prose and drags the mapping ratio down.
+ */
+const FRONTMATTER = /^---\n[\s\S]*?\n---\n[\s\S]*\S/;
+
+function isMarkdownFrontmatter(code: string): boolean {
+  return FRONTMATTER.test(code) && !isYaml(code);
+}
+
 const ANCHORED: readonly (readonly [string, RegExp])[] = [
-  // YAML frontmatter closed by `---` with a body after it. Only a markdown
-  // file is shaped this way; a YAML document opens with `---` but never closes
-  // one to start writing prose.
-  ["markdown", /^---\n[\s\S]*?\n---\n[\s\S]*\S/],
   ["bibtex", /^@\w+\{[\w:-]+,\s*$/m],
   ["diff", /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/m],
   ["docker", /^FROM \S+(\s+AS \w+)?\s*$/m],
@@ -248,6 +259,7 @@ export function detectLanguage(code: string): string | null {
   const shebang = fromShebang(code);
   if (shebang !== null) return shebang;
   if (isJson(code)) return "json";
+  if (isMarkdownFrontmatter(code)) return "markdown";
   for (const [language, pattern] of ANCHORED) {
     if (pattern.test(code)) return language;
   }

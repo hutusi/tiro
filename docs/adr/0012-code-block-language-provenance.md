@@ -106,11 +106,18 @@ back — not by scanning cached HTML for hints itself. A second scanner is a
 second opinion that drifts from the shipping clipper, which is the argument
 `clip-page.ts` already makes about the three copies of the pipeline it deleted.
 
-It rewrites `index.md` and `zh.md` together or neither. `checkAlignment`
-compares a code block's source slice with its fence lines included, so a
-language written into `index.md` alone breaks byte-identity — and a misaligned
-article does not render wrong, it silently stops rendering side by side at all
-(ADR 0003).
+Where an article has a translation, it rewrites `index.md` and `zh.md` together
+or neither. `checkAlignment` compares a code block's source slice with its fence
+lines included, so a language written into `index.md` alone breaks byte-identity
+— and a misaligned article does not render wrong, it silently stops rendering
+side by side at all (ADR 0003). An article with no `zh.md` has nothing to keep
+in step and only `index.md` is written.
+
+Both files are written whole to temporaries and then renamed, so a torn write
+cannot leave one corrupt and a failure mid-run cannot leave the pair
+disagreeing. The window between the two renames is left open deliberately: no
+I/O happens in it, and the recovery for a local tool writing to a git
+repository is `git checkout`, not a journal.
 
 ### A stated label the page got wrong
 

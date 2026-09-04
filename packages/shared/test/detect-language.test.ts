@@ -85,6 +85,17 @@ describe("detectLanguage", () => {
     ).toBe("markdown");
   });
 
+  test("does not take multi-document YAML for frontmatter", () => {
+    // `---` opens a YAML document and closes markdown frontmatter, so the
+    // shape alone cannot tell them apart. What separates them is that a
+    // markdown body is prose and a YAML body is more mappings.
+    expect(
+      detectLanguage(
+        "---\napiVersion: v1\nkind: ConfigMap\n---\napiVersion: v1\nkind: ConfigMap",
+      ),
+    ).toBe("yaml");
+  });
+
   test("reads YAML, including flow mappings", () => {
     expect(
       detectLanguage("name: build\non:\n  push:\n    branches: [main]"),

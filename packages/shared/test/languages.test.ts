@@ -13,6 +13,10 @@ describe("languageFromLabel", () => {
   test("normalizes case and inner whitespace", () => {
     expect(languageFromLabel("  RUST  ")).toBe("rust");
     expect(languageFromLabel("Shell   Session")).toBe("shellsession");
+    // Whitespace collapses but does not fold to a hyphen, so both spellings
+    // of a hyphenated name need to be present.
+    expect(languageFromLabel("objective c")).toBe("objective-c");
+    expect(languageFromLabel("Objective-C")).toBe("objective-c");
   });
 
   test("maps names that describe a snippet rather than a language", () => {
@@ -59,6 +63,11 @@ describe("languageFromFilename", () => {
   test("drops directories before reading the extension", () => {
     expect(languageFromFilename("src/index.ts")).toBe("typescript");
     expect(languageFromFilename("a/b/c/main.go")).toBe("go");
+    // The length cap is about the basename. A long directory says nothing
+    // about whether the file it holds is named like a language.
+    expect(languageFromFilename("a-very-long-directory-name/app.ts")).toBe(
+      "typescript",
+    );
   });
 
   test("resolves filenames that carry no extension", () => {

@@ -80,6 +80,9 @@ const LABEL_LANGUAGES = new Map<string, string>([
   ["md", "markdown"],
   ["nix", "nix"],
   ["objective-c", "objective-c"],
+  // `normalize` collapses whitespace but does not fold it to a hyphen, so the
+  // spaced spelling needs its own entry.
+  ["objective c", "objective-c"],
   ["objc", "objective-c"],
   ["perl", "perl"],
   ["php", "php"],
@@ -216,9 +219,12 @@ export function languageFromLabel(label: string): string | null {
  */
 export function languageFromFilename(name: string): string | null {
   const text = normalize(name);
-  if (text === "" || text.length > LABEL_MAX_LENGTH) return null;
+  if (text === "") return null;
   const base = text.split(/[/\\]/).pop() ?? "";
-  if (base === "") return null;
+  // The cap applies to the basename, not the path: a title reading
+  // `a-very-long-directory-name/app.ts` is a perfectly ordinary filename, and
+  // capping the whole string rejects it for the directory's length alone.
+  if (base === "" || base.length > LABEL_MAX_LENGTH) return null;
   const named = FILENAME_LANGUAGES.get(base);
   if (named !== undefined) return named;
   // `.` at position 0 is a dotfile, not an extension: `.env` has no suffix.
