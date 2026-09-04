@@ -198,6 +198,32 @@ describe("clipArxivPaper", () => {
     expect(clip.payload.author).toBe("Liu, Ziming; Wang, Yixuan");
   });
 
+  /**
+   * A body that rejects after the headers arrived used to escape
+   * tryFetchDocument's try and reject out of clipArxivPaper, skipping the
+   * abstract fallback entirely — which on a PDF tab leaves nothing clippable
+   * at all.
+   */
+  test("falls back when the response body rejects mid-read", async () => {
+    const failingBody = {
+      parse,
+      fetch: (async (input) => {
+        const url = String(input);
+        if (url.endsWith("/abs/1412.6980")) {
+          return new Response(absHtml, { status: 200 });
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: () => Promise.reject(new Error("connection reset")),
+        } as unknown as Response;
+      }) as FetchLike,
+    };
+    const clip = await clipArxivPaper({ id: "1412.6980" }, failingBody);
+    expect(clip.sourceUrl).toBeUndefined();
+    expect(clip.payload.title).toBe("KAN: Kolmogorov-Arnold Networks");
+  });
+
   test("throws when neither page can be had, so the caller can use the tab", () => {
     expect(clipArxivPaper({ id: "2404.19756" }, deps({}))).rejects.toThrow(
       "2404.19756",

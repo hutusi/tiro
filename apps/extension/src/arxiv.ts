@@ -165,14 +165,17 @@ async function tryFetchDocument(
   url: string,
   deps: ArxivFetchDeps,
 ): Promise<Document | null> {
-  let response: Response;
+  // The whole attempt is inside the try, not just the request. A body that
+  // rejects after the headers arrived, or a parser that throws, is the same
+  // fact as a refused connection — this page could not be had — and reporting
+  // it as a rejection instead of `null` skips the abstract fallback below it.
   try {
-    response = await deps.fetch(url);
+    const response = await deps.fetch(url);
+    if (!response.ok) return null;
+    return deps.parse(await response.text());
   } catch {
     return null;
   }
-  if (!response.ok) return null;
-  return deps.parse(await response.text());
 }
 
 /**
