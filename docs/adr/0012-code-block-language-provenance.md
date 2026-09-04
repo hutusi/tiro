@@ -98,6 +98,47 @@ a Dockerfile, because `FROM` sat among the single-match rules where a base image
 and a SQL clause are indistinguishable. Each was an unanchored keyword in a file
 whose comment claimed there were none.
 
+### Markdown is not inferred, by decision
+
+`# ` opens a heading in markdown and a comment in shell, and nothing inside a
+block settles which. Three rules were tried across four review rounds — two
+headings; then two *different* heading depths; then depth joined by a sentence —
+and each was defeated by a four-line script within a round. The last fell to
+`echo This command installs every required package.`, because full stops are a
+habit of prose rather than a property of it.
+
+The only version that could not be defeated required two list items, which a
+script does not write — and it missed a real spec document in the vault with six
+headings and no lists. Rather than take that trade or keep patching, **markdown
+inference was removed**, and the frontmatter rule with it, though frontmatter
+was never implicated.
+
+The cost is recorded because it is not zero:
+
+- Seven vault blocks that are genuinely markdown now infer to nothing. All seven
+  already carry an explicit fence language from the clipper or the backfill, so
+  the rendered site is unchanged — but a future clip of a markdown block with no
+  stated language will render plain.
+- **The backfill's conflict guard is narrower.** Three of the four real
+  mislabels it caught on `claude.com/blog` were markdown documents tagged
+  `javascript`; with nothing to disagree with, those would now be written
+  through. It still catches the fourth, and every conflict an inferable language
+  can raise.
+
+### SQL is built on operands, not keywords
+
+SQL's keywords are ordinary English verbs, so position cannot separate them:
+"Select a source from the list" begins a line as readily as a query does. Two
+rules failed here — one anchored to line starts, one vetoing full stops — and
+the second died the moment the punctuation was dropped.
+
+What separates them is what follows the keyword. English puts an article after
+`from`; SQL puts an identifier. English does not write a typed column
+definition, a `VALUES (…)` tuple, or `= true`. The rule is built from those, and
+the general lesson is the one this file kept failing: **a rule must be made of
+what the other side cannot produce, not of what it usually does.** Punctuation
+frequency, sentence length and heading depth are all the second kind.
+
 The guard against the next one is not another regression test but
 `detect-language.test.ts`'s prose table: one English paragraph per language,
 seeded with that language's own keywords, asserted to return `null`. It is the
@@ -112,6 +153,8 @@ rather than by reasoning:
   article's 85-line Python block was read as markdown off its own comments.
 - **Markdown runs before YAML.** A spec's `Author: J. Ortiz. Status: draft.` is
   a mapping to any test that has not first asked whether the block has headings.
+  (Markdown was later removed — see below — but the heading guard stays in
+  `isYaml` for exactly this reason.)
 
 ### Backfill re-clips rather than re-scans
 
@@ -161,8 +204,8 @@ decides what to *believe*; this decides what to make *permanent*.
 
 - The vault gains 14 labels from layers 1–2 without a re-clip — 10 written by
   the backfill and 4 corrected by hand after it flagged them. Inference covers
-  about 10 more at build time; the remaining 16 are prose and correctly stay
-  plain.
+  about 10 more at build time; the remaining 24 return nothing — 17 prose, 7
+  markdown by the decision above.
 - Built against the live vault, the site goes from **0 coloured tokens to 2686**.
 - `detect-language.ts` is a heuristic and will be wrong eventually. The cost is
   bounded to one build, and `packages/shared/test/fixtures/code-blocks/` — all 40

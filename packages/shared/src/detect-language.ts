@@ -86,54 +86,26 @@ function isShellSession(code: string): boolean {
 }
 
 /**
- * Markdown, and the rule that made this file hard.
+ * Markdown is *not* inferred, and that is a decision rather than an omission.
  *
- * Six of the vault's bare fences hold whole markdown documents — agent
- * instructions, a spec, a review checklist — and highlighting those is a real
- * gain. But a prompt that opens with `# Delivering work` and continues in
- * paragraphs is *also* one heading, and it is prose. And `# ` opens a comment
- * in shell, so `# Install` / `npm install` / `# Run` / `npm start` is two
- * headings and a shell script.
+ * `# ` opens a heading in markdown and a comment in shell, and nothing in a
+ * block settles which. Three rules tried: two headings, then differing heading
+ * depth, then depth joined by a sentence — each admitted some script, and each
+ * was defeated by a four-line counter-example within a round. The only version
+ * that held required two list items, which a script cannot write, and that one
+ * missed a real spec document in the vault that has six headings and no lists.
  *
- * So a heading is necessary and never sufficient: it must be joined by a signal
- * of a *different kind*. Lists are one, and they stand on their own — a script
- * does not write `- item` twice.
- *
- * Nested heading depth is the other, and on its own it is not enough: `## ` is
- * an ordinary shell comment, so `# Install` / `npm install` / `## Run` /
- * `npm start` has two depths and is a script. What a document has that a script
- * does not is *prose* — a line of several words ending in a full stop. Commands
- * do not end in full stops, and comments that do are rare enough that the cost
- * of being wrong is a block left plain.
- *
- * Two earlier versions were looser. The first counted `headings >= 1` and
- * `headings >= 2` as separate signals, so two headings passed alone; the second
- * took differing depth as sufficient on its own.
+ * The owner chose to remove the inference rather than keep trading. Every
+ * markdown block in the vault today carries an explicit fence language anyway,
+ * written at clip time or by the backfill, so nothing on the site changes —
+ * what goes is the ability to guess, and with it the ambiguity.
  */
-function hasProseSentence(code: string): boolean {
-  return code.split("\n").some((line) => {
-    const text = line.trim();
-    if (text.startsWith("#")) return false;
-    return text.endsWith(".") && text.split(/\s+/).length >= 6;
-  });
-}
-
-function isMarkdown(code: string): boolean {
-  const headings = code.match(/^(#{1,6}) \S/gm) ?? [];
-  if (headings.length === 0) return false;
-  const bullets = (code.match(/^\s*[-*+] \S/gm) ?? []).length;
-  const numbered = (code.match(/^\s*\d+\. \S/gm) ?? []).length;
-  if (bullets + numbered >= 2) return true;
-  const depths = new Set(headings.map((line) => line.indexOf(" ")));
-  return depths.size >= 2 && hasProseSentence(code);
-}
 
 /**
- * YAML is checked after markdown because the two are genuinely confusable:
- * `Author: J. Ortiz. Status: draft.` is a line of a spec that reads exactly
- * like a mapping, and `- name:` opens a sequence entry and a bullet list at
- * once. They are told apart by what markdown has and YAML does not — headings —
- * so a block with any is refused here outright.
+ * YAML's mappings and a spec's `Key: value` prose look alike —
+ * `Author: J. Ortiz. Status: draft.` reads exactly like a mapping. The
+ * heading guard is what refuses those: a block with `# ` lines is a document
+ * of some kind, and this rule declines rather than claim it.
  */
 function isYaml(code: string): boolean {
   const lines = contentLines(code);
@@ -150,158 +122,170 @@ function isYaml(code: string): boolean {
 }
 
 /**
- * Sentence-ending full stops. SQL's keywords are ordinary English verbs, so
- * anchoring them to line starts is not enough — "Select a source from the
- * list." and "Create table rows for each item." both begin a line. What no SQL
- * statement does is terminate a clause with a full stop, and the `\w` qualifier
- * keeps `u.name` and `schema.table` out of it.
+ * English function words that never follow a SQL keyword. `from the list` is a
+ * sentence; `from users` is a query, and the difference is the article.
  */
-const SENTENCE_PERIOD = /\w\.(\s|$)/;
+const STOPWORDS =
+  "the|a|an|each|every|this|that|these|those|your|our|my|its|their|some|any|all|what|which|it";
+
+/** A SQL identifier: bare, quoted, or schema-qualified. */
+const IDENT = '[\\w."`]+';
 
 /**
  * Rules that need corroboration: a single match is a coincidence, two together
  * are a language. Each list is anchored to line starts or to punctuation that
  * prose does not produce, so English scores zero rather than one.
- *
- * The fourth slot is a veto: a pattern whose presence disqualifies the language
- * however well it scores, for a rule whose vocabulary overlaps English.
  */
-const CORROBORATED: readonly (readonly [
-  string,
-  readonly RegExp[],
-  number,
-  RegExp?,
-])[] = [
+const CORROBORATED: readonly (readonly [string, readonly RegExp[], number])[] =
   [
-    "rust",
     [
-      /^\s*(pub )?(struct|enum|trait|impl)\s+\w/m,
-      /^\s*(pub )?fn \w+/m,
-      /\blet mut\b/,
-      /\b(Vec|Option|Result|Box)</,
-      /^\s*use \w+(::\w+)+;/m,
-      /\bfn\b[^\n]*->/,
-      // `A(Ipv4Addr),` — an enum's tuple variant.
-      /^\s*\w+\(\w[\w:<>, ]*\),\s*$/m,
-      // `qname: Name,` — a struct field. The trailing comma is what separates
-      // it from a YAML mapping.
-      /^\s*(pub )?\w+:\s*[\w:<>&' ]+,\s*$/m,
+      "rust",
+      [
+        /^\s*(pub )?(struct|enum|trait|impl)\s+\w/m,
+        /^\s*(pub )?fn \w+/m,
+        /\blet mut\b/,
+        /\b(Vec|Option|Result|Box)</,
+        /^\s*use \w+(::\w+)+;/m,
+        /\bfn\b[^\n]*->/,
+        // `A(Ipv4Addr),` — an enum's tuple variant.
+        /^\s*\w+\(\w[\w:<>, ]*\),\s*$/m,
+        // `qname: Name,` — a struct field. The trailing comma is what separates
+        // it from a YAML mapping.
+        /^\s*(pub )?\w+:\s*[\w:<>&' ]+,\s*$/m,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    "python",
     [
-      // Whole-line forms. `import duties are a class of problem` matched a
-      // bare `^import \w`, and `print(the contract)` matched a bare
-      // `\bprint\(` — two signals, and the paragraph came back as Python.
-      /^\s*import [\w.]+( +as +\w+)?,?\s*$/m,
-      /^\s*from [\w.]+ import\b/m,
-      /^\s*def \w+\s*\(/m,
-      /^\s*class \w+[(:]/m,
-      /^\s*(el)?if .+:\s*$/m,
-      /^\s*print\(/m,
+      "python",
+      [
+        // Whole-line forms. `import duties are a class of problem` matched a
+        // bare `^import \w`, and `print(the contract)` matched a bare
+        // `\bprint\(` — two signals, and the paragraph came back as Python.
+        /^\s*import [\w.]+( +as +\w+)?,?\s*$/m,
+        /^\s*from [\w.]+ import\b/m,
+        /^\s*def \w+\s*\(/m,
+        /^\s*class \w+[(:]/m,
+        /^\s*(el)?if .+:\s*$/m,
+        /^\s*print\(/m,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    "go",
     [
-      /^package \w+/m,
-      /^\s*func \w*\s*\(/m,
-      /:=/,
-      /^\s*import \($/m,
-      /\bfmt\.\w+\(/,
+      "go",
+      [
+        /^package \w+/m,
+        /^\s*func \w*\s*\(/m,
+        /:=/,
+        /^\s*import \($/m,
+        /\bfmt\.\w+\(/,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    "c",
     [
-      /^\s*#include\s*[<"]/m,
-      /^\s*#define \w/m,
-      /^\s*typedef\s+\w/m,
-      /\b(int|void|char)\s+\w+\s*\([^)]*\)\s*\{/,
-      /\bprintf\s*\(/,
+      "c",
+      [
+        /^\s*#include\s*[<"]/m,
+        /^\s*#define \w/m,
+        /^\s*typedef\s+\w/m,
+        /\b(int|void|char)\s+\w+\s*\([^)]*\)\s*\{/,
+        /\bprintf\s*\(/,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    "typescript",
     [
-      /^\s*(export )?(interface|type) \w+/m,
-      // Tied to a declaration or a parameter list. A bare `: string` matches
-      // "The ratio: number of items per page", and `\bas\s+(const|string)` —
-      // which used to sit here — matches "such as string values".
-      /\b(const|let|var|readonly|private|public|function) \w+\??:\s*[\w<>[\]|]+/,
-      /\(\s*\w+\??:\s*(string|number|boolean|unknown|any)\b/,
-      /\)\s*:\s*(string|number|boolean|void|Promise)\b/,
-      /^\s*import .* from ["']/m,
-      /\bas\s+const\b/,
+      "typescript",
+      [
+        /^\s*(export )?(interface|type) \w+/m,
+        // Tied to a declaration or a parameter list. A bare `: string` matches
+        // "The ratio: number of items per page", and `\bas\s+(const|string)` —
+        // which used to sit here — matches "such as string values".
+        /\b(const|let|var|readonly|private|public|function) \w+\??:\s*[\w<>[\]|]+/,
+        /\(\s*\w+\??:\s*(string|number|boolean|unknown|any)\b/,
+        /\)\s*:\s*(string|number|boolean|void|Promise)\b/,
+        /^\s*import .* from ["']/m,
+        /\bas\s+const\b/,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    // `FROM x` is a base image as often as it is a SQL clause. This used to sit
-    // in ANCHORED, where one match was enough, and read the `FROM users` of a
-    // SELECT as a Dockerfile. A real Dockerfile has instructions beside it.
-    "docker",
     [
-      /^FROM \S+(\s+AS \w+)?\s*$/m,
-      /^(RUN|COPY|ADD|CMD|ENTRYPOINT|WORKDIR|ENV|EXPOSE|ARG|VOLUME|USER) \S/m,
+      // `FROM x` is a base image as often as it is a SQL clause. This used to sit
+      // in ANCHORED, where one match was enough, and read the `FROM users` of a
+      // SELECT as a Dockerfile. A real Dockerfile has instructions beside it.
+      "docker",
+      [
+        /^FROM \S+(\s+AS \w+)?\s*$/m,
+        /^(RUN|COPY|ADD|CMD|ENTRYPOINT|WORKDIR|ENV|EXPOSE|ARG|VOLUME|USER) \S/m,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    "javascript",
     [
-      /^\s*(const|let|var) \w+\s*=/m,
-      /^\s*(export )?(async )?function \w*\s*\(/m,
-      /=>\s*[{(]/,
-      /\brequire\(["']/,
-      /^\s*import .* from ["']/m,
-      /\bconsole\.\w+\(/,
+      "javascript",
+      [
+        /^\s*(const|let|var) \w+\s*=/m,
+        /^\s*(export )?(async )?function \w*\s*\(/m,
+        /=>\s*[{(]/,
+        /\brequire\(["']/,
+        /^\s*import .* from ["']/m,
+        /\bconsole\.\w+\(/,
+      ],
+      2,
     ],
-    2,
-  ],
-  [
-    // Anchored to line starts throughout. Unanchored, these are ordinary
-    // English: "Select a source from the list. Then create table rows for each
-    // item." scored two and came back as SQL.
-    "sql",
     [
-      /^\s*select\b[\s\S]*?\bfrom\s+\w/im,
-      /^\s*(insert\s+into|update\s+\w+\s+set|delete\s+from)\s+\w/im,
-      /^\s*create\s+(table|index|view)\s+(if\s+not\s+exists\s+)?\w/im,
-      /^\s*(inner|left|right|full)?\s*join\s+\w+\s+on\b/im,
-      /^\s*(where|group by|order by|having)\b/im,
+      // SQL's keywords are ordinary English verbs, so no amount of anchoring
+      // separates them — "Select a source from the list" and "Create table rows
+      // for each item" begin lines as readily as statements do. Two earlier
+      // versions tried position, then the absence of full stops; punctuation is
+      // a habit of prose, not a property of it, and dropping the full stops
+      // defeated the second in one line.
+      //
+      // What separates them is the *operand*. English puts an article after
+      // `from`; SQL puts an identifier. English does not write a typed column,
+      // a VALUES tuple, or `= true`.
+      "sql",
+      [
+        new RegExp(
+          `^\\s*select\\s+(distinct\\s+)?(\\*|[\\w."\`,()\\s]+?)\\s+from\\s+(?!(${STOPWORDS})\\b)${IDENT}`,
+          "im",
+        ),
+        new RegExp(
+          `^\\s*create\\s+(table|index|view)\\s+(if\\s+not\\s+exists\\s+)?${IDENT}\\s*(\\(|as\\b|on\\b)`,
+          "im",
+        ),
+        new RegExp(
+          `^\\s*insert\\s+into\\s+${IDENT}\\s*(\\(|values\\b|select\\b)`,
+          "im",
+        ),
+        new RegExp(
+          `^\\s*update\\s+(?!(${STOPWORDS})\\b)${IDENT}\\s+set\\s+${IDENT}\\s*=`,
+          "im",
+        ),
+        new RegExp(
+          `^\\s*delete\\s+from\\s+(?!(${STOPWORDS})\\b)${IDENT}`,
+          "im",
+        ),
+        new RegExp(
+          `^\\s*(inner|left|right|full|cross)?\\s*join\\s+${IDENT}(\\s+(as\\s+)?\\w+)?\\s+on\\s+${IDENT}\\s*=`,
+          "im",
+        ),
+        new RegExp(
+          `^\\s*(where|group\\s+by|order\\s+by|having)\\s+(?!(${STOPWORDS})\\b)[\\w."\`(]`,
+          "im",
+        ),
+        // A typed column definition. English does not write `name TEXT`.
+        /^\s*"?\w+"?\s+(int|integer|bigint|serial|text|varchar\(|char\(|boolean|bool|timestamp|timestamptz|date|uuid|numeric|decimal|float|double|jsonb?)\b/im,
+        /\bvalues\s*\(/i,
+        /\b\w+\s*(=|<>|!=|>=|<=)\s*(true|false|null|\d|')/i,
+      ],
+      2,
     ],
-    2,
-    SENTENCE_PERIOD,
-  ],
-  [
-    "toml",
-    [/^\s*\[[\w.]+\]\s*$/m, /^\s*\[\[[\w.]+\]\]\s*$/m, /^\s*\w+ = /m],
-    2,
-  ],
-];
+    [
+      "toml",
+      [/^\s*\[[\w.]+\]\s*$/m, /^\s*\[\[[\w.]+\]\]\s*$/m, /^\s*\w+ = /m],
+      2,
+    ],
+  ];
 
 /** Single-match rules whose anchor prose cannot produce by accident. */
-/**
- * YAML frontmatter closed by `---` with a body after it.
- *
- * The shape alone is not enough, because a *multi-document* YAML file is
- * spelled the same way: `---` opens a document and `---` opens the next, so a
- * pair of Kubernetes manifests matches this exactly. Frontmatter is therefore
- * only frontmatter when what surrounds it is not itself YAML — which is true
- * of a markdown file, whose body is prose and drags the mapping ratio down.
- */
-const FRONTMATTER = /^---\n[\s\S]*?\n---\n[\s\S]*\S/;
-
-function isMarkdownFrontmatter(code: string): boolean {
-  return FRONTMATTER.test(code) && !isYaml(code);
-}
-
 const ANCHORED: readonly (readonly [string, RegExp])[] = [
   ["bibtex", /^@\w+\{[\w:-]+,\s*$/m],
   ["diff", /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/m],
@@ -320,7 +304,6 @@ export function detectLanguage(code: string): string | null {
   const shebang = fromShebang(code);
   if (shebang !== null) return shebang;
   if (isJson(code)) return "json";
-  if (isMarkdownFrontmatter(code)) return "markdown";
   for (const [language, pattern] of ANCHORED) {
     if (pattern.test(code)) return language;
   }
@@ -332,8 +315,7 @@ export function detectLanguage(code: string): string | null {
   let best: string | null = null;
   let bestScore = 0;
   let runnerUp = 0;
-  for (const [language, patterns, floor, veto] of CORROBORATED) {
-    if (veto?.test(code) === true) continue;
+  for (const [language, patterns, floor] of CORROBORATED) {
     const score = signals(code, patterns);
     if (score < floor) continue;
     if (score > bestScore) {
@@ -346,11 +328,8 @@ export function detectLanguage(code: string): string | null {
   }
   if (bestScore > runnerUp && best !== null) return best;
 
-  // Last, because both read structure that code produces incidentally: `# ` is
-  // a heading in markdown and a comment in Python and shell, and `key: value`
-  // is a mapping in YAML and a line of English in a spec. A block that any
-  // rule above could explain has already been explained.
-  if (isMarkdown(code)) return "markdown";
+  // Last, because `key: value` is a mapping in YAML and a line of English in a
+  // spec. A block any rule above could explain has already been explained.
   if (isYaml(code)) return "yaml";
   return null;
 }

@@ -8,9 +8,11 @@ import { detectLanguage } from "../src/detect-language.ts";
  * The filename carries the expectation — `plain` meaning "leave it alone" — so
  * adding a case is dropping in a file.
  *
- * This is the corpus the detector exists for, and its shape is the point: 16 of
- * the 40 blocks are English prose that a source author fenced for display, so a
- * rule that fires eagerly fails here loudly rather than in production.
+ * This is the corpus the detector exists for, and its shape is the point: 24 of
+ * the 40 must come back `null` — 17 because they are English prose a source
+ * author fenced for display, and 7 because they are markdown documents and
+ * markdown inference was deliberately removed. A rule that fires eagerly fails
+ * here loudly rather than in production.
  */
 const CORPUS = join(import.meta.dirname, "fixtures", "code-blocks");
 
@@ -65,24 +67,20 @@ describe("detectLanguage", () => {
     expect(detectLanguage("ls -la\ncd /tmp")).toBeNull();
   });
 
-  test("takes markdown for a document, not for a titled paragraph", () => {
-    expect(
-      detectLanguage(
-        "# Guide\n\n## Setup\n\n- install it\n- run it\n\nThen you are done.",
-      ),
-    ).toBe("markdown");
-    // One heading and prose: the shape of half the vault's prompt snippets.
-    expect(
-      detectLanguage(
-        "# Delivering work\nThe request sets the scope, and the scope is the deliverable.",
-      ),
-    ).toBeNull();
-  });
-
-  test("takes frontmatter closed over a body as markdown", () => {
-    expect(
-      detectLanguage("---\nname: verifier\ntools: Bash\n---\nStart the app.\n"),
-    ).toBe("markdown");
+  /**
+   * Markdown is not inferred at all — `# ` is a heading and a comment, and
+   * nothing inside a block settles which. Three rules tried, each defeated by
+   * a four-line script within a round; the owner chose to stop trading. The
+   * frontmatter rule went with it, though it was never implicated.
+   */
+  test("does not infer markdown, by decision", () => {
+    for (const document of [
+      "# Guide\n\n## Setup\n\n- install it\n- run it\n\nThen you are done.",
+      "# Delivering work\nThe request sets the scope, and the scope is the deliverable.",
+      "---\nname: verifier\ntools: Bash\n---\nStart the app.\n",
+    ]) {
+      expect(detectLanguage(document)).toBeNull();
+    }
   });
 
   test("does not take multi-document YAML for frontmatter", () => {
@@ -107,18 +105,14 @@ describe("detectLanguage", () => {
   });
 
   test("does not read a spec's Key: value lines as YAML", () => {
-    // `Author: J. Ortiz. Status: draft.` is a mapping to any test that has not
-    // first asked whether the block has headings.
-    const spec =
-      "# Intent\nAuthor: J. Ortiz. Status: draft.\n\n## Problem\nCustomers phone the contact center to ask where their claim is.\n\n## Outcome\nThey see the status in the portal instead.";
-    expect(detectLanguage(spec)).toBe("markdown");
-    // Same document with its prose cut to fragments: no longer enough evidence
-    // for markdown, and still never YAML.
+    // `Author: J. Ortiz. Status: draft.` reads exactly like a mapping. The
+    // heading guard refuses it: the block is a document of some kind, and the
+    // rule declines rather than claim it.
     expect(
       detectLanguage(
-        "# Intent\nAuthor: J. Ortiz.\n\n## Problem\nThey phone in.\n\n## Outcome\nThey stop.",
+        "# Intent\nAuthor: J. Ortiz. Status: draft.\n\n## Problem\nCustomers phone in.\n\n## Outcome\nThey stop.",
       ),
-    ).toBeNull();
+    ).not.toBe("yaml");
   });
 
   test("requires two signals before naming a language", () => {
@@ -159,6 +153,10 @@ describe("detectLanguage", () => {
   test("no language's keywords fire on English prose", () => {
     const prose: Record<string, string> = {
       sql: "Select a source from the list.\nThen create table rows for each item, and order by whichever column you find clearest.",
+      "sql, unpunctuated":
+        "Select a source from the list\nCreate table rows for each item",
+      "sql, imperative":
+        "Update your settings from the menu\nDelete from the list any row you do not want",
       typescript:
         "The ratio: number of items per page, such as string values in the list, is worth tuning as const conditions change.",
       docker:
@@ -184,9 +182,19 @@ describe("detectLanguage", () => {
   });
 
   test("still reads the real thing for each of those", () => {
-    expect(
-      detectLanguage("SELECT id, name\nFROM users\nWHERE active = true;"),
-    ).toBe("sql");
+    // Every SQL form, because the rules were rebuilt on operands rather than
+    // keyword position: an identifier after FROM, a typed column, a VALUES
+    // tuple, a literal comparison.
+    for (const sql of [
+      "SELECT id, name\nFROM users\nWHERE active = true;",
+      "select u.name\nfrom users u\njoin orgs o on o.id = u.org_id",
+      "CREATE TABLE users (\n  id INT PRIMARY KEY,\n  name TEXT\n);",
+      "INSERT INTO users (id, name) VALUES (1, 'a');",
+      "UPDATE users SET active = false WHERE id = 3;",
+      "select *\nfrom orders\nwhere total > 100\norder by created_at desc",
+    ]) {
+      expect(detectLanguage(sql)).toBe("sql");
+    }
     expect(
       detectLanguage("FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci"),
     ).toBe("docker");
@@ -197,27 +205,18 @@ describe("detectLanguage", () => {
     ).toBe("typescript");
   });
 
-  test("does not take a commented shell script for markdown", () => {
-    // `# ` is a heading in one language and a comment in another. A heading
-    // needs a second signal of a different kind — a list, or a nested depth.
-    expect(
-      detectLanguage("# Install\nnpm install\n# Run\nnpm start"),
-    ).toBeNull();
-    expect(
-      detectLanguage(
-        "# Install deps\nnpm ci\n# Build\nnpm run build\n# Deploy\nnpm run deploy",
-      ),
-    ).toBeNull();
-    // `## ` is an ordinary shell comment, so differing depth is not enough on
-    // its own — the document needs prose a command line would never produce.
-    expect(
-      detectLanguage("# Install\nnpm install\n## Run\nnpm start"),
-    ).toBeNull();
-    expect(
-      detectLanguage(
-        "# Guide\n\n## Setup\nRun the installer and wait for it to finish.\n\n## Teardown\nStop the service before removing it.",
-      ),
-    ).toBe("markdown");
+  test("does not take a commented shell script for anything", () => {
+    for (const script of [
+      "# Install\nnpm install\n# Run\nnpm start",
+      "# Install\nnpm install\n## Run\nnpm start",
+      "# Install deps\nnpm ci\n# Build\nnpm run build\n# Deploy\nnpm run deploy",
+      // A command that echoes a whole sentence. Full stops are a habit of
+      // prose, not a property of it, and the rule that rested on them fell to
+      // exactly this.
+      "# Install\nnpm install\n## Explain\necho This command installs every required package.",
+    ]) {
+      expect(detectLanguage(script)).toBeNull();
+    }
   });
 
   test("returns null for ASCII art", () => {

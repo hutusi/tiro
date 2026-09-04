@@ -195,12 +195,38 @@ describe("backfill", () => {
   });
 
   /**
-   * `claude.com/blog` mislabels 4 of its own 13 blocks — a markdown document
-   * tagged `javascript`, a GitHub Actions step tagged `markdown` — which is
-   * what a per-block language dropdown in a CMS produces. Writing those in
-   * makes them permanent, so a disagreement stops rather than resolves.
+   * `claude.com/blog` mislabels 4 of its own 13 blocks — what a per-block
+   * language dropdown in a CMS produces. Writing those in makes them
+   * permanent, so a disagreement stops rather than resolves.
+   *
+   * Three of those four were markdown documents tagged `javascript`, and this
+   * guard no longer catches them: markdown inference was removed, so there is
+   * nothing to disagree with. It catches the fourth — a GitHub Actions step
+   * tagged `markdown` — and every conflict a still-inferable language can
+   * raise. That narrowing is a known cost of dropping markdown.
    */
   test("leaves a fence bare when the page and the code disagree", () => {
+    const yamlStep =
+      "- name: Triage failed build\n  if: failure()\n  run: make triage\n  env:\n    KEY: value\n";
+    const result = backfill(
+      article(`\`\`\`\n${yamlStep}\`\`\`\n`),
+      null,
+      `\`\`\`markdown\n${yamlStep}\`\`\`\n`,
+    );
+    expect(result?.languages).toEqual([]);
+    expect(result?.index).not.toContain("```markdown");
+    expect(result?.conflicts).toEqual([
+      {
+        declared: "markdown",
+        inferred: "yaml",
+        opening: "- name: Triage failed build",
+      },
+    ]);
+  });
+
+  test("no longer catches a markdown document mislabelled", () => {
+    // Recorded rather than hidden: dropping markdown inference gave up three
+    // of the four real conflicts this guard originally found.
     const markdownDoc =
       "# Payments service\n\n## Commands\n- Build: make build\n- Test: make test\n";
     const result = backfill(
@@ -208,15 +234,8 @@ describe("backfill", () => {
       null,
       `\`\`\`javascript\n${markdownDoc}\`\`\`\n`,
     );
-    expect(result?.languages).toEqual([]);
-    expect(result?.index).not.toContain("```javascript");
-    expect(result?.conflicts).toEqual([
-      {
-        declared: "javascript",
-        inferred: "markdown",
-        opening: "# Payments service",
-      },
-    ]);
+    expect(result?.conflicts).toEqual([]);
+    expect(result?.languages).toEqual(["javascript"]);
   });
 
   test("does not call an alias a disagreement", () => {
