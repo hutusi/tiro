@@ -12,6 +12,7 @@ const valid: ClipResultMessage = {
     readabilityFailed: false,
     hasMath: false,
     pdfViewer: false,
+    latexmlFullText: false,
   },
 };
 
@@ -37,6 +38,14 @@ describe("isClipResult", () => {
       isClipResult({
         type: "tiro-clip-result",
         payload: { ...valid.payload, pdfViewer: undefined },
+      }),
+    ).toBe(false);
+    // The popup reads this one to decide whether pressing Clip would overwrite
+    // a paper's full text with its abstract.
+    expect(
+      isClipResult({
+        type: "tiro-clip-result",
+        payload: { ...valid.payload, latexmlFullText: undefined },
       }),
     ).toBe(false);
     expect(

@@ -1,6 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import {
   foldFiguresIn,
+  hasLatexmlFullText,
   prepareForClipping,
   readLatexmlMetadata,
   restoreCodeLanguagesIn,
@@ -38,6 +39,10 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // Before Readability, which consumes the document — and after preparation, so
   // a formula in a title or abstract is already a marker rather than MathML.
   const latexml = readLatexmlMetadata(doc);
+  // Whether this document *is* the paper, rather than a page about it. The
+  // popup needs it to decide whether clipping the tab would file a lesser body
+  // under a paper's canonical slug — see `needsFullTextFetch`.
+  const latexmlFullText = hasLatexmlFullText(doc);
   // Snapshot before Readability, which consumes the document. Serializing
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
@@ -78,6 +83,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     readabilityFailed,
     hasMath,
     pdfViewer,
+    latexmlFullText,
   };
 }
 

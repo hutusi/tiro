@@ -1,5 +1,5 @@
 import { type ArxivRef, parseArxivUrl, slugForUrl } from "@tiro/shared";
-import { ARXIV_ORIGIN, clipArxivPaper } from "../arxiv.ts";
+import { ARXIV_ORIGIN, clipArxivPaper, needsFullTextFetch } from "../arxiv.ts";
 import { buildClipFile } from "../clip.ts";
 import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
@@ -82,6 +82,20 @@ async function main(): Promise<void> {
   /** Once a fetched full text is on screen, a late message from the injected
    * clipper must not replace it with the page the reader happened to be on. */
   let fetched = false;
+  /**
+   * True once the best available body is the one on screen — the fetch
+   * succeeded, or the reader declined the permission, or it failed.
+   *
+   * Until then Clip stays disabled on a paper whose full text has not been
+   * read, because committing the abstract would overwrite the full-text
+   * article under the same slug. The flag is what lets the abstract-page
+   * fallback enable Clip at all: that payload legitimately has no LaTeXML full
+   * text, so the predicate alone would gate it forever.
+   */
+  let fullTextSettled = false;
+  /** A note that belongs beside the preview rather than in the status line,
+   * which the next clip result would overwrite. */
+  let standingNote: string | null = null;
 
   function showPayload(payload: ClipResultMessage["payload"]): void {
     result = payload;
@@ -104,7 +118,15 @@ async function main(): Promise<void> {
       countWords(payload.markdown),
     );
     el.warning.hidden = !payload.readabilityFailed;
-    if (configured) {
+    // The whole point of the identity rule is that this article is the paper.
+    // Committing the abstract page while its full text is one click away would
+    // replace that full text — so the button waits.
+    const gated =
+      !fullTextSettled && needsFullTextFetch(payload, paper !== null);
+    // A tab already showing the paper has nothing to fetch, so the offer would
+    // only be noise — and clipping it must not need a permission.
+    if (!gated) el.arxivFetch.hidden = true;
+    if (configured && !gated) {
       el.clip.disabled = false;
       if (clippedAt !== null) {
         setStatus(m.alreadyClipped(formatClipDate(locale, clippedAt)));
@@ -112,6 +134,13 @@ async function main(): Promise<void> {
       } else {
         setStatus(m.readyToClip);
       }
+    } else if (gated) {
+      setStatus(m.arxivOffer);
+    }
+    // Last, so it survives the branches above rather than racing them.
+    if (standingNote !== null) {
+      el.warning.textContent = standingNote;
+      el.warning.hidden = false;
     }
   }
 
@@ -173,33 +202,49 @@ async function main(): Promise<void> {
         origins: [ARXIV_ORIGIN],
       });
       if (!granted) {
-        setStatus(m.arxivDenied, true);
-        await extract();
+        // Declining is an answer. The tab's own content is now the best body
+        // available, so Clip stops waiting for one that is not coming.
+        await settleOnTab(m.arxivDenied);
         return;
       }
     }
     setStatus(m.arxivFetching);
-    // The preview no longer comes from the tab, so say where it did come from:
-    // the standing notice would otherwise describe a read that did not happen.
-    el.notice.textContent = m.arxivNotice;
     try {
       const clip = await clipArxivPaper(paper, {
         fetch: (input, init) => fetch(input, init),
         parse: (html) => new DOMParser().parseFromString(html, "text/html"),
       });
       fetched = true;
+      fullTextSettled = true;
       sourceUrl = clip.sourceUrl;
-      showPayload(clip.payload);
+      // Only now: a failed fetch reads the tab after all, and this would then
+      // describe a read that did not happen.
+      el.notice.textContent = m.arxivNotice;
       // No source URL means the abstract page *was* what was read, which is
       // worth saying: this paper has no HTML full text to have missed.
-      if (clip.sourceUrl === undefined) {
-        el.warning.textContent = m.arxivAbstractOnly;
-        el.warning.hidden = false;
-      }
+      if (clip.sourceUrl === undefined) standingNote = m.arxivAbstractOnly;
+      showPayload(clip.payload);
     } catch (error) {
-      setStatus(m.arxivFailed(String(error)), true);
-      await extract();
+      await settleOnTab(m.arxivFailed(String(error)));
     }
+  }
+
+  /**
+   * Fall back to whatever the tab holds, and stop gating Clip on a full text
+   * that is not going to arrive.
+   *
+   * Re-renders rather than only extracting, because in the not-granted path the
+   * tab was already previewed and its clip result has been and gone — nothing
+   * would otherwise re-evaluate the gate.
+   */
+  async function settleOnTab(note: string): Promise<void> {
+    fullTextSettled = true;
+    standingNote = note;
+    if (result === null) {
+      await extract();
+      return;
+    }
+    showPayload(result);
   }
 
   // Best-effort state from the local clip record. Slug derivation and the
@@ -235,7 +280,6 @@ async function main(): Promise<void> {
       },
       { once: true },
     );
-    el.notice.textContent = `${m.arxivOffer} ${m.noticePreview}`;
     await extract();
   }
 
@@ -248,7 +292,11 @@ async function main(): Promise<void> {
         const nowIso = new Date().toISOString();
         const file = await buildClipFile({
           url: payload.url,
-          sourceUrl,
+          // A tab clip on a paper still came from one of its URL forms, and the
+          // article is filed under another — so the body's origin is recorded
+          // whichever path produced it. buildClipFile drops it when it agrees
+          // with the canonical URL, so an ordinary page records nothing.
+          sourceUrl: sourceUrl ?? tabSourceUrl(payload.url),
           title: payload.title,
           markdown: payload.markdown,
           excerpt: payload.excerpt,
@@ -311,6 +359,26 @@ async function main(): Promise<void> {
   }
 
   await prepare();
+}
+
+/**
+ * The URL a tab clip was read from, for `tiro.source_url` — but only on a page
+ * whose identity gets rewritten, and only ever without its query or fragment.
+ *
+ * Passing the raw address through would republish a tracking param that
+ * `buildClipFile` strips from `url` on purpose, so the query goes even though
+ * arXiv's own (`?context=cs`) is harmless.
+ */
+function tabSourceUrl(rawUrl: string): string | undefined {
+  if (parseArxivUrl(rawUrl) === null) return undefined;
+  try {
+    const url = new URL(rawUrl);
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 void main();

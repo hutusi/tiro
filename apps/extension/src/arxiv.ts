@@ -23,6 +23,29 @@ import type { ClipPayload } from "./messages.ts";
  * in the manifest. Exported so the two cannot drift. */
 export const ARXIV_ORIGIN = "https://arxiv.org/*";
 
+/**
+ * Would clipping this payload file a lesser body under a paper's slug?
+ *
+ * The identity rule makes `/abs/`, `/pdf/` and `/html/` one article, so an
+ * abstract page committed now *replaces* a full-text clip of the same paper —
+ * and, because the body changed, costs a full re-translation to undo. The Clip
+ * button therefore has to stay disabled while a better body is one click away.
+ *
+ * Keyed on what the document holds rather than on which URL it came from. A
+ * reader already looking at `/html/` has the full text in the tab and must not
+ * be made to grant a permission to clip the page in front of them; an `/html/`
+ * URL that LaTeXML could only stub holds nothing, and a route check would wave
+ * it straight through.
+ *
+ * Pure so it can be tested: the popup that acts on it has no test harness.
+ */
+export function needsFullTextFetch(
+  payload: Pick<ClipPayload, "latexmlFullText">,
+  isArxivPaper: boolean,
+): boolean {
+  return isArxivPaper && !payload.latexmlFullText;
+}
+
 export interface ArxivClip {
   payload: ClipPayload;
   /**

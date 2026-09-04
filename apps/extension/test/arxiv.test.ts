@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import { clipArxivPaper, prepareFetchedDocument } from "../src/arxiv.ts";
+import {
+  clipArxivPaper,
+  needsFullTextFetch,
+  prepareFetchedDocument,
+} from "../src/arxiv.ts";
+import { clipPage } from "../src/clip-page.ts";
 import type { FetchLike } from "../src/github.ts";
 
 /** Parse a whole document, the way DOMParser does in the popup — `<head>` and
@@ -195,5 +200,77 @@ describe("clipArxivPaper", () => {
     expect(clipArxivPaper({ id: "2404.19756" }, deps({}))).rejects.toThrow(
       "2404.19756",
     );
+  });
+});
+
+describe("needsFullTextFetch", () => {
+  /**
+   * The gate that stops the abstract page overwriting a full-text clip. With
+   * `/abs/`, `/pdf/` and `/html/` collapsed onto one slug, committing the tab
+   * while a better body is a click away replaces the article and costs a full
+   * re-translation to undo.
+   */
+  test("gates a paper's page that is not the paper", () => {
+    expect(needsFullTextFetch({ latexmlFullText: false }, true)).toBe(true);
+  });
+
+  // The reason this is keyed on the document and not the URL: a reader already
+  // looking at /html/ has the full text in the tab, and must not be made to
+  // grant a permission to clip the page in front of them.
+  test("leaves a tab that already holds the full text alone", () => {
+    expect(needsFullTextFetch({ latexmlFullText: true }, true)).toBe(false);
+  });
+
+  test("never gates a page that is not a paper", () => {
+    expect(needsFullTextFetch({ latexmlFullText: false }, false)).toBe(false);
+  });
+});
+
+describe("clipPage reports whether the tab holds the paper", () => {
+  const clipTab = (html: string, url: string) => {
+    const window = new Window();
+    window.document.body.innerHTML = html;
+    return clipPage(window.document as unknown as Document, url);
+  };
+
+  test("true for a real LaTeXML paper", () => {
+    const payload = clipTab(
+      `<article class="ltx_document">
+         <h1 class="ltx_title ltx_title_document">A Paper</h1>
+         <section class="ltx_section"><p>${"Body sentence. ".repeat(40)}</p></section>
+       </article>`,
+      "https://arxiv.org/html/2404.19756v1",
+    );
+    expect(payload.latexmlFullText).toBe(true);
+    expect(needsFullTextFetch(payload, true)).toBe(false);
+  });
+
+  // The case a URL-based gate would wave straight through.
+  test("false for the \\includepdf stub served at an /html/ URL", () => {
+    const payload = clipTab(
+      '<div class="ltx_document"><p>See pages 1-last of 0_adam_main.pdf</p></div>',
+      "https://arxiv.org/html/1412.6980",
+    );
+    expect(payload.latexmlFullText).toBe(false);
+    expect(needsFullTextFetch(payload, true)).toBe(true);
+  });
+
+  test("false for an abstract page", () => {
+    const payload = clipTab(
+      `<div id="abs"><blockquote class="abstract">${"Abstract sentence. ".repeat(20)}</blockquote></div>`,
+      "https://arxiv.org/abs/2404.19756",
+    );
+    expect(payload.latexmlFullText).toBe(false);
+  });
+
+  // The abstract page is a legitimate body when a paper has no HTML at all, so
+  // the popup must not gate on the predicate alone — it settles the gate once
+  // the fetch has had its turn.
+  test("the abstract-page fallback would gate itself without that settling", async () => {
+    const clip = await clipArxivPaper(
+      { id: "1412.6980" },
+      deps({ "https://arxiv.org/abs/1412.6980": absHtml }),
+    );
+    expect(needsFullTextFetch(clip.payload, true)).toBe(true);
   });
 });
