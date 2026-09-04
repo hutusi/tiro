@@ -10,7 +10,7 @@ throughout; Astro 7 + Tailwind 4 for the site.
 Product decisions that look odd but are deliberate:
 
 - **The site is fully public** — no auth tier. The owner accepted the trade-off; consequently *all* clipped HTML must be sanitized before rendering (invariant 5 below).
-- **All content lives in the vault repo, never here.** This repo is code only; the vault holds articles, config, and the processing workflow. The two meet in CI (the vault workflow checks this repo out; the deploy workflow checks the vault out).
+- **All content lives in the vault repo, never here.** This repo is code only; the vault holds articles, config, and the processing workflow. The two meet in CI (the vault workflow checks this repo out; the deploy workflow checks the vault out). **One bounded exception:** `packages/shared/test/fixtures/code-blocks` holds short verbatim **code blocks** taken from real clipped articles, because the language detector's whole job is judging real-world content and a fixture invented by the same person as the rule tests only that person's assumptions — this corpus caught two rule-ordering bugs, a YAML guard that rejected a flow mapping for ending a line with `}`, and a Rust enum whose only signal was its variants, none of which a synthetic block would have exposed. The exception covers code blocks and nothing else: whole articles, frontmatter, prose bodies and assets stay in the vault. Keep the excerpts short, and remember this repo is public while the vault is private. `fixtures/vault` stays fake by contrast — it tests the *contract*, where the shapes are known and can be invented.
 - **The LLM is provider-configurable, never hardcoded** — an OpenAI-compatible endpoint set in the vault's `config/tiro.yml` (ADR 0004).
 - `vault-template/` is the **bootstrap template** for new vaults; the *live* vault's config evolves independently (it currently runs `glm-5.2` while the template ships a generic default). Editing the template does not change the live vault — propagate deliberate changes by hand.
 
@@ -24,6 +24,7 @@ Product decisions that look odd but are deliberate:
 | `apps/site` | Astro site (side-by-side reader, Pagefind search), deployed to Cloudflare Pages |
 | `vault-template/` | Files to bootstrap a new vault repo |
 | `fixtures/vault` | Fake vault for tests and local site dev — its articles must stay contract-valid (test-enforced) |
+| `packages/shared/test/fixtures/code-blocks` | **Real** code blocks from the live vault, one per file, expected language in the filename (`plain-` = leave alone). The language detector's corpus — see the exception above |
 
 ## Commands
 
