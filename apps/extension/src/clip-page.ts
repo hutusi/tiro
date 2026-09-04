@@ -2,6 +2,7 @@ import { Readability } from "@mozilla/readability";
 import {
   foldFiguresIn,
   prepareForClipping,
+  readLatexmlMetadata,
   restoreCodeLanguagesIn,
 } from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -30,6 +31,9 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
   prepareForClipping(doc);
+  // Before Readability, which consumes the document — and after preparation, so
+  // a formula in a title or abstract is already a marker rather than MathML.
+  const latexml = readLatexmlMetadata(doc);
   // Snapshot before Readability, which consumes the document. Serializing
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
@@ -57,11 +61,15 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // Readability discarded with the page furniture cannot set the flag.
   const { markdown, hasMath } = htmlToMarkdown(html);
 
+  // LaTeXML wins where it answered, because it read the paper's own markup
+  // while Readability guessed from rendered text. These pages carry no <meta>
+  // at all, so its byline heuristic scrapes the author block — affiliations,
+  // `†thanks:` notes and all.
   return {
     url,
-    title: (article?.title ?? "").trim() || doc.title,
-    excerpt: (article?.excerpt ?? "").trim(),
-    author: (article?.byline ?? "").trim(),
+    title: latexml?.title ?? ((article?.title ?? "").trim() || doc.title),
+    excerpt: latexml?.excerpt ?? (article?.excerpt ?? "").trim(),
+    author: latexml?.author ?? (article?.byline ?? "").trim(),
     markdown,
     readabilityFailed,
     hasMath,

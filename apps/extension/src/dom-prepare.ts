@@ -1660,3 +1660,107 @@ export const mathTurndownRule: TurndownService.Rule = {
     return display ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`;
   },
 };
+
+/**
+ * Frontmatter read out of a LaTeXML document.
+ *
+ * Keyed on `.ltx_*` classes rather than on arxiv.org, like every other repair
+ * in this file. LaTeXML is the renderer, arXiv is only its largest user, and a
+ * host check would exclude ar5iv and every mirror for no gain.
+ */
+export interface LatexmlMetadata {
+  title?: string;
+  author?: string;
+  excerpt?: string;
+}
+
+/** Collapse LaTeXML's generous whitespace — it indents markup for readability,
+ * so `textContent` arrives full of newlines and runs of spaces. */
+function collapseText(node: Element | null): string {
+  return (node?.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * True when the document is a real LaTeXML rendering rather than a stub.
+ *
+ * arXiv serves HTTP 200 with a valid `.ltx_document` for papers it could not
+ * really convert — a `\includepdf` submission renders as the single sentence
+ * "See pages 1-last of 0_adam_main.pdf" (arxiv.org/html/1412.6980 is the case
+ * this was written against). Those pages carry no document title, no abstract,
+ * no author and no sections, so requiring a title *or* a section separates them
+ * without assuming every paper has an abstract.
+ */
+export function hasLatexmlFullText(doc: Document): boolean {
+  if (doc.querySelector(".ltx_document") === null) return false;
+  return (
+    doc.querySelector(".ltx_title_document") !== null ||
+    doc.querySelector(".ltx_section") !== null
+  );
+}
+
+/**
+ * Read title, authors and abstract from a LaTeXML document, or `null` if it is
+ * not one.
+ *
+ * Worth doing because these pages carry *no* metadata of their own — no
+ * `<meta>`, no `rel="canonical"`, nothing — so Readability's byline heuristic
+ * falls back to scraping the rendered author block, and LaTeXML renders
+ * acknowledgements and affiliations inside it. That is where
+ * `author: "Stephen Chung\nThanks: DualverseAI; University of Cambridge"` and
+ * an excerpt of `††thanks:` markers in the vault came from.
+ *
+ * Reads a clone of the author block rather than stripping the notes in place:
+ * this runs before Readability, and removing nodes here would change what it
+ * selects on. The leaked notes in the *body* are a separate defect.
+ */
+export function readLatexmlMetadata(doc: Document): LatexmlMetadata | null {
+  if (doc.querySelector(".ltx_document") === null) return null;
+  const metadata: LatexmlMetadata = {};
+
+  const title = collapseText(doc.querySelector(".ltx_title_document"));
+  if (title !== "") metadata.title = title;
+
+  const author = readLatexmlAuthors(doc);
+  if (author !== "") metadata.author = author;
+
+  const excerpt = readLatexmlAbstract(doc);
+  if (excerpt !== "") metadata.excerpt = excerpt;
+
+  return metadata;
+}
+
+/** Author notes: the `†thanks:` footnote LaTeXML anchors to a name, and the
+ * affiliation list it hangs beside it. Both are prose about an author rather
+ * than a name, and both land inside `.ltx_authors`. */
+const LATEXML_AUTHOR_NOTES =
+  ".ltx_note, .ltx_author_notes, .ltx_contact, .ltx_role_thanks";
+
+function readLatexmlAuthors(doc: Document): string {
+  const authors = doc.querySelector(".ltx_authors");
+  if (authors === null) return "";
+  const clone = authors.cloneNode(true) as Element;
+  for (const note of Array.from(clone.querySelectorAll(LATEXML_AUTHOR_NOTES))) {
+    note.remove();
+  }
+  const names = Array.from(clone.querySelectorAll(".ltx_personname"))
+    .map((name) => collapseText(name))
+    .filter((name) => name !== "");
+  // Fall back to the block's own text when the markup names no person: some
+  // papers set the author line as plain text inside `.ltx_authors`. Better a
+  // collapsed line than no author at all.
+  return names.length > 0 ? names.join(", ") : collapseText(clone);
+}
+
+function readLatexmlAbstract(doc: Document): string {
+  const abstract = doc.querySelector(".ltx_abstract");
+  if (abstract === null) return "";
+  const clone = abstract.cloneNode(true) as Element;
+  // "Abstract" is a heading LaTeXML renders inside the block; keeping it would
+  // put the word at the front of every arXiv excerpt on the site.
+  for (const heading of Array.from(
+    clone.querySelectorAll(".ltx_title_abstract"),
+  )) {
+    heading.remove();
+  }
+  return collapseText(clone);
+}
