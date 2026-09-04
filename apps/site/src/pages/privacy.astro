@@ -18,8 +18,15 @@ const updated = "2026-09-04";
     <p>
       Tiro 由两部分组成：Chrome 扩展 <strong>Tiro Clipper</strong>，以及本站点。
       两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
-      扩展只把数据发往一个第三方：GitHub——发到你自己指定的仓库，用你自己的令牌，
+      扩展只把你的数据发往一个第三方：GitHub——发到你自己指定的仓库，用你自己的令牌，
       且只在你按下「剪藏」之后。
+    </p>
+
+    <p>
+      有一处读取发生在剪藏之前，需要单独说明：在你授权访问 <code>arxiv.org</code
+      >
+      之后，扩展会在生成预览时向该站点请求论文的 HTML 全文。那是对一个公开页面的 读取，不会附带你的任何数据——没有令牌，没有仓库名，也不涉及你打开过的其他页面；
+      它只在 arXiv 论文页面上发生，且只在你授权之后。未授权则不会发出该请求。
     </p>
 
     <h3>扩展存储什么</h3>
@@ -105,8 +112,18 @@ const updated = "2026-09-04";
     <p>
       Tiro is two things: the <strong>Tiro Clipper</strong> Chrome extension and this
       site. Neither sets tracking cookies, runs analytics or ads, and nothing is sold.
-      The extension sends data to exactly one third party — GitHub — into the repository
-      you name, with your own token, and only after you press Clip.
+      The extension sends your data to exactly one third party — GitHub — into the
+      repository you name, with your own token, and only after you press Clip.
+    </p>
+
+    <p>
+      One read happens before that, and is worth stating on its own: once you
+      have granted access to <code>arxiv.org</code>, the extension requests a
+      paper's HTML full text from that site while building the preview. It is a
+      read of a public page and carries none of your data — no token, no
+      repository name, nothing about any other page you have open. It happens
+      only on an arXiv paper, and only after you grant it; decline, and the
+      request is never made.
     </p>
 
     <h3>What the extension stores</h3>
