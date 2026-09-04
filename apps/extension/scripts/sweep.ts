@@ -619,6 +619,10 @@ export interface Recanonicalization {
   index: string;
   /** What the fresh clip changed about the metadata, for the report. */
   refreshed: string[];
+  /** Set when the article must not be written; `index` is then not to be used.
+   * Mirrors `Backfill.refused` above — a refusal is a fact about one article,
+   * not a reason to end the run. */
+  refused?: string;
 }
 
 /**
@@ -632,6 +636,17 @@ export interface Recanonicalization {
  * `fresh` is optional because the rename is the part that must happen: an
  * article whose page no longer loads still has to stop being invisible to the
  * next clip of it.
+ *
+ * "Untouched" is *checked*, not merely intended. `stringifyArticle` trims the
+ * body it is given, and if the article's final block were a code or math block
+ * whose last line carried trailing whitespace, that trim would land inside the
+ * block — leaving `index.md` and the untouched `zh.md` byte-different where
+ * `checkAlignment` requires them identical, which drops the article out of
+ * side-by-side rendering. No file the tooling wrote can be in that state, since
+ * `stringifyArticle` is the only writer of `index.md` and trims on the way in,
+ * so this cannot fire on a vault built by Tiro. It exists for the one that
+ * could reach it: an `index.md` hand-edited outside the tooling. `repair.ts`
+ * guards its own write the same way rather than trusting the invariant.
  */
 export async function recanonicalize(
   article: Article,
@@ -660,12 +675,18 @@ export async function recanonicalize(
       refreshed.push(field);
     }
   }
-  return {
-    from: article.slug,
-    to,
-    index: stringifyArticle(frontmatter, article.body),
-    refreshed,
-  };
+  const index = stringifyArticle(frontmatter, article.body);
+  const written = parseArticle(index).body;
+  if (written !== article.body) {
+    return {
+      from: article.slug,
+      to,
+      index,
+      refreshed,
+      refused: "rewriting the frontmatter would alter the body",
+    };
+  }
+  return { from: article.slug, to, index, refreshed };
 }
 
 async function recanonicalizeAll(
@@ -694,6 +715,11 @@ async function recanonicalizeAll(
 
     const plan = await recanonicalize(article, fresh);
     if (plan === null) continue;
+    if (plan.refused !== undefined) {
+      console.log(`  !  ${article.slug}: refused — ${plan.refused}`);
+      failed++;
+      continue;
+    }
     moved++;
     const fields =
       plan.refreshed.length === 0

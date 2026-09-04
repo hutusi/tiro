@@ -91,6 +91,33 @@ describe("recanonicalize", () => {
     expect(plan?.refreshed).toEqual([]);
   });
 
+  /**
+   * `stringifyArticle` trims the body it is handed. If the final block were a
+   * code or math block whose last line carried trailing whitespace, that trim
+   * would land *inside* the block — and with `zh.md` deliberately untouched,
+   * `checkAlignment` would then see a verbatim block that differs, dropping the
+   * article out of side-by-side rendering. No file the tooling wrote can be in
+   * that state; this guards the one that could reach it, a hand-edited
+   * index.md, by refusing rather than writing.
+   */
+  test("refuses rather than write an article whose body would change", async () => {
+    const body = "Intro.\n\n```\nlet x = 1;\n```   \n";
+    const plan = await recanonicalize(article(old, url, body), payload());
+    expect(plan?.refused).toBe(
+      "rewriting the frontmatter would alter the body",
+    );
+  });
+
+  test("does not refuse the shape that trim cannot reach", async () => {
+    // Trailing whitespace *inside* a fence, not on its last line: `trimEnd`
+    // only ever reaches the tail, so 17 of the vault's 36 articles carry lines
+    // like this and none of them are at risk.
+    const body = "Intro.\n\n```\nlet x = 1;   \n```\n";
+    const plan = await recanonicalize(article(old, url, body), payload());
+    expect(plan?.refused).toBeUndefined();
+    expect(parseArticle(plan?.index ?? "").body).toBe(body);
+  });
+
   test("does nothing for an article already at its slug", async () => {
     const settled = "example-com-posts-hello-ai-e8446b12";
     const plan = await recanonicalize(
