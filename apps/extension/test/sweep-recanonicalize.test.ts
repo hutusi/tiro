@@ -7,10 +7,13 @@ import {
 import { recanonicalize } from "../scripts/sweep.ts";
 import type { ClipPayload } from "../src/messages.ts";
 
-const frontmatter = (url: string): ArticleFrontmatter => ({
+const frontmatter = (
+  url: string,
+  domain = "arxiv.org",
+): ArticleFrontmatter => ({
   url,
   title: "Old title",
-  domain: "arxiv.org",
+  domain,
   clipped_at: "2026-09-01T06:13:19.432Z",
   author: "Stephen Chung\nThanks: DualverseAI; University of Cambridge",
   excerpt: "††thanks: zmliu@mit.edu",
@@ -22,11 +25,16 @@ const frontmatter = (url: string): ArticleFrontmatter => ({
   },
 });
 
-const article = (slug: string, url: string, body = "Body text.\n") => ({
+const article = (
+  slug: string,
+  url: string,
+  body = "Body text.\n",
+  domain?: string,
+) => ({
   slug,
   url,
   body,
-  frontmatter: frontmatter(url),
+  frontmatter: frontmatter(url, domain),
 });
 
 const payload = (over: Partial<ClipPayload> = {}): ClipPayload => ({
@@ -116,6 +124,39 @@ describe("recanonicalize", () => {
     const plan = await recanonicalize(article(old, url, body), payload());
     expect(plan?.refused).toBeUndefined();
     expect(parseArticle(plan?.index ?? "").body).toBe(body);
+  });
+
+  // The card, the RSS feed and the article page all display `domain`, and
+  // buildClipFile takes it from the canonical URL — so carrying the old one
+  // over would leave a migrated article disagreeing with a re-clip of itself.
+  test("re-derives the domain from the canonical URL", async () => {
+    const plan = await recanonicalize(
+      article(
+        "www-arxiv-org-abs-2404-19756-00000000",
+        "https://www.arxiv.org/abs/2404.19756",
+        "Body text.\n",
+        "www.arxiv.org",
+      ),
+      null,
+    );
+    const { frontmatter: written } = parseArticle(plan?.index ?? "");
+    expect(written.domain).toBe("arxiv.org");
+    expect(written.url).toBe("https://arxiv.org/abs/2404.19756");
+  });
+
+  test("leaves the domain of an article whose URL did not move", async () => {
+    const plan = await recanonicalize(
+      article(
+        "stale-name-00000000",
+        "https://www.example.com/posts/hello",
+        "Body text.\n",
+        "www.example.com",
+      ),
+      null,
+    );
+    expect(parseArticle(plan?.index ?? "").frontmatter.domain).toBe(
+      "www.example.com",
+    );
   });
 
   test("does nothing for an article already at its slug", async () => {

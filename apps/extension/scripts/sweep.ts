@@ -660,6 +660,11 @@ export async function recanonicalize(
   const frontmatter: ArticleFrontmatter = {
     ...article.frontmatter,
     url,
+    // Re-derived, not carried over: `buildClipFile` takes the domain from the
+    // canonical URL, so keeping the old one would leave a migrated article
+    // saying `www.arxiv.org` on its card while linking to `arxiv.org` — and
+    // disagreeing with what re-clipping the same page would produce.
+    domain: new URL(url).hostname,
     tiro: {
       ...article.frontmatter.tiro,
       // The URL the body was read from — which is what the recorded URL was,
