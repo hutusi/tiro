@@ -159,6 +159,18 @@ describe("recanonicalize", () => {
     );
   });
 
+  // The loop used to fetch every article before asking whether any of them
+  // moved: 36 requests to migrate 2, each with a 30-second timeout on a cold
+  // cache. The slug is a hash of the article's own URL and needs no network.
+  test("an article already at its slug is decided without a clip", async () => {
+    const settled = "example-com-posts-hello-ai-e8446b12";
+    const plan = await recanonicalize(
+      article(settled, "https://example.com/posts/hello-ai"),
+      null,
+    );
+    expect(plan).toBeNull();
+  });
+
   test("does nothing for an article already at its slug", async () => {
     const settled = "example-com-posts-hello-ai-e8446b12";
     const plan = await recanonicalize(

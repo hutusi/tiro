@@ -706,6 +706,12 @@ async function recanonicalizeAll(
   let moved = 0;
   let failed = 0;
   for (const article of articles) {
+    // Ask the cheap local question first. The slug is a hash of the article's
+    // own URL, so whether it moves is knowable without the network — and a
+    // migration touching two articles was fetching all thirty-six, each with a
+    // 30-second timeout on a cold cache.
+    if ((await slugForUrl(article.url)) === article.slug) continue;
+
     // Best-effort: a page that will not load costs the metadata refresh, not
     // the rename. Leaving the directory unmoved is the worse outcome — the
     // next clip of that page would create a second article beside it.
