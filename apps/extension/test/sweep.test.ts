@@ -231,6 +231,20 @@ describe("backfill", () => {
     expect(result?.conflicts).toEqual([]);
   });
 
+  test("shares one alias vocabulary with the renderer", () => {
+    // `shell-session` resolved in the site's private table and to nothing in
+    // the shared one, so a fence the renderer understood perfectly well was
+    // reported as conflicting with its own inferred language and left bare.
+    const code = "$ ls -la\ntotal 8\ndrwxr-xr-x  2 me  staff\n";
+    const result = backfill(
+      article(`\`\`\`\n${code}\`\`\`\n`),
+      null,
+      `\`\`\`shell-session\n${code}\`\`\`\n`,
+    );
+    expect(result?.conflicts).toEqual([]);
+    expect(result?.languages).toEqual(["shell-session"]);
+  });
+
   test("writes a label the inference has no opinion about", () => {
     // Most fences infer to null, and the page's label must still land.
     const result = backfill(

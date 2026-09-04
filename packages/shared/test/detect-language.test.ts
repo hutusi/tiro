@@ -139,6 +139,76 @@ describe("detectLanguage", () => {
     }
   });
 
+  /**
+   * The test the design's central claim deserves, and the one that would have
+   * caught three bugs at once instead of one at a time.
+   *
+   * Every rule below is supposed to be anchored to line starts or to
+   * punctuation prose does not produce. Three were not: `select … from` and
+   * `create table` matched a sentence, `: number` and `such as string` matched
+   * another, and `FROM users` in a SELECT was read as a Dockerfile. Each
+   * paragraph here is ordinary English seeded with one language's keywords.
+   */
+  test("no language's keywords fire on English prose", () => {
+    const prose: Record<string, string> = {
+      sql: "Select a source from the list.\nThen create table rows for each item, and order by whichever column you find clearest.",
+      typescript:
+        "The ratio: number of items per page, such as string values in the list, is worth tuning as const conditions change.",
+      docker:
+        "FROM the outset the team ran into trouble.\nCOPY was never the problem; the ADD of a second reviewer was.",
+      go: "package deals are available from the func desk.\nimport duties may apply.",
+      python:
+        "import duties are a class of problem.\ndef the terms before you print(the contract).",
+      rust: "The struct of the argument is sound.\nlet mut nobody tell you otherwise; the impl is the easy part.",
+      c: "typedef is not a word.\nThe int of the matter is that void spaces printf badly.",
+      javascript:
+        "const conditions apply.\nlet the reader decide; var is a Scandinavian word.",
+      markdown:
+        "# Delivering work\nThe request sets the scope, and the scope is the deliverable.",
+      yaml: "This: is a sentence with a colon.\nAnd so: is this one, at some length.",
+      toml: "[bracketed asides] read like this.\nx = whatever you want it to be.",
+      shellsession:
+        "$5 was the price. The $ sign is used for dollars.\nRun it and see.",
+    };
+    const wrong = Object.entries(prose)
+      .map(([name, text]) => [name, detectLanguage(text)] as const)
+      .filter(([, got]) => got !== null);
+    expect(wrong).toEqual([]);
+  });
+
+  test("still reads the real thing for each of those", () => {
+    expect(
+      detectLanguage("SELECT id, name\nFROM users\nWHERE active = true;"),
+    ).toBe("sql");
+    expect(
+      detectLanguage("FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci"),
+    ).toBe("docker");
+    expect(
+      detectLanguage(
+        "export interface User {\n  id: number;\n}\nconst name: string = u.name;",
+      ),
+    ).toBe("typescript");
+  });
+
+  test("does not take a commented shell script for markdown", () => {
+    // `# ` is a heading in one language and a comment in another. A heading
+    // needs a second signal of a different kind — a list, or a nested depth.
+    expect(
+      detectLanguage("# Install\nnpm install\n# Run\nnpm start"),
+    ).toBeNull();
+    expect(
+      detectLanguage(
+        "# Install deps\nnpm ci\n# Build\nnpm run build\n# Deploy\nnpm run deploy",
+      ),
+    ).toBeNull();
+    // Nested depth is the signal a script does not produce.
+    expect(
+      detectLanguage(
+        "# Guide\n\n## Setup\n\nRun it.\n\n## Teardown\n\nStop it.",
+      ),
+    ).toBe("markdown");
+  });
+
   test("returns null for ASCII art", () => {
     expect(
       detectLanguage("       /\\\n      /  \\\n     /what\\\n    /------\\"),

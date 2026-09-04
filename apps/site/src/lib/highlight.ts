@@ -43,7 +43,7 @@ import xml from "@shikijs/langs/xml";
 import yaml from "@shikijs/langs/yaml";
 import zig from "@shikijs/langs/zig";
 import githubDarkDimmed from "@shikijs/themes/github-dark-dimmed";
-import { detectLanguage } from "@tiro/shared";
+import { canonicalLanguage, detectLanguage } from "@tiro/shared";
 import type { Element, Root } from "hast";
 import { createHighlighterCoreSync } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
@@ -58,21 +58,6 @@ const FALLBACK_LANG = "plaintext";
  * you to ignore the warning when it means something.
  */
 const PLAIN_ALIASES = new Set(["plaintext", "text", "txt", "plain"]);
-/** Fence infos in common use that Shiki does not register itself. */
-const LANG_ALIASES = new Map([
-  ["shell-session", "shellsession"],
-  ["sh-session", "shellsession"],
-  ["command-line", "shellsession"],
-  ["dockerfile", "docker"],
-  ["golang", "go"],
-  ["node", "javascript"],
-  ["obj-c", "objective-c"],
-  ["objc", "objective-c"],
-  ["proto3", "proto"],
-  ["protobuf", "proto"],
-  ["shell-script", "shellscript"],
-  ["vim", "viml"],
-]);
 
 /**
  * Grammars are imported rather than lazily bundled because the highlighter has
@@ -145,14 +130,17 @@ const unsupported = new Set<string>();
  * arbitrary web pages, so an unknown one must cost the block its colors and
  * nothing more: `codeToHast` throws on a language it does not have, and one
  * exotic fence must not be able to fail the site build.
+ *
+ * Aliases are `@tiro/shared`'s, not a private table here. The backfill compares
+ * a page's declared label against an inference and needs the same vocabulary —
+ * with two of them, `shell-session` resolved here and to nothing there, and the
+ * two readings of one fence looked like a disagreement.
  */
 function languageFor(info: string | undefined): string {
-  if (info === undefined || info === "") return FALLBACK_LANG;
-  const lang = info.toLowerCase();
+  const lang = canonicalLanguage(info ?? "");
+  if (lang === null) return FALLBACK_LANG;
   if (loaded.has(lang)) return lang;
   if (PLAIN_ALIASES.has(lang)) return FALLBACK_LANG;
-  const alias = LANG_ALIASES.get(lang);
-  if (alias !== undefined && loaded.has(alias)) return alias;
   if (!unsupported.has(lang)) {
     unsupported.add(lang);
     console.warn(`shiki: no grammar for "${lang}"; rendering as plain text`);

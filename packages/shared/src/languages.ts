@@ -187,6 +187,38 @@ const EXTENSION_LANGUAGES = new Map<string, string>([
 ]);
 
 /**
+ * Fence-info aliases: the spellings that appear *after* the backticks rather
+ * than in chrome a human reads.
+ *
+ * Kept apart from `LABEL_LANGUAGES` because the two are read under different
+ * risk. A chrome label is untrusted page text where an over-eager match writes
+ * a wrong language into the vault, so that table stays conservative. A fence
+ * info string was written by an author naming a language on purpose, so the
+ * generous machine spellings belong only here.
+ *
+ * They used to live in the site's `highlight.ts` as a private `LANG_ALIASES`,
+ * which meant two vocabularies: the backfill canonicalized a declared label
+ * through `languageFromLabel`, got `null` for `shell-session`, and reported a
+ * conflict against an inferred `shellsession` that was the same answer.
+ */
+const INFO_LANGUAGES = new Map<string, string>([
+  ["shell-session", "shellsession"],
+  ["sh-session", "shellsession"],
+  ["command-line", "shellsession"],
+  ["shell-script", "shellscript"],
+  ["obj-c", "objective-c"],
+  ["objectivec", "objective-c"],
+  ["vim", "viml"],
+  ["yml", "yaml"],
+  ["jsonc", "jsonc"],
+  ["plaintext", "plaintext"],
+  ["text", "plaintext"],
+  ["txt", "plaintext"],
+  ["plain", "plaintext"],
+  ["", "plaintext"],
+]);
+
+/**
  * Longest label worth considering. Chrome text runs to whole sentences on some
  * sites ("Copy this into your terminal"), and a length cap rejects those before
  * the map has to have an opinion about every word in English.
@@ -231,4 +263,25 @@ export function languageFromFilename(name: string): string | null {
   const dot = base.lastIndexOf(".");
   if (dot <= 0) return null;
   return EXTENSION_LANGUAGES.get(base.slice(dot + 1)) ?? null;
+}
+
+/**
+ * Canonical id for a fence's info string, or `null` when nothing recognises it.
+ *
+ * The single vocabulary for fence languages: the site resolves a grammar
+ * through it, and the backfill compares a page's declared label against an
+ * inference through it. Two callers reading the same string must agree on what
+ * it means, or `ts` and `typescript` look like a disagreement.
+ *
+ * Unlike `languageFromLabel` this accepts an id that is already canonical, so
+ * an unknown-but-plausible language passes through rather than being erased —
+ * the site's grammar list, not this table, decides what it can actually render.
+ */
+export function canonicalLanguage(info: string): string | null {
+  const text = normalize(info);
+  return (
+    INFO_LANGUAGES.get(text) ??
+    LABEL_LANGUAGES.get(text) ??
+    (/^[a-z0-9][a-z0-9+#._-]*$/.test(text) ? text : null)
+  );
 }

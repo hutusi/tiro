@@ -418,26 +418,6 @@ function chromeContainer(pre: Element): Element | null {
   return container;
 }
 
-/**
- * The outermost ancestor within reach holding this `<pre>` and no other.
- *
- * Deliberately looser than `chromeContainer`, because a title is text beside
- * the code — the strict test rejects the very shape this one exists to find.
- * Holding exactly one `<pre>` is what does the work instead: any title inside
- * the result can only describe this block, since there is no other block for it
- * to belong to.
- */
-function singleCodeAncestor(pre: Element): Element | null {
-  let container: Element | null = null;
-  let node = pre.parentElement;
-  for (let depth = 0; depth < CHROME_MAX_DEPTH && node !== null; depth += 1) {
-    if (node.getElementsByTagName("pre").length !== 1) break;
-    container = node;
-    node = node.parentElement;
-  }
-  return container;
-}
-
 /** The element holding both the tab strip and this block's panel. */
 function tabGroup(panel: Element): Element | null {
   let node = panel.parentElement;
@@ -487,7 +467,18 @@ function tabLabelFor(pre: Element): string | null {
   return selected === undefined ? null : textOf(selected);
 }
 
-/** A filename written into the block's chrome, as an attribute or as text. */
+/**
+ * A filename written into the block's chrome, as an attribute or as text.
+ *
+ * Found by walking up and looking only at each level's **previous element
+ * sibling**, because that is where a code block's title sits — immediately
+ * before the code, at whatever nesting the page uses. An earlier version
+ * searched the whole nearest ancestor holding one `<pre>`, which sounds
+ * equivalent and is not: a section containing a figure captioned `example.py`
+ * and, further down, an unrelated SQL block gave that block ```` ```python ````,
+ * written into the vault where nothing revisits it. Sharing an ancestor is not
+ * an association; adjacency is.
+ */
 function titleLabelFor(pre: Element): string | null {
   // The `<pre>` itself gets the attributes only. Its text is the code, and a
   // one-line block reading `python` would otherwise name itself.
@@ -495,17 +486,20 @@ function titleLabelFor(pre: Element): string | null {
     const value = pre.getAttribute(attr);
     if (value !== null && value.trim() !== "") return value;
   }
-  const container = singleCodeAncestor(pre);
-  if (container === null) return null;
-  for (const element of Array.from(
-    container.querySelectorAll(TITLE_SELECTOR),
-  )) {
-    for (const attr of TITLE_ATTRS) {
-      const value = element.getAttribute(attr);
-      if (value !== null && value.trim() !== "") return value;
+  let node: Element | null = pre;
+  for (let depth = 0; depth < CHROME_MAX_DEPTH && node !== null; depth += 1) {
+    const previous = node.previousElementSibling;
+    // The sibling must *be* the title. Searching inside it would readmit the
+    // unrelated `<figure>` above, whose caption names a different file.
+    if (previous?.matches(TITLE_SELECTOR) === true) {
+      for (const attr of TITLE_ATTRS) {
+        const value = previous.getAttribute(attr);
+        if (value !== null && value.trim() !== "") return value;
+      }
+      const text = textOf(previous);
+      if (text !== "") return text;
     }
-    const text = textOf(element);
-    if (text !== "") return text;
+    node = node.parentElement;
   }
   return null;
 }

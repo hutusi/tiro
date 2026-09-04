@@ -89,6 +89,21 @@ as it does today. Every rule is anchored to line starts or to punctuation prose
 does not produce, and most require two independent signals: one match is a
 coincidence, two are a language.
 
+That promise is easy to write and easy to break, and it was broken in four
+places before review caught it. `select … from` plus `create table` matched
+*"Select a source from the list. Then create table rows for each item."*;
+`: number` plus `such as string` matched another sentence; `import duties` plus
+`print(the contract)` matched a third; and `FROM users` in a SELECT was read as
+a Dockerfile, because `FROM` sat among the single-match rules where a base image
+and a SQL clause are indistinguishable. Each was an unanchored keyword in a file
+whose comment claimed there were none.
+
+The guard against the next one is not another regression test but
+`detect-language.test.ts`'s prose table: one English paragraph per language,
+seeded with that language's own keywords, asserted to return `null`. It is the
+test the claim deserves, and it catches this whole class at once — it found the
+Python case on its first run.
+
 Two orderings inside that are load-bearing, and both were found by the corpus
 rather than by reasoning:
 
@@ -160,6 +175,14 @@ decides what to *believe*; this decides what to make *permanent*.
   `detect-language.ts` if it should be inferable.
 - The detector lives in `@tiro/shared` rather than in the site because the
   backfill needs it too, for the guard below.
+- **One vocabulary for fence languages.** `canonicalLanguage` in
+  `languages.ts` is what both the site's `languageFor` and the backfill's
+  conflict check resolve through. They had separate tables briefly, and
+  `shell-session` resolved in one and to nothing in the other — so a fence the
+  renderer understood was reported as disagreeing with its own inferred
+  language. Two readers of one string must share a vocabulary or every alias
+  looks like a dispute. `languageFromLabel` stays separate and conservative: it
+  reads untrusted *human* chrome, where the allowlist is the safety property.
 
 ## Alternatives considered
 

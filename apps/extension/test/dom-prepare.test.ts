@@ -293,6 +293,29 @@ describe("code language recovery", () => {
     ).toBe("docker");
   });
 
+  /**
+   * The title search used to scan the whole nearest ancestor holding one
+   * `<pre>`, so a figure captioned `example.py` elsewhere in the section named
+   * an unrelated SQL block — written into the vault, where nothing revisits it.
+   * Sharing an ancestor is not an association; adjacency is.
+   */
+  test("does not read a caption belonging to another element", () => {
+    expect(
+      languageOf(
+        '<section><figure><img src="x"><figcaption>example.py</figcaption></figure>' +
+          "<p>Prose between the two.</p>" +
+          "<pre><code>SELECT 1</code></pre></section>",
+      ),
+    ).toBe(null);
+    // Adjacent but still not this block's: the caption is inside the figure.
+    expect(
+      languageOf(
+        '<section><figure><img src="x"><figcaption>example.py</figcaption></figure>' +
+          "<pre><code>SELECT 1</code></pre></section>",
+      ),
+    ).toBe(null);
+  });
+
   test("reads a title attribute off the block itself", () => {
     expect(
       languageOf(

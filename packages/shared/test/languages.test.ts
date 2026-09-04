@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { languageFromFilename, languageFromLabel } from "../src/languages.ts";
+import {
+  canonicalLanguage,
+  languageFromFilename,
+  languageFromLabel,
+} from "../src/languages.ts";
 
 describe("languageFromLabel", () => {
   test("resolves display names as a tab writes them", () => {
@@ -89,5 +93,36 @@ describe("languageFromFilename", () => {
     expect(languageFromFilename("notes.xyz")).toBeNull();
     expect(languageFromFilename("README")).toBeNull();
     expect(languageFromFilename("")).toBeNull();
+  });
+});
+
+describe("canonicalLanguage", () => {
+  test("resolves the machine spellings a fence uses", () => {
+    expect(canonicalLanguage("shell-session")).toBe("shellsession");
+    expect(canonicalLanguage("sh-session")).toBe("shellsession");
+    expect(canonicalLanguage("command-line")).toBe("shellsession");
+    expect(canonicalLanguage("ts")).toBe("typescript");
+    expect(canonicalLanguage("golang")).toBe("go");
+    expect(canonicalLanguage("dockerfile")).toBe("docker");
+  });
+
+  test("folds the plain-text spellings together", () => {
+    for (const one of ["text", "txt", "plain", "plaintext", ""]) {
+      expect(canonicalLanguage(one)).toBe("plaintext");
+    }
+  });
+
+  test("passes an unrecognised but plausible id through", () => {
+    // The site's grammar list decides what can be rendered, not this table —
+    // erasing an id here would lose a language Shiki may well know.
+    expect(canonicalLanguage("exoticlang")).toBe("exoticlang");
+    expect(canonicalLanguage("not a language")).toBeNull();
+  });
+
+  test("is more generous than the chrome reader, deliberately", () => {
+    // A fence info string was written by an author naming a language; a tab
+    // label is untrusted page text where a wrong match reaches the vault.
+    expect(canonicalLanguage("output")).toBe("output");
+    expect(languageFromLabel("Output")).toBeNull();
   });
 });

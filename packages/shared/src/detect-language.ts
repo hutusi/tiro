@@ -91,19 +91,27 @@ function isShellSession(code: string): boolean {
  * Six of the vault's bare fences hold whole markdown documents — agent
  * instructions, a spec, a review checklist — and highlighting those is a real
  * gain. But a prompt that opens with `# Delivering work` and continues in
- * paragraphs is *also* one heading, and it is prose. So one signal is never
- * enough: two structurally different ones are required, which separates a
- * document with headings *and* lists from a paragraph with a title.
+ * paragraphs is *also* one heading, and it is prose. And `# ` opens a comment
+ * in shell, so `# Install` / `npm install` / `# Run` / `npm start` is two
+ * headings and a shell script.
+ *
+ * So a heading is necessary and never sufficient: it must be joined by a signal
+ * of a *different kind*. Lists are one. Nested heading depth is the other, and
+ * it is what separates a document from a commented script — a script's comments
+ * all sit at `#`, while prose that uses headings at all almost always uses more
+ * than one level.
+ *
+ * An earlier version counted `headings >= 1` and `headings >= 2` as two
+ * separate signals, which made two headings sufficient on their own and
+ * contradicted this comment directly above it.
  */
 function isMarkdown(code: string): boolean {
-  const headings = (code.match(/^#{1,6} \S/gm) ?? []).length;
+  const headings = code.match(/^(#{1,6}) \S/gm) ?? [];
+  if (headings.length === 0) return false;
+  const depths = new Set(headings.map((line) => line.indexOf(" ")));
   const bullets = (code.match(/^\s*[-*+] \S/gm) ?? []).length;
   const numbered = (code.match(/^\s*\d+\. \S/gm) ?? []).length;
-  const found =
-    (headings >= 2 ? 1 : 0) +
-    (headings >= 1 ? 1 : 0) +
-    (bullets + numbered >= 2 ? 1 : 0);
-  return found >= 2;
+  return bullets + numbered >= 2 || depths.size >= 2;
 }
 
 /**
@@ -154,12 +162,15 @@ const CORROBORATED: readonly (readonly [string, readonly RegExp[], number])[] =
     [
       "python",
       [
-        /^\s*import \w/m,
+        // Whole-line forms. `import duties are a class of problem` matched a
+        // bare `^import \w`, and `print(the contract)` matched a bare
+        // `\bprint\(` — two signals, and the paragraph came back as Python.
+        /^\s*import [\w.]+( +as +\w+)?,?\s*$/m,
         /^\s*from [\w.]+ import\b/m,
         /^\s*def \w+\s*\(/m,
         /^\s*class \w+[(:]/m,
         /^\s*(el)?if .+:\s*$/m,
-        /\bprint\(/,
+        /^\s*print\(/m,
       ],
       2,
     ],
@@ -189,9 +200,25 @@ const CORROBORATED: readonly (readonly [string, readonly RegExp[], number])[] =
       "typescript",
       [
         /^\s*(export )?(interface|type) \w+/m,
-        /:\s*(string|number|boolean|void|unknown|any)\b/,
+        // Tied to a declaration or a parameter list. A bare `: string` matches
+        // "The ratio: number of items per page", and `\bas\s+(const|string)` —
+        // which used to sit here — matches "such as string values".
+        /\b(const|let|var|readonly|private|public|function) \w+\??:\s*[\w<>[\]|]+/,
+        /\(\s*\w+\??:\s*(string|number|boolean|unknown|any)\b/,
+        /\)\s*:\s*(string|number|boolean|void|Promise)\b/,
         /^\s*import .* from ["']/m,
-        /\bas\s+(const|string|number)\b/,
+        /\bas\s+const\b/,
+      ],
+      2,
+    ],
+    [
+      // `FROM x` is a base image as often as it is a SQL clause. This used to sit
+      // in ANCHORED, where one match was enough, and read the `FROM users` of a
+      // SELECT as a Dockerfile. A real Dockerfile has instructions beside it.
+      "docker",
+      [
+        /^FROM \S+(\s+AS \w+)?\s*$/m,
+        /^(RUN|COPY|ADD|CMD|ENTRYPOINT|WORKDIR|ENV|EXPOSE|ARG|VOLUME|USER) \S/m,
       ],
       2,
     ],
@@ -208,12 +235,16 @@ const CORROBORATED: readonly (readonly [string, readonly RegExp[], number])[] =
       2,
     ],
     [
+      // Anchored to line starts throughout. Unanchored, these are ordinary
+      // English: "Select a source from the list. Then create table rows for each
+      // item." scored two and came back as SQL.
       "sql",
       [
-        /\bselect\b[\s\S]*\bfrom\b/i,
-        /\b(insert into|update \w+ set|delete from)\b/i,
-        /\bcreate (table|index|view)\b/i,
-        /\b(inner |left |right )?join\b .* \bon\b/i,
+        /^\s*select\b[\s\S]*?\bfrom\s+\w/im,
+        /^\s*(insert\s+into|update\s+\w+\s+set|delete\s+from)\s+\w/im,
+        /^\s*create\s+(table|index|view)\s+(if\s+not\s+exists\s+)?\w/im,
+        /^\s*(inner|left|right|full)?\s*join\s+\w+\s+on\b/im,
+        /^\s*(where|group by|order by|having)\b/im,
       ],
       2,
     ],
@@ -243,7 +274,6 @@ function isMarkdownFrontmatter(code: string): boolean {
 const ANCHORED: readonly (readonly [string, RegExp])[] = [
   ["bibtex", /^@\w+\{[\w:-]+,\s*$/m],
   ["diff", /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/m],
-  ["docker", /^FROM \S+(\s+AS \w+)?\s*$/m],
 ];
 
 /**

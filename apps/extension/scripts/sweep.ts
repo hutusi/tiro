@@ -60,11 +60,11 @@ import {
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  canonicalLanguage,
   checkAlignment,
   detectLanguage,
   foldedFigureCount,
   imageOffsets,
-  languageFromLabel,
   parseArticle,
   splitBlocks,
 } from "@tiro/shared";
@@ -360,8 +360,10 @@ interface Backfill {
 function conflicts(declared: string, code: string): Conflict | null {
   const inferred = detectLanguage(code);
   if (inferred === null) return null;
-  const canonical = languageFromLabel(declared) ?? declared.toLowerCase();
-  if (canonical === inferred) return null;
+  // The same canonicalizer the site resolves grammars through, so `ts` against
+  // an inferred `typescript` is one answer rather than a dispute.
+  const canonical = canonicalLanguage(declared);
+  if (canonical === null || canonical === inferred) return null;
   return {
     declared,
     inferred,
@@ -511,7 +513,7 @@ async function writeTogether(
 async function fillLanguages(
   articles: Article[],
   args: ReturnType<typeof parseArgs>,
-): Promise<void> {
+): Promise<{ failed: number }> {
   console.log(
     `Language backfill — ${articles.length} article(s)` +
       (args.write ? "" : " (reporting only; pass --write to apply)"),
@@ -578,6 +580,7 @@ async function fillLanguages(
     `\n${fences} fence(s) in ${filled} of ${articles.length} article(s) ${verb}` +
       (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
   );
+  return { failed };
 }
 
 function parseArgs(argv: string[]) {
@@ -646,7 +649,12 @@ async function main() {
   }
 
   if (args.fillLanguages) {
-    await fillLanguages(articles, args);
+    const { failed } = await fillLanguages(articles, args);
+    // Same reasoning as the sweep's own guard below: some articles failing is
+    // information about those articles, all of them failing is information
+    // about the invocation and must not read as a clean run to a caller that
+    // only checks the status.
+    if (failed === articles.length) process.exit(1);
     return;
   }
 
