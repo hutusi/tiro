@@ -18,15 +18,22 @@ const updated = "2026-09-04";
     <p>
       Tiro 由两部分组成：Chrome 扩展 <strong>Tiro Clipper</strong>，以及本站点。
       两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
-      扩展只把你的数据发往一个第三方：GitHub——发到你自己指定的仓库，用你自己的令牌，
-      且只在你按下「剪藏」之后。
+      你的令牌和所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库。
+      两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；令牌则出现在扩展
+      发出的每个 GitHub API 请求的授权头里，也就是那次上传，以及你在设置页点击
+      「测试连接」的时候。此外还有一个站点会被访问，且仅在你授权之后：arxiv.org。
+      它会知道你在看哪一篇论文，下一段说明。
     </p>
 
     <p>
       有一处读取发生在剪藏之前，需要单独说明：在你授权访问 <code>arxiv.org</code
       >
-      之后，扩展会在生成预览时向该站点请求论文的 HTML 全文。那是对一个公开页面的 读取，不会附带你的任何数据——没有令牌，没有仓库名，也不涉及你打开过的其他页面；
-      它只在 arXiv 论文页面上发生，且只在你授权之后。未授权则不会发出该请求。
+      之后，扩展会在生成预览时向该站点请求论文的 HTML 全文。这个请求会让 arxiv.org
+      知道你正在看哪一篇论文——那属于「与某个网址的交互」，也就是本扩展在应用商店中
+      声明的浏览记录一类；它同时会像任何网络请求一样带上常规的网络元数据（例如你的
+      IP 地址和浏览器信息）。它不会附带你的令牌、仓库名，也不会附带任何已剪藏的内容，
+      更不涉及你打开过的其他页面。它只在 arXiv 论文页面上发生，且只在你授权之后。
+      未授权则不会发出该请求。
     </p>
 
     <h3>扩展存储什么</h3>
@@ -78,8 +85,8 @@ const updated = "2026-09-04";
         首次剪藏 arXiv 论文并明确同意 Chrome 的授权提示后才会生效。同意后，扩展
         会直接抓取该论文的 HTML 全文（<code>arxiv.org/html/&lt;id&gt;</code>）
         而不是读取当前标签页——因为 <code>/abs/</code>、<code>/pdf/</code> 和
-        <code>/html/</code> 在 Tiro 中是同一篇文章，只读摘要页会覆盖掉全文。 不授权则不会发出任何请求，扩展仍只剪藏你当前看到的页面；你可以随时在
-        Chrome 的扩展设置中撤销。
+        <code>/html/</code> 在 Tiro 中是同一篇文章，只读摘要页会覆盖掉全文。 不授权则不会发出任何请求，扩展仍只剪藏你当前看到的页面——但
+        PDF 地址除外， 那里没有可读的正文；你可以随时在 Chrome 的扩展设置中撤销。
       </li>
       <li>
         点击「剪藏」后，扩展用你自己的令牌把这些内容提交到你自己的仓库：正文的
@@ -112,18 +119,26 @@ const updated = "2026-09-04";
     <p>
       Tiro is two things: the <strong>Tiro Clipper</strong> Chrome extension and this
       site. Neither sets tracking cookies, runs analytics or ads, and nothing is sold.
-      The extension sends your data to exactly one third party — GitHub — into the
-      repository you name, with your own token, and only after you press Clip.
+      Your token and everything the extension clips go to exactly one third party
+      — GitHub — into the repository you name. The timing differs between the two:
+      what you clip is uploaded only when you press Clip, while the token travels
+      in the <code>Authorization</code> header of every GitHub API request the extension
+      makes — that upload, and the "Test connection" button on the options page. One
+      other site is contacted, and only if you allow it: arxiv.org, which learns which
+      paper you are looking at. The next paragraph says exactly what that involves.
     </p>
 
     <p>
       One read happens before that, and is worth stating on its own: once you
       have granted access to <code>arxiv.org</code>, the extension requests a
-      paper's HTML full text from that site while building the preview. It is a
-      read of a public page and carries none of your data — no token, no
-      repository name, nothing about any other page you have open. It happens
-      only on an arXiv paper, and only after you grant it; decline, and the
-      request is never made.
+      paper's HTML full text from that site while building the preview. That
+      request tells arxiv.org which paper you are looking at — an interaction
+      with a URL, which is the web history this extension declares in the store
+      — and carries the ordinary network metadata any request does, such as your
+      IP address. It carries no token, no repository name, no clipped content,
+      and nothing about any other page you have open. It happens only on an
+      arXiv paper, and only after you grant it; decline, and the request is
+      never made.
     </p>
 
     <h3>What the extension stores</h3>
@@ -184,8 +199,9 @@ const updated = "2026-09-04";
         the tab — because <code>/abs/</code>, <code>/pdf/</code> and
         <code>/html/</code> are one article in Tiro, and clipping the abstract page
         alone would replace the full text with it. Decline and no request is made
-        at all; the extension keeps clipping the page you are looking at. You can
-        revoke it at any time in Chrome's extension settings.
+        at all; the extension keeps clipping the page you are looking at, unless that
+        page is a PDF, which holds no text it can read. You can revoke it at any time
+        in Chrome's extension settings.
       </li>
       <li>
         When you click Clip, it commits to your own repository, with your own

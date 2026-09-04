@@ -35,10 +35,12 @@ across machines, not for an audience.
 > - Readable Markdown with frontmatter, not an archived blob of HTML.
 > - Your repository, your token. There is no Tiro account and no Tiro server —
 >   the extension talks to api.github.com, and to arxiv.org only if you allow it.
-> - arXiv papers are clipped in full. Whichever of a paper's addresses you are
->   on — abstract, PDF or HTML — it is one article, and Tiro fetches the HTML
->   full text for it. That needs your permission for arxiv.org, which Chrome
->   asks for the first time and never before.
+> - arXiv papers are clipped in full where arXiv has a full text to give.
+>   Whichever of a paper's addresses you are on — abstract, PDF or HTML — it is
+>   one article, and Tiro fetches the HTML edition for it. That needs your
+>   permission for arxiv.org, which Chrome asks for the first time and never
+>   before. Papers arXiv could not convert to HTML are clipped from their
+>   abstract page instead.
 > - Nothing is read in the background. A page is read only when you open the
 >   Tiro popup on it, to build the preview — and on first run, only after you
 >   agree to the disclosure the popup shows you. Close it without clipping and
@@ -65,7 +67,7 @@ across machines, not for an audience.
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. It is bundled with the extension; nothing is fetched or evaluated at runtime. |
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup. All local to the machine. |
 | `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. |
-| `https://arxiv.org/*` (optional) | Fetches a paper's HTML full text (`arxiv.org/html/<id>`) when the user clips an arXiv page. Tiro treats a paper's abstract, PDF and HTML addresses as one article, so it reads the full text rather than whichever of the three the tab happens to show — the PDF address in particular has no readable text at all. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it, and revoking it simply returns the extension to clipping the current tab. |
+| `https://arxiv.org/*` (optional) | Fetches a paper's HTML full text (`arxiv.org/html/<id>`) when the user clips an arXiv page. Tiro treats a paper's abstract, PDF and HTML addresses as one article, so it reads the full text rather than whichever of the three the tab happens to show — the PDF address in particular has no readable text at all. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it, and revoking it returns the extension to clipping the current tab — except at a paper's PDF address, which holds no readable text for it to clip. |
 
 ## Data use declarations
 
@@ -91,9 +93,12 @@ repository — a declaration that reads narrower than the code is a rejection.
   stored in the article's frontmatter, encoded in its directory name, and
   committed to the user's repository. A slug derived from that URL is also kept
   locally (with a timestamp, at most 500 entries) so the popup can show an
-  "already clipped" status; that record never leaves the device. Google's
-  definition covers "the domains or URLs the browser interacts with" and
-  publishes no carve-out for a URL the user deliberately saves, so this is
+  "already clipped" status; that record never leaves the device. The same
+  declaration covers the optional arxiv.org fetch: requesting
+  `arxiv.org/html/<id>` tells that site which paper is being read, whether or
+  not the user goes on to clip it. Google's definition covers "the domains or
+  URLs the browser interacts with" and publishes no carve-out for a URL the user
+  deliberately saves, nor for one fetched to build a preview, so both are
   declared rather than argued.
 - **Personal communications, location, user activity**: No
 - **Website content**: **Yes** — the text of a page, read when the user opens
@@ -111,8 +116,10 @@ Required certifications, all true of this extension:
 
 - Data is **not** sold to third parties.
 - Data is **not** used or transferred for purposes unrelated to the item's
-  single purpose. (The one transfer is to GitHub, at the user's direction — it
-  *is* the single purpose.)
+  single purpose. (Two transfers, both at the user's direction, and both *are*
+  the single purpose: the clip itself, to GitHub; and — only once the user has
+  granted the optional permission — the request to arxiv.org that fetches the
+  paper being clipped, which tells that site which paper it is.)
 - Data is **not** used to determine creditworthiness or for lending.
 
 ## Remote code
