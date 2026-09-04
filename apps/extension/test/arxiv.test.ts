@@ -224,10 +224,10 @@ describe("clipArxivPaper", () => {
     expect(clip.payload.title).toBe("KAN: Kolmogorov-Arnold Networks");
   });
 
-  test("throws when neither page can be had, so the caller can use the tab", () => {
-    expect(clipArxivPaper({ id: "2404.19756" }, deps({}))).rejects.toThrow(
-      "2404.19756",
-    );
+  test("throws when neither page can be had, so the caller can use the tab", async () => {
+    await expect(
+      clipArxivPaper({ id: "2404.19756" }, deps({})),
+    ).rejects.toThrow("2404.19756");
   });
 });
 
