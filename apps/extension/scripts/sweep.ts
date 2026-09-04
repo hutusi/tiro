@@ -22,6 +22,14 @@
  *                          can today's clipper tell me about yesterday's
  *                          clips?" — reports only, until `--write`.
  *
+ *   --recanonicalize       Slug migration. Finds articles whose directory name
+ *                          no longer matches the slug their URL derives to,
+ *                          renames them, and rewrites the frontmatter — the
+ *                          repair path for a changed identity rule, which
+ *                          `validate` can detect but not fix. Bodies and
+ *                          `zh.md` are untouched, so nothing is re-translated.
+ *                          Reports only, until `--write`.
+ *
  *   (default)              Re-clip advisor. Compares a fresh clip against the
  *                          body committed in the vault. Answers "which
  *                          articles would gain from being re-clipped?"
@@ -60,22 +68,29 @@ import {
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  type ArticleFrontmatter,
   canonicalLanguage,
   checkAlignment,
   detectLanguage,
   foldedFigureCount,
   imageOffsets,
+  normalizeUrl,
   parseArticle,
+  slugForUrl,
   splitBlocks,
+  stringifyArticle,
 } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
+import type { ClipPayload } from "../src/messages.ts";
 
 interface Article {
   slug: string;
   url: string;
   /** The article body as committed, frontmatter removed. */
   body: string;
+  /** Parsed frontmatter, so a mode can rewrite it without re-reading. */
+  frontmatter: ArticleFrontmatter;
 }
 
 interface Counts {
@@ -123,7 +138,12 @@ async function loadArticles(vault: string): Promise<Article[]> {
     if (!existsSync(path)) continue;
     try {
       const { frontmatter, body } = parseArticle(await readFile(path, "utf-8"));
-      articles.push({ slug: entry.name, url: frontmatter.url, body });
+      articles.push({
+        slug: entry.name,
+        url: frontmatter.url,
+        body,
+        frontmatter,
+      });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       console.warn(`  ?  ${entry.name}: unreadable frontmatter (${reason})`);
@@ -184,11 +204,11 @@ type Clip = (doc: Document, url: string) => { markdown: string };
  * the life of the process, is exactly the shape that turns a long corpus into a
  * memory problem.
  */
-async function clipHtml(
+async function clipHtml<T>(
   html: string,
   url: string,
-  clip: Clip,
-): Promise<string> {
+  clip: (doc: Document, url: string) => T,
+): Promise<T> {
   const window = new Window({
     url,
     settings: {
@@ -205,7 +225,7 @@ async function clipHtml(
     doc.documentElement.innerHTML = html
       .replace(/^[\s\S]*?<html[^>]*>/i, "")
       .replace(/<\/html>[\s\S]*$/i, "");
-    return clip(doc, url).markdown;
+    return clip(doc, url);
   } finally {
     await window.happyDOM.close();
   }
@@ -538,7 +558,7 @@ async function fillLanguages(
     let zhText: string | null;
     try {
       const html = await fetchPage(article.url, args.pages, article.slug);
-      const fresh = await clipHtml(html, article.url, clipPage);
+      const fresh = (await clipHtml(html, article.url, clipPage)).markdown;
       indexText = await readFile(indexPath, "utf-8");
       zhText = existsSync(zhPath) ? await readFile(zhPath, "utf-8") : null;
       result = backfill(indexText, zhText, fresh);
@@ -590,6 +610,123 @@ async function fillLanguages(
   return { failed };
 }
 
+/* -------------------------------------------------- slug recanonicalization */
+
+export interface Recanonicalization {
+  from: string;
+  to: string;
+  /** The article as it should be written, frontmatter rewritten, body as-is. */
+  index: string;
+  /** What the fresh clip changed about the metadata, for the report. */
+  refreshed: string[];
+}
+
+/**
+ * Rewrite one article's frontmatter for a changed identity rule.
+ *
+ * The body and `zh.md` are deliberately untouched. That is what makes this
+ * cheap: block alignment cannot move, `tiro.processed_at` survives, and the
+ * article is never re-queued — so a rule change costs no LLM calls at all.
+ * Re-clipping would cost a full re-translation of every article it moved.
+ *
+ * `fresh` is optional because the rename is the part that must happen: an
+ * article whose page no longer loads still has to stop being invisible to the
+ * next clip of it.
+ */
+export async function recanonicalize(
+  article: Article,
+  fresh: ClipPayload | null,
+): Promise<Recanonicalization | null> {
+  const url = normalizeUrl(article.url);
+  const to = await slugForUrl(article.url);
+  if (to === article.slug) return null;
+
+  const refreshed: string[] = [];
+  const frontmatter: ArticleFrontmatter = {
+    ...article.frontmatter,
+    url,
+    tiro: {
+      ...article.frontmatter.tiro,
+      // The URL the body was read from — which is what the recorded URL was,
+      // before canonicalization moved the article somewhere else.
+      ...(article.url === url ? {} : { source_url: article.url }),
+    },
+  };
+  if (fresh !== null) {
+    for (const field of ["title", "author", "excerpt"] as const) {
+      const value = fresh[field].trim();
+      if (value === "" || value === frontmatter[field]) continue;
+      frontmatter[field] = value;
+      refreshed.push(field);
+    }
+  }
+  return {
+    from: article.slug,
+    to,
+    index: stringifyArticle(frontmatter, article.body),
+    refreshed,
+  };
+}
+
+async function recanonicalizeAll(
+  articles: Article[],
+  args: ReturnType<typeof parseArgs>,
+): Promise<{ failed: number }> {
+  console.log(
+    `Slug recanonicalization — ${articles.length} article(s)` +
+      (args.write ? "" : " (reporting only; pass --write to apply)"),
+  );
+  const root = join(args.vault, "articles");
+  let moved = 0;
+  let failed = 0;
+  for (const article of articles) {
+    // Best-effort: a page that will not load costs the metadata refresh, not
+    // the rename. Leaving the directory unmoved is the worse outcome — the
+    // next clip of that page would create a second article beside it.
+    let fresh: ClipPayload | null = null;
+    let note = "";
+    try {
+      const html = await fetchPage(article.url, args.pages, article.slug);
+      fresh = await clipHtml(html, article.url, clipPage);
+    } catch (error) {
+      note = ` (metadata left alone: ${error instanceof Error ? error.message : String(error)})`;
+    }
+
+    const plan = await recanonicalize(article, fresh);
+    if (plan === null) continue;
+    moved++;
+    const fields =
+      plan.refreshed.length === 0
+        ? ""
+        : ` — refreshes ${plan.refreshed.join(", ")}`;
+    console.log(`  ${plan.from}
+    → ${plan.to}${fields}${note}`);
+    if (!args.write) continue;
+
+    const from = join(root, plan.from);
+    const to = join(root, plan.to);
+    if (existsSync(to)) {
+      // rename onto an existing directory nests the source inside it instead
+      // of failing — the same trap the 0007 layout migration documented.
+      console.log(`  !  ${plan.to} already exists; left ${plan.from} in place`);
+      failed++;
+      continue;
+    }
+    // Written before the rename, not after: a crash between the two leaves the
+    // article correct in the old directory, which this same mode fixes on the
+    // next run. The other order leaves it moved and stale.
+    await writeTogether([[join(from, "index.md"), plan.index]]);
+    await rename(from, to);
+  }
+  const verb = args.write ? "moved" : "would move";
+  console.log(
+    `
+${moved} of ${articles.length} article(s) ${verb}` +
+      (failed > 0 ? ` (${failed} refused)` : ""),
+  );
+  return { failed };
+}
+
 function parseArgs(argv: string[]) {
   const get = (name: string) => {
     const i = argv.indexOf(`--${name}`);
@@ -600,7 +737,8 @@ function parseArgs(argv: string[]) {
     console.error(
       "usage: sweep --vault <dir> [--baseline <git-ref>] [--cache <dir>]\n" +
         "             [--only <slug>] [--min-chars <n>]\n" +
-        "       sweep --vault <dir> --fill-languages [--write] [--only <slug>]",
+        "       sweep --vault <dir> --fill-languages [--write] [--only <slug>]\n" +
+        "       sweep --vault <dir> --recanonicalize [--write] [--only <slug>]",
     );
     process.exit(2);
   }
@@ -609,13 +747,20 @@ function parseArgs(argv: string[]) {
   // would be looked for beside this script.
   const cache = resolve(get("cache") ?? ".sweep-cache");
   const fillLanguages = argv.includes("--fill-languages");
-  if (fillLanguages && argv.includes("--baseline")) {
-    console.error("--fill-languages and --baseline answer different questions");
+  const recanonicalize = argv.includes("--recanonicalize");
+  const exclusive = [
+    fillLanguages && "--fill-languages",
+    recanonicalize && "--recanonicalize",
+    argv.includes("--baseline") && "--baseline",
+  ].filter((name) => name !== false);
+  if (exclusive.length > 1) {
+    console.error(`${exclusive.join(" and ")} answer different questions`);
     process.exit(2);
   }
   return {
     vault,
     fillLanguages,
+    recanonicalize,
     // Reporting is the default because this is the one mode that writes to the
     // content repo, and the run that changes it should be one someone has read.
     write: argv.includes("--write"),
@@ -655,6 +800,12 @@ async function main() {
     process.exit(2);
   }
 
+  if (args.recanonicalize) {
+    const { failed } = await recanonicalizeAll(articles, args);
+    if (failed > 0) process.exit(1);
+    return;
+  }
+
   if (args.fillLanguages) {
     const { failed } = await fillLanguages(articles, args);
     // Same reasoning as the sweep's own guard below: some articles failing is
@@ -692,11 +843,11 @@ async function main() {
     let before: string;
     try {
       const html = await fetchPage(article.url, args.pages, article.slug);
-      after = await clipHtml(html, article.url, clipPage);
+      after = (await clipHtml(html, article.url, clipPage)).markdown;
       before =
         baselineClip === null
           ? article.body
-          : await clipHtml(html, article.url, baselineClip);
+          : (await clipHtml(html, article.url, baselineClip)).markdown;
     } catch (error) {
       // Neither a page that will not load nor one that will not clip is a
       // finding about the corpus, and neither may stop the rest being reported.

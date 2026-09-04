@@ -1751,6 +1751,24 @@ function readLatexmlAuthors(doc: Document): string {
   return names.length > 0 ? names.join(", ") : collapseText(clone);
 }
 
+/**
+ * Longest excerpt worth storing.
+ *
+ * An abstract is the right excerpt for a paper, but a whole one runs past 1,500
+ * characters where the rest of the vault's excerpts have a median of 171 — and
+ * the only thing that reads an excerpt is a `<meta name="description">` and an
+ * RSS fallback, both of which truncate anyway. Cut on a word boundary so the
+ * result is a sentence fragment rather than a broken word.
+ */
+const EXCERPT_MAX = 400;
+
+export function truncateExcerpt(text: string): string {
+  if (text.length <= EXCERPT_MAX) return text;
+  const cut = text.slice(0, EXCERPT_MAX);
+  const boundary = cut.lastIndexOf(" ");
+  return `${(boundary === -1 ? cut : cut.slice(0, boundary)).trimEnd()}…`;
+}
+
 function readLatexmlAbstract(doc: Document): string {
   const abstract = doc.querySelector(".ltx_abstract");
   if (abstract === null) return "";
@@ -1762,5 +1780,5 @@ function readLatexmlAbstract(doc: Document): string {
   )) {
     heading.remove();
   }
-  return collapseText(clone);
+  return truncateExcerpt(collapseText(clone));
 }

@@ -1,6 +1,6 @@
 import { type ArxivRef, arxivAbsUrl, arxivHtmlUrl } from "@tiro/shared";
 import { clipPage } from "./clip-page.ts";
-import { hasLatexmlFullText } from "./dom-prepare.ts";
+import { hasLatexmlFullText, truncateExcerpt } from "./dom-prepare.ts";
 import type { FetchLike } from "./github.ts";
 import type { ClipPayload } from "./messages.ts";
 
@@ -198,7 +198,7 @@ function readCitationMetadata(doc: Document): Partial<ClipPayload> {
     .filter((name) => name !== "");
   if (authors.length > 0) metadata.author = authors.join("; ");
   const abstract = metaContent(doc, "citation_abstract");
-  if (abstract !== "") metadata.excerpt = abstract;
+  if (abstract !== "") metadata.excerpt = truncateExcerpt(abstract);
   return metadata;
 }
 

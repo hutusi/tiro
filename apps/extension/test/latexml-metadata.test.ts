@@ -62,6 +62,27 @@ describe("readLatexmlMetadata", () => {
     );
   });
 
+  // A whole abstract runs past 1,500 characters where the vault's excerpts have
+  // a median of 171, and the only consumers — a meta description and an RSS
+  // fallback — truncate anyway.
+  test("caps a long abstract on a word boundary", () => {
+    const doc = docFrom(
+      `<article class="ltx_document"><div class="ltx_abstract">
+         <p>${"sesquipedalian ".repeat(60)}</p>
+       </div></article>`,
+    );
+    const excerpt = readLatexmlMetadata(doc)?.excerpt ?? "";
+    expect(excerpt.length).toBeLessThanOrEqual(401);
+    expect(excerpt).toEndWith("…");
+    expect(excerpt).not.toContain("sesquipedali…");
+  });
+
+  test("leaves a short abstract exactly as written", () => {
+    expect(readLatexmlMetadata(docFrom(KAN_AUTHORS))?.excerpt).not.toContain(
+      "…",
+    );
+  });
+
   test("declines a page that is not LaTeXML at all", () => {
     expect(readLatexmlMetadata(docFrom("<h1>A blog post</h1>"))).toBeNull();
   });
