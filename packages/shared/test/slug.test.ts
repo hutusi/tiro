@@ -110,6 +110,53 @@ describe("slugForUrl", () => {
   });
 });
 
+describe("arXiv identity", () => {
+  // The user-visible promise: however you arrived at the paper, it is one
+  // article. Version included — arXiv's own canonical link is versionless.
+  test("every URL form of one paper produces one slug", async () => {
+    const forms = [
+      "https://arxiv.org/abs/2404.19756",
+      "https://arxiv.org/abs/2404.19756v1",
+      "https://arxiv.org/abs/2404.19756v5?context=cs",
+      "https://arxiv.org/pdf/2404.19756v1.pdf",
+      "https://arxiv.org/html/2404.19756v1#S3",
+      "https://www.arxiv.org/abs/2404.19756",
+      "https://ar5iv.labs.arxiv.org/html/2404.19756",
+    ];
+    const slugs = new Set(await Promise.all(forms.map(slugForUrl)));
+    expect([...slugs]).toEqual(["arxiv-org-abs-2404-19756-637af334"]);
+  });
+
+  // The two papers already in the vault, pinned: these are the directory names
+  // the migration has to produce, so a change here is a change to a rename that
+  // has already happened.
+  test("pins the slugs the vault migration moves to", async () => {
+    expect(await slugForUrl("https://arxiv.org/html/2404.19756v1")).toBe(
+      "arxiv-org-abs-2404-19756-637af334",
+    );
+    expect(await slugForUrl("https://arxiv.org/html/2608.23691v1")).toBe(
+      "arxiv-org-abs-2608-23691-de58f2f7",
+    );
+  });
+
+  test("a pre-2007 paper keeps a readable slug", async () => {
+    expect(await slugForUrl("https://arxiv.org/abs/math.GT/0309136")).toBe(
+      await slugForUrl("https://arxiv.org/pdf/math/0309136v2"),
+    );
+  });
+
+  // The blast radius. Canonicalization must not reach any other host, and an
+  // arXiv URL that is not a paper must keep behaving like an ordinary page.
+  test("leaves non-paper arXiv URLs and other hosts alone", async () => {
+    expect(await slugForUrl("https://arxiv.org/list/cs.AI/recent")).toMatch(
+      /^arxiv-org-list-cs-ai-recent-[0-9a-f]{8}$/,
+    );
+    expect(await slugForUrl("https://example.com/abs/2404.19756")).toMatch(
+      /^example-com-abs-2404-19756-[0-9a-f]{8}$/,
+    );
+  });
+});
+
 describe("tagSlug", () => {
   test("replaces characters that would break the route", () => {
     expect(tagSlug("ci/cd")).toBe("ci-cd");

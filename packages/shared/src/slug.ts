@@ -1,3 +1,5 @@
+import { canonicalizeUrl } from "./canonical-url.ts";
+
 /** Referral/tracking params stripped for identity. Blocklist, not allowlist,
  * on purpose: a missed tracker only yields a visible duplicate article, while
  * a stripped content-identifying param (?v=, ?id=, ?p=) would silently merge
@@ -26,6 +28,11 @@ const HASH_SUFFIX_LEN = 8;
  * Canonical form of a URL for identity purposes: no fragment, no tracking
  * params, lowercase host, no trailing slash. Two clips of "the same page"
  * must normalize identically — this string is what gets hashed.
+ *
+ * The generic steps stay host-agnostic; `canonicalizeUrl` runs last and is the
+ * single place a publisher's own identity rule may override them (arXiv's
+ * abs/pdf/html/vN forms are one paper). It runs last rather than first so a
+ * URL it declines to touch has already been through every generic step.
  */
 export function normalizeUrl(rawUrl: string): string {
   const url = new URL(rawUrl);
@@ -39,7 +46,7 @@ export function normalizeUrl(rawUrl: string): string {
   if (url.pathname !== "/" && url.pathname.endsWith("/")) {
     url.pathname = url.pathname.replace(/\/+$/, "");
   }
-  return url.toString();
+  return canonicalizeUrl(url.toString());
 }
 
 async function sha256Hex(input: string): Promise<string> {
