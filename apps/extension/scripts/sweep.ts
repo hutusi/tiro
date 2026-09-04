@@ -364,6 +364,13 @@ function conflicts(declared: string, code: string): Conflict | null {
   // an inferred `typescript` is one answer rather than a dispute.
   const canonical = canonicalLanguage(declared);
   if (canonical === null || canonical === inferred) return null;
+  // `text` is a page saying "this is not code", which is exactly the answer
+  // inference is not entitled to overrule. Treating the difference as a
+  // conflict left the fence bare, and a bare fence is where inference runs —
+  // so a block the page called plain came out highlighted, while a plain
+  // re-clip of the same page would have written ```text and rendered it plain.
+  // The backfill must not diverge from a re-clip.
+  if (canonical === "plaintext") return null;
   return {
     declared,
     inferred,

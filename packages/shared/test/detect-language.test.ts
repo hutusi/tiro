@@ -107,11 +107,18 @@ describe("detectLanguage", () => {
   });
 
   test("does not read a spec's Key: value lines as YAML", () => {
+    // `Author: J. Ortiz. Status: draft.` is a mapping to any test that has not
+    // first asked whether the block has headings.
+    const spec =
+      "# Intent\nAuthor: J. Ortiz. Status: draft.\n\n## Problem\nCustomers phone the contact center to ask where their claim is.\n\n## Outcome\nThey see the status in the portal instead.";
+    expect(detectLanguage(spec)).toBe("markdown");
+    // Same document with its prose cut to fragments: no longer enough evidence
+    // for markdown, and still never YAML.
     expect(
       detectLanguage(
-        "# Intent\nAuthor: J. Ortiz. Status: draft.\n\n## Problem\nCustomers phone in.\n\n## Outcome\nThey stop.",
+        "# Intent\nAuthor: J. Ortiz.\n\n## Problem\nThey phone in.\n\n## Outcome\nThey stop.",
       ),
-    ).toBe("markdown");
+    ).toBeNull();
   });
 
   test("requires two signals before naming a language", () => {
@@ -201,10 +208,14 @@ describe("detectLanguage", () => {
         "# Install deps\nnpm ci\n# Build\nnpm run build\n# Deploy\nnpm run deploy",
       ),
     ).toBeNull();
-    // Nested depth is the signal a script does not produce.
+    // `## ` is an ordinary shell comment, so differing depth is not enough on
+    // its own — the document needs prose a command line would never produce.
+    expect(
+      detectLanguage("# Install\nnpm install\n## Run\nnpm start"),
+    ).toBeNull();
     expect(
       detectLanguage(
-        "# Guide\n\n## Setup\n\nRun it.\n\n## Teardown\n\nStop it.",
+        "# Guide\n\n## Setup\nRun the installer and wait for it to finish.\n\n## Teardown\nStop the service before removing it.",
       ),
     ).toBe("markdown");
   });

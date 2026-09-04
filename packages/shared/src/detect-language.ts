@@ -96,22 +96,36 @@ function isShellSession(code: string): boolean {
  * headings and a shell script.
  *
  * So a heading is necessary and never sufficient: it must be joined by a signal
- * of a *different kind*. Lists are one. Nested heading depth is the other, and
- * it is what separates a document from a commented script — a script's comments
- * all sit at `#`, while prose that uses headings at all almost always uses more
- * than one level.
+ * of a *different kind*. Lists are one, and they stand on their own — a script
+ * does not write `- item` twice.
  *
- * An earlier version counted `headings >= 1` and `headings >= 2` as two
- * separate signals, which made two headings sufficient on their own and
- * contradicted this comment directly above it.
+ * Nested heading depth is the other, and on its own it is not enough: `## ` is
+ * an ordinary shell comment, so `# Install` / `npm install` / `## Run` /
+ * `npm start` has two depths and is a script. What a document has that a script
+ * does not is *prose* — a line of several words ending in a full stop. Commands
+ * do not end in full stops, and comments that do are rare enough that the cost
+ * of being wrong is a block left plain.
+ *
+ * Two earlier versions were looser. The first counted `headings >= 1` and
+ * `headings >= 2` as separate signals, so two headings passed alone; the second
+ * took differing depth as sufficient on its own.
  */
+function hasProseSentence(code: string): boolean {
+  return code.split("\n").some((line) => {
+    const text = line.trim();
+    if (text.startsWith("#")) return false;
+    return text.endsWith(".") && text.split(/\s+/).length >= 6;
+  });
+}
+
 function isMarkdown(code: string): boolean {
   const headings = code.match(/^(#{1,6}) \S/gm) ?? [];
   if (headings.length === 0) return false;
-  const depths = new Set(headings.map((line) => line.indexOf(" ")));
   const bullets = (code.match(/^\s*[-*+] \S/gm) ?? []).length;
   const numbered = (code.match(/^\s*\d+\. \S/gm) ?? []).length;
-  return bullets + numbered >= 2 || depths.size >= 2;
+  if (bullets + numbered >= 2) return true;
+  const depths = new Set(headings.map((line) => line.indexOf(" ")));
+  return depths.size >= 2 && hasProseSentence(code);
 }
 
 /**
@@ -136,124 +150,141 @@ function isYaml(code: string): boolean {
 }
 
 /**
+ * Sentence-ending full stops. SQL's keywords are ordinary English verbs, so
+ * anchoring them to line starts is not enough — "Select a source from the
+ * list." and "Create table rows for each item." both begin a line. What no SQL
+ * statement does is terminate a clause with a full stop, and the `\w` qualifier
+ * keeps `u.name` and `schema.table` out of it.
+ */
+const SENTENCE_PERIOD = /\w\.(\s|$)/;
+
+/**
  * Rules that need corroboration: a single match is a coincidence, two together
  * are a language. Each list is anchored to line starts or to punctuation that
  * prose does not produce, so English scores zero rather than one.
+ *
+ * The fourth slot is a veto: a pattern whose presence disqualifies the language
+ * however well it scores, for a rule whose vocabulary overlaps English.
  */
-const CORROBORATED: readonly (readonly [string, readonly RegExp[], number])[] =
+const CORROBORATED: readonly (readonly [
+  string,
+  readonly RegExp[],
+  number,
+  RegExp?,
+])[] = [
   [
+    "rust",
     [
-      "rust",
-      [
-        /^\s*(pub )?(struct|enum|trait|impl)\s+\w/m,
-        /^\s*(pub )?fn \w+/m,
-        /\blet mut\b/,
-        /\b(Vec|Option|Result|Box)</,
-        /^\s*use \w+(::\w+)+;/m,
-        /\bfn\b[^\n]*->/,
-        // `A(Ipv4Addr),` — an enum's tuple variant.
-        /^\s*\w+\(\w[\w:<>, ]*\),\s*$/m,
-        // `qname: Name,` — a struct field. The trailing comma is what separates
-        // it from a YAML mapping.
-        /^\s*(pub )?\w+:\s*[\w:<>&' ]+,\s*$/m,
-      ],
-      2,
+      /^\s*(pub )?(struct|enum|trait|impl)\s+\w/m,
+      /^\s*(pub )?fn \w+/m,
+      /\blet mut\b/,
+      /\b(Vec|Option|Result|Box)</,
+      /^\s*use \w+(::\w+)+;/m,
+      /\bfn\b[^\n]*->/,
+      // `A(Ipv4Addr),` — an enum's tuple variant.
+      /^\s*\w+\(\w[\w:<>, ]*\),\s*$/m,
+      // `qname: Name,` — a struct field. The trailing comma is what separates
+      // it from a YAML mapping.
+      /^\s*(pub )?\w+:\s*[\w:<>&' ]+,\s*$/m,
     ],
+    2,
+  ],
+  [
+    "python",
     [
-      "python",
-      [
-        // Whole-line forms. `import duties are a class of problem` matched a
-        // bare `^import \w`, and `print(the contract)` matched a bare
-        // `\bprint\(` — two signals, and the paragraph came back as Python.
-        /^\s*import [\w.]+( +as +\w+)?,?\s*$/m,
-        /^\s*from [\w.]+ import\b/m,
-        /^\s*def \w+\s*\(/m,
-        /^\s*class \w+[(:]/m,
-        /^\s*(el)?if .+:\s*$/m,
-        /^\s*print\(/m,
-      ],
-      2,
+      // Whole-line forms. `import duties are a class of problem` matched a
+      // bare `^import \w`, and `print(the contract)` matched a bare
+      // `\bprint\(` — two signals, and the paragraph came back as Python.
+      /^\s*import [\w.]+( +as +\w+)?,?\s*$/m,
+      /^\s*from [\w.]+ import\b/m,
+      /^\s*def \w+\s*\(/m,
+      /^\s*class \w+[(:]/m,
+      /^\s*(el)?if .+:\s*$/m,
+      /^\s*print\(/m,
     ],
+    2,
+  ],
+  [
+    "go",
     [
-      "go",
-      [
-        /^package \w+/m,
-        /^\s*func \w*\s*\(/m,
-        /:=/,
-        /^\s*import \($/m,
-        /\bfmt\.\w+\(/,
-      ],
-      2,
+      /^package \w+/m,
+      /^\s*func \w*\s*\(/m,
+      /:=/,
+      /^\s*import \($/m,
+      /\bfmt\.\w+\(/,
     ],
+    2,
+  ],
+  [
+    "c",
     [
-      "c",
-      [
-        /^\s*#include\s*[<"]/m,
-        /^\s*#define \w/m,
-        /^\s*typedef\s+\w/m,
-        /\b(int|void|char)\s+\w+\s*\([^)]*\)\s*\{/,
-        /\bprintf\s*\(/,
-      ],
-      2,
+      /^\s*#include\s*[<"]/m,
+      /^\s*#define \w/m,
+      /^\s*typedef\s+\w/m,
+      /\b(int|void|char)\s+\w+\s*\([^)]*\)\s*\{/,
+      /\bprintf\s*\(/,
     ],
+    2,
+  ],
+  [
+    "typescript",
     [
-      "typescript",
-      [
-        /^\s*(export )?(interface|type) \w+/m,
-        // Tied to a declaration or a parameter list. A bare `: string` matches
-        // "The ratio: number of items per page", and `\bas\s+(const|string)` —
-        // which used to sit here — matches "such as string values".
-        /\b(const|let|var|readonly|private|public|function) \w+\??:\s*[\w<>[\]|]+/,
-        /\(\s*\w+\??:\s*(string|number|boolean|unknown|any)\b/,
-        /\)\s*:\s*(string|number|boolean|void|Promise)\b/,
-        /^\s*import .* from ["']/m,
-        /\bas\s+const\b/,
-      ],
-      2,
+      /^\s*(export )?(interface|type) \w+/m,
+      // Tied to a declaration or a parameter list. A bare `: string` matches
+      // "The ratio: number of items per page", and `\bas\s+(const|string)` —
+      // which used to sit here — matches "such as string values".
+      /\b(const|let|var|readonly|private|public|function) \w+\??:\s*[\w<>[\]|]+/,
+      /\(\s*\w+\??:\s*(string|number|boolean|unknown|any)\b/,
+      /\)\s*:\s*(string|number|boolean|void|Promise)\b/,
+      /^\s*import .* from ["']/m,
+      /\bas\s+const\b/,
     ],
+    2,
+  ],
+  [
+    // `FROM x` is a base image as often as it is a SQL clause. This used to sit
+    // in ANCHORED, where one match was enough, and read the `FROM users` of a
+    // SELECT as a Dockerfile. A real Dockerfile has instructions beside it.
+    "docker",
     [
-      // `FROM x` is a base image as often as it is a SQL clause. This used to sit
-      // in ANCHORED, where one match was enough, and read the `FROM users` of a
-      // SELECT as a Dockerfile. A real Dockerfile has instructions beside it.
-      "docker",
-      [
-        /^FROM \S+(\s+AS \w+)?\s*$/m,
-        /^(RUN|COPY|ADD|CMD|ENTRYPOINT|WORKDIR|ENV|EXPOSE|ARG|VOLUME|USER) \S/m,
-      ],
-      2,
+      /^FROM \S+(\s+AS \w+)?\s*$/m,
+      /^(RUN|COPY|ADD|CMD|ENTRYPOINT|WORKDIR|ENV|EXPOSE|ARG|VOLUME|USER) \S/m,
     ],
+    2,
+  ],
+  [
+    "javascript",
     [
-      "javascript",
-      [
-        /^\s*(const|let|var) \w+\s*=/m,
-        /^\s*(export )?(async )?function \w*\s*\(/m,
-        /=>\s*[{(]/,
-        /\brequire\(["']/,
-        /^\s*import .* from ["']/m,
-        /\bconsole\.\w+\(/,
-      ],
-      2,
+      /^\s*(const|let|var) \w+\s*=/m,
+      /^\s*(export )?(async )?function \w*\s*\(/m,
+      /=>\s*[{(]/,
+      /\brequire\(["']/,
+      /^\s*import .* from ["']/m,
+      /\bconsole\.\w+\(/,
     ],
+    2,
+  ],
+  [
+    // Anchored to line starts throughout. Unanchored, these are ordinary
+    // English: "Select a source from the list. Then create table rows for each
+    // item." scored two and came back as SQL.
+    "sql",
     [
-      // Anchored to line starts throughout. Unanchored, these are ordinary
-      // English: "Select a source from the list. Then create table rows for each
-      // item." scored two and came back as SQL.
-      "sql",
-      [
-        /^\s*select\b[\s\S]*?\bfrom\s+\w/im,
-        /^\s*(insert\s+into|update\s+\w+\s+set|delete\s+from)\s+\w/im,
-        /^\s*create\s+(table|index|view)\s+(if\s+not\s+exists\s+)?\w/im,
-        /^\s*(inner|left|right|full)?\s*join\s+\w+\s+on\b/im,
-        /^\s*(where|group by|order by|having)\b/im,
-      ],
-      2,
+      /^\s*select\b[\s\S]*?\bfrom\s+\w/im,
+      /^\s*(insert\s+into|update\s+\w+\s+set|delete\s+from)\s+\w/im,
+      /^\s*create\s+(table|index|view)\s+(if\s+not\s+exists\s+)?\w/im,
+      /^\s*(inner|left|right|full)?\s*join\s+\w+\s+on\b/im,
+      /^\s*(where|group by|order by|having)\b/im,
     ],
-    [
-      "toml",
-      [/^\s*\[[\w.]+\]\s*$/m, /^\s*\[\[[\w.]+\]\]\s*$/m, /^\s*\w+ = /m],
-      2,
-    ],
-  ];
+    2,
+    SENTENCE_PERIOD,
+  ],
+  [
+    "toml",
+    [/^\s*\[[\w.]+\]\s*$/m, /^\s*\[\[[\w.]+\]\]\s*$/m, /^\s*\w+ = /m],
+    2,
+  ],
+];
 
 /** Single-match rules whose anchor prose cannot produce by accident. */
 /**
@@ -301,7 +332,8 @@ export function detectLanguage(code: string): string | null {
   let best: string | null = null;
   let bestScore = 0;
   let runnerUp = 0;
-  for (const [language, patterns, floor] of CORROBORATED) {
+  for (const [language, patterns, floor, veto] of CORROBORATED) {
+    if (veto?.test(code) === true) continue;
     const score = signals(code, patterns);
     if (score < floor) continue;
     if (score > bestScore) {

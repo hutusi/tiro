@@ -245,6 +245,32 @@ describe("backfill", () => {
     expect(result?.languages).toEqual(["shell-session"]);
   });
 
+  test("lets a page's plain-text declaration stand", () => {
+    // `text` is the page saying "this is not code". Treating that as a
+    // conflict left the fence bare — and a bare fence is where inference runs,
+    // so the block came out highlighted as JSON, while a plain re-clip of the
+    // same page would have written ```text and rendered it plain. The backfill
+    // must not diverge from a re-clip.
+    for (const declared of ["text", "plaintext", "txt"]) {
+      const result = backfill(
+        article('```\n{"a": 1}\n```\n'),
+        null,
+        `\`\`\`${declared}\n{"a": 1}\n\`\`\`\n`,
+      );
+      expect(result?.conflicts).toEqual([]);
+      expect(result?.languages).toEqual([declared]);
+    }
+  });
+
+  test("still disputes two languages that actually disagree", () => {
+    const result = backfill(
+      article('```\n{"a": 1}\n```\n'),
+      null,
+      '```yaml\n{"a": 1}\n```\n',
+    );
+    expect(result?.conflicts).toHaveLength(1);
+  });
+
   test("writes a label the inference has no opinion about", () => {
     // Most fences infer to null, and the page's label must still land.
     const result = backfill(
