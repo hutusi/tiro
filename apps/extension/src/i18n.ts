@@ -30,11 +30,23 @@ const en = {
     "Readability could not extract an article; clipping the raw page instead.",
   cannotClipPdf:
     "This is a PDF, not a web page — its text is rendered by a plugin the extension cannot read.",
+  arxivOffer:
+    "This is an arXiv paper. Tiro can fetch its HTML full text instead of this page.",
+  arxivFetchButton: "Fetch HTML full text",
+  arxivFetching: "Fetching the full text from arxiv.org…",
+  arxivDenied:
+    "Without access to arxiv.org, Tiro can only clip the page you are on.",
+  arxivFailed: (detail: string) =>
+    `Could not fetch the full text (${detail}); clipping this page instead.`,
+  arxivAbstractOnly:
+    "arXiv has no HTML full text for this paper; clipping its abstract page.",
+  arxivNotice:
+    "Fetched from arxiv.org to build this preview. Nothing is sent until you clip.",
   noticePreview:
     "Read in your browser to build this preview. Nothing is sent until you clip.",
   disclosureTitle: "Before Tiro reads this page",
   disclosureBody1:
-    "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address.",
+    "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper it can fetch the HTML full text from arxiv.org instead, once you allow it.",
   disclosureBody2:
     "None of it leaves your browser until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded.",
   disclosureAccept: "I understand — continue",
@@ -104,6 +116,14 @@ const zh: Messages = {
 
   warningReadability: "Readability 未能提取正文，将剪藏原始页面。",
   cannotClipPdf: "这是 PDF 而非网页，其正文由插件渲染，扩展无法读取。",
+  arxivOffer: "这是 arXiv 论文，Tiro 可以改为抓取其 HTML 全文。",
+  arxivFetchButton: "抓取 HTML 全文",
+  arxivFetching: "正在从 arxiv.org 抓取全文…",
+  arxivDenied: "未获得 arxiv.org 访问权限，只能剪藏当前页面。",
+  arxivFailed: (detail: string) =>
+    `无法抓取全文（${detail}），改为剪藏当前页面。`,
+  arxivAbstractOnly: "该论文没有 HTML 全文，改为剪藏摘要页。",
+  arxivNotice: "已从 arxiv.org 抓取全文以生成预览。剪藏前不会发送任何内容。",
   noticePreview: "预览在你的浏览器中生成，剪藏前不会发送任何内容。",
   disclosureTitle: "在 Tiro 读取此页面之前",
   disclosureBody1:

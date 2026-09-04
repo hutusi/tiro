@@ -1,4 +1,5 @@
-import { slugForUrl } from "@tiro/shared";
+import { type ArxivRef, parseArxivUrl, slugForUrl } from "@tiro/shared";
+import { ARXIV_ORIGIN, clipArxivPaper } from "../arxiv.ts";
 import { buildClipFile } from "../clip.ts";
 import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
@@ -33,6 +34,7 @@ const el = {
   meta: document.getElementById("article-meta") as HTMLDivElement,
   warning: document.getElementById("warning") as HTMLDivElement,
   notice: document.getElementById("notice") as HTMLDivElement,
+  arxivFetch: document.getElementById("arxiv-fetch") as HTMLButtonElement,
   clip: document.getElementById("clip") as HTMLButtonElement,
   view: document.getElementById("view") as HTMLAnchorElement,
   options: document.getElementById("options") as HTMLButtonElement,
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
   el.accept.textContent = m.disclosureAccept;
   el.warning.textContent = m.warningReadability;
   el.notice.textContent = m.noticePreview;
+  el.arxivFetch.textContent = m.arxivFetchButton;
   el.clip.textContent = m.clipButton;
   el.view.textContent = m.viewInVault;
   el.options.textContent = m.settingsLink;
@@ -71,25 +74,36 @@ async function main(): Promise<void> {
 
   let result: ClipResultMessage["payload"] | null = null;
   let clippedAt: string | null = null;
+  /** Set when the body came from somewhere other than the article's own URL —
+   * an arXiv paper read from its HTML full text. Becomes `tiro.source_url`. */
+  let sourceUrl: string | undefined;
+  /** Non-null when the tab is an arXiv paper, in any of its URL forms. */
+  let paper: ArxivRef | null = null;
+  /** Once a fetched full text is on screen, a late message from the injected
+   * clipper must not replace it with the page the reader happened to be on. */
+  let fetched = false;
 
-  chrome.runtime.onMessage.addListener((message: unknown) => {
-    if (!isClipResult(message)) return;
-    result = message.payload;
+  function showPayload(payload: ClipResultMessage["payload"]): void {
+    result = payload;
     // A PDF has nothing to preview and nothing to commit, so it stops here
     // whatever the configuration says: the button is never enabled. Before
     // this the readability warning appeared but the button did too, and an
-    // empty article with `readability_failed: true` could be committed.
-    if (result.pdfViewer) {
-      setStatus(m.cannotClipPdf, true);
+    // empty article with `readability_failed: true` could be committed. On an
+    // arXiv PDF it is not a dead end — the fetch button is already on screen.
+    if (payload.pdfViewer) {
+      setStatus(
+        paper === null ? m.cannotClipPdf : m.arxivOffer,
+        paper === null,
+      );
       return;
     }
     el.preview.hidden = false;
-    el.title.textContent = result.title;
+    el.title.textContent = payload.title;
     el.meta.textContent = m.articleMeta(
-      new URL(result.url).hostname,
-      countWords(result.markdown),
+      new URL(payload.url).hostname,
+      countWords(payload.markdown),
     );
-    el.warning.hidden = !result.readabilityFailed;
+    el.warning.hidden = !payload.readabilityFailed;
     if (configured) {
       el.clip.disabled = false;
       if (clippedAt !== null) {
@@ -99,6 +113,11 @@ async function main(): Promise<void> {
         setStatus(m.readyToClip);
       }
     }
+  }
+
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    if (!isClipResult(message) || fetched) return;
+    showPayload(message.payload);
   });
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -113,7 +132,12 @@ async function main(): Promise<void> {
   const tabId = tab.id;
   const tabUrl = tab.url;
 
+  let extracted = false;
   async function extract(): Promise<void> {
+    // Idempotent: the arXiv fallbacks reach here after prepare() may already
+    // have run it, and a second injection would deliver a second clip result.
+    if (extracted) return;
+    extracted = true;
     if (configured) setStatus(m.readingPage);
     try {
       await chrome.scripting.executeScript({
@@ -135,6 +159,49 @@ async function main(): Promise<void> {
     }, 10_000);
   }
 
+  /**
+   * Read the paper's full text from arxiv.org rather than the tab.
+   *
+   * `askFirst` is false only when the permission is already held: a popup that
+   * opens without a click has no user gesture, and `permissions.request`
+   * refuses without one even when it would grant immediately.
+   */
+  async function fetchFullText(paper: ArxivRef, askFirst: boolean) {
+    el.arxivFetch.hidden = true;
+    if (askFirst) {
+      const granted = await chrome.permissions.request({
+        origins: [ARXIV_ORIGIN],
+      });
+      if (!granted) {
+        setStatus(m.arxivDenied, true);
+        await extract();
+        return;
+      }
+    }
+    setStatus(m.arxivFetching);
+    // The preview no longer comes from the tab, so say where it did come from:
+    // the standing notice would otherwise describe a read that did not happen.
+    el.notice.textContent = m.arxivNotice;
+    try {
+      const clip = await clipArxivPaper(paper, {
+        fetch: (input, init) => fetch(input, init),
+        parse: (html) => new DOMParser().parseFromString(html, "text/html"),
+      });
+      fetched = true;
+      sourceUrl = clip.sourceUrl;
+      showPayload(clip.payload);
+      // No source URL means the abstract page *was* what was read, which is
+      // worth saying: this paper has no HTML full text to have missed.
+      if (clip.sourceUrl === undefined) {
+        el.warning.textContent = m.arxivAbstractOnly;
+        el.warning.hidden = false;
+      }
+    } catch (error) {
+      setStatus(m.arxivFailed(String(error)), true);
+      await extract();
+    }
+  }
+
   // Best-effort state from the local clip record. Slug derivation and the
   // lookup are both local, but they still wait for an accepted disclosure so
   // the popup does nothing at all before consent. Awaiting the lookup before
@@ -146,6 +213,29 @@ async function main(): Promise<void> {
     } catch {
       clippedAt = null;
     }
+    paper = parseArxivUrl(tabUrl);
+    if (paper === null) {
+      await extract();
+      return;
+    }
+    const known = paper;
+    // Already granted: reading arxiv.org is then no different from reading the
+    // tab, so it happens up front and the preview shows what will be stored.
+    if (await chrome.permissions.contains({ origins: [ARXIV_ORIGIN] })) {
+      await fetchFullText(known, false);
+      return;
+    }
+    // Not granted: nothing is fetched. The tab is previewed as usual and the
+    // offer sits beside it, so the permission is asked for by an explicit act.
+    el.arxivFetch.hidden = false;
+    el.arxivFetch.addEventListener(
+      "click",
+      () => {
+        void fetchFullText(known, true);
+      },
+      { once: true },
+    );
+    el.notice.textContent = `${m.arxivOffer} ${m.noticePreview}`;
     await extract();
   }
 
@@ -158,6 +248,7 @@ async function main(): Promise<void> {
         const nowIso = new Date().toISOString();
         const file = await buildClipFile({
           url: payload.url,
+          sourceUrl,
           title: payload.title,
           markdown: payload.markdown,
           excerpt: payload.excerpt,

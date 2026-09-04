@@ -91,3 +91,33 @@ describe("buildClipFile", () => {
     expect(file.content).not.toContain("excerpt:");
   });
 });
+
+test("records where the body was read from, and only when it differs", async () => {
+  // An arXiv paper is filed under its abstract page but read from its HTML
+  // full text, so without this nothing says which form produced the markdown —
+  // or which version, which the identity deliberately drops.
+  const file = await buildClipFile({
+    url: "https://arxiv.org/pdf/2404.19756v1.pdf",
+    sourceUrl: "https://arxiv.org/html/2404.19756v1",
+    title: "KAN",
+    markdown: "# KAN\n",
+    clippedAt: "2026-09-04T10:00:00.000Z",
+    clipperVersion: "0.11.2",
+  });
+  expect(file.content).toContain("url: https://arxiv.org/abs/2404.19756");
+  expect(file.content).toContain(
+    "source_url: https://arxiv.org/html/2404.19756v1",
+  );
+});
+
+test("omits source_url when it agrees with the article's own URL", async () => {
+  const file = await buildClipFile({
+    url: "https://example.com/posts/hello",
+    sourceUrl: "https://example.com/posts/hello",
+    title: "Hello",
+    markdown: "# Hello\n",
+    clippedAt: "2026-09-04T10:00:00.000Z",
+    clipperVersion: "0.11.2",
+  });
+  expect(file.content).not.toContain("source_url");
+});
