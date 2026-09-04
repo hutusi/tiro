@@ -231,6 +231,11 @@ async function main(): Promise<void> {
     // messages back; if the clipper dies mid-run the popup would otherwise sit
     // on "Reading page…" forever.
     setTimeout(() => {
+      // Only if the clipper never answered. This used to fire unconditionally,
+      // so on a page that answered in 200 ms it still re-rendered ten seconds
+      // later — re-enabling Clip on top of an upload already in flight, and
+      // turning a finished "Clipped." back into "Ready to clip.".
+      if (tabResolved) return;
       tabResolved = true;
       if (result === null) {
         setStatus(m.noClipResult, true);
