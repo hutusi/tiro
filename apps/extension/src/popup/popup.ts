@@ -75,6 +75,14 @@ async function main(): Promise<void> {
   chrome.runtime.onMessage.addListener((message: unknown) => {
     if (!isClipResult(message)) return;
     result = message.payload;
+    // A PDF has nothing to preview and nothing to commit, so it stops here
+    // whatever the configuration says: the button is never enabled. Before
+    // this the readability warning appeared but the button did too, and an
+    // empty article with `readability_failed: true` could be committed.
+    if (result.pdfViewer) {
+      setStatus(m.cannotClipPdf, true);
+      return;
+    }
     el.preview.hidden = false;
     el.title.textContent = result.title;
     el.meta.textContent = m.articleMeta(

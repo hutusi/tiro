@@ -8,6 +8,10 @@ export interface ClipPayload {
   markdown: string;
   readabilityFailed: boolean;
   hasMath: boolean;
+  /** The tab is Chrome's PDF viewer, not an article. There is no text to
+   * clip and no way to get any, so the popup refuses rather than committing
+   * an empty article. */
+  pdfViewer: boolean;
 }
 
 /** Message sent by the injected clipper back to the popup. */
@@ -32,6 +36,7 @@ export function isClipResult(message: unknown): message is ClipResultMessage {
     typeof p.author === "string" &&
     typeof p.markdown === "string" &&
     typeof p.readabilityFailed === "boolean" &&
-    typeof p.hasMath === "boolean"
+    typeof p.hasMath === "boolean" &&
+    typeof p.pdfViewer === "boolean"
   );
 }

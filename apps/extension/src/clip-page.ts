@@ -28,6 +28,10 @@ import type { ClipPayload } from "./messages.ts";
  * page must pass a clone.
  */
 export function clipPage(doc: Document, url: string): ClipPayload {
+  // Asked before anything rewrites the DOM: the answer is about the document
+  // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
+  // this looks for.
+  const pdfViewer = isPdfViewerDocument(doc);
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
   prepareForClipping(doc);
@@ -73,5 +77,27 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     markdown,
     readabilityFailed,
     hasMath,
+    pdfViewer,
   };
+}
+
+/**
+ * True when the document is Chrome's PDF viewer rather than a page.
+ *
+ * Chrome serves `https://…/paper.pdf` as an HTML shell whose body is a single
+ * `<embed type="application/pdf">`; the bytes are rendered by a plugin the DOM
+ * cannot see. Nothing here can extract that text, and until this existed the
+ * popup happily committed the resulting empty article with
+ * `readability_failed: true` — the scheme guard only ever checked for http(s).
+ *
+ * The text-length test is what keeps an ordinary article that happens to embed
+ * a PDF from being refused: the viewer shell has no prose at all.
+ */
+export function isPdfViewerDocument(doc: Document): boolean {
+  const embed = doc.querySelector(
+    'embed[type="application/pdf"], object[type="application/pdf"]',
+  );
+  if (embed === null) return false;
+  const text = (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
+  return text.length < 200;
 }

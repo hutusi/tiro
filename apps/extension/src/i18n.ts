@@ -28,6 +28,8 @@ const en = {
   // Popup static text
   warningReadability:
     "Readability could not extract an article; clipping the raw page instead.",
+  cannotClipPdf:
+    "This is a PDF, not a web page — its text is rendered by a plugin the extension cannot read.",
   noticePreview:
     "Read in your browser to build this preview. Nothing is sent until you clip.",
   disclosureTitle: "Before Tiro reads this page",
@@ -101,6 +103,7 @@ const zh: Messages = {
   articleMeta: (host: string, words: number) => `${host} · ${words} 词`,
 
   warningReadability: "Readability 未能提取正文，将剪藏原始页面。",
+  cannotClipPdf: "这是 PDF 而非网页，其正文由插件渲染，扩展无法读取。",
   noticePreview: "预览在你的浏览器中生成，剪藏前不会发送任何内容。",
   disclosureTitle: "在 Tiro 读取此页面之前",
   disclosureBody1:
