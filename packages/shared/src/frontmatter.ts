@@ -51,6 +51,28 @@ const clipperVersion = z.string().optional();
  */
 const clipperCommit = z.string().optional();
 
+/**
+ * The URL the body was actually read from, when that is not the URL the article
+ * is filed under.
+ *
+ * `url` is the article's identity, and for a publisher whose pages are
+ * canonicalized (arXiv today) that is a URL nobody necessarily visited: clip
+ * `/pdf/2404.19756v1`, get an article filed at `/abs/2404.19756` whose body came
+ * from `/html/2404.19756v1`. Without this, nothing records which of the three
+ * produced the text, and the version — deliberately not part of the identity —
+ * would be lost entirely.
+ *
+ * Written only when it differs from `url`, so an ordinary clip is unchanged.
+ * Generic rather than an arXiv-shaped `{id, version}` block, because what a
+ * later audit needs is the URL to re-fetch, and the next publisher rule would
+ * otherwise need its own field.
+ *
+ * Optional and additive like `clipper_version` above — no `tiro.schema` bump —
+ * and named on both schemas for the same reason: a field the read side omits is
+ * deleted the first time the article is processed.
+ */
+const sourceUrl = z.string().optional();
+
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
@@ -75,6 +97,7 @@ export const ClipFrontmatterSchema = z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,
     clipper_commit: clipperCommit,
+    source_url: sourceUrl,
   }),
 });
 export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
@@ -89,6 +112,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,
     clipper_commit: clipperCommit,
+    source_url: sourceUrl,
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),

@@ -34,5 +34,6 @@
     "type": "module"
   },
   "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://api.github.com/*"]
+  "host_permissions": ["https://api.github.com/*"],
+  "optional_host_permissions": ["https://arxiv.org/*"]
 }

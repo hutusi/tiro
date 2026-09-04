@@ -7,6 +7,55 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **One arXiv paper is now one article.** `/abs/`, `/pdf/`, `/html/`, the
+  version suffixes and the `www`/`export`/`ar5iv` hosts all normalize onto the
+  abstract URL — which is what arXiv itself declares in its `rel="canonical"`,
+  versionless. Until now each form clipped separately, so one paper could
+  accumulate five articles and a re-clip from a different URL never overwrote
+  the first. The rewrite fires only on a known host, a known paper route and an
+  exact identifier match, so `/list/cs.AI/recent` stays an ordinary page
+  (ADR 0013).
+- **An arXiv paper is always clipped from its full text.** Collapsing the URL
+  forms without this would be a trap: `/pdf/` has no readable text and `/abs/`
+  is one paragraph, so clipping either would have overwritten a full-text clip
+  with less. The popup fetches `arxiv.org/html/<id>` itself under an optional
+  `arxiv.org` host permission, asked for from the Clip flow's own user gesture —
+  optional so an update is never disabled pending re-approval. When arXiv has no
+  usable HTML it falls back to the abstract page, whose `citation_*` tags are
+  better metadata than the HTML would have given: `arxiv.org/html/1412.6980`
+  answers HTTP 200 with a valid document whose entire body is "See pages 1-last
+  of 0_adam_main.pdf".
+- **`tiro.source_url`** records the URL a body was read from when that is not
+  the article's own — for arXiv, the versioned HTML page, which is also where
+  the version survives after the identity drops it. Optional and additive, so
+  `tiro.schema` stays at 1.
+- **The first-run disclosure re-prompts once** (`DISCLOSURE_VERSION` 2). It now
+  names arxiv.org alongside GitHub, and a new outbound destination is a practice
+  change the Web Store asks to be re-disclosed — whichever way the optional
+  permission is answered.
+- **`sweep --recanonicalize`**, the repair path for a changed identity rule.
+  `validate` could already detect that a directory name no longer matches its
+  URL's slug but nothing could fix it, and an article under a stale name is
+  invisible to the next clip of its own page. It renames and rewrites the
+  frontmatter, leaving bodies and `zh.md` alone, so nothing is re-queued and the
+  migration costs no LLM calls.
+
+### Fixed
+
+- **A LaTeXML paper's metadata is read rather than guessed.** arXiv's HTML pages
+  carry no `<meta>` at all, so Readability scraped the rendered author block —
+  which is where `author: "Stephen Chung\nThanks: DualverseAI; University of
+  Cambridge"` and excerpts made of `††thanks:` markers came from. Title, authors
+  and abstract now come from `.ltx_title_document`, `.ltx_personname` and
+  `.ltx_abstract`, keyed on the LaTeXML classes rather than on arxiv.org, so
+  ar5iv and every mirror benefit too.
+- **A PDF is refused instead of committed as an empty article.** The popup's
+  only check was `^https?:`, which a `.pdf` URL passes, so the clipper was
+  injected into Chrome's PDF viewer — an HTML shell with no readable text — and
+  the Clip button stayed enabled. This was open on every site, not just arXiv.
+
 ## [0.4.0] - 2026-09-04
 
 ### Added

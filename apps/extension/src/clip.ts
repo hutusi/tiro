@@ -9,6 +9,15 @@ import {
 
 export interface ClipInput {
   url: string;
+  /**
+   * The URL the markdown was actually read from, when that is not `url`.
+   *
+   * Only a canonicalizing publisher produces one: an arXiv paper is filed under
+   * its abstract page but read from its HTML full text. Recorded so the article
+   * says which form produced it, and so the arXiv version — deliberately not
+   * part of the identity — is not lost.
+   */
+  sourceUrl?: string;
   title: string;
   markdown: string;
   excerpt?: string;
@@ -75,6 +84,11 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       // known" and "commit is the empty string" cannot be confused.
       ...(input.clipperCommit !== undefined && input.clipperCommit !== ""
         ? { clipper_commit: input.clipperCommit }
+        : {}),
+      // Omitted when it agrees with `url`, so an ordinary clip is unchanged and
+      // the field's presence always means "read from somewhere else".
+      ...(input.sourceUrl !== undefined && input.sourceUrl !== url
+        ? { source_url: input.sourceUrl }
         : {}),
     },
   });

@@ -11,6 +11,8 @@ const valid: ClipResultMessage = {
     markdown: "# t",
     readabilityFailed: false,
     hasMath: false,
+    pdfViewer: false,
+    latexmlFullText: false,
   },
 };
 
@@ -29,6 +31,23 @@ describe("isClipResult", () => {
     // The popup dereferences the payload (new URL(url), word count of
     // markdown); a right type tag with a wrong shape must not get that far.
     expect(isClipResult({ type: "tiro-clip-result" })).toBe(false);
+    // Every field is checked, including the newest: the popup reads pdfViewer
+    // to decide whether to enable the button at all, so a payload without it
+    // must not be treated as a clip.
+    expect(
+      isClipResult({
+        type: "tiro-clip-result",
+        payload: { ...valid.payload, pdfViewer: undefined },
+      }),
+    ).toBe(false);
+    // The popup reads this one to decide whether pressing Clip would overwrite
+    // a paper's full text with its abstract.
+    expect(
+      isClipResult({
+        type: "tiro-clip-result",
+        payload: { ...valid.payload, latexmlFullText: undefined },
+      }),
+    ).toBe(false);
     expect(
       isClipResult({
         type: "tiro-clip-result",

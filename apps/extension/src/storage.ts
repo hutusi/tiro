@@ -45,8 +45,13 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
 
 /** Bump when the disclosure changes what it says about data handling: the Web
  * Store requires re-disclosing practice changes after install, and a bump is
- * what re-prompts an existing user. */
-export const DISCLOSURE_VERSION = 1;
+ * what re-prompts an existing user.
+ *
+ * 2: the disclosure names arxiv.org, which the extension may now fetch a
+ * paper's full text from. A new outbound destination is a practice change
+ * whichever way the optional permission is answered, so the rule above applies
+ * even though Chrome prompts for the permission separately. */
+export const DISCLOSURE_VERSION = 2;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */

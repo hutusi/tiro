@@ -8,6 +8,14 @@ export interface ClipPayload {
   markdown: string;
   readabilityFailed: boolean;
   hasMath: boolean;
+  /** The tab is Chrome's PDF viewer, not an article. There is no text to
+   * clip and no way to get any, so the popup refuses rather than committing
+   * an empty article. */
+  pdfViewer: boolean;
+  /** The document carries a real LaTeXML paper, not a page about one. False
+   * for an abstract page, a PDF, and for the stub arXiv serves when it could
+   * not convert a submission. */
+  latexmlFullText: boolean;
 }
 
 /** Message sent by the injected clipper back to the popup. */
@@ -32,6 +40,8 @@ export function isClipResult(message: unknown): message is ClipResultMessage {
     typeof p.author === "string" &&
     typeof p.markdown === "string" &&
     typeof p.readabilityFailed === "boolean" &&
-    typeof p.hasMath === "boolean"
+    typeof p.hasMath === "boolean" &&
+    typeof p.pdfViewer === "boolean" &&
+    typeof p.latexmlFullText === "boolean"
   );
 }

@@ -1,7 +1,9 @@
 import { Readability } from "@mozilla/readability";
 import {
   foldFiguresIn,
+  hasLatexmlFullText,
   prepareForClipping,
+  readLatexmlMetadata,
   restoreCodeLanguagesIn,
 } from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -27,9 +29,20 @@ import type { ClipPayload } from "./messages.ts";
  * page must pass a clone.
  */
 export function clipPage(doc: Document, url: string): ClipPayload {
+  // Asked before anything rewrites the DOM: the answer is about the document
+  // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
+  // this looks for.
+  const pdfViewer = isPdfViewerDocument(doc);
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
   prepareForClipping(doc);
+  // Before Readability, which consumes the document — and after preparation, so
+  // a formula in a title or abstract is already a marker rather than MathML.
+  const latexml = readLatexmlMetadata(doc);
+  // Whether this document *is* the paper, rather than a page about it. The
+  // popup needs it to decide whether clipping the tab would file a lesser body
+  // under a paper's canonical slug — see `needsFullTextFetch`.
+  const latexmlFullText = hasLatexmlFullText(doc);
   // Snapshot before Readability, which consumes the document. Serializing
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
@@ -57,13 +70,44 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // Readability discarded with the page furniture cannot set the flag.
   const { markdown, hasMath } = htmlToMarkdown(html);
 
+  // LaTeXML wins where it answered, because it read the paper's own markup
+  // while Readability guessed from rendered text. These pages carry no <meta>
+  // at all, so its byline heuristic scrapes the author block — affiliations,
+  // `†thanks:` notes and all.
   return {
     url,
-    title: (article?.title ?? "").trim() || doc.title,
-    excerpt: (article?.excerpt ?? "").trim(),
-    author: (article?.byline ?? "").trim(),
+    title: latexml?.title ?? ((article?.title ?? "").trim() || doc.title),
+    excerpt: latexml?.excerpt ?? (article?.excerpt ?? "").trim(),
+    author: latexml?.author ?? (article?.byline ?? "").trim(),
     markdown,
     readabilityFailed,
     hasMath,
+    pdfViewer,
+    latexmlFullText,
   };
+}
+
+/**
+ * True when the document is Chrome's PDF viewer rather than a page.
+ *
+ * Chrome serves `https://…/paper.pdf` as an HTML shell whose body is a single
+ * `<embed type="application/pdf">`; the bytes are rendered by a plugin the DOM
+ * cannot see. Nothing here can extract that text, and until this existed the
+ * popup happily committed the resulting empty article with
+ * `readability_failed: true` — the scheme guard only ever checked for http(s).
+ *
+ * Described by shape as well as emptiness, because emptiness alone is not the
+ * viewer: a poster or a figure gallery can carry a PDF attachment and almost no
+ * prose, and refusing that would lose a clip the pipeline handles fine. The
+ * shell is exactly one element in the body — the embed itself — and no text.
+ */
+export function isPdfViewerDocument(doc: Document): boolean {
+  const embed = doc.querySelector(
+    'embed[type="application/pdf"], object[type="application/pdf"]',
+  );
+  if (embed === null) return false;
+  const children = Array.from(doc.body?.children ?? []);
+  if (children.length !== 1 || children[0] !== embed) return false;
+  const text = (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
+  return text.length < 200;
 }
