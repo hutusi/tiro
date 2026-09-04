@@ -96,14 +96,18 @@ export function clipPage(doc: Document, url: string): ClipPayload {
  * popup happily committed the resulting empty article with
  * `readability_failed: true` — the scheme guard only ever checked for http(s).
  *
- * The text-length test is what keeps an ordinary article that happens to embed
- * a PDF from being refused: the viewer shell has no prose at all.
+ * Described by shape as well as emptiness, because emptiness alone is not the
+ * viewer: a poster or a figure gallery can carry a PDF attachment and almost no
+ * prose, and refusing that would lose a clip the pipeline handles fine. The
+ * shell is exactly one element in the body — the embed itself — and no text.
  */
 export function isPdfViewerDocument(doc: Document): boolean {
   const embed = doc.querySelector(
     'embed[type="application/pdf"], object[type="application/pdf"]',
   );
   if (embed === null) return false;
+  const children = Array.from(doc.body?.children ?? []);
+  if (children.length !== 1 || children[0] !== embed) return false;
   const text = (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
   return text.length < 200;
 }

@@ -38,6 +38,27 @@ describe("isPdfViewerDocument", () => {
     expect(isPdfViewerDocument(doc)).toBe(false);
   });
 
+  /**
+   * The case text length alone gets wrong. A poster or a figure gallery can
+   * carry a PDF attachment and almost no prose, and it clips perfectly well —
+   * the images are the article. Refusing it would lose real content.
+   */
+  test("leaves a near-textless page whose content is images", () => {
+    const images = Array.from(
+      { length: 8 },
+      (_, i) => `<img src="https://example.com/plate-${i}.png" alt="Plate">`,
+    ).join("");
+    const doc = docFrom(
+      `<article>${images}<p>Plates I-VIII.</p><embed type="application/pdf"></article>`,
+    );
+    expect(isPdfViewerDocument(doc)).toBe(false);
+  });
+
+  test("leaves a page that wraps the embed beside other content", () => {
+    const doc = docFrom('<h1>Report</h1><embed type="application/pdf">');
+    expect(isPdfViewerDocument(doc)).toBe(false);
+  });
+
   test("leaves an ordinary page alone", () => {
     expect(isPdfViewerDocument(docFrom("<p>Hello.</p>"))).toBe(false);
   });
