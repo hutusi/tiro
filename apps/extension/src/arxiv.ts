@@ -46,6 +46,67 @@ export function needsFullTextFetch(
   return isArxivPaper && !payload.latexmlFullText;
 }
 
+/**
+ * A body in hand, and where it came from.
+ *
+ * The popup can hold two: what the injected clipper read from the tab, and what
+ * the fetch returned. They are not interchangeable, and neither always wins.
+ */
+export interface ClipCandidate {
+  latexmlFullText: boolean;
+  /** True for the body fetched from arxiv.org, false for the tab's own. */
+  fromFetch: boolean;
+}
+
+/**
+ * Should `candidate` replace the body already in hand?
+ *
+ * The rule the whole feature rests on is "prefer the body that is actually the
+ * paper", and until this existed the code said "prefer whatever the fetch
+ * returned" — only accidentally the same thing. They come apart when arxiv.org
+ * has no usable HTML for a paper but the tab does: ar5iv is a separate
+ * deployment of the same converter, so it can render what arxiv.org stubs, and
+ * the abstract page would otherwise displace a full text the reader was looking
+ * at. (Probing eight papers from 1997 to 2017 found no such divergence today.
+ * The rule is written for what it means, not for what reproduces.)
+ *
+ * On a tie the fetched body wins: it is the canonical one, and it is the only
+ * one that knows which version it came from.
+ */
+export function prefersCandidate(
+  current: ClipCandidate | null,
+  candidate: ClipCandidate,
+): boolean {
+  if (current === null) return true;
+  if (candidate.latexmlFullText !== current.latexmlFullText) {
+    return candidate.latexmlFullText;
+  }
+  return candidate.fromFetch;
+}
+
+/**
+ * Is the body in hand the best there is going to be?
+ *
+ * Clipping a paper commits it under a slug shared by every one of its URL
+ * forms, so committing early does not add an article — it *replaces* one, and
+ * costs a re-translation to undo. The button therefore waits until either the
+ * body already is the paper, or both sources have had their turn.
+ *
+ * "Had their turn" has to include failing. A tab that cannot be read must still
+ * resolve, or a paper whose page will not load would gate the button forever —
+ * which is exactly the PDF tab, where script injection is least dependable.
+ */
+export function clipReady(
+  best: ClipCandidate | null,
+  isArxivPaper: boolean,
+  fetchResolved: boolean,
+  tabResolved: boolean,
+): boolean {
+  if (best === null) return false;
+  if (!needsFullTextFetch(best, isArxivPaper)) return true;
+  return fetchResolved && tabResolved;
+}
+
 export interface ArxivClip {
   payload: ClipPayload;
   /**

@@ -1,5 +1,11 @@
 import { type ArxivRef, parseArxivUrl, slugForUrl } from "@tiro/shared";
-import { ARXIV_ORIGIN, clipArxivPaper, needsFullTextFetch } from "../arxiv.ts";
+import {
+  ARXIV_ORIGIN,
+  type ClipCandidate,
+  clipArxivPaper,
+  clipReady,
+  prefersCandidate,
+} from "../arxiv.ts";
 import { buildClipFile } from "../clip.ts";
 import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
@@ -74,28 +80,48 @@ async function main(): Promise<void> {
 
   let result: ClipResultMessage["payload"] | null = null;
   let clippedAt: string | null = null;
-  /** Set when the body came from somewhere other than the article's own URL —
-   * an arXiv paper read from its HTML full text. Becomes `tiro.source_url`. */
+  /** Where the body on screen was read from, when that is not the article's own
+   * URL — an arXiv paper read from its HTML full text. Becomes
+   * `tiro.source_url`. Set by `offer`, so it always describes the body kept. */
   let sourceUrl: string | undefined;
   /** Non-null when the tab is an arXiv paper, in any of its URL forms. */
   let paper: ArxivRef | null = null;
-  /** Once a fetched full text is on screen, a late message from the injected
-   * clipper must not replace it with the page the reader happened to be on. */
-  let fetched = false;
-  /**
-   * True once the best available body is the one on screen — the fetch
-   * succeeded, or the reader declined the permission, or it failed.
-   *
-   * Until then Clip stays disabled on a paper whose full text has not been
-   * read, because committing the abstract would overwrite the full-text
-   * article under the same slug. The flag is what lets the abstract-page
-   * fallback enable Clip at all: that payload legitimately has no LaTeXML full
-   * text, so the predicate alone would gate it forever.
-   */
-  let fullTextSettled = false;
+  /** Where the body on screen came from, so a second one is judged against it
+   * rather than simply overwriting it. */
+  let best: ClipCandidate | null = null;
+  /** The fetch has run its course: succeeded, declined, or failed. */
+  let fetchResolved = false;
+  /** The injected clipper has reported, or cannot. Set on failure too — a tab
+   * that will not read must not gate the button forever. */
+  let tabResolved = false;
   /** A note that belongs beside the preview rather than in the status line,
    * which the next clip result would overwrite. */
   let standingNote: string | null = null;
+
+  /**
+   * Take a body if it beats the one in hand, and re-render.
+   *
+   * Both sources land here, and which wins is `prefersCandidate`'s decision
+   * rather than the order they happen to arrive in.
+   */
+  function offer(
+    payload: ClipResultMessage["payload"],
+    fromFetch: boolean,
+    source: string | undefined,
+  ): void {
+    const candidate = { latexmlFullText: payload.latexmlFullText, fromFetch };
+    if (!prefersCandidate(best, candidate)) {
+      // Still re-render: the losing arrival may have resolved the last source
+      // the gate was waiting on.
+      if (result !== null) showPayload(result);
+      return;
+    }
+    best = candidate;
+    // Travels with the body, not beside it — a source URL left over from a
+    // candidate that lost would describe a body nobody is going to commit.
+    sourceUrl = source;
+    showPayload(payload);
+  }
 
   function showPayload(payload: ClipResultMessage["payload"]): void {
     result = payload;
@@ -120,9 +146,8 @@ async function main(): Promise<void> {
     el.warning.hidden = !payload.readabilityFailed;
     // The whole point of the identity rule is that this article is the paper.
     // Committing the abstract page while its full text is one click away would
-    // replace that full text — so the button waits.
-    const gated =
-      !fullTextSettled && needsFullTextFetch(payload, paper !== null);
+    // replace that full text — so the button waits for both sources.
+    const gated = !clipReady(best, paper !== null, fetchResolved, tabResolved);
     // A tab already showing the paper has nothing to fetch, so the offer would
     // only be noise — and clipping it must not need a permission.
     if (!gated) el.arxivFetch.hidden = true;
@@ -145,8 +170,9 @@ async function main(): Promise<void> {
   }
 
   chrome.runtime.onMessage.addListener((message: unknown) => {
-    if (!isClipResult(message) || fetched) return;
-    showPayload(message.payload);
+    if (!isClipResult(message)) return;
+    tabResolved = true;
+    offer(message.payload, false, tabSourceUrl(message.payload.url));
   });
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -174,7 +200,12 @@ async function main(): Promise<void> {
         files: ["clipper.js"],
       });
     } catch (error) {
+      // The tab has answered, even though the answer is "you cannot read me".
+      // Without this the gate would wait on a source that will never report —
+      // most likely on a PDF tab, where injection is least dependable.
+      tabResolved = true;
       setStatus(m.cannotRead(String(error)), true);
+      if (result !== null) showPayload(result);
       return;
     }
 
@@ -182,9 +213,12 @@ async function main(): Promise<void> {
     // messages back; if the clipper dies mid-run the popup would otherwise sit
     // on "Reading page…" forever.
     setTimeout(() => {
+      tabResolved = true;
       if (result === null) {
         setStatus(m.noClipResult, true);
+        return;
       }
+      showPayload(result);
     }, 10_000);
   }
 
@@ -214,16 +248,22 @@ async function main(): Promise<void> {
         fetch: (input, init) => fetch(input, init),
         parse: (html) => new DOMParser().parseFromString(html, "text/html"),
       });
-      fetched = true;
-      fullTextSettled = true;
-      sourceUrl = clip.sourceUrl;
+      fetchResolved = true;
+      // arxiv.org had only the abstract. Another renderer of the same corpus
+      // may have managed more, so ask the tab — but only when the tab is not
+      // arxiv.org itself, which was just fetched at this very URL and can have
+      // nothing else to say. Declining to ask is itself an answer: without
+      // this the gate would wait on a source that is never going to report.
+      const askTab = clip.sourceUrl === undefined && !isArxivOrg(tabUrl);
+      if (!askTab) tabResolved = true;
       // Only now: a failed fetch reads the tab after all, and this would then
       // describe a read that did not happen.
       el.notice.textContent = m.arxivNotice;
       // No source URL means the abstract page *was* what was read, which is
       // worth saying: this paper has no HTML full text to have missed.
       if (clip.sourceUrl === undefined) standingNote = m.arxivAbstractOnly;
-      showPayload(clip.payload);
+      offer(clip.payload, true, clip.sourceUrl);
+      if (askTab) await extract();
     } catch (error) {
       await settleOnTab(m.arxivFailed(String(error)));
     }
@@ -238,7 +278,7 @@ async function main(): Promise<void> {
    * would otherwise re-evaluate the gate.
    */
   async function settleOnTab(note: string): Promise<void> {
-    fullTextSettled = true;
+    fetchResolved = true;
     standingNote = note;
     if (result === null) {
       await extract();
@@ -292,11 +332,7 @@ async function main(): Promise<void> {
         const nowIso = new Date().toISOString();
         const file = await buildClipFile({
           url: payload.url,
-          // A tab clip on a paper still came from one of its URL forms, and the
-          // article is filed under another — so the body's origin is recorded
-          // whichever path produced it. buildClipFile drops it when it agrees
-          // with the canonical URL, so an ordinary page records nothing.
-          sourceUrl: sourceUrl ?? tabSourceUrl(payload.url),
+          sourceUrl,
           title: payload.title,
           markdown: payload.markdown,
           excerpt: payload.excerpt,
@@ -359,6 +395,25 @@ async function main(): Promise<void> {
   }
 
   await prepare();
+}
+
+/**
+ * True when the tab is arxiv.org itself.
+ *
+ * Its `/html/` URL is exactly what a fetch targets, so reading the tab could
+ * never produce a body the fetch did not — which is why the abstract fallback
+ * does not bother. ar5iv is a separate deployment of the same converter and can
+ * render a paper arxiv.org only stubs, so that one is worth asking.
+ */
+function isArxivOrg(rawUrl: string): boolean {
+  try {
+    return (
+      new URL(rawUrl).hostname.toLowerCase().replace(/^www\./, "") ===
+      "arxiv.org"
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

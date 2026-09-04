@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import {
   clipArxivPaper,
+  clipReady,
   needsFullTextFetch,
+  prefersCandidate,
   prepareFetchedDocument,
 } from "../src/arxiv.ts";
 import { clipPage } from "../src/clip-page.ts";
@@ -272,5 +274,69 @@ describe("clipPage reports whether the tab holds the paper", () => {
       deps({ "https://arxiv.org/abs/1412.6980": absHtml }),
     );
     expect(needsFullTextFetch(clip.payload, true)).toBe(true);
+  });
+});
+
+describe("prefersCandidate", () => {
+  const tabAbstract = { latexmlFullText: false, fromFetch: false };
+  const tabFullText = { latexmlFullText: true, fromFetch: false };
+  const fetchedAbstract = { latexmlFullText: false, fromFetch: true };
+  const fetchedFullText = { latexmlFullText: true, fromFetch: true };
+
+  test("anything beats nothing", () => {
+    expect(prefersCandidate(null, tabAbstract)).toBe(true);
+  });
+
+  test("the paper beats a page about the paper", () => {
+    expect(prefersCandidate(tabAbstract, fetchedFullText)).toBe(true);
+  });
+
+  /**
+   * The finding, as a test. arxiv.org can answer with only an abstract for a
+   * paper another renderer of the same corpus managed to convert — ar5iv is a
+   * separate deployment — and the fetched body must not displace a full text
+   * the reader is looking at just because it arrived second.
+   */
+  test("a fetched abstract does not displace a tab holding the paper", () => {
+    expect(prefersCandidate(tabFullText, fetchedAbstract)).toBe(false);
+  });
+
+  // On a tie the fetched body is the canonical one, and the only one that
+  // knows which version it came from.
+  test("the fetched body wins a tie, from either side", () => {
+    expect(prefersCandidate(tabFullText, fetchedFullText)).toBe(true);
+    expect(prefersCandidate(fetchedFullText, tabFullText)).toBe(false);
+    expect(prefersCandidate(tabAbstract, fetchedAbstract)).toBe(true);
+    expect(prefersCandidate(fetchedAbstract, tabAbstract)).toBe(false);
+  });
+});
+
+describe("clipReady", () => {
+  const fullText = { latexmlFullText: true, fromFetch: true };
+  const abstract = { latexmlFullText: false, fromFetch: true };
+
+  test("nothing in hand is never ready", () => {
+    expect(clipReady(null, true, true, true)).toBe(false);
+  });
+
+  test("a body that is the paper is ready whatever is outstanding", () => {
+    expect(clipReady(fullText, true, false, false)).toBe(true);
+  });
+
+  // Committing here would replace the paper's article with a page about it.
+  test("waits while a source that could do better has not reported", () => {
+    expect(clipReady(abstract, true, true, false)).toBe(false);
+    expect(clipReady(abstract, true, false, true)).toBe(false);
+  });
+
+  // Including when the answer was "I cannot be read" — a tab that never
+  // reports must not gate the button forever, which is likeliest on the PDF
+  // tab where script injection is least dependable.
+  test("opens once both sources have had their turn", () => {
+    expect(clipReady(abstract, true, true, true)).toBe(true);
+  });
+
+  test("never gates a page that is not a paper", () => {
+    expect(clipReady(abstract, false, false, false)).toBe(true);
   });
 });
