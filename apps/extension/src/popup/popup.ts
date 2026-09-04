@@ -94,6 +94,21 @@ async function main(): Promise<void> {
   /** The injected clipper has reported, or cannot. Set on failure too — a tab
    * that will not read must not gate the button forever. */
   let tabResolved = false;
+  /**
+   * A commit has started, and has not failed.
+   *
+   * Both sources can still deliver while the upload runs, and a body arriving
+   * then must change nothing: re-rendering would hand back a second Clip on top
+   * of the one in flight — two PUTs to the same path — or relabel a finished
+   * clip as ready. It stays set after success, so the screen keeps saying what
+   * happened, and is cleared only on failure, the one case where pressing Clip
+   * again is the right move.
+   *
+   * The late body is dropped rather than applied: the preview has to keep
+   * describing what was committed. Reopening the popup clips it, which is the
+   * "already clipped — clipping again updates it" path.
+   */
+  let committing = false;
   /** A note that belongs beside the preview rather than in the status line,
    * which the next clip result would overwrite. Describes the situation — a
    * declined permission, a failed fetch — so it outlives any one body. */
@@ -113,6 +128,7 @@ async function main(): Promise<void> {
     fromFetch: boolean,
     source: string | undefined,
   ): void {
+    if (committing) return;
     const candidate = { latexmlFullText: payload.latexmlFullText, fromFetch };
     if (!prefersCandidate(best, candidate)) {
       // Still re-render: the losing arrival may have resolved the last source
@@ -128,6 +144,7 @@ async function main(): Promise<void> {
   }
 
   function showPayload(payload: ClipResultMessage["payload"]): void {
+    if (committing) return;
     result = payload;
     // A PDF has nothing to preview and nothing to commit, so it stops here
     // whatever the configuration says: the button is never enabled. Before
@@ -346,6 +363,7 @@ async function main(): Promise<void> {
   el.clip.addEventListener("click", () => {
     if (result === null) return;
     void (async (payload) => {
+      committing = true;
       el.clip.disabled = true;
       setStatus(m.clipping);
       try {
@@ -384,6 +402,7 @@ async function main(): Promise<void> {
         }
       } catch (error) {
         console.error("clip failed:", error);
+        committing = false;
         setStatus(describeClipError(error, m), true);
         el.clip.disabled = false;
       }
