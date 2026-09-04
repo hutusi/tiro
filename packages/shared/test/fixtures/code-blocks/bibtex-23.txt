@@ -1,0 +1,8 @@
+@article{weng2026harness,
+  title = {Harness Engineering for Self-Improvement},
+  author = {Weng, Lilian},
+  journal = {lilianweng.github.io},
+  year = {2026},
+  month = {July},
+  url = "https://lilianweng.github.io/posts/2026-07-04-harness/"
+}

@@ -1,0 +1,85 @@
+import anthropic
+from anthropic.types.beta import (
+    BetaMessageParam,
+    BetaToolParam,
+    BetaToolResultBlockParam,
+)
+
+client = anthropic.Anthropic()
+
+BATCH_NUDGE = (
+    "First privately list what you need next; then request every item "
+    "that doesn't depend on another's result in this one response."
+)
+# In-memory files stand in for a working directory so the sample runs anywhere.
+FILES = {
+    "pyproject.toml": """\
+[project]
+name = "demo"
+version = "0.1.0"
+description = "Demo project for the batching example"
+""",
+    "README.md": """\
+# demo
+
+A small demo project. Run `demo --help` for usage.
+""",
+}
+tools: list[BetaToolParam] = [
+    {
+        "name": "read_file",
+        "description": "Read a UTF-8 text file from the working directory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    }
+]
+messages: list[BetaMessageParam] = [
+    {"role": "user", "content": "Summarize pyproject.toml and README.md."}
+]
+
+while True:
+    response = client.beta.messages.create(
+        model="claude-fable-5-1",
+        max_tokens=16000,
+        betas=["mid-conversation-system-clear-at-2026-08-21"],
+        tools=tools,
+        messages=messages,
+    )
+    # Append the assistant turn exactly as returned, thinking blocks included.
+    messages.append({"role": "assistant", "content": response.content})
+    if response.stop_reason != "tool_use":
+        break
+    tool_results: list[BetaToolResultBlockParam] = []
+    for block in response.content:
+        if block.type == "tool_use":
+            raw_path = block.input.get("path")
+            path = raw_path if isinstance(raw_path, str) else ""
+            if path in FILES:
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": FILES[path],
+                    }
+                )
+            else:
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": f"File not found: {path}",
+                        "is_error": True,
+                    }
+                )
+    # Send the tool results as the user turn, then a fresh copy of the nudge as a
+    # turn-scoped system message. Leave earlier copies in place: the API clears them,
+    # so the model sees only the newest one.
+    messages.append({"role": "user", "content": tool_results})
+    messages.append(
+        {"role": "system", "content": BATCH_NUDGE, "clear_at": "next_user_message"}
+    )
+
+print(next((block.text for block in response.content if block.type == "text"), ""))

@@ -1,0 +1,5 @@
+$ dig example.com A
+
+;; ANSWER SECTION:
+example.com.        300    IN    A        198.51.100.1
+example.com.        300    IN    A        198.51.100.2

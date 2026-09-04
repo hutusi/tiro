@@ -1,0 +1,11 @@
+pub struct CacheEntry {
+    timestamp: UnixTimeStamp,
+    pub inception: Instant,
+    pub ttl: Ttl,
+    pub hits: u32,
+    pub answers: Vec<Record>,
+    pub authority: Vec<Record>,
+    pub additional: Vec<Record>,
+    pub errors: Vec<ExtendedError>,
+    ...
+}

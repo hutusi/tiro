@@ -10,7 +10,7 @@ throughout; Astro 7 + Tailwind 4 for the site.
 Product decisions that look odd but are deliberate:
 
 - **The site is fully public** — no auth tier. The owner accepted the trade-off; consequently *all* clipped HTML must be sanitized before rendering (invariant 5 below).
-- **All content lives in the vault repo, never here.** This repo is code only; the vault holds articles, config, and the processing workflow. The two meet in CI (the vault workflow checks this repo out; the deploy workflow checks the vault out).
+- **All content lives in the vault repo, never here.** This repo is code only; the vault holds articles, config, and the processing workflow. The two meet in CI (the vault workflow checks this repo out; the deploy workflow checks the vault out). **One bounded exception:** `packages/shared/test/fixtures/code-blocks` holds short verbatim **code blocks** taken from real clipped articles, because the language detector's whole job is judging real-world content and a fixture invented by the same person as the rule tests only that person's assumptions — this corpus caught two rule-ordering bugs, a YAML guard that rejected a flow mapping for ending a line with `}`, and a Rust enum whose only signal was its variants, none of which a synthetic block would have exposed. This is an owner decision, taken deliberately against the rule above rather than by oversight. The exception covers code blocks and nothing else: whole articles, frontmatter, prose bodies and assets stay in the vault. One block per file, as it stood in one article — the longest today is 85 lines, and a block that needs trimming to fit is a block whose shape you have stopped testing. Remember this repo is public while the vault is private: keep the count to what the rules actually need, and prefer a block whose licence you would be comfortable quoting. `fixtures/vault` stays fake by contrast — it tests the *contract*, where the shapes are known and can be invented.
 - **The LLM is provider-configurable, never hardcoded** — an OpenAI-compatible endpoint set in the vault's `config/tiro.yml` (ADR 0004).
 - `vault-template/` is the **bootstrap template** for new vaults; the *live* vault's config evolves independently (it currently runs `glm-5.2` while the template ships a generic default). Editing the template does not change the live vault — propagate deliberate changes by hand.
 
@@ -24,6 +24,7 @@ Product decisions that look odd but are deliberate:
 | `apps/site` | Astro site (side-by-side reader, Pagefind search), deployed to Cloudflare Pages |
 | `vault-template/` | Files to bootstrap a new vault repo |
 | `fixtures/vault` | Fake vault for tests and local site dev — its articles must stay contract-valid (test-enforced) |
+| `packages/shared/test/fixtures/code-blocks` | **Real** code blocks from the live vault, one per file, expected language in the filename (`plain-` = leave alone). The language detector's corpus — see the exception above |
 
 ## Commands
 
@@ -38,6 +39,7 @@ bun run --cwd apps/site dev          # site dev against fixtures/vault — no va
 bun run --cwd apps/site build        # assets + astro build + pagefind — part of the verify gate
 bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 bun run --cwd apps/extension sweep -- --vault <dir> [--baseline <ref>] [--only S]
+bun run --cwd apps/extension sweep -- --vault <dir> --fill-languages [--write]
 ```
 
 ## Development workflow
@@ -77,7 +79,7 @@ bun run --cwd apps/extension sweep -- --vault <dir> [--baseline <ref>] [--only S
 Update whichever of these covers what you changed — in the same change:
 
 - [docs/architecture.md](docs/architecture.md) — system diagram, data flow, contract summary, credentials table, risk register. Tracks: pipeline stages, workflows, cross-repo wiring.
-- [docs/adr/](docs/adr/) — decision records 0001–0010. A reversed decision gets a superseding ADR, not a silent edit.
+- [docs/adr/](docs/adr/) — decision records 0001–0012. A reversed decision gets a superseding ADR, not a silent edit.
 - [docs/operations.md](docs/operations.md) — day-2 runbook. Tracks: secrets and PAT scopes, LLM config, reprocess/deploy procedures, failure signatures. Anything touching workflows, secrets, or config lands here.
 - [vault-template/README.md](vault-template/README.md) — vault bootstrap instructions. Tracks: vault layout, required secrets, manual operations.
 - `CHANGELOG.md` — release-worthy milestones under `[Unreleased]`; fine-grained history is the git log.

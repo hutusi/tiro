@@ -392,6 +392,38 @@ that, but `git worktree remove` is the tidy way). Worktrees are named by the
 resolved commit, never by the ref, so a `--baseline main` run after `main` moves
 checks out the new commit instead of silently reusing the old one.
 
+#### Backfilling fence languages
+
+`--fill-languages` is the third mode, and the only one that writes to the vault.
+It re-clips each page and copies the fence languages today's clipper recovers
+onto the bare fences already committed — which is how a clip taken before the
+language chain existed gets its labels without a re-clip (ADR 0012).
+
+```sh
+# What would it label? (reports only)
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --fill-languages
+
+# Apply it
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --fill-languages --write
+```
+
+Read the report before passing `--write`, and commit the vault separately from
+anything else so the diff stays reviewable. Lines beginning `!` are fences left
+bare because the page's declared language and the site's inference disagree —
+pages do get this wrong, and `claude.com/blog` mislabelled 4 of its own 13
+blocks. Judge those by hand; writing one in makes it permanent. The edit touches nothing but each
+fence's opening line, and it rewrites `index.md` and `zh.md` together — a
+language in one file alone breaks the byte-identity `checkAlignment` requires of
+code blocks, which drops the article out of side-by-side rendering silently. An
+article whose two files do not correspond is refused rather than half edited,
+and an article with no `zh.md` has only its `index.md` written. Both files go
+through a temporary and a rename, so an interrupted run leaves the article as it
+was rather than half-labelled.
+
+It does not touch `tiro.processed_at`, so nothing becomes pending and the
+processor will not re-run. `.tiro-zh-cache.json` is keyed by content hash but
+holds no verbatim blocks, so relabelling a fence orphans nothing.
+
 Read the output as a prompt for judgement, not a verdict:
 
 - **A positive delta is a re-clip candidate**, and worth confirming is caused by
@@ -515,6 +547,8 @@ permanent extension ID, unrelated to the unpacked one.
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |
 | Several articles pending while only one is ever attempted | pre-ADR-0008 alphabetical ordering starved the rest | fixed: articles now run cheapest-first under a budget |
 | Site build logs `shiki: no grammar for "x"` | a fence whose language is outside the curated grammar list in `apps/site/src/lib/highlight.ts` | harmless — the block renders as plain text. Add the grammar there if the language is worth supporting |
+| A code block is highlighted as the wrong language | a bare fence, inferred wrongly by `packages/shared/src/detect-language.ts` (ADR 0012) | add the block to `packages/shared/test/fixtures/code-blocks/` with the right answer in its filename, then tighten the rule that fired. Nothing is wrong in the vault — the guess is made at build time |
+| A code block that is prose is highlighted at all | the same, and the more serious direction: about 16 of the vault's fenced blocks are prose | as above, expecting `plain-` — and prefer narrowing the rule over adding a prose test, since nothing should fire without a positive signature |
 | A red formula on the page, `katex-error` in the HTML | the clipped LaTeX does not parse | by design: KaTeX never fails the build. Hover the formula for KaTeX's own message, then fix the markdown in the vault |
 | A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |
 | A price renders as a formula | `has_math: true` on an article whose literal dollars are not escaped | escape them as `\$`, or clear the flag |

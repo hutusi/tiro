@@ -1,0 +1,6 @@
+pub struct CacheKey {
+    qname: Name,
+    qtype: Rtype,
+    authenticated: bool,
+    tag: Vec<u8>,
+}

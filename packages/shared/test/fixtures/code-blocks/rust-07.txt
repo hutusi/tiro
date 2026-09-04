@@ -1,0 +1,8 @@
+pub enum RecordData {
+    A(Ipv4Addr),
+    Aaaa(Ipv6Addr),
+    Txt(Txt),
+    Naptr(Naptr),
+    Svcb(Svcb),
+    // ...
+}

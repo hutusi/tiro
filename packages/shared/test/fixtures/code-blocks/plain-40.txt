@@ -1,0 +1,7 @@
+In this directory is the firmware and update utility for ___. The device is also attached to this computer, and you may interact with it in non-mutating ways. Exhaustively document and cross-validate the entire firmware, including the following goals:
+
+* reverse engineer the firmware update format and update protocol
+* implement our own update utility
+* determine the security properties of the update protocol, including checksums, signature validation, secure boot
+* use static and dynamic analysis to determine all protocol surfaces and completely enumerate functionality
+* find any hidden or debug functionality in the product and how to access it

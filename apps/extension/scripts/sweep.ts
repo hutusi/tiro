@@ -16,6 +16,12 @@
  *                          break anything on the corpus?" — the check to run
  *                          before merging a clipper change.
  *
+ *   --fill-languages       Language backfill. Clips each page, and copies the
+ *                          fence languages the current clipper recovers onto
+ *                          the bare fences already committed. Answers "what
+ *                          can today's clipper tell me about yesterday's
+ *                          clips?" — reports only, until `--write`.
+ *
  *   (default)              Re-clip advisor. Compares a fresh clip against the
  *                          body committed in the vault. Answers "which
  *                          articles would gain from being re-clipped?"
@@ -43,10 +49,25 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { foldedFigureCount, imageOffsets, parseArticle } from "@tiro/shared";
+import {
+  canonicalLanguage,
+  checkAlignment,
+  detectLanguage,
+  foldedFigureCount,
+  imageOffsets,
+  parseArticle,
+  splitBlocks,
+} from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 
@@ -202,6 +223,373 @@ function describe(before: Counts, after: Counts): string | null {
   return parts.join(", ");
 }
 
+/* ---------------------------------------------------------------- backfill */
+
+interface Span {
+  start: number;
+  end: number;
+  text: string;
+}
+
+const FENCE = /^(`{3,}|~{3,})/;
+
+/**
+ * Every top-level code block in a document, with the offsets to edit it.
+ *
+ * `Block` carries the source slice but not where it came from, and the slices
+ * arrive in document order, so a cursor walk recovers the offsets exactly
+ * without re-parsing or guessing at a unique substring.
+ */
+function codeSpans(source: string): Span[] {
+  const spans: Span[] = [];
+  let cursor = 0;
+  for (const block of splitBlocks(source)) {
+    const at = source.indexOf(block.text, cursor);
+    if (at === -1) continue;
+    cursor = at + block.text.length;
+    if (block.type === "code") {
+      spans.push({ start: at, end: cursor, text: block.text });
+    }
+  }
+  return spans;
+}
+
+/** The info string on a fence's opening line, empty when it is bare. */
+function fenceInfo(text: string): string {
+  const line = text.split("\n", 1)[0] ?? "";
+  return FENCE.test(line) ? line.replace(FENCE, "").trim() : "";
+}
+
+/**
+ * The code inside a fence, as a key for matching one clip against another.
+ *
+ * Trailing whitespace and blank edges are noise that Turndown can move between
+ * runs, and a key that keeps them makes a block fail to match itself.
+ */
+function fenceKey(text: string): string {
+  const lines = text.split("\n");
+  const last = lines[lines.length - 1] ?? "";
+  const end = FENCE.test(last) ? lines.length - 1 : lines.length;
+  return lines
+    .slice(1, end)
+    .map((line) => line.replace(/\s+$/, ""))
+    .join("\n")
+    .replace(/^\n+|\n+$/g, "");
+}
+
+/** Rewrite a fence's opening line to carry `language`. */
+function withInfo(text: string, language: string): string {
+  const newline = text.indexOf("\n");
+  if (newline === -1) return text;
+  const fence = text.slice(0, newline).match(FENCE)?.[1];
+  if (fence === undefined) return text;
+  return `${fence}${language}${text.slice(newline)}`;
+}
+
+/** Apply edits right to left, so earlier offsets stay valid. */
+function applyEdits(
+  source: string,
+  edits: (Span & { text: string })[],
+): string {
+  let out = source;
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
+  }
+  return out;
+}
+
+/**
+ * The language each block of a fresh clip declares, keyed by its code.
+ *
+ * A key that two blocks of the same page disagree about is dropped rather than
+ * resolved: the same snippet shown twice under different languages is a real
+ * shape, and there is no way to tell from the vault which copy is which.
+ */
+function declaredLanguages(markdown: string): Map<string, string> {
+  const found = new Map<string, string>();
+  const rejected = new Set<string>();
+  for (const span of codeSpans(markdown)) {
+    const language = fenceInfo(span.text);
+    if (language === "") continue;
+    const key = fenceKey(span.text);
+    if (key === "" || rejected.has(key)) continue;
+    const seen = found.get(key);
+    if (seen !== undefined && seen !== language) {
+      found.delete(key);
+      rejected.add(key);
+      continue;
+    }
+    found.set(key, language);
+  }
+  return found;
+}
+
+interface Conflict {
+  declared: string;
+  inferred: string;
+  /** The block's first line, so the report can be judged without opening it. */
+  opening: string;
+}
+
+interface Backfill {
+  /** Languages written, in document order, for the report. */
+  languages: string[];
+  /** Fences left bare because the page and the inference disagree. */
+  conflicts: Conflict[];
+  index: string;
+  zh: string | null;
+  /** Set when the edit was refused; nothing is written. */
+  refused?: string;
+}
+
+/**
+ * Whether a page's stated language and the site's inference actually disagree.
+ *
+ * Not every difference is one: a page writes `ts` where the site says
+ * `typescript`, and both are the same answer, so the label is normalized before
+ * comparing. An inference of `null` is no opinion rather than a contradiction —
+ * most fences have none, and the page's label must still be written for those.
+ *
+ * A real disagreement is a signal worth stopping for, because this is the step
+ * that makes a label permanent. `claude.com/blog` mislabels 4 of its own 13
+ * blocks — a markdown document tagged `javascript`, a GitHub Actions step
+ * tagged `markdown` — which is what a per-block dropdown in a CMS produces, and
+ * writing those into the vault renders `- Build:` with the `-` coloured as a
+ * minus operator for as long as the article exists.
+ */
+function conflicts(declared: string, code: string): Conflict | null {
+  const inferred = detectLanguage(code);
+  if (inferred === null) return null;
+  // The same canonicalizer the site resolves grammars through, so `ts` against
+  // an inferred `typescript` is one answer rather than a dispute.
+  const canonical = canonicalLanguage(declared);
+  if (canonical === null || canonical === inferred) return null;
+  // `text` is a page saying "this is not code", which is exactly the answer
+  // inference is not entitled to overrule. Treating the difference as a
+  // conflict left the fence bare, and a bare fence is where inference runs —
+  // so a block the page called plain came out highlighted, while a plain
+  // re-clip of the same page would have written ```text and rendered it plain.
+  // The backfill must not diverge from a re-clip.
+  if (canonical === "plaintext") return null;
+  return {
+    declared,
+    inferred,
+    opening: (code.split("\n", 1)[0] ?? "").slice(0, 60),
+  };
+}
+
+/**
+ * Copy a fresh clip's fence languages onto an article's bare fences.
+ *
+ * `zh.md` moves in lockstep or nothing moves at all. `checkAlignment` compares
+ * a `code` block's *source slice*, fence lines included, so a language written
+ * into `index.md` alone breaks byte-identity — and a misaligned article is not
+ * rendered wrong, it silently stops rendering side by side at all (ADR 0003).
+ * Both files are therefore rewritten together and the result is re-checked
+ * before either is offered for writing.
+ */
+export function backfill(
+  indexText: string,
+  zhText: string | null,
+  fresh: string,
+): Backfill | null {
+  const { body } = parseArticle(indexText);
+  const languages = declaredLanguages(fresh);
+  if (languages.size === 0) return null;
+
+  const indexEdits: (Span & { text: string })[] = [];
+  const zhEdits: (Span & { text: string })[] = [];
+  const written: string[] = [];
+  const disputed: Conflict[] = [];
+  const zhSpans = zhText === null ? [] : codeSpans(zhText);
+
+  for (const span of codeSpans(body)) {
+    if (fenceInfo(span.text) !== "") continue;
+    const key = fenceKey(span.text);
+    const language = key === "" ? undefined : languages.get(key);
+    if (language === undefined) continue;
+
+    const conflict = conflicts(language, key);
+    if (conflict !== null) {
+      disputed.push(conflict);
+      continue;
+    }
+
+    if (zhText !== null) {
+      // Matched on the whole slice, not the key: the translation holds this
+      // block byte-for-byte, and anything looser would pair two blocks that
+      // merely normalize alike.
+      const mate = zhSpans.find(
+        (other) =>
+          other.text === span.text &&
+          !zhEdits.some((e) => e.start === other.start),
+      );
+      // A block with no counterpart means the two files already disagree.
+      // Editing one of them cannot improve that and can only deepen it.
+      if (mate === undefined) {
+        return {
+          languages: [],
+          conflicts: disputed,
+          index: indexText,
+          zh: zhText,
+          refused: "index.md and zh.md do not correspond",
+        };
+      }
+      zhEdits.push({ ...mate, text: withInfo(mate.text, language) });
+    }
+    indexEdits.push({ ...span, text: withInfo(span.text, language) });
+    written.push(language);
+  }
+
+  if (indexEdits.length === 0) {
+    return disputed.length === 0
+      ? null
+      : { languages: [], conflicts: disputed, index: indexText, zh: zhText };
+  }
+
+  const newBody = applyEdits(body, indexEdits);
+  // `body` is a suffix of the file — `parseArticle` slices the frontmatter off
+  // its front — so the head is exactly what precedes it.
+  const head = indexText.slice(0, indexText.length - body.length);
+  const newIndex = head + newBody;
+  const newZh = zhText === null ? null : applyEdits(zhText, zhEdits);
+
+  if (newZh !== null) {
+    const result = checkAlignment(splitBlocks(newBody), splitBlocks(newZh));
+    if (!result.ok) {
+      return {
+        languages: [],
+        conflicts: disputed,
+        index: indexText,
+        zh: zhText,
+        refused: `alignment would break (${result.errors[0] ?? "unknown"})`,
+      };
+    }
+  }
+  return {
+    languages: written,
+    conflicts: disputed,
+    index: newIndex,
+    zh: newZh,
+  };
+}
+
+function tally(languages: string[]): string {
+  const counts = new Map<string, number>();
+  for (const one of languages) counts.set(one, (counts.get(one) ?? 0) + 1);
+  return [...counts]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([language, n]) => (n === 1 ? language : `${language}×${n}`))
+    .join(", ");
+}
+
+/**
+ * Write an article's files so a failure cannot leave them disagreeing.
+ *
+ * `index.md` and `zh.md` have to change together — a language in one alone
+ * breaks the byte-identity `checkAlignment` requires — and a plain pair of
+ * writes fails that in two ways: a torn write leaves one file corrupt, and a
+ * failure between the two leaves the article half-labelled. Neither is
+ * repairable by a later run, which skips a fence that already carries a
+ * language.
+ *
+ * Both files are written whole to temporaries first, so nothing is in place
+ * until everything has been produced, and then renamed. The window that
+ * remains is between two renames: no I/O happens in it, and this writes to a
+ * git repository whose diff the operator is about to read. A durable journal
+ * would close it, and would be a great deal of machinery for a local tool
+ * whose recovery is `git checkout`.
+ */
+async function writeTogether(
+  files: readonly (readonly [path: string, text: string])[],
+): Promise<void> {
+  const staged: [temp: string, path: string][] = [];
+  try {
+    for (const [path, text] of files) {
+      const temp = `${path}.tiro-tmp`;
+      await writeFile(temp, text);
+      staged.push([temp, path]);
+    }
+  } catch (error) {
+    await Promise.all(staged.map(([temp]) => rm(temp, { force: true })));
+    throw error;
+  }
+  for (const [temp, path] of staged) await rename(temp, path);
+}
+
+async function fillLanguages(
+  articles: Article[],
+  args: ReturnType<typeof parseArgs>,
+): Promise<{ failed: number }> {
+  console.log(
+    `Language backfill — ${articles.length} article(s)` +
+      (args.write ? "" : " (reporting only; pass --write to apply)"),
+  );
+  let filled = 0;
+  let fences = 0;
+  let failed = 0;
+  let disputed = 0;
+  for (const article of articles) {
+    const dir = join(args.vault, "articles", article.slug);
+    const indexPath = join(dir, "index.md");
+    const zhPath = join(dir, "zh.md");
+    let result: Backfill | null;
+    let indexText: string;
+    let zhText: string | null;
+    try {
+      const html = await fetchPage(article.url, args.pages, article.slug);
+      const fresh = await clipHtml(html, article.url, clipPage);
+      indexText = await readFile(indexPath, "utf-8");
+      zhText = existsSync(zhPath) ? await readFile(zhPath, "utf-8") : null;
+      result = backfill(indexText, zhText, fresh);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.log(`  ?  ${article.slug}: ${reason}`);
+      failed++;
+      continue;
+    }
+    if (result === null) continue;
+    if (result.refused !== undefined) {
+      console.log(`  !  ${article.slug}: refused — ${result.refused}`);
+      failed++;
+      continue;
+    }
+    if (result.languages.length > 0) {
+      filled++;
+      fences += result.languages.length;
+      console.log(
+        `  ${article.slug}: ${result.languages.length} fence(s) — ${tally(result.languages)}`,
+      );
+    }
+    for (const conflict of result.conflicts) {
+      disputed++;
+      console.log(
+        `  !  ${article.slug}: left bare — page says ${conflict.declared}, ` +
+          `code reads ${conflict.inferred}\n     ${conflict.opening}`,
+      );
+    }
+    if (!args.write || result.languages.length === 0) continue;
+    await writeTogether(
+      result.zh === null
+        ? [[indexPath, result.index]]
+        : [
+            [indexPath, result.index],
+            [zhPath, result.zh],
+          ],
+    );
+  }
+  const verb = args.write ? "labelled" : "would be labelled";
+  const notes = [
+    disputed > 0 ? `${disputed} left bare over a disagreement` : "",
+    failed > 0 ? `${failed} could not be read or were refused` : "",
+  ].filter((note) => note !== "");
+  console.log(
+    `\n${fences} fence(s) in ${filled} of ${articles.length} article(s) ${verb}` +
+      (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
+  );
+  return { failed };
+}
+
 function parseArgs(argv: string[]) {
   const get = (name: string) => {
     const i = argv.indexOf(`--${name}`);
@@ -211,7 +599,8 @@ function parseArgs(argv: string[]) {
   if (vault === undefined) {
     console.error(
       "usage: sweep --vault <dir> [--baseline <git-ref>] [--cache <dir>]\n" +
-        "             [--only <slug>] [--min-chars <n>]",
+        "             [--only <slug>] [--min-chars <n>]\n" +
+        "       sweep --vault <dir> --fill-languages [--write] [--only <slug>]",
     );
     process.exit(2);
   }
@@ -219,8 +608,17 @@ function parseArgs(argv: string[]) {
   // in a dynamic import(), not the working directory, so the baseline clipper
   // would be looked for beside this script.
   const cache = resolve(get("cache") ?? ".sweep-cache");
+  const fillLanguages = argv.includes("--fill-languages");
+  if (fillLanguages && argv.includes("--baseline")) {
+    console.error("--fill-languages and --baseline answer different questions");
+    process.exit(2);
+  }
   return {
     vault,
+    fillLanguages,
+    // Reporting is the default because this is the one mode that writes to the
+    // content repo, and the run that changes it should be one someone has read.
+    write: argv.includes("--write"),
     baseline: get("baseline"),
     only: get("only"),
     // Pages and worktrees are kept apart because the documented way to refresh
@@ -255,6 +653,16 @@ async function main() {
   if (articles.length === 0) {
     console.error("no articles matched");
     process.exit(2);
+  }
+
+  if (args.fillLanguages) {
+    const { failed } = await fillLanguages(articles, args);
+    // Same reasoning as the sweep's own guard below: some articles failing is
+    // information about those articles, all of them failing is information
+    // about the invocation and must not read as a clean run to a caller that
+    // only checks the status.
+    if (failed === articles.length) process.exit(1);
+    return;
   }
 
   // Resolved once: importing the baseline clipper is the only part that can
