@@ -63,8 +63,16 @@ const updated = "2026-08-29";
     <h3>扩展发送什么、发到哪里</h3>
     <ul>
       <li>
-        唯一的网络目标是 <code>https://api.github.com</code>，这也是扩展在
-        <code>host_permissions</code> 中申请的唯一域名。
+        唯一始终申请的网络目标是 <code>https://api.github.com</code>，也是
+        <code>host_permissions</code> 中的唯一域名。
+      </li>
+      <li>
+        <code>https://arxiv.org</code> 是一项<strong>可选</strong>权限，仅在你
+        首次剪藏 arXiv 论文并明确同意 Chrome 的授权提示后才会生效。同意后，扩展
+        会直接抓取该论文的 HTML 全文（<code>arxiv.org/html/&lt;id&gt;</code>）
+        而不是读取当前标签页——因为 <code>/abs/</code>、<code>/pdf/</code> 和
+        <code>/html/</code> 在 Tiro 中是同一篇文章，只读摘要页会覆盖掉全文。 不授权则不会发出任何请求，扩展仍只剪藏你当前看到的页面；你可以随时在
+        Chrome 的扩展设置中撤销。
       </li>
       <li>
         点击「剪藏」后，扩展用你自己的令牌把这些内容提交到你自己的仓库：正文的
@@ -147,9 +155,20 @@ const updated = "2026-08-29";
     <h3>What it sends, and where</h3>
     <ul>
       <li>
-        The only network destination is <code>https://api.github.com</code>,
-        which is also the only entry in the extension's
-        <code>host_permissions</code>.
+        The only network destination it always asks for is
+        <code>https://api.github.com</code>, which is also the only entry in the
+        extension's <code>host_permissions</code>.
+      </li>
+      <li>
+        <code>https://arxiv.org</code> is an <strong>optional</strong>
+        permission, granted only if you accept Chrome's prompt the first time you
+        clip an arXiv paper. Once granted, the extension fetches that paper's HTML
+        full text (<code>arxiv.org/html/&lt;id&gt;</code>) instead of reading
+        the tab — because <code>/abs/</code>, <code>/pdf/</code> and
+        <code>/html/</code> are one article in Tiro, and clipping the abstract page
+        alone would replace the full text with it. Decline and no request is made
+        at all; the extension keeps clipping the page you are looking at. You can
+        revoke it at any time in Chrome's extension settings.
       </li>
       <li>
         When you click Clip, it commits to your own repository, with your own

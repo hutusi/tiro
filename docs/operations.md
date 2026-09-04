@@ -284,6 +284,52 @@ window safely). The 0007 migration was
   year directories; a new extension against an unmigrated vault duplicates
   the article at the flat path.
 
+## Slug migrations
+
+A *layout* change moves every article; a **slug-rule** change moves only the
+articles whose URLs the rule touches, and it is the identity itself that moves.
+Adding arXiv canonicalization (ADR 0013) renamed 2 of 36 articles. The gate is
+`validate`, which recomputes `slugForUrl(frontmatter.url)` per article and exits
+non-zero when it disagrees with the directory name; the repair is
+`sweep --recanonicalize`, which is the only thing that can carry it out.
+
+Why it matters: an article under a stale name is invisible to the next clip of
+its own page. The clip derives the new slug, finds nothing there, and creates a
+second article beside the first.
+
+```sh
+# 1. Land the code on main. The vault workflow checks out tiro@main, so the
+#    window between this and step 3 must stay deploy-free.
+
+# 2. Report first — this run writes nothing.
+bun run --cwd apps/extension sweep -- --vault ../tiro-vault --recanonicalize
+
+# 3. Apply, then check the diff before committing.
+bun run --cwd apps/extension sweep -- --vault ../tiro-vault --recanonicalize --write
+git -C ../tiro-vault status
+
+# 4. The gate. Must report 0 errors.
+bun run packages/processor/src/cli.ts validate --vault ../tiro-vault
+
+# 5. Commit in the vault, then deploy by hand: a hand-pushed vault change
+#    never dispatches vault-updated, so the site would keep serving old
+#    content silently.
+gh workflow run "Deploy site" --repo hutusi/tiro --ref main
+```
+
+- **Bodies and `zh.md` are never touched.** Block alignment cannot move,
+  `tiro.processed_at` survives, and nothing is re-queued — the migration costs
+  no LLM calls. Re-clipping the two arXiv articles instead would have meant
+  re-translating ~2,100 lines with no `.tiro-zh-cache.json` to resume from.
+- **Site URLs change and there are no redirects.** The moved articles 404 at
+  their old paths; the feed and sitemap regenerate on deploy.
+- **Don't clip during the window**, for the same reason as a layout migration:
+  a new extension against an unmigrated vault duplicates the article at the new
+  slug.
+- **An existing target is refused, not renamed onto** — `rename` nests the
+  source inside an existing directory rather than failing. The run reports it
+  and exits non-zero.
+
 ## Extension
 
 ### Development machine
@@ -296,6 +342,23 @@ window safely). The 0007 migration was
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
+
+### The arXiv permission
+
+`https://arxiv.org/*` is an **optional** host permission, not one held at
+install (`optional_host_permissions` in `manifest.json`). The popup asks for it
+the first time you clip an arXiv paper, from the Clip flow's own user gesture —
+`chrome.permissions.request` refuses without one, which is why an already-granted
+popup skips the call rather than making it on open.
+
+- Granted: an arXiv page behaves like any other — preview on open, one click.
+- Not granted: nothing is fetched. The tab is previewed as usual and a
+  "Fetch HTML full text" button appears beside it.
+- Revoking it (`chrome://extensions` → Details → Site access) returns the
+  extension to clipping whatever the tab shows.
+
+Being optional is what keeps an update from being disabled pending re-approval;
+a required host permission would add an install-time warning and force one.
 
 ### Data disclosure and the token
 
@@ -394,7 +457,8 @@ checks out the new commit instead of silently reusing the old one.
 
 #### Backfilling fence languages
 
-`--fill-languages` is the third mode, and the only one that writes to the vault.
+`--fill-languages` is the third mode. It and `--recanonicalize` (see **Slug
+migrations** above) are the two that write to the vault.
 It re-clips each page and copies the fence languages today's clipper recovers
 onto the bare fences already committed — which is how a clip taken before the
 language chain existed gets its labels without a re-clip (ADR 0012).

@@ -34,6 +34,19 @@ flowchart LR
    and commits a single `index.md` into the vault via the GitHub Contents API.
    Images stay hotlinked (absolute URLs) at this stage.
 
+   An arXiv paper is the one page not read from the tab. Because `/abs/`,
+   `/pdf/` and `/html/` are one article (ADR 0013), clipping the abstract page
+   would otherwise overwrite a full-text clip with less — so the popup fetches
+   `arxiv.org/html/<id>` itself, under an optional host permission requested
+   from the Clip button's own user gesture, and falls back to the abstract page
+   when arXiv has no usable HTML (a `\includepdf` submission renders as a stub
+   arXiv still serves with HTTP 200). A fetched document is given a `<base>` and
+   has its `src`/`href` attributes rewritten before extraction: Readability
+   absolutizes against `doc.baseURI`, which for a `DOMParser` document is the
+   popup's URL, and the processor downloads only `https?://` URLs — so without
+   it every figure would vanish without an error anywhere. A PDF served to the
+   tab itself is refused outright rather than committed as an empty article.
+
    The repair pass (`apps/extension/src/dom-prepare.ts`) runs on a clone
    *before* Readability, which prunes low-text subtrees it cannot be asked to
    give back. It recovers each formula's LaTeX source (KaTeX/MathJax
@@ -113,6 +126,16 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   host+path + 8-hex SHA-256 suffix). Articles live flat at
   `articles/<slug>/` (ADR 0007), so the path itself guarantees a re-clip
   overwrites the same article and reprocesses it.
+- **A publisher may define its own identity** (ADR 0013). `canonicalizeUrl`
+  runs last in `normalizeUrl` and rewrites a URL to the form its publisher
+  declares canonical — today only arXiv, whose `/abs/`, `/pdf/` and `/html/`
+  forms and `v1`/`v2` suffixes all name one paper, and whose abstract page
+  says so in its own `rel="canonical"`. The rewrite fires only on a known host,
+  a known paper route and an exact identifier match, so `/list/cs.AI/recent`
+  stays an ordinary page. `tiro.source_url` records the URL the body was read
+  from when that is not the article's own — for arXiv, the versioned HTML page.
+  Changing a rule renames existing articles: `validate` detects it,
+  `sweep --recanonicalize` repairs it.
 - **Needs processing** = frontmatter lacks `tiro.processed_at`. Idempotent and
   retry-safe; no dependence on push diffs. Every translated article keeps a
   `.tiro-zh-cache.json` checkpoint beside it: an article too long for one run
