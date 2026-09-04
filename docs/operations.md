@@ -373,7 +373,13 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires.
+  policy also requires. It is at **2**: adding the optional arxiv.org fetch put
+  a second network destination in the disclosure, and a new destination is a
+  practice change whichever way the permission is answered. Both language
+  tables have to say so — a test in `test/i18n.test.ts` asserts that every host
+  named in the disclosure is named in both, because an edit once landed in the
+  English copy and silently missed the Chinese one that this extension actually
+  shows.
 - **The "already clipped" state is local-only by design.** The popup keeps a
   record of successful clips (`tiroClipHistory` in `chrome.storage.local`,
   `owner/repo#branch::slug` → timestamp, capped at 500 — scoped so a vault

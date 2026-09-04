@@ -26,6 +26,25 @@ describe("messages", () => {
     expect(messages("zh").readyToClip).toBe("可以剪藏了。");
   });
 
+  /**
+   * Key parity is not enough: the Chinese disclosure once kept describing only
+   * a read of the current page for a whole release after the English one
+   * gained arxiv.org, because an edit matched the English string and silently
+   * missed the Chinese. The UI language here is Chinese, so that was the copy
+   * the owner actually saw.
+   *
+   * Every host the extension may contact belongs in the disclosure, in both
+   * languages. Add the next one here.
+   */
+  test("both disclosures name every host the extension may contact", () => {
+    for (const locale of ["en", "zh"] as const) {
+      const disclosure = `${messages(locale).disclosureBody1} ${messages(locale).disclosureBody2}`;
+      for (const host of ["arxiv.org", "GitHub"]) {
+        expect(disclosure).toContain(host);
+      }
+    }
+  });
+
   test("the tables expose the same keys", () => {
     // The Messages type enforces this at compile time; the runtime check
     // guards against a key sneaking in through a cast.

@@ -127,7 +127,7 @@ const zh: Messages = {
   noticePreview: "预览在你的浏览器中生成，剪藏前不会发送任何内容。",
   disclosureTitle: "在 Tiro 读取此页面之前",
   disclosureBody1:
-    "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。",
+    "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文，在你授权后，它会改为从 arxiv.org 抓取该论文的 HTML 全文。",
   disclosureBody2:
     "在你点击「剪藏到仓库」之前，这些内容不会离开你的浏览器；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。",
   disclosureAccept: "我知道了，继续",

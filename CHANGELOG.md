@@ -31,6 +31,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   the article's own — for arXiv, the versioned HTML page, which is also where
   the version survives after the identity drops it. Optional and additive, so
   `tiro.schema` stays at 1.
+- **The first-run disclosure re-prompts once** (`DISCLOSURE_VERSION` 2). It now
+  names arxiv.org alongside GitHub, and a new outbound destination is a practice
+  change the Web Store asks to be re-disclosed — whichever way the optional
+  permission is answered.
 - **`sweep --recanonicalize`**, the repair path for a changed identity rule.
   `validate` could already detect that a directory name no longer matches its
   URL's slug but nothing could fix it, and an article under a stale name is
