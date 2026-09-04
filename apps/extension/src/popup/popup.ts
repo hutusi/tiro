@@ -95,8 +95,12 @@ async function main(): Promise<void> {
    * that will not read must not gate the button forever. */
   let tabResolved = false;
   /** A note that belongs beside the preview rather than in the status line,
-   * which the next clip result would overwrite. */
+   * which the next clip result would overwrite. Describes the situation — a
+   * declined permission, a failed fetch — so it outlives any one body. */
   let standingNote: string | null = null;
+  /** The fetch came back with only the abstract page. Says nothing about which
+   * body is on screen: the tab may still have beaten it. */
+  let fetchedAbstractOnly = false;
 
   /**
    * Take a body if it beats the one in hand, and re-render.
@@ -144,6 +148,10 @@ async function main(): Promise<void> {
       countWords(payload.markdown),
     );
     el.warning.hidden = !payload.readabilityFailed;
+    // Says where *this* body came from, so it cannot outlive it — a fetched
+    // preview beaten by the tab would otherwise still claim arxiv.org.
+    el.notice.textContent =
+      best?.fromFetch === true ? m.arxivNotice : m.noticePreview;
     // The whole point of the identity rule is that this article is the paper.
     // Committing the abstract page while its full text is one click away would
     // replace that full text — so the button waits for both sources.
@@ -162,9 +170,19 @@ async function main(): Promise<void> {
     } else if (gated) {
       setStatus(m.arxivOffer);
     }
+    // "This is only the abstract" describes a body, not the session, so it
+    // shows only while that body is the one that won. Without the second
+    // condition it survived a tab full text beating the fetch, and told the
+    // reader an abstract was about to be clipped while the full paper was on
+    // screen.
+    const note =
+      standingNote ??
+      (fetchedAbstractOnly && best?.fromFetch === true
+        ? m.arxivAbstractOnly
+        : null);
     // Last, so it survives the branches above rather than racing them.
-    if (standingNote !== null) {
-      el.warning.textContent = standingNote;
+    if (note !== null) {
+      el.warning.textContent = note;
       el.warning.hidden = false;
     }
   }
@@ -249,21 +267,18 @@ async function main(): Promise<void> {
         parse: (html) => new DOMParser().parseFromString(html, "text/html"),
       });
       fetchResolved = true;
-      // arxiv.org had only the abstract. Another renderer of the same corpus
-      // may have managed more, so ask the tab — but only when the tab is not
-      // arxiv.org itself, which was just fetched at this very URL and can have
-      // nothing else to say. Declining to ask is itself an answer: without
-      // this the gate would wait on a source that is never going to report.
-      const askTab = clip.sourceUrl === undefined && !isArxivOrg(tabUrl);
-      if (!askTab) tabResolved = true;
-      // Only now: a failed fetch reads the tab after all, and this would then
-      // describe a read that did not happen.
-      el.notice.textContent = m.arxivNotice;
-      // No source URL means the abstract page *was* what was read, which is
-      // worth saying: this paper has no HTML full text to have missed.
-      if (clip.sourceUrl === undefined) standingNote = m.arxivAbstractOnly;
+      // No source URL means the abstract page is all that came back.
+      fetchedAbstractOnly = clip.sourceUrl === undefined;
       offer(clip.payload, true, clip.sourceUrl);
-      if (askTab) await extract();
+      // The abstract is not necessarily the best there is. The tab may hold a
+      // rendering this fetch could not produce — ar5iv converts papers
+      // arxiv.org only stubs — and, on any host, the tab is *proof* the content
+      // was retrievable where a transient failure just said otherwise. So ask
+      // it, and let prefersCandidate judge. Asking always is the point: an
+      // earlier version skipped arxiv.org tabs on the grounds that the fetch
+      // had just targeted the identical URL, which is true of the content and
+      // false of whether it arrived.
+      if (fetchedAbstractOnly) await extract();
     } catch (error) {
       await settleOnTab(m.arxivFailed(String(error)));
     }
@@ -395,25 +410,6 @@ async function main(): Promise<void> {
   }
 
   await prepare();
-}
-
-/**
- * True when the tab is arxiv.org itself.
- *
- * Its `/html/` URL is exactly what a fetch targets, so reading the tab could
- * never produce a body the fetch did not — which is why the abstract fallback
- * does not bother. ar5iv is a separate deployment of the same converter and can
- * render a paper arxiv.org only stubs, so that one is worth asking.
- */
-function isArxivOrg(rawUrl: string): boolean {
-  try {
-    return (
-      new URL(rawUrl).hostname.toLowerCase().replace(/^www\./, "") ===
-      "arxiv.org"
-    );
-  } catch {
-    return false;
-  }
 }
 
 /**
