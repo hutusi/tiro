@@ -125,6 +125,38 @@ describe("parseArticle / stringifyArticle", () => {
     });
   });
 
+  test("preserves the URL the body was read from through a processor round-trip", () => {
+    // Same trap as above, and the one that would hurt most: for a canonicalized
+    // publisher the article is filed under a URL nobody visited, so source_url
+    // is the only record of which form produced the text — and of the arXiv
+    // version, which is deliberately not part of the identity.
+    const clipped = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      url: "https://arxiv.org/abs/2404.19756",
+      tiro: {
+        schema: 1,
+        clipper_version: "0.12.0",
+        source_url: "https://arxiv.org/html/2404.19756v1",
+      },
+    });
+    const processed = parseArticle(
+      stringifyArticle(
+        {
+          ...clipped,
+          tiro: {
+            ...clipped.tiro,
+            processed_at: "2026-09-04T11:00:00.000Z",
+            processor_version: "0.1.0",
+          },
+        },
+        "Body.\n",
+      ),
+    );
+    expect(processed.frontmatter.tiro.source_url).toBe(
+      "https://arxiv.org/html/2404.19756v1",
+    );
+  });
+
   test("parses an unquoted YAML timestamp (js-yaml Date) into a string", () => {
     const text = [
       "---",
