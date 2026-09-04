@@ -731,6 +731,20 @@ async function recanonicalizeAll(
       failed++;
       continue;
     }
+    const from = join(root, plan.from);
+    const to = join(root, plan.to);
+    // Before the report, not just before the write: a report is a prediction of
+    // what `--write` will do, and this is a case where it would refuse. Counting
+    // it as a move told the operator to expect a rename they would then be told
+    // they could not have.
+    if (existsSync(to)) {
+      // rename onto an existing directory nests the source inside it instead
+      // of failing — the same trap the 0007 layout migration documented.
+      console.log(`  !  ${plan.to} already exists; left ${plan.from} in place`);
+      failed++;
+      continue;
+    }
+
     moved++;
     const fields =
       plan.refreshed.length === 0
@@ -740,15 +754,6 @@ async function recanonicalizeAll(
     → ${plan.to}${fields}${note}`);
     if (!args.write) continue;
 
-    const from = join(root, plan.from);
-    const to = join(root, plan.to);
-    if (existsSync(to)) {
-      // rename onto an existing directory nests the source inside it instead
-      // of failing — the same trap the 0007 layout migration documented.
-      console.log(`  !  ${plan.to} already exists; left ${plan.from} in place`);
-      failed++;
-      continue;
-    }
     // Written before the rename, not after: a crash between the two leaves the
     // article correct in the old directory, which this same mode fixes on the
     // next run. The other order leaves it moved and stale.
