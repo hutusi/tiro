@@ -125,10 +125,12 @@ const mainClass =
 
       let paper = read(P.PREF_KEYS.paper);
       if (paper === null) {
-        // One-time migration from the pre-redesign light/dark toggle.
+        // One-time migration from the pre-redesign light/dark toggle. Both
+        // values were explicit choices: a reader who picked light on a
+        // dark-mode machine must not wake up on dark paper.
         const legacy = read(P.PREF_KEYS.legacyTheme);
-        if (legacy === "dark") {
-          paper = "dark";
+        if (legacy === "dark" || legacy === "light") {
+          paper = legacy === "dark" ? "dark" : "cream";
           write(P.PREF_KEYS.paper, paper);
         }
         if (legacy !== null) remove(P.PREF_KEYS.legacyTheme);
