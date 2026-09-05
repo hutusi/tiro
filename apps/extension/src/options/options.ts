@@ -1,3 +1,8 @@
+import "@fontsource/spectral/latin-400.css";
+import "@fontsource/spectral/latin-500.css";
+import "@fontsource/spectral/latin-600.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "../ui/tokens.css";
 import { type ConnectionTestResult, testConnection } from "../github.ts";
 import {
   getLocale,
@@ -20,17 +25,17 @@ const input = {
 };
 const label = {
   heading: document.getElementById("heading") as HTMLHeadingElement,
-  owner: document.getElementById("label-owner") as HTMLLabelElement,
-  repo: document.getElementById("label-repo") as HTMLLabelElement,
-  branch: document.getElementById("label-branch") as HTMLLabelElement,
-  token: document.getElementById("label-token") as HTMLLabelElement,
-  tokenHint: document.getElementById("token-hint") as HTMLDivElement,
-  language: document.getElementById("label-language") as HTMLLabelElement,
+  owner: document.getElementById("label-owner") as HTMLSpanElement,
+  repo: document.getElementById("label-repo") as HTMLSpanElement,
+  branch: document.getElementById("label-branch") as HTMLSpanElement,
+  token: document.getElementById("label-token") as HTMLSpanElement,
+  tokenHint: document.getElementById("token-hint") as HTMLParagraphElement,
+  language: document.getElementById("label-language") as HTMLSpanElement,
 };
 const languageSelect = document.getElementById("language") as HTMLSelectElement;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 const testButton = document.getElementById("test") as HTMLButtonElement;
-const result = document.getElementById("result") as HTMLDivElement;
+const result = document.getElementById("result") as HTMLParagraphElement;
 
 // Replaced in init() before any user interaction can reach a handler.
 let m = messages("en");
