@@ -1,4 +1,9 @@
 import { type ArticleFrontmatter, type Block, splitBlocks } from "@tiro/shared";
+import type { Root } from "mdast";
+import { toString as mdastToString } from "mdast-util-to-string";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import { readingMinutes } from "./reading-time.ts";
 
 /**
@@ -37,19 +42,50 @@ export interface LiftedTitles {
   liftedH1: boolean;
 }
 
-// ATX H1 only: `# text`, optionally closed by ` #…`. A closing run must be
-// preceded by whitespace (CommonMark), so "# Learn C#" keeps its "#".
-const ATX_H1 = /^#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/s;
+const parser = unified().use(remarkParse).use(remarkGfm);
 
+/** The plain text of a block when it is an H1 (ATX or setext), else null.
+ * Plain text, not source: `# Hello *AI*` is the title "Hello AI", and a
+ * Chinese title lifted from `zh.md` must not show its emphasis markers. */
 function h1Text(block: Block | undefined): string | null {
   if (block === undefined || block.type !== "heading") return null;
-  const match = ATX_H1.exec(block.text.trim());
-  return match === null ? null : (match[1] ?? "").trim();
+  const node = (parser.parse(block.text) as Root).children[0];
+  if (node === undefined || node.type !== "heading" || node.depth !== 1) {
+    return null;
+  }
+  return mdastToString(node).replace(/\s+/g, " ").trim();
 }
 
-export function liftTitles(body: string, zhBody: string | null): LiftedTitles {
+/** Fold the differences a scraped `<title>` and a body heading disagree on
+ * for no reason — curly quotes, dash widths, case, whitespace — so the
+ * comparison in `liftTitles` asks "is this the same title" and nothing more. */
+export function normalizeTitle(title: string): string {
+  return title
+    .normalize("NFKC")
+    .replace(/[\u2018\u2019\u201a\u201b]/g, "'")
+    .replace(/[\u201c\u201d\u201e\u201f]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Lift the body's opening H1 into the title block — only when it *is* the
+ * title. A body may legitimately open with a section heading
+ * (`# Introduction`); dropping that row would lose content and show its
+ * translation as the article's Chinese title, so anything that does not match
+ * `frontmatter.title` is left exactly where it is.
+ */
+export function liftTitles(
+  body: string,
+  zhBody: string | null,
+  title: string,
+): LiftedTitles {
   const bodyH1 = h1Text(splitBlocks(body)[0]);
-  if (bodyH1 === null) return { titleZh: null, liftedH1: false };
+  if (bodyH1 === null || normalizeTitle(bodyH1) !== normalizeTitle(title)) {
+    return { titleZh: null, liftedH1: false };
+  }
   if (zhBody === null) return { titleZh: null, liftedH1: true };
   const zhH1 = h1Text(splitBlocks(zhBody)[0]);
   // Alignment says the zh first block is a heading too, but never drop a row
@@ -73,7 +109,7 @@ export function articleMeta(article: ArticleLike): ArticleMeta {
     meta = {
       minutes: readingMinutes(article.body),
       status: articleStatus(article.frontmatter),
-      ...liftTitles(article.body, article.zhBody),
+      ...liftTitles(article.body, article.zhBody, article.frontmatter.title),
     };
     cache.set(article, meta);
   }

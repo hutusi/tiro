@@ -4,6 +4,7 @@ import {
   articleMeta,
   articleStatus,
   liftTitles,
+  normalizeTitle,
 } from "../src/lib/article-meta.ts";
 
 function frontmatter(
@@ -63,48 +64,95 @@ describe("articleStatus", () => {
 
 describe("liftTitles", () => {
   test("lifts a mirrored H1 pair into a Chinese title", () => {
-    expect(liftTitles("# Hello, AI\n\nBody.", "# 你好，AI\n\n正文。")).toEqual({
-      titleZh: "你好，AI",
-      liftedH1: true,
-    });
+    expect(
+      liftTitles("# Hello, AI\n\nBody.", "# 你好，AI\n\n正文。", "Hello, AI"),
+    ).toEqual({ titleZh: "你好，AI", liftedH1: true });
   });
 
   test("a body without a leading H1 lifts nothing", () => {
-    expect(liftTitles("Body first.\n\n# Later", "正文。\n\n# 后面")).toEqual({
-      titleZh: null,
-      liftedH1: false,
-    });
+    expect(
+      liftTitles("Body first.\n\n# Later", "正文。\n\n# 后面", "Later"),
+    ).toEqual({ titleZh: null, liftedH1: false });
   });
 
   test("a leading H1 with no translation is still lifted", () => {
-    expect(liftTitles("# Hello\n\nBody.", null)).toEqual({
+    expect(liftTitles("# Hello\n\nBody.", null, "Hello")).toEqual({
       titleZh: null,
       liftedH1: true,
     });
   });
 
   test("never lifts when the translation does not open with an H1", () => {
-    expect(liftTitles("# Hello\n\nBody.", "## 你好\n\n正文。")).toEqual({
-      titleZh: null,
-      liftedH1: false,
-    });
-    expect(liftTitles("# Hello\n\nBody.", "你好。\n\n正文。")).toEqual({
-      titleZh: null,
-      liftedH1: false,
-    });
+    expect(
+      liftTitles("# Hello\n\nBody.", "## 你好\n\n正文。", "Hello"),
+    ).toEqual({ titleZh: null, liftedH1: false });
+    expect(liftTitles("# Hello\n\nBody.", "你好。\n\n正文。", "Hello")).toEqual(
+      {
+        titleZh: null,
+        liftedH1: false,
+      },
+    );
   });
 
   test("an H2 is not a title", () => {
-    expect(liftTitles("## Section\n\nBody.", null).liftedH1).toBe(false);
+    expect(liftTitles("## Section\n\nBody.", null, "Section").liftedH1).toBe(
+      false,
+    );
   });
 
-  test("strips a closing hash run but keeps a hash inside the text", () => {
+  test("an opening H1 that is not the title is content and stays", () => {
     expect(
-      liftTitles("# Title #\n\nBody.", "# 标题 ##\n\n正文。").titleZh,
-    ).toBe("标题");
-    expect(liftTitles("# Learn C#\n\nBody.", "# 学 C#\n\n正文。").titleZh).toBe(
-      "学 C#",
+      liftTitles("# Introduction\n\nBody.", "# 简介\n\n正文。", "A Long Essay"),
+    ).toEqual({ titleZh: null, liftedH1: false });
+    // A scraped <title> with a site suffix does not match either — safe side.
+    expect(
+      liftTitles("# Hello\n\nBody.", "# 你好\n\n正文。", "Hello | Example")
+        .liftedH1,
+    ).toBe(false);
+  });
+
+  test("matches the title across case, whitespace and quote style", () => {
+    expect(
+      liftTitles(
+        "# Fermat’s   Last Theorem\n\nBody.",
+        "# 费马大定理\n\n正文。",
+        "fermat's last theorem",
+      ),
+    ).toEqual({ titleZh: "费马大定理", liftedH1: true });
+  });
+
+  test("uses the heading's plain text, not its markdown source", () => {
+    expect(
+      liftTitles(
+        "# Hello *AI* #\n\nBody.",
+        "# 你好 *AI* ##\n\n正文。",
+        "Hello AI",
+      ),
+    ).toEqual({ titleZh: "你好 AI", liftedH1: true });
+    expect(
+      liftTitles("# Learn C#\n\nBody.", "# 学 C#\n\n正文。", "Learn C#")
+        .titleZh,
+    ).toBe("学 C#");
+    expect(
+      liftTitles(
+        "# [Linked](https://x.y) `code`\n\nBody.",
+        "# 链接 `代码`\n\n正文。",
+        "Linked code",
+      ).titleZh,
+    ).toBe("链接 代码");
+  });
+
+  test("a setext H1 counts as an H1 too", () => {
+    expect(liftTitles("Hello\n=====\n\nBody.", null, "Hello").liftedH1).toBe(
+      true,
     );
+  });
+});
+
+describe("normalizeTitle", () => {
+  test("folds quotes, dashes, case and whitespace", () => {
+    expect(normalizeTitle("  “Smart” — Quotes’  ")).toBe('"smart" - quotes\'');
+    expect(normalizeTitle("Ａ　ｂ")).toBe("a b");
   });
 });
 

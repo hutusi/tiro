@@ -59,9 +59,12 @@ once. Preferences are per browser and never leave it.
 **Derived, not stored.** Reading time, the status pill (待处理 / 中文原文 /
 未翻译) and the Chinese title are computed at build time in
 `src/lib/article-meta.ts` from what the contract already carries. The Chinese
-title exists only when the body opens with an H1 that `zh.md` mirrors (`zh.md`
-has no frontmatter); when it does, the reader lifts it into the title block
-and skips the duplicate first row.
+title exists only when the body opens with an H1 whose plain text is the
+article's title (`frontmatter.title`, compared after folding quotes, dashes,
+case and whitespace) and `zh.md` mirrors it (`zh.md` has no frontmatter); when
+it does, the reader lifts it into the title block and skips the duplicate first
+row. A body that opens with some other H1 — a section heading — is content and
+is never touched.
 
 **Marks.** The two-bar wordmark (ink bar, accent bar, "Tiro") in the header and
 footer, inline. The oxblood "T" monogram for favicon, touch icon and social
