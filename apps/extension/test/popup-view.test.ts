@@ -79,7 +79,7 @@ describe("popupView", () => {
     ).toBe(m.arxivNotice);
   });
 
-  test("already clipped: dated label, Re-clip, both links without the hint", () => {
+  test("already clipped: dated label, Re-clip, both links — hint kept", () => {
     const v = popupView(state({ clippedOn: "Sep 2, 2026", links }), m);
     expect(v.label).toBe(m.labelSavedOn("Sep 2, 2026"));
     expect(v.message).toBe(m.alreadyClipped("Sep 2, 2026"));
@@ -87,7 +87,9 @@ describe("popupView", () => {
     expect(v.clip.enabled).toBe(true);
     // Opening the saved article is the likelier intent; Re-clip steps back.
     expect(v.clip.primary).toBe(false);
-    expect(v.links).toEqual({ ...links, hint: false });
+    // A local record proves a clip, not a deploy: the page may still be on
+    // its way to the site.
+    expect(v.links).toEqual({ ...links, hint: true });
   });
 
   test("reading: skeleton with a caption, Clip disabled", () => {

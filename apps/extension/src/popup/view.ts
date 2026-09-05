@@ -168,9 +168,12 @@ export function popupView(s: PopupState, m: Messages): PopupView {
           primary: !reclip,
           label: clipLabel,
         },
+        // The local record says the page was clipped, not that the site has
+        // published it — a reopen seconds after a clip is the common case — so
+        // the hint stays.
         links:
           clippedOn !== null && s.links !== null
-            ? { ...s.links, hint: false }
+            ? { ...s.links, hint: true }
             : null,
       };
     }
