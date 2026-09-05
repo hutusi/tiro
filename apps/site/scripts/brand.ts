@@ -18,7 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { parse } from "opentype.js";
 
 const site = resolve(import.meta.dirname, "..");
@@ -113,16 +113,28 @@ function socialCard(): string {
 
 const work = mkdtempSync(join(tmpdir(), "tiro-brand-"));
 
-/** Rasterize an SVG at w×h with headless Chrome into public/<name>.png. */
-function rasterize(svg: string, name: string, w: number, h: number): string {
+/**
+ * Rasterize an SVG with headless Chrome into `out` (a .png path), `w`×`h`.
+ * `artwork` shrinks the drawing to that many px centred on a transparent
+ * canvas — Chrome's Web Store listing guidance wants 96 px of icon inside the
+ * 128 px file, while the toolbar sizes stay full-bleed.
+ */
+function rasterize(
+  svg: string,
+  out: string,
+  w: number,
+  h: number,
+  artwork: number = w,
+): string {
+  const name = basename(out, ".png");
   const svgPath = join(work, `${name}.svg`);
   writeFileSync(svgPath, svg);
   const htmlPath = join(work, `${name}.html`);
+  const margin = (w - artwork) / 2;
   writeFileSync(
     htmlPath,
-    `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:transparent}img{display:block;width:${w}px;height:${h}px}</style><img src="file://${svgPath}" alt="">`,
+    `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:transparent}img{display:block;width:${artwork}px;height:${artwork}px;margin:${margin}px}</style><img src="file://${svgPath}" alt="">`,
   );
-  const out = join(publicDir, `${name}.png`);
   const run = Bun.spawnSync([
     CHROME,
     "--headless",
@@ -143,10 +155,42 @@ function rasterize(svg: string, name: string, w: number, h: number): string {
 }
 
 writeFileSync(join(publicDir, "favicon.svg"), monogram(16));
-const favicon32 = rasterize(monogram(16), "favicon-32", 32, 32);
+const favicon32 = rasterize(
+  monogram(16),
+  join(publicDir, "favicon-32.png"),
+  32,
+  32,
+);
 // PNG bytes behind the .ico path: every current browser accepts that, and it
 // spares the repo an ico toolchain for the one path browsers request blindly.
 copyFileSync(favicon32, join(publicDir, "favicon.ico"));
-rasterize(monogram(0), "apple-touch-icon", 180, 180);
-rasterize(socialCard(), "og", 1200, 630);
-console.log(`brand assets written to ${publicDir} (scratch: ${work})`);
+rasterize(monogram(0), join(publicDir, "apple-touch-icon.png"), 180, 180);
+rasterize(socialCard(), join(publicDir, "og.png"), 1200, 630);
+
+// The extension's toolbar and store icons are the same mark, written from
+// here so the two cannot drift (ADR 0015). 16/32/48 are full-bleed; the 128
+// carries 16 px of transparent padding around 96 px of artwork, which is
+// what Chrome's listing guidance asks for.
+const extension = resolve(site, "../extension");
+writeFileSync(
+  join(extension, "icons/icon.svg"),
+  monogram(16).replace("<title>Tiro</title>", "<title>Tiro Clipper</title>"),
+);
+for (const size of [16, 32, 48]) {
+  rasterize(
+    monogram(16),
+    join(extension, `public/icons/icon-${size}.png`),
+    size,
+    size,
+  );
+}
+rasterize(
+  monogram(16),
+  join(extension, "public/icons/icon-128.png"),
+  128,
+  128,
+  96,
+);
+console.log(
+  `brand assets written to ${publicDir} and ${join(extension, "public/icons")} (scratch: ${work})`,
+);

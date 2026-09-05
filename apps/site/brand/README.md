@@ -5,9 +5,9 @@ The site's mark is the oxblood monogram from the "Later Reader" design
 The header and footer use the two-bar wordmark instead, which is inline HTML
 (`.logo-bars` in `src/styles/global.css`) and needs no asset.
 
-Everything in `public/` below is **generated and committed** — run
-`bun run brand` from `apps/site` after changing the mark, then look at the
-output before committing it.
+Everything in `public/` below, and the extension's icons, is **generated and
+committed** — run `bun run brand` from `apps/site` after changing the mark,
+then look at the output before committing it.
 
 | File | What | How it is made |
 | --- | --- | --- |
@@ -39,7 +39,9 @@ open apps/site/public/og.png
 
 ## The extension's icon
 
-The Chrome extension still ships the old bookmark mark
-(`apps/extension/icons/icon.svg`); it changes with the popup redesign, which
-is its own PR. Until then the two marks differ on purpose rather than by
-accident.
+The same script writes the Chrome extension's icons —
+`apps/extension/icons/icon.svg` and `apps/extension/public/icons/icon-{16,32,48,128}.png`
+— so the toolbar and the site are one mark. The 16/32/48 are full-bleed; the
+128 carries 16 px of transparent padding around 96 px of artwork, which is what
+Chrome's listing guidance asks for. `apps/extension/icons/README.md` has the
+extension-side notes.
