@@ -115,25 +115,30 @@ const work = mkdtempSync(join(tmpdir(), "tiro-brand-"));
 
 /**
  * Rasterize an SVG with headless Chrome into `out` (a .png path), `w`×`h`.
- * `artwork` shrinks the drawing to that many px centred on a transparent
- * canvas — Chrome's Web Store listing guidance wants 96 px of icon inside the
- * 128 px file, while the toolbar sizes stay full-bleed.
+ * By default the drawing fills the canvas. `artwork` instead draws it at
+ * that many px square, centred on a transparent canvas — Chrome's Web Store
+ * listing guidance wants 96 px of icon inside the 128 px file, while the
+ * toolbar sizes stay full-bleed. (A default of `w` here once made the
+ * 1200×630 social card a 1200×1200 image, cropped to its top 630 px.)
  */
 function rasterize(
   svg: string,
   out: string,
   w: number,
   h: number,
-  artwork: number = w,
+  artwork?: number,
 ): string {
   const name = basename(out, ".png");
   const svgPath = join(work, `${name}.svg`);
   writeFileSync(svgPath, svg);
   const htmlPath = join(work, `${name}.html`);
-  const margin = (w - artwork) / 2;
+  const img =
+    artwork === undefined
+      ? `width:${w}px;height:${h}px`
+      : `width:${artwork}px;height:${artwork}px;margin:${(h - artwork) / 2}px ${(w - artwork) / 2}px`;
   writeFileSync(
     htmlPath,
-    `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:transparent}img{display:block;width:${artwork}px;height:${artwork}px;margin:${margin}px}</style><img src="file://${svgPath}" alt="">`,
+    `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:transparent}img{display:block;${img}}</style><img src="file://${svgPath}" alt="">`,
   );
   const run = Bun.spawnSync([
     CHROME,
