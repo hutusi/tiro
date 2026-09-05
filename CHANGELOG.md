@@ -7,7 +7,29 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **"Open in Tiro →" after a clip.** The popup links to the article's page on
+  the site (from the manifest's homepage and the slug it already holds) beside
+  the GitHub "View in vault" link, with a note that the page appears once
+  processing finishes. A page clipped before from the same machine gets the
+  same pair, with Re-clip as an outline.
+- **Reading time in the popup**, next to the word count — the same function
+  the site uses, now in `@tiro/shared`.
+
 ### Changed
+
+- **The extension follows the "Tiro Clipper" design** (ADR 0015). The popup
+  and the options page move onto the site's tokens — cream or dark paper by the
+  OS scheme, oxblood, Spectral and JetBrains Mono bundled from the same
+  `@fontsource` packages — and the toolbar icon becomes the monogram the site's
+  favicon carries, written by the same brand script. The popup shows a short
+  header label (Reading…, Ready, Saved ✓, Saved Sep 2, Failed) with the full
+  sentence under the card, the excerpt Readability already produced, and gives
+  the arXiv note its own slot. Rendering goes through a pure, tested view model;
+  a development build paints canned states for `popup.html?state=…`. Nothing
+  the disclosure promises changes; the clipped files are byte-identical. Store
+  images regenerated for the next release. Release bump: **minor**.
 
 - **The site follows the "Later Reader" design** (ADR 0014). Cream paper,
   oxblood accent, Spectral and JetBrains Mono replace the terracotta card

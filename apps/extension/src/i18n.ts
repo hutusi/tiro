@@ -23,7 +23,25 @@ const en = {
   clipping: "Clipping…",
   clipped: "Clipped.",
   updatedExisting: "Updated existing clip.",
-  articleMeta: (host: string, words: number) => `${host} · ${words} words`,
+  articleMeta: (host: string, minutes: number, words: number) =>
+    `${host} · ${minutes} min · ${words.toLocaleString("en")} words`,
+
+  // Popup header labels — short, beside the wordmark; the sentences above
+  // go under the card.
+  labelSetUp: "Set up",
+  labelCannotClip: "Cannot clip",
+  labelReading: "Reading…",
+  labelReady: "Ready",
+  labelSavedOn: (date: string) => `Saved ${date}`,
+  labelSaving: "Saving…",
+  labelSaved: "Saved ✓",
+  labelUpdated: "Updated ✓",
+  labelFailed: "Failed",
+  loadingExtract: "Extracting article text",
+  loadingSave: "Saving to your vault…",
+  openInTiro: "Open in Tiro →",
+  openHint:
+    "Appears on the site once processing finishes — usually a few minutes.",
 
   // Popup static text
   warningReadability:
@@ -112,7 +130,22 @@ const zh: Messages = {
   clipping: "正在剪藏…",
   clipped: "已剪藏。",
   updatedExisting: "已覆盖更新原有剪藏。",
-  articleMeta: (host: string, words: number) => `${host} · ${words} 词`,
+  articleMeta: (host: string, minutes: number, words: number) =>
+    `${host} · ${minutes} 分钟 · ${words} 词`,
+
+  labelSetUp: "待设置",
+  labelCannotClip: "无法剪藏",
+  labelReading: "读取中…",
+  labelReady: "可剪藏",
+  labelSavedOn: (date: string) => `${date} 已剪藏`,
+  labelSaving: "保存中…",
+  labelSaved: "已保存 ✓",
+  labelUpdated: "已更新 ✓",
+  labelFailed: "失败",
+  loadingExtract: "正在提取正文",
+  loadingSave: "正在保存到你的仓库…",
+  openInTiro: "在 Tiro 打开 →",
+  openHint: "处理完成后会出现在站点上，通常需要几分钟。",
 
   warningReadability: "Readability 未能提取正文，将剪藏原始页面。",
   cannotClipPdf: "这是 PDF 而非网页，其正文由插件渲染，扩展无法读取。",

@@ -40,17 +40,28 @@ to exactly 1280×800 or drop it into a copy of the composition below in place of
 
 ## Regenerating the images
 
-From the repo root. The first step re-captures the options UI; the last two
-compose the listing images:
+From the repo root. The options capture needs a **development build served
+over HTTP**: the page's stylesheet and fonts are external assets with
+absolute `/assets/…` paths (they were inline before the redesign), so
+`file://` cannot load them, and `?preview` — honoured only by a development
+build — shows the empty first-run form instead of the "could not load saved
+settings" error the page shows when there is no `chrome.storage` around.
+The two compositions still render over `file://`.
 
 ```sh
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-bun run --cwd apps/extension build
+bun run --cwd apps/extension build:dev
+
+# Serve dist/ for the options capture; stop it again when done, and wait
+# for it to answer before pointing Chrome at it.
+(cd apps/extension/dist && python3 -m http.server 4322 --bind 127.0.0.1 &)
+trap 'pkill -f "http.server 4322"' EXIT
+until curl -sf -o /dev/null http://127.0.0.1:4322/src/options/options.html; do sleep 0.2; done
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=2 --window-size=560,500 \
+  --force-device-scale-factor=2 --window-size=560,600 \
   --screenshot="apps/extension/store/options-ui.png" \
-  "file://$PWD/apps/extension/dist/src/options/options.html"
+  "http://127.0.0.1:4322/src/options/options.html?preview"
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
   --force-device-scale-factor=1 --window-size=1280,800 \
@@ -63,24 +74,31 @@ bun run --cwd apps/extension build
   "file://$PWD/apps/extension/store/promo-tile-440x280.html"
 ```
 
+Then run a production build again before packaging — `build:dev` leaves a
+development bundle in `dist/`.
+
 Confirm the sizes afterwards — the store rejects anything off by a pixel:
 
 ```sh
 file apps/extension/store/*.png
 # expect 1280x800 (screenshot) and 440x280 (promo tile) — the store uploads.
-# options-ui.png is 1120x1000: the 2x intermediate capture the screenshot
+# options-ui.png is 1120x1200: the 2x intermediate capture the screenshot
 # composition embeds, never uploaded itself.
 ```
 
 Notes that will save you a confused half hour:
 
-- The options page renders over `file://` because its CSS is inline; only its
-  JS is external, and that JS would fail outside an extension context anyway.
-  The empty-state form is exactly what should be in the listing.
-- `--window-size` is the crop, not a scale. 500 is tuned to end just under the
-  Save row — raising it re-introduces dead space, and the old 425 now crops
-  the buttons away entirely (the Language select added in 0.4.0 grew the page).
+- `--window-size` is the crop, not a scale. 600 fits the settings card with
+  its paper margin above and below; the card grew with the redesign, so an
+  older 500 crops the buttons away.
+- The compositions load Spectral from `../node_modules/@fontsource/spectral/`
+  — the same files the popup ships — so they need `bun install` to have run.
+  Their palette is the site's (ADR 0014): cream `#f4efe4`, oxblood `#8f2f2f`,
+  ink `#1e1b16`.
 - Chrome writes a screenshot whether or not the page loaded, so look at the
   result. A "This site can't be reached" listing image is a real failure mode
-  (a system proxy can swallow `http://127.0.0.1`, which is why these use
-  `file://`).
+  (a system proxy can swallow `http://127.0.0.1`; if it does, unset the proxy
+  for the capture rather than falling back to `file://`, which cannot load
+  the stylesheet).
+- Never pass `--user-data-dir`: with a throwaway profile Chrome writes the
+  file and then sits in first-run work until killed.

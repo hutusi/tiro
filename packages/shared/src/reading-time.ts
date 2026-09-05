@@ -1,7 +1,9 @@
 /**
- * Reading time for the list meta and the reader's title block, derived at
- * build time — the contract carries no such field, and a number that can be
- * recomputed from the body has no business in the frontmatter.
+ * Reading time, derived wherever it is shown — the site's list and reader
+ * (at build time) and the extension popup's preview (from the clipped
+ * markdown). The contract carries no such field: a number that can be
+ * recomputed from the body has no business in the frontmatter, and one
+ * function here keeps the two surfaces from disagreeing about it.
  *
  * CJK text has no word boundaries, so it is counted per character at a
  * characters-per-minute rate; everything else is counted in words. Code and

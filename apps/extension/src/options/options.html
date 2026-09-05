@@ -4,92 +4,105 @@
     <meta charset="utf-8" />
     <title>Tiro Settings</title>
     <style>
+      /* Page-specific rules; the shared tokens and components come from
+         src/ui/tokens.css, imported by options.ts. */
       body {
-        max-width: 460px;
-        margin: 40px auto;
-        font-family: system-ui, sans-serif;
-        font-size: 14px;
-        color: #1f2328;
-      }
-      h1 {
-        font-size: 18px;
-      }
-      label {
-        display: block;
-        margin: 14px 0 4px;
-        font-weight: 600;
-      }
-      input,
-      select {
-        width: 100%;
+        min-height: 100vh;
+        padding: 48px 16px;
         box-sizing: border-box;
-        padding: 6px 8px;
-        border: 1px solid #d0d7de;
-        border-radius: 6px;
-        font-size: 14px;
-        background: #fff;
+      }
+      .card {
+        max-width: 460px;
+        margin: 0 auto;
+        padding: 24px;
+        border: 1px solid var(--rule);
+        border-radius: 12px;
+        background: var(--field);
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 22px;
+      }
+      #heading {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
       }
       .hint {
-        color: #57606a;
-        font-size: 12px;
-        margin-top: 4px;
+        margin: 5px 0 14px;
       }
       .row {
-        display: flex;
-        gap: 8px;
-        margin-top: 18px;
-      }
-      button {
-        padding: 7px 14px;
-        border: 1px solid #d0d7de;
-        border-radius: 6px;
-        background: #f6f8fa;
-        font-size: 13px;
-        cursor: pointer;
-      }
-      button.primary {
-        background: #b4452f;
-        border-color: #b4452f;
-        color: #fff;
-        font-weight: 600;
+        margin-top: 22px;
       }
       #result {
-        margin-top: 12px;
+        margin: 12px 0 0;
         min-height: 18px;
+        font-size: 13px;
+        color: var(--ink-soft);
       }
       #result.ok {
-        color: #1a7f37;
+        color: var(--ok);
       }
       #result.error {
-        color: #cf222e;
+        color: var(--accent);
       }
     </style>
   </head>
   <body>
-    <h1 id="heading">Tiro Settings</h1>
-    <label id="label-owner" for="owner">GitHub owner</label>
-    <input id="owner" placeholder="your GitHub username" autocomplete="off" />
-    <label id="label-repo" for="repo">Vault repository</label>
-    <input id="repo" placeholder="your vault repository name" autocomplete="off" />
-    <label id="label-branch" for="branch">Branch</label>
-    <input id="branch" placeholder="main" autocomplete="off" />
-    <label id="label-token" for="token">Fine-grained personal access token</label>
-    <input id="token" type="password" autocomplete="off" />
-    <div id="token-hint" class="hint">
-      Scope the token to the vault repository only, with Contents: Read and
-      write. It is stored in chrome.storage.local on this machine.
-    </div>
-    <label id="label-language" for="language">Language</label>
-    <select id="language">
-      <option value="auto">Auto (browser language)</option>
-      <option value="en">English</option>
-      <option value="zh">中文</option>
-    </select>
-    <div class="row">
-      <button id="save" type="button" class="primary">Save</button>
-      <button id="test" type="button">Test connection</button>
-    </div>
-    <div id="result"></div>
+    <main class="card">
+      <header class="bar">
+        <span class="logo-bars" aria-hidden="true"><i></i><i></i></span>
+        <h1 id="heading">Tiro Settings</h1>
+      </header>
+      <label class="field">
+        <span id="label-owner">GitHub owner</span>
+        <input
+          id="owner"
+          class="mono"
+          placeholder="your GitHub username"
+          autocomplete="off"
+        />
+      </label>
+      <label class="field">
+        <span id="label-repo">Vault repository</span>
+        <input
+          id="repo"
+          class="mono"
+          placeholder="your vault repository name"
+          autocomplete="off"
+        />
+      </label>
+      <label class="field">
+        <span id="label-branch">Branch</span>
+        <input id="branch" class="mono" placeholder="main" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span id="label-token">Fine-grained personal access token</span>
+        <input id="token" class="mono" type="password" autocomplete="off" />
+      </label>
+      <p id="token-hint" class="note hint">
+        Scope the token to the vault repository only, with Contents: Read and
+        write. It is stored in chrome.storage.local on this machine.
+      </p>
+      <label class="field">
+        <span id="label-language">Language</span>
+        <select id="language">
+          <option value="auto">Auto (browser language)</option>
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
+      <div class="actions row">
+        <button id="save" type="button" class="btn btn-primary">Save</button>
+        <button id="test" type="button" class="btn btn-secondary">
+          Test connection
+        </button>
+      </div>
+      <p id="result" role="status"></p>
+    </main>
     <script type="module" src="./options.ts"></script>
   </body>
 </html>

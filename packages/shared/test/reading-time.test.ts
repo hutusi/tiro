@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readingMinutes } from "../src/lib/reading-time.ts";
+import { readingMinutes } from "../src/reading-time.ts";
 
 const words = (n: number): string => Array(n).fill("word").join(" ");
 const cjk = (n: number): string => "字".repeat(n);

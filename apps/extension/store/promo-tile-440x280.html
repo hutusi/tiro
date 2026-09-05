@@ -1,6 +1,20 @@
 <!doctype html>
 <meta charset="utf-8" />
 <style>
+  /* Rendered over file:// by headless Chrome (see README.md); the fonts come
+     from the extension's own node_modules, the same files the popup ships. */
+  @font-face {
+    font-family: "Spectral";
+    font-weight: 600;
+    src: url("../node_modules/@fontsource/spectral/files/spectral-latin-600-normal.woff2")
+      format("woff2");
+  }
+  @font-face {
+    font-family: "Spectral";
+    font-weight: 400;
+    src: url("../node_modules/@fontsource/spectral/files/spectral-latin-400-normal.woff2")
+      format("woff2");
+  }
   html,
   body {
     margin: 0;
@@ -10,49 +24,49 @@
     overflow: hidden;
   }
   body {
-    font-family:
-      -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
-      sans-serif;
+    font-family: "Spectral", Georgia, serif;
     background:
       radial-gradient(
         360px 240px at 82% 18%,
-        rgba(180, 69, 47, 0.22),
+        rgba(143, 47, 47, 0.18),
         transparent 62%
       ),
       radial-gradient(
         300px 220px at 10% 92%,
-        rgba(180, 69, 47, 0.14),
+        rgba(143, 47, 47, 0.1),
         transparent 62%
       ),
-      #faf8f5;
+      #f4efe4;
     display: flex;
     flex-direction: column;
     justify-content: center;
     padding: 0 34px;
     box-sizing: border-box;
+    color: #1e1b16;
   }
   /* A promo tile is read at a glance and often at half size, so it carries the
      mark and four words rather than a description. */
   img {
     width: 64px;
     height: 64px;
-    border-radius: 15px;
+    border-radius: 14px;
     margin-bottom: 20px;
   }
   h1 {
     margin: 0 0 10px;
     font-size: 30px;
-    letter-spacing: -0.02em;
-    color: #1f1b16;
+    font-weight: 600;
+    letter-spacing: -0.015em;
   }
   p {
     margin: 0;
     font-size: 16px;
     line-height: 1.4;
-    color: #6f6659;
+    color: #5a544a;
   }
   b {
-    color: #b4452f;
+    font-weight: 600;
+    color: #8f2f2f;
   }
 </style>
 <!-- The SVG, not icon-128.png: that file carries the store listing's 16px

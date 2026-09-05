@@ -345,6 +345,21 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   `chrome://extensions`. Saved settings survive reloads.
 - Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
   prefix), branch `main`, plus the extension PAT.
+- **Eyeballing popup states without a page for each**: `bun run --cwd
+  apps/extension build:dev`, serve `dist/` over HTTP (`python3 -m http.server`
+  in it), then open `src/popup/popup.html?state=<name>` — `ready`, `already`,
+  `clipping`, `saved`, `updated`, `failed`, `unconfigured`, `pdf`,
+  `arxiv-offer`, `arxiv-fetching`, `arxiv-abstract`, `reading`, `ready-zh`,
+  `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
+  `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
+  `build` before packaging.
+- **What the popup shows** (ADR 0015): a short label beside the wordmark —
+  Reading…, Ready, Saved ✓ / Updated ✓, "Saved <date>" for a page clipped
+  before from this machine, Failed, Cannot clip, Set up — and the full
+  sentence under the card. After a clip, "Open in Tiro →" goes to the
+  article's page on the site; that page exists only once the vault workflow
+  has processed and deployed the clip, which the hint under the link says.
+  "View in vault" is the GitHub file and works immediately.
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
