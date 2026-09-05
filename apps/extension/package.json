@@ -4,11 +4,14 @@
   "type": "module",
   "scripts": {
     "build": "vite build && vite build -c vite.clipper.config.ts",
+    "build:dev": "vite build --mode development && vite build -c vite.clipper.config.ts",
     "package": "bun run build && cd dist && rm -f ../tiro-clipper.zip && zip -qr ../tiro-clipper.zip . -x '.DS_Store' '**/.DS_Store'",
     "typecheck": "tsc --noEmit",
     "sweep": "bun run scripts/sweep.ts"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/spectral": "^5.3.0",
     "@joplin/turndown-plugin-gfm": "^1.0.67",
     "@mozilla/readability": "^0.6.0",
     "@tiro/shared": "workspace:*",

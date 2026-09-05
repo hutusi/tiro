@@ -1,4 +1,14 @@
-import { type ArxivRef, parseArxivUrl, slugForUrl } from "@tiro/shared";
+import "@fontsource/spectral/latin-400.css";
+import "@fontsource/spectral/latin-500.css";
+import "@fontsource/spectral/latin-600.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "../ui/tokens.css";
+import {
+  type ArxivRef,
+  parseArxivUrl,
+  readingMinutes,
+  slugForUrl,
+} from "@tiro/shared";
 import {
   ARXIV_ORIGIN,
   type ClipCandidate,
@@ -9,7 +19,13 @@ import {
 import { buildClipFile } from "../clip.ts";
 import { describeClipError } from "../errors.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
-import { formatClipDate, getLocale, messages } from "../i18n.ts";
+import {
+  formatClipDate,
+  getLocale,
+  type Locale,
+  type Messages,
+  messages,
+} from "../i18n.ts";
 import { type ClipResultMessage, isClipResult } from "../messages.ts";
 import {
   acceptDisclosure,
@@ -21,10 +37,19 @@ import {
   recordClip,
 } from "../storage.ts";
 import { countWords } from "../words.ts";
+import {
+  articleUrl,
+  type Phase,
+  type PopupLinks,
+  type PopupState,
+  type PopupView,
+  popupView,
+  vaultFileUrl,
+} from "./view.ts";
 
 const el = {
-  status: document.getElementById("status") as HTMLDivElement,
-  disclosure: document.getElementById("disclosure") as HTMLDivElement,
+  label: document.getElementById("label") as HTMLSpanElement,
+  disclosure: document.getElementById("disclosure") as HTMLElement,
   disclosureTitle: document.getElementById(
     "disclosure-title",
   ) as HTMLHeadingElement,
@@ -35,48 +60,114 @@ const el = {
     "disclosure-body-2",
   ) as HTMLParagraphElement,
   accept: document.getElementById("accept") as HTMLButtonElement,
-  preview: document.getElementById("preview") as HTMLDivElement,
-  title: document.getElementById("article-title") as HTMLDivElement,
-  meta: document.getElementById("article-meta") as HTMLDivElement,
-  warning: document.getElementById("warning") as HTMLDivElement,
-  notice: document.getElementById("notice") as HTMLDivElement,
+  loading: document.getElementById("loading") as HTMLElement,
+  loadingCaption: document.getElementById(
+    "loading-caption",
+  ) as HTMLParagraphElement,
+  preview: document.getElementById("preview") as HTMLElement,
+  meta: document.getElementById("article-meta") as HTMLParagraphElement,
+  title: document.getElementById("article-title") as HTMLHeadingElement,
+  excerpt: document.getElementById("article-excerpt") as HTMLParagraphElement,
+  warning: document.getElementById("warning") as HTMLParagraphElement,
+  note: document.getElementById("note") as HTMLParagraphElement,
+  notice: document.getElementById("notice") as HTMLParagraphElement,
+  progress: document.getElementById("progress") as HTMLDivElement,
+  progressCaption: document.getElementById(
+    "progress-caption",
+  ) as HTMLParagraphElement,
+  message: document.getElementById("message") as HTMLParagraphElement,
   arxivFetch: document.getElementById("arxiv-fetch") as HTMLButtonElement,
   clip: document.getElementById("clip") as HTMLButtonElement,
+  saved: document.getElementById("saved") as HTMLDivElement,
   view: document.getElementById("view") as HTMLAnchorElement,
+  open: document.getElementById("open") as HTMLAnchorElement,
+  openHint: document.getElementById("open-hint") as HTMLParagraphElement,
   options: document.getElementById("options") as HTMLButtonElement,
 };
 
-function setStatus(message: string, isError = false): void {
-  el.status.textContent = message;
-  el.status.classList.toggle("error", isError);
+/** Paint a view. The only place the DOM is written after startup. */
+function apply(view: PopupView): void {
+  el.label.textContent = view.label;
+  el.label.dataset.tone = view.labelTone;
+  el.message.hidden = view.message === null;
+  el.message.textContent = view.message ?? "";
+  el.message.dataset.tone = view.messageTone;
+  el.loading.hidden = view.loading === null;
+  el.loadingCaption.textContent = view.loading ?? "";
+  el.progress.hidden = view.progress === null;
+  el.progressCaption.textContent = view.progress ?? "";
+  el.preview.hidden = view.preview === null;
+  if (view.preview !== null) {
+    el.meta.textContent = view.preview.meta;
+    el.title.textContent = view.preview.title;
+    el.excerpt.hidden = view.preview.excerpt === null;
+    el.excerpt.textContent = view.preview.excerpt ?? "";
+    el.warning.hidden = view.preview.warning === null;
+    el.warning.textContent = view.preview.warning ?? "";
+    el.note.hidden = view.preview.note === null;
+    el.note.textContent = view.preview.note ?? "";
+    el.notice.textContent = view.preview.notice;
+  }
+  el.arxivFetch.hidden = !view.arxivFetch;
+  el.clip.hidden = !view.clip.visible;
+  el.clip.disabled = !view.clip.enabled;
+  el.clip.textContent = view.clip.label;
+  el.clip.classList.toggle("btn-primary", view.clip.primary);
+  el.clip.classList.toggle("btn-secondary", !view.clip.primary);
+  el.saved.hidden = view.links === null;
+  if (view.links !== null) {
+    el.view.href = view.links.vault;
+    el.open.href = view.links.site;
+    el.openHint.hidden = !view.links.hint;
+  }
 }
 
 el.options.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
 });
 
-async function main(): Promise<void> {
-  const [config, locale] = await Promise.all([loadConfig(), getLocale()]);
-  const m = messages(locale);
-
-  // The HTML ships English defaults; localizing up front keeps the swap to a
-  // single early paint instead of text changing under the user later.
+/** The HTML ships English defaults; localizing up front keeps the swap to a
+ * single early paint instead of text changing under the user later. */
+function localize(locale: Locale, m: Messages): void {
   document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
   el.disclosureTitle.textContent = m.disclosureTitle;
   el.disclosureBody1.textContent = m.disclosureBody1;
   el.disclosureBody2.textContent = m.disclosureBody2;
   el.accept.textContent = m.disclosureAccept;
-  el.warning.textContent = m.warningReadability;
-  el.notice.textContent = m.noticePreview;
   el.arxivFetch.textContent = m.arxivFetchButton;
   el.clip.textContent = m.clipButton;
   el.view.textContent = m.viewInVault;
+  el.open.textContent = m.openInTiro;
+  el.openHint.textContent = m.openHint;
   el.options.textContent = m.settingsLink;
+}
+
+async function main(): Promise<void> {
+  if (__DEV_FIXTURES__) {
+    // A development build paints a canned state on request and stops there
+    // — before any chrome.* call, so the page also works served from dist/
+    // by a plain HTTP server. See fixtures.ts. Never reached in production:
+    // the define is `false` and this branch, and the import, are removed.
+    const params = new URLSearchParams(location.search);
+    const name = params.get("state");
+    if (name !== null) {
+      const locale: Locale = params.get("lang") === "zh" ? "zh" : "en";
+      const m = messages(locale);
+      localize(locale, m);
+      const { fixtures } = await import("./fixtures.ts");
+      const fixture = fixtures[name];
+      if (fixture !== undefined) apply(popupView(fixture, m));
+      else el.label.textContent = `no fixture "${name}"`;
+      return;
+    }
+  }
+
+  const [config, locale] = await Promise.all([loadConfig(), getLocale()]);
+  const m = messages(locale);
+  localize(locale, m);
 
   const configured = isConfigComplete(config);
-  if (!configured) {
-    setStatus(m.settingsFirst, true);
-  }
+  const homepage = chrome.runtime.getManifest().homepage_url;
 
   let result: ClipResultMessage["payload"] | null = null;
   let clippedAt: string | null = null;
@@ -116,6 +207,71 @@ async function main(): Promise<void> {
   /** The fetch came back with only the abstract page. Says nothing about which
    * body is on screen: the tab may still have beaten it. */
   let fetchedAbstractOnly = false;
+  /** What the popup is doing, for the header label and the card underneath. */
+  let phase: Phase = "reading";
+  /** The sentence for a blocked or failed phase. */
+  let problem: { text: string; error: boolean } | null = null;
+  /** arXiv: the full text is being fetched. */
+  let fetching = false;
+  /** The permission is not held and the offer has not been used. */
+  let fetchOffered = false;
+  /** Set once the upload has returned. */
+  let saved: { updated: boolean; links: PopupLinks } | null = null;
+  /** Local record: where a previous clip of this page landed. */
+  let previousLinks: PopupLinks | null = null;
+
+  /** Everything known, as the view model wants it. */
+  function render(): void {
+    const gated =
+      result !== null &&
+      !clipReady(best, paper !== null, fetchResolved, tabResolved);
+    const state: PopupState = {
+      phase: configured || phase !== "ready" ? phase : "blocked",
+      configured,
+      preview:
+        result === null || result.pdfViewer
+          ? null
+          : {
+              title: result.title,
+              host: new URL(result.url).hostname,
+              words: countWords(result.markdown),
+              minutes: readingMinutes(result.markdown),
+              excerpt: result.excerpt,
+              readabilityFailed: result.readabilityFailed,
+              fromFetch: best?.fromFetch === true,
+            },
+      problem:
+        !configured && phase === "ready"
+          ? { text: m.settingsFirst, error: true }
+          : problem,
+      clippedOn: clippedAt === null ? null : formatClipDate(locale, clippedAt),
+      updated: saved?.updated ?? false,
+      gated,
+      fetchOffered,
+      fetching,
+      // "This is only the abstract" describes a body, not the session, so it
+      // shows only while that body is the one that won. Without the second
+      // condition it survived a tab full text beating the fetch, and told the
+      // reader an abstract was about to be clipped while the full paper was on
+      // screen.
+      note:
+        standingNote ??
+        (fetchedAbstractOnly && best?.fromFetch === true
+          ? m.arxivAbstractOnly
+          : null),
+      links: saved?.links ?? previousLinks,
+    };
+    apply(popupView(state, m));
+  }
+
+  /** A dead end: nothing more will happen on this page. */
+  function block(text: string, error = true): void {
+    phase = "blocked";
+    problem = { text, error };
+    render();
+  }
+
+  if (!configured) render();
 
   /**
    * Take a body if it beats the one in hand, and re-render.
@@ -146,62 +302,23 @@ async function main(): Promise<void> {
   function showPayload(payload: ClipResultMessage["payload"]): void {
     if (committing) return;
     result = payload;
+    fetching = false;
     // A PDF has nothing to preview and nothing to commit, so it stops here
     // whatever the configuration says: the button is never enabled. Before
     // this the readability warning appeared but the button did too, and an
     // empty article with `readability_failed: true` could be committed. On an
     // arXiv PDF it is not a dead end — the fetch button is already on screen.
     if (payload.pdfViewer) {
-      setStatus(
-        paper === null ? m.cannotClipPdf : m.arxivOffer,
-        paper === null,
-      );
+      block(paper === null ? m.cannotClipPdf : m.arxivOffer, paper === null);
       return;
     }
-    el.preview.hidden = false;
-    el.title.textContent = payload.title;
-    el.meta.textContent = m.articleMeta(
-      new URL(payload.url).hostname,
-      countWords(payload.markdown),
-    );
-    el.warning.hidden = !payload.readabilityFailed;
-    // Says where *this* body came from, so it cannot outlive it — a fetched
-    // preview beaten by the tab would otherwise still claim arxiv.org.
-    el.notice.textContent =
-      best?.fromFetch === true ? m.arxivNotice : m.noticePreview;
     // The whole point of the identity rule is that this article is the paper.
     // Committing the abstract page while its full text is one click away would
-    // replace that full text — so the button waits for both sources.
-    const gated = !clipReady(best, paper !== null, fetchResolved, tabResolved);
-    // A tab already showing the paper has nothing to fetch, so the offer would
-    // only be noise — and clipping it must not need a permission.
-    if (!gated) el.arxivFetch.hidden = true;
-    if (configured && !gated) {
-      el.clip.disabled = false;
-      if (clippedAt !== null) {
-        setStatus(m.alreadyClipped(formatClipDate(locale, clippedAt)));
-        el.clip.textContent = m.reclipButton;
-      } else {
-        setStatus(m.readyToClip);
-      }
-    } else if (gated) {
-      setStatus(m.arxivOffer);
-    }
-    // "This is only the abstract" describes a body, not the session, so it
-    // shows only while that body is the one that won. Without the second
-    // condition it survived a tab full text beating the fetch, and told the
-    // reader an abstract was about to be clipped while the full paper was on
-    // screen.
-    const note =
-      standingNote ??
-      (fetchedAbstractOnly && best?.fromFetch === true
-        ? m.arxivAbstractOnly
-        : null);
-    // Last, so it survives the branches above rather than racing them.
-    if (note !== null) {
-      el.warning.textContent = note;
-      el.warning.hidden = false;
-    }
+    // replace that full text — so the button waits for both sources (the view
+    // computes the gate from the same facts).
+    phase = "ready";
+    problem = null;
+    render();
   }
 
   chrome.runtime.onMessage.addListener((message: unknown) => {
@@ -216,7 +333,7 @@ async function main(): Promise<void> {
     tab.url === undefined ||
     !/^https?:/.test(tab.url)
   ) {
-    setStatus(m.cannotClip, true);
+    block(m.cannotClip);
     return;
   }
   const tabId = tab.id;
@@ -228,7 +345,10 @@ async function main(): Promise<void> {
     // have run it, and a second injection would deliver a second clip result.
     if (extracted) return;
     extracted = true;
-    if (configured) setStatus(m.readingPage);
+    if (configured && result === null) {
+      phase = "reading";
+      render();
+    }
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -239,14 +359,17 @@ async function main(): Promise<void> {
       // Without this the gate would wait on a source that will never report —
       // most likely on a PDF tab, where injection is least dependable.
       tabResolved = true;
-      setStatus(m.cannotRead(String(error)), true);
-      if (result !== null) showPayload(result);
+      if (result !== null) {
+        showPayload(result);
+        return;
+      }
+      block(m.cannotRead(String(error)));
       return;
     }
 
     // executeScript resolves when injection starts, not when the clipper
     // messages back; if the clipper dies mid-run the popup would otherwise sit
-    // on "Reading page…" forever.
+    // on "Reading…" forever.
     setTimeout(() => {
       // Only if the clipper never answered. This used to fire unconditionally,
       // so on a page that answered in 200 ms it still re-rendered ten seconds
@@ -255,7 +378,7 @@ async function main(): Promise<void> {
       if (tabResolved) return;
       tabResolved = true;
       if (result === null) {
-        setStatus(m.noClipResult, true);
+        block(m.noClipResult);
         return;
       }
       showPayload(result);
@@ -270,7 +393,7 @@ async function main(): Promise<void> {
    * refuses without one even when it would grant immediately.
    */
   async function fetchFullText(paper: ArxivRef, askFirst: boolean) {
-    el.arxivFetch.hidden = true;
+    fetchOffered = false;
     if (askFirst) {
       const granted = await chrome.permissions.request({
         origins: [ARXIV_ORIGIN],
@@ -282,7 +405,9 @@ async function main(): Promise<void> {
         return;
       }
     }
-    setStatus(m.arxivFetching);
+    fetching = true;
+    phase = result === null ? "reading" : phase;
+    render();
     try {
       const clip = await clipArxivPaper(paper, {
         fetch: (input, init) => fetch(input, init),
@@ -316,6 +441,7 @@ async function main(): Promise<void> {
    */
   async function settleOnTab(note: string): Promise<void> {
     fetchResolved = true;
+    fetching = false;
     standingNote = note;
     if (result === null) {
       await extract();
@@ -331,7 +457,14 @@ async function main(): Promise<void> {
   // clip flow's own GitHub lookup stays the authority on overwrite-vs-create.
   async function prepare(): Promise<void> {
     try {
-      clippedAt = await lastClippedAt(config, await slugForUrl(tabUrl));
+      const slug = await slugForUrl(tabUrl);
+      clippedAt = await lastClippedAt(config, slug);
+      if (clippedAt !== null && homepage !== undefined) {
+        previousLinks = {
+          site: articleUrl(homepage, slug),
+          vault: vaultFileUrl(config, `articles/${slug}/index.md`),
+        };
+      }
     } catch {
       clippedAt = null;
     }
@@ -349,7 +482,7 @@ async function main(): Promise<void> {
     }
     // Not granted: nothing is fetched. The tab is previewed as usual and the
     // offer sits beside it, so the permission is asked for by an explicit act.
-    el.arxivFetch.hidden = false;
+    fetchOffered = true;
     el.arxivFetch.addEventListener(
       "click",
       () => {
@@ -364,8 +497,8 @@ async function main(): Promise<void> {
     if (result === null) return;
     void (async (payload) => {
       committing = true;
-      el.clip.disabled = true;
-      setStatus(m.clipping);
+      phase = "clipping";
+      render();
       try {
         const nowIso = new Date().toISOString();
         const file = await buildClipFile({
@@ -391,9 +524,18 @@ async function main(): Promise<void> {
           message: `clip: ${file.title}`,
           ...(existing !== null ? { sha: existing.sha } : {}),
         });
-        setStatus(existing !== null ? m.updatedExisting : m.clipped);
-        el.view.href = `https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${path}`;
-        el.view.hidden = false;
+        saved = {
+          updated: existing !== null,
+          links: {
+            site: articleUrl(
+              homepage ?? "https://tiro.ainaive.com/",
+              file.slug,
+            ),
+            vault: vaultFileUrl(config, path),
+          },
+        };
+        phase = "saved";
+        render();
         try {
           await recordClip(config, file.slug, nowIso);
         } catch {
@@ -403,8 +545,9 @@ async function main(): Promise<void> {
       } catch (error) {
         console.error("clip failed:", error);
         committing = false;
-        setStatus(describeClipError(error, m), true);
-        el.clip.disabled = false;
+        phase = "failed";
+        problem = { text: describeClipError(error, m), error: true };
+        render();
       }
     })(result);
   });

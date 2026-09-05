@@ -16,6 +16,8 @@
     "apps/extension": {
       "name": "@tiro/extension",
       "dependencies": {
+        "@fontsource/jetbrains-mono": "^5.3.0",
+        "@fontsource/spectral": "^5.3.0",
         "@joplin/turndown-plugin-gfm": "^1.0.67",
         "@mozilla/readability": "^0.6.0",
         "@tiro/shared": "workspace:*",

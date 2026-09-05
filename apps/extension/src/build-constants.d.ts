@@ -13,3 +13,14 @@
  * `…-dirty` from a modified tree. Empty when git could not be asked at all.
  */
 declare const __CLIPPER_COMMIT__: string;
+
+/**
+ * True in a development build (`bun run build:dev`), where the popup accepts
+ * `?state=<name>` and paints a fixture; false in production, where the branch
+ * and the fixtures module it imports are removed.
+ */
+declare const __DEV_FIXTURES__: boolean;
+
+/** Stylesheets imported for their side effects; Vite bundles them, tsc only
+ * needs to know the import is legitimate. */
+declare module "*.css";
