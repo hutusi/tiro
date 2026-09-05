@@ -1,0 +1,69 @@
+---
+import { pageUrl, pageWindow } from "../lib/pager.ts";
+import { STRINGS } from "../lib/strings.ts";
+
+interface Props {
+  current: number;
+  last: number;
+  total: number;
+}
+const { current, last } = Astro.props;
+const t = STRINGS.library;
+const items = pageWindow(current, last);
+const cell =
+  "inline-flex h-[30px] min-w-[30px] items-center justify-center rounded-md px-2";
+---
+
+<nav
+  aria-label={t.pagerLabel}
+  class="mt-10 flex flex-wrap items-center justify-center gap-4 text-[13px]"
+>
+  {
+    current > 1 ? (
+      <a href={pageUrl(current - 1)} class="text-ink-soft hover:text-ink">
+        {t.newer}
+      </a>
+    ) : (
+      <span aria-disabled="true" class="text-rule">
+        {t.newer}
+      </span>
+    )
+  }
+  <div class="flex items-center gap-1 font-mono text-xs">
+    {
+      items.map((item) =>
+        item === "…" ? (
+          <span class:list={[cell, "text-ink-mute"]}>…</span>
+        ) : item === current ? (
+          <span
+            aria-current="page"
+            class:list={[cell, "border border-accent bg-accent text-white"]}
+          >
+            {item}
+          </span>
+        ) : (
+          <a
+            href={pageUrl(item)}
+            class:list={[
+              cell,
+              "border border-transparent text-ink-soft hover:border-rule hover:text-ink",
+            ]}
+          >
+            {item}
+          </a>
+        ),
+      )
+    }
+  </div>
+  {
+    current < last ? (
+      <a href={pageUrl(current + 1)} class="text-ink-soft hover:text-ink">
+        {t.older}
+      </a>
+    ) : (
+      <span aria-disabled="true" class="text-rule">
+        {t.older}
+      </span>
+    )
+  }
+</nav>

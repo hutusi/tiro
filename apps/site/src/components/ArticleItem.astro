@@ -1,0 +1,237 @@
+---
+/**
+ * One article in the library — a list row by default, a card under
+ * `html[data-library-view="cards"]`. The whole item opens the article (a
+ * stretched pseudo-element on the title link); tag and category links sit
+ * above it so they stay clickable on their own.
+ */
+import { articleMeta } from "../lib/article-meta.ts";
+import {
+  type Article,
+  articleUrl,
+  categoryUrl,
+  tagUrl,
+} from "../lib/articles.ts";
+import { dateLabel, minutesLabel, STRINGS } from "../lib/strings.ts";
+
+interface Props {
+  article: Article;
+}
+const { article } = Astro.props;
+const { frontmatter: fm } = article;
+const meta = articleMeta(article);
+const statusLabel = {
+  pending: STRINGS.status.pending,
+  "zh-original": STRINGS.status.zhOriginal,
+  untranslated: STRINGS.status.untranslated,
+  translated: null,
+}[meta.status];
+---
+
+<li class="item">
+  <a href={articleUrl(article)} class="item-link">
+    <div class="top">
+      <span class="domain">{fm.domain}</span>
+      {statusLabel !== null && <span class="pill">{statusLabel}</span>}
+    </div>
+    <h2 class="title">{fm.title}</h2>
+    {
+      meta.titleZh !== null && (
+        <p class="title-zh" lang="zh-CN">
+          {meta.titleZh}
+        </p>
+      )
+    }
+    {fm.summary !== undefined && <p class="summary">{fm.summary}</p>}
+  </a>
+  <div class="meta">
+    <span class="domain">{fm.domain}</span>
+    <span class="minutes">{minutesLabel(meta.minutes)}</span>
+    <time datetime={fm.clipped_at}>{dateLabel(fm.clipped_at)}</time>
+    {statusLabel !== null && <span class="pill">{statusLabel}</span>}
+    {
+      fm.category !== undefined && (
+        <a class="term" href={categoryUrl(fm.category)}>
+          {fm.category}
+        </a>
+      )
+    }
+    {
+      (fm.tags ?? []).map((tag) => (
+        <a class="term" href={tagUrl(tag)}>
+          #{tag}
+        </a>
+      ))
+    }
+  </div>
+</li>
+
+<style>
+  /* Raw tokens (--rule, --accent…), never --color-*: `@theme inline`
+     substitutes those away at build time. */
+  .item {
+    position: relative;
+    padding: 26px 20px;
+    margin: 0 -20px;
+    border-radius: 8px;
+    border-bottom: 1px solid var(--rule);
+    transition:
+      background 0.15s,
+      box-shadow 0.15s;
+  }
+  .item:hover {
+    background: var(--wash);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .item-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+  }
+  .item-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .top {
+    display: none;
+  }
+  .title {
+    margin: 0 0 5px;
+    font-size: 23px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: -0.008em;
+    text-wrap: pretty;
+  }
+  .title-zh {
+    margin: 0 0 12px;
+    font-family: var(--font-zh);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+  .summary {
+    margin: 0 0 14px;
+    max-width: 640px;
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--ink-soft);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    font-size: 12.5px;
+    color: var(--ink-mute);
+  }
+  .meta .minutes {
+    order: 1;
+  }
+  .meta time {
+    order: 0;
+  }
+  .meta .pill,
+  .meta .term {
+    order: 2;
+  }
+  .domain {
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+    color: var(--ink-soft);
+  }
+  .term {
+    position: relative;
+    z-index: 1;
+    color: var(--ink-mute);
+    text-decoration: none;
+  }
+  .term:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  /* The row's negative margin lives inside a ≥24px gutter; on phones the
+     gutter is 16px, so the row sits flush instead. */
+  @media (max-width: 39.99rem) {
+    .item {
+      margin: 0;
+      padding: 20px 12px;
+      border-radius: 0;
+    }
+  }
+
+  :global(html[data-library-view="cards"]) .item {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    min-height: 180px;
+    padding: 20px 20px 16px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--field);
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease,
+      border-color 0.18s;
+  }
+  :global(html[data-library-view="cards"]) .item:hover {
+    background: var(--field);
+    border-color: var(--ink-mute);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card);
+  }
+  :global(html[data-library-view="cards"]) .item-link {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+  }
+  :global(html[data-library-view="cards"]) .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ink-mute);
+  }
+  :global(html[data-library-view="cards"]) .top .domain {
+    color: var(--ink-mute);
+  }
+  :global(html[data-library-view="cards"]) .title {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+  }
+  :global(html[data-library-view="cards"]) .title-zh {
+    margin: 0;
+    font-size: 14px;
+  }
+  :global(html[data-library-view="cards"]) .summary {
+    margin: 0;
+    max-width: none;
+    font-size: 13px;
+    line-height: 1.75;
+    -webkit-line-clamp: 3;
+  }
+  :global(html[data-library-view="cards"]) .meta {
+    margin-top: auto;
+    padding-top: 12px;
+    gap: 4px;
+    font-size: 12px;
+  }
+  :global(html[data-library-view="cards"]) .meta time::before {
+    content: "· ";
+  }
+  :global(html[data-library-view="cards"]) .meta .domain,
+  :global(html[data-library-view="cards"]) .meta .pill,
+  :global(html[data-library-view="cards"]) .meta .term {
+    display: none;
+  }
+</style>
