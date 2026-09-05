@@ -7,6 +7,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-05
+
 ### Added
 
 - **One arXiv paper is now one article.** `/abs/`, `/pdf/`, `/html/`, the
@@ -41,6 +43,19 @@ versions follow the `0.x` line while Tiro is a personal system.
   invisible to the next clip of its own page. It renames and rewrites the
   frontmatter, leaving bodies and `zh.md` alone, so nothing is re-queued and the
   migration costs no LLM calls.
+
+### Changed
+
+- **The privacy policy and store listing now say what the code does.** Both
+  claimed the extension sends data to exactly one third party and only after
+  Clip; the arXiv fetch is a second destination and happens while the preview is
+  built, and the token also travels on the options page's "Test connection".
+  Three review rounds each narrowed one claim and left a broader one intact
+  above it, so the audit was widened to every absolute in the user-facing copy.
+  The surviving promises are the narrow ones: the token and everything clipped
+  go only to GitHub, arxiv.org learns which paper is being read and nothing
+  else. The popup and disclosure panel say "nothing is sent to your vault"
+  rather than "nothing is sent", in both languages.
 
 ### Fixed
 
@@ -702,7 +717,8 @@ verified end to end with real articles in both languages.
 - CI and deploy workflows run with read-only tokens and without persisted
   git credentials.
 
-[Unreleased]: https://github.com/hutusi/tiro/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hutusi/tiro/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hutusi/tiro/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hutusi/tiro/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hutusi/tiro/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/hutusi/tiro/compare/v0.1.0...v0.2.0
