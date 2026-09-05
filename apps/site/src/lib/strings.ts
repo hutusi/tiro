@@ -37,6 +37,7 @@ export const STRINGS = {
     more: "显示更多",
     /** `{n}` is the number of matches not yet shown. */
     remaining: "还有 {n} 篇",
+    retry: "加载失败，点击重试",
     devNotice: "搜索索引在构建后生成，开发模式下不可用。",
   },
   categories: { title: "分类" },

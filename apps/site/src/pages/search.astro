@@ -136,6 +136,7 @@ const t = STRINGS.search;
       results: resultsLabel(0).replace(/^0\s*/, ""),
       more: t.more,
       remaining: t.remaining,
+      retry: t.retry,
     },
   }}
 >
@@ -206,16 +207,20 @@ const t = STRINGS.search;
     const showPage = async (results, from, id) => {
       const slice = results.slice(from, from + PAGE);
       // Consume the page before awaiting: a second click while the bodies
-      // load must not append the same 30 again. On failure hand it back so
-      // the reader can retry.
+      // load must not append the same 30 again. On failure hand it back and
+      // turn the button into a retry — for the first page too, which has no
+      // button of its own yet.
       rest = null;
       more.disabled = true;
+      if (from === 0) more.hidden = true;
       let data;
       try {
         data = await Promise.all(slice.map((r) => r.data()));
       } catch {
         if (id === request) {
           rest = { id, results, shown: from };
+          more.textContent = T.retry;
+          more.hidden = false;
           more.disabled = false;
         }
         return;
