@@ -226,5 +226,9 @@ export function vaultFileUrl(
   config: { owner: string; repo: string; branch: string },
   path: string,
 ): string {
-  return `https://github.com/${config.owner}/${config.repo}/blob/${config.branch}/${path}`;
+  // Through `pathname` so a branch like `release#1` is encoded rather than
+  // read as a fragment; `/` survives, which is what a branch path needs.
+  const url = new URL("https://github.com/");
+  url.pathname = `/${config.owner}/${config.repo}/blob/${config.branch}/${path}`;
+  return url.toString();
 }

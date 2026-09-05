@@ -253,4 +253,19 @@ describe("links", () => {
       ),
     ).toBe("https://github.com/o/r/blob/main/articles/a-b-12345678/index.md");
   });
+
+  test("vaultFileUrl encodes a branch that would otherwise start a fragment", () => {
+    expect(
+      vaultFileUrl(
+        { owner: "o", repo: "r", branch: "release#1" },
+        "articles/a-b-12345678/index.md",
+      ),
+    ).toBe(
+      "https://github.com/o/r/blob/release%231/articles/a-b-12345678/index.md",
+    );
+    // Slashes in a branch are path separators on GitHub, and stay.
+    expect(
+      vaultFileUrl({ owner: "o", repo: "r", branch: "feat/x" }, "a/index.md"),
+    ).toBe("https://github.com/o/r/blob/feat/x/a/index.md");
+  });
 });
