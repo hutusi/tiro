@@ -10,4 +10,5 @@ export * from "./detect-language.ts";
 export * from "./frontmatter.ts";
 export * from "./languages.ts";
 export * from "./paths.ts";
+export * from "./reading-time.ts";
 export * from "./slug.ts";

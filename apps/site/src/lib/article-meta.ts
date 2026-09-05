@@ -1,10 +1,14 @@
-import { type ArticleFrontmatter, type Block, splitBlocks } from "@tiro/shared";
+import {
+  type ArticleFrontmatter,
+  type Block,
+  readingMinutes,
+  splitBlocks,
+} from "@tiro/shared";
 import type { Root } from "mdast";
 import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
-import { readingMinutes } from "./reading-time.ts";
 
 /**
  * Per-article facts the templates need that the contract does not carry,
