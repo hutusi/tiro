@@ -155,7 +155,7 @@ async function main(): Promise<void> {
       const m = messages(locale);
       localize(locale, m);
       const { fixtures } = await import("./fixtures.ts");
-      const fixture = fixtures[name];
+      const fixture = fixtures(m)[name];
       if (fixture !== undefined) apply(popupView(fixture, m));
       else el.label.textContent = `no fixture "${name}"`;
       return;
@@ -207,10 +207,14 @@ async function main(): Promise<void> {
   /** The fetch came back with only the abstract page. Says nothing about which
    * body is on screen: the tab may still have beaten it. */
   let fetchedAbstractOnly = false;
-  /** What the popup is doing, for the header label and the card underneath. */
-  let phase: Phase = "reading";
+  /** What the popup is doing, for the header label and the card underneath.
+   * Without a configured vault nothing can be clipped, so the popup opens
+   * blocked on the Settings instruction rather than "Reading…". */
+  let phase: Phase = configured ? "reading" : "blocked";
   /** The sentence for a blocked or failed phase. */
-  let problem: { text: string; error: boolean } | null = null;
+  let problem: { text: string; error: boolean } | null = configured
+    ? null
+    : { text: m.settingsFirst, error: true };
   /** arXiv: the full text is being fetched. */
   let fetching = false;
   /** The permission is not held and the offer has not been used. */
@@ -225,8 +229,13 @@ async function main(): Promise<void> {
     const gated =
       result !== null &&
       !clipReady(best, paper !== null, fetchResolved, tabResolved);
+    // The page is still read when unconfigured — the preview is harmless and
+    // shows what Settings would unlock — but the phase stays blocked on the
+    // Settings instruction however far the extraction gets.
+    const setupBlocked =
+      !configured && (phase === "reading" || phase === "ready");
     const state: PopupState = {
-      phase: configured || phase !== "ready" ? phase : "blocked",
+      phase: setupBlocked ? "blocked" : phase,
       configured,
       preview:
         result === null || result.pdfViewer
@@ -240,10 +249,7 @@ async function main(): Promise<void> {
               readabilityFailed: result.readabilityFailed,
               fromFetch: best?.fromFetch === true,
             },
-      problem:
-        !configured && phase === "ready"
-          ? { text: m.settingsFirst, error: true }
-          : problem,
+      problem: setupBlocked ? { text: m.settingsFirst, error: true } : problem,
       clippedOn: clippedAt === null ? null : formatClipDate(locale, clippedAt),
       updated: saved?.updated ?? false,
       gated,
@@ -405,8 +411,11 @@ async function main(): Promise<void> {
         return;
       }
     }
+    // Reading again, whether or not the tab already put a body on screen: the
+    // view keeps that preview and says the full text is being fetched. Without
+    // this the offer's sentence stayed while its button had gone.
     fetching = true;
-    phase = result === null ? "reading" : phase;
+    phase = "reading";
     render();
     try {
       const clip = await clipArxivPaper(paper, {
