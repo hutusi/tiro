@@ -226,6 +226,12 @@ const statusLabel = {
     gap: 4px;
     font-size: 12px;
   }
+  :global(html[data-library-view="cards"]) .meta .minutes {
+    order: 0;
+  }
+  :global(html[data-library-view="cards"]) .meta time {
+    order: 1;
+  }
   :global(html[data-library-view="cards"]) .meta time::before {
     content: "· ";
   }
