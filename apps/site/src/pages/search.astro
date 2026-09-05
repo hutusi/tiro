@@ -182,8 +182,15 @@ const t = STRINGS.search;
       return item;
     };
 
+    // Every keystroke is a new request; anything older that resolves later
+    // is dropped. Pagefind's debouncedSearch returns null only when a *newer
+    // search* superseded it — clearing the field starts no search, and the
+    // result data loads in a second async step — so the check is ours.
+    let request = 0;
     input.addEventListener("input", async () => {
+      const id = ++request;
       await ready;
+      if (id !== request) return;
       const term = input.value.trim();
       if (pagefind === null || term === "") {
         list.replaceChildren();
@@ -191,10 +198,11 @@ const t = STRINGS.search;
         return;
       }
       const response = await pagefind.debouncedSearch(term, {}, 250);
-      if (response === null) return; // superseded by a newer keystroke
+      if (response === null || id !== request) return;
       const data = await Promise.all(
         response.results.slice(0, 30).map((r) => r.data()),
       );
+      if (id !== request) return;
       count.textContent = `${response.results.length} ${resultsLabel}`;
       count.hidden = false;
       list.replaceChildren(...data.map(render));
