@@ -1,8 +1,11 @@
 ---
-import "@fontsource/source-serif-4/latin-400.css";
-import "@fontsource/source-serif-4/latin-400-italic.css";
-import "@fontsource/source-serif-4/latin-600.css";
-import "@fontsource/source-serif-4/latin-700.css";
+import "@fontsource/spectral/latin-300.css";
+import "@fontsource/spectral/latin-400.css";
+import "@fontsource/spectral/latin-400-italic.css";
+import "@fontsource/spectral/latin-500.css";
+import "@fontsource/spectral/latin-600.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-500.css";
 import "../styles/global.css";
 import { STRINGS } from "../lib/strings.ts";
 
@@ -67,12 +70,12 @@ const isActive = (href: string): boolean =>
         stored === "dark" ||
         (stored === null && matchMedia("(prefers-color-scheme: dark)").matches)
       ) {
-        document.documentElement.classList.add("dark");
+        document.documentElement.dataset.paper = "dark";
       }
     </script>
   </head>
-  <body class="min-h-screen bg-surface text-ink">
-    <header class="border-b border-line">
+  <body class="min-h-screen bg-paper text-ink">
+    <header class="border-b border-rule">
       <div
         class="mx-auto flex max-w-6xl items-center justify-between px-4 py-5"
       >
@@ -87,7 +90,7 @@ const isActive = (href: string): boolean =>
           <span class="font-serif text-xl font-semibold"
             >{STRINGS.siteTitle}</span
           >
-          <span class="hidden text-sm font-normal text-ink-muted sm:inline"
+          <span class="hidden text-sm font-normal text-ink-soft sm:inline"
             >{STRINGS.siteTagline}</span
           >
         </a>
@@ -100,7 +103,7 @@ const isActive = (href: string): boolean =>
                 class={
                   isActive(item.href)
                     ? "font-medium text-accent"
-                    : "text-ink-muted hover:text-ink"
+                    : "text-ink-soft hover:text-ink"
                 }
               >
                 {item.label}
@@ -111,7 +114,7 @@ const isActive = (href: string): boolean =>
             id="theme-toggle"
             type="button"
             aria-label="切换深色模式"
-            class="rounded-md border border-line px-2 py-1.5 text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
+            class="rounded-md border border-rule px-2 py-1.5 text-ink-soft transition-colors hover:border-rule hover:text-ink"
           >
             <svg
               class="h-4 w-4 dark:hidden"
@@ -147,9 +150,9 @@ const isActive = (href: string): boolean =>
     <main class="mx-auto max-w-6xl px-4 py-10">
       <slot />
     </main>
-    <footer class="border-t border-line">
+    <footer class="border-t border-rule">
       <div
-        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-ink-muted"
+        class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-sm text-ink-soft"
       >
         <p class="flex flex-wrap items-center gap-x-2">
           <span>{STRINGS.siteTitle} · {STRINGS.siteTagline}</span>
@@ -184,7 +187,10 @@ const isActive = (href: string): boolean =>
     </footer>
     <script is:inline>
       document.getElementById("theme-toggle")?.addEventListener("click", () => {
-        const dark = document.documentElement.classList.toggle("dark");
+        const root = document.documentElement;
+        const dark = root.dataset.paper !== "dark";
+        if (dark) root.dataset.paper = "dark";
+        else delete root.dataset.paper;
         localStorage.setItem("theme", dark ? "dark" : "light");
       });
     </script>

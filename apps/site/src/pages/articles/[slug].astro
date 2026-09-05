@@ -31,15 +31,13 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
   ogType="article"
 >
   <article data-pagefind-body>
-    <header class="mb-10 border-b border-line pb-8">
+    <header class="mb-10 border-b border-rule pb-8">
       <h1
         class="font-serif text-3xl font-bold leading-tight tracking-tight sm:text-4xl"
       >
         {frontmatter.title}
       </h1>
-      <div
-        class="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-muted"
-      >
+      <div class="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-soft">
         <a
           href={frontmatter.url}
           rel="noopener"
@@ -60,7 +58,7 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
             <a
               href={categoryUrl(frontmatter.category)}
               data-pagefind-meta={`category:${frontmatter.category}`}
-              class="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent transition-colors hover:bg-accent hover:text-surface-raised"
+              class="rounded-full bg-chip px-2 py-0.5 text-xs text-accent transition-colors hover:bg-accent hover:text-field"
             >
               {frontmatter.category}
             </a>
@@ -79,7 +77,7 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
       </div>
       {
         frontmatter.summary !== undefined && (
-          <div class="mt-5 rounded-lg border-l-2 border-accent bg-accent-soft/50 p-4 text-sm leading-relaxed text-ink">
+          <div class="mt-5 rounded-lg border-l-2 border-accent bg-chip p-4 text-sm leading-relaxed text-ink">
             <span class="font-semibold text-accent">{t.summary}：</span>
             {frontmatter.summary}
           </div>
@@ -91,28 +89,28 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
       view.kind === "paired" && (
         <div>
           <div
-            class="mb-8 inline-flex rounded-lg border border-line bg-surface-raised p-0.5 text-sm"
+            class="mb-8 inline-flex rounded-lg border border-rule bg-field p-0.5 text-sm"
             id="view-toggle"
             role="group"
           >
             <button
               type="button"
               data-view="both"
-              class="rounded-md px-3 py-1 text-ink-muted transition-colors"
+              class="rounded-md px-3 py-1 text-ink-soft transition-colors"
             >
               {t.sideBySide}
             </button>
             <button
               type="button"
               data-view="original"
-              class="rounded-md px-3 py-1 text-ink-muted transition-colors"
+              class="rounded-md px-3 py-1 text-ink-soft transition-colors"
             >
               {t.original}
             </button>
             <button
               type="button"
               data-view="translation"
-              class="rounded-md px-3 py-1 text-ink-muted transition-colors"
+              class="rounded-md px-3 py-1 text-ink-soft transition-colors"
             >
               {t.translation}
             </button>
@@ -141,7 +139,7 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
       view.kind === "single" && (
         <Fragment>
           {noTranslationNeeded && (
-            <p class="mb-6 text-sm text-ink-muted" data-pagefind-ignore>
+            <p class="mb-6 text-sm text-ink-soft" data-pagefind-ignore>
               {t.noTranslation}
             </p>
           )}
@@ -211,10 +209,10 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
   #reader > :global(.reader-row:has(h4, h5, h6):not(:first-child)) {
     margin-top: 1.5rem;
   }
-  /* Raw tokens (--surface/--accent), not --color-*: `@theme inline`
+  /* Raw tokens (--paper/--accent), not --color-*: `@theme inline`
      substitutes the --color-* names away at build time. */
   #view-toggle button[aria-pressed="true"] {
-    background-color: var(--surface);
+    background-color: var(--paper);
     color: var(--accent);
     font-weight: 500;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);

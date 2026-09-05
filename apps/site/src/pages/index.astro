@@ -15,11 +15,11 @@ for (const article of articles) {
 ---
 
 <Base>
-  {articles.length === 0 && <p class="text-ink-muted">{STRINGS.list.empty}</p>}
+  {articles.length === 0 && <p class="text-ink-soft">{STRINGS.list.empty}</p>}
   {
     [...byMonth.entries()].map(([month, list]) => (
       <section class="mb-12">
-        <h2 class="mb-5 font-serif text-base font-medium text-ink-muted">
+        <h2 class="mb-5 font-serif text-base font-medium text-ink-soft">
           {monthLabel(month)}
         </h2>
         <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

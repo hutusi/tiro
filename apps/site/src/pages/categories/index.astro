@@ -15,10 +15,10 @@ const categories = (await categoryIndex()).sort(
       categories.map((category) => (
         <a
           href={`/categories/${category.slug}/`}
-          class="rounded-lg border border-line bg-surface-raised px-4 py-2 text-sm transition-colors hover:border-line-strong hover:text-accent"
+          class="rounded-lg border border-rule bg-field px-4 py-2 text-sm transition-colors hover:border-rule hover:text-accent"
         >
           {category.label}{" "}
-          <span class="text-ink-muted">({category.articles.length})</span>
+          <span class="text-ink-soft">({category.articles.length})</span>
         </a>
       ))
     }

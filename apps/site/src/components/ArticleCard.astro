@@ -15,7 +15,7 @@ const date = frontmatter.clipped_at.slice(0, 10);
 ---
 
 <article
-  class="group relative flex h-full flex-col rounded-xl border border-line bg-surface-raised p-5 shadow-xs transition hover:border-line-strong hover:shadow-md"
+  class="group relative flex h-full flex-col rounded-xl border border-rule bg-field p-5 shadow-xs transition hover:border-rule hover:shadow-md"
 >
   <a href={articleUrl(article)} class="block">
     <h2
@@ -25,23 +25,23 @@ const date = frontmatter.clipped_at.slice(0, 10);
     </h2>
     {
       frontmatter.summary !== undefined && (
-        <p class="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-muted">
+        <p class="mt-2 line-clamp-3 text-sm leading-relaxed text-ink-soft">
           {frontmatter.summary}
         </p>
       )
     }
   </a>
   <div
-    class="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-4 text-xs text-ink-muted"
+    class="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-4 text-xs text-ink-soft"
   >
     <span>{frontmatter.domain}</span>
-    <span class="text-ink-faint">·</span>
+    <span class="text-ink-mute">·</span>
     <time datetime={frontmatter.clipped_at}>{date}</time>
     {
       frontmatter.category !== undefined && (
         <a
           href={categoryUrl(frontmatter.category)}
-          class="rounded-full bg-accent-soft px-2 py-0.5 text-accent transition-colors hover:bg-accent hover:text-surface-raised"
+          class="rounded-full bg-chip px-2 py-0.5 text-accent transition-colors hover:bg-accent hover:text-field"
         >
           {frontmatter.category}
         </a>
@@ -51,7 +51,7 @@ const date = frontmatter.clipped_at.slice(0, 10);
       (frontmatter.tags ?? []).map((tag) => (
         <a
           href={tagUrl(tag)}
-          class="text-ink-muted hover:text-accent hover:underline focus-visible:underline"
+          class="text-ink-soft hover:text-accent hover:underline focus-visible:underline"
         >
           #{tag}
         </a>

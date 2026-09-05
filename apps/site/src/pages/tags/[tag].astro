@@ -18,8 +18,7 @@ const { label, articles } = Astro.props;
 <Base title={`#${label}`}>
   <h1 class="mb-8 font-serif text-2xl font-bold">
     #{label}
-    <span class="text-base font-normal text-ink-muted">({articles.length})</span
-    >
+    <span class="text-base font-normal text-ink-soft">({articles.length})</span>
   </h1>
   <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
     {articles.map((article) => <ArticleCard article={article} />)}
