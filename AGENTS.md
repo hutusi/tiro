@@ -79,7 +79,7 @@ bun run --cwd apps/extension sweep -- --vault <dir> --fill-languages [--write]
 Update whichever of these covers what you changed — in the same change:
 
 - [docs/architecture.md](docs/architecture.md) — system diagram, data flow, contract summary, credentials table, risk register. Tracks: pipeline stages, workflows, cross-repo wiring.
-- [docs/adr/](docs/adr/) — decision records 0001–0014. A reversed decision gets a superseding ADR, not a silent edit.
+- [docs/adr/](docs/adr/) — decision records 0001–0015. A reversed decision gets a superseding ADR, not a silent edit.
 - [docs/operations.md](docs/operations.md) — day-2 runbook. Tracks: secrets and PAT scopes, LLM config, reprocess/deploy procedures, failure signatures. Anything touching workflows, secrets, or config lands here.
 - [vault-template/README.md](vault-template/README.md) — vault bootstrap instructions. Tracks: vault layout, required secrets, manual operations.
 - `CHANGELOG.md` — release-worthy milestones under `[Unreleased]`; fine-grained history is the git log.
