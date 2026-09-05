@@ -205,7 +205,22 @@ const t = STRINGS.search;
 
     const showPage = async (results, from, id) => {
       const slice = results.slice(from, from + PAGE);
-      const data = await Promise.all(slice.map((r) => r.data()));
+      // Consume the page before awaiting: a second click while the bodies
+      // load must not append the same 30 again. On failure hand it back so
+      // the reader can retry.
+      rest = null;
+      more.disabled = true;
+      let data;
+      try {
+        data = await Promise.all(slice.map((r) => r.data()));
+      } catch {
+        if (id === request) {
+          rest = { id, results, shown: from };
+          more.disabled = false;
+        }
+        return;
+      }
+      more.disabled = false;
       if (id !== request) return;
       const items = data.map(render);
       if (from === 0) list.replaceChildren(...items);
@@ -221,6 +236,7 @@ const t = STRINGS.search;
       list.replaceChildren();
       count.hidden = true;
       more.hidden = true;
+      more.disabled = false;
       rest = null;
     };
 
