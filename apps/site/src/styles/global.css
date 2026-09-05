@@ -26,7 +26,7 @@
   --chip: rgba(30, 27, 22, 0.05); /* active nav, inline code */
   --wash: rgba(30, 27, 22, 0.05); /* hover */
   --accent: #8f2f2f; /* oxblood */
-  --accent-deep: #6b2020;
+  --accent-hover: #6b2020; /* links on hover: deeper on light paper */
   --logo-accent: var(--accent);
   --selection: #d5e3d9; /* sage, on every paper */
   --shadow-card: 0 8px 24px rgba(30, 27, 22, 0.1);
@@ -48,9 +48,11 @@
   --rule: rgba(232, 226, 214, 0.14);
   --chip: rgba(232, 226, 214, 0.08);
   --wash: rgba(232, 226, 214, 0.05);
-  /* Lifted so accent text clears AA on the dark paper; the design's logo bar. */
+  /* Lifted so accent text clears AA on the dark paper (the design's logo
+     bar colour); the hover goes lighter still — a deeper red would fall to
+     ~2:1 against this ground. */
   --accent: #c4544f;
-  --accent-deep: #8f2f2f;
+  --accent-hover: #dc7d78;
   --logo-accent: #c4544f;
   --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
@@ -66,7 +68,7 @@
   --color-chip: var(--chip);
   --color-wash: var(--wash);
   --color-accent: var(--accent);
-  --color-accent-deep: var(--accent-deep);
+  --color-accent-hover: var(--accent-hover);
 }
 
 @theme {
@@ -307,8 +309,8 @@
   text-underline-offset: 3px;
 }
 .prose :where(a:hover) {
-  color: var(--accent-deep);
-  text-decoration-color: var(--accent-deep);
+  color: var(--accent-hover);
+  text-decoration-color: var(--accent-hover);
 }
 
 .prose :where(code):not(:where(pre code))::before,
