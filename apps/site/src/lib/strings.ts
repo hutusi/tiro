@@ -30,11 +30,13 @@ export const STRINGS = {
   },
   status: { pending: "待处理", zhOriginal: "中文原文", untranslated: "未翻译" },
   search: {
-    title: "搜索",
+    title: "搜索与标签",
+    placeholder: "搜索标题、正文、标签…",
+    tags: "标签",
+    categories: "分类",
     devNotice: "搜索索引在构建后生成，开发模式下不可用。",
   },
   categories: { title: "分类" },
-  tags: { title: "标签" },
   notFound: {
     title: "页面不存在",
     hint: "这个地址没有对应的内容，可能已被移动或删除。",
@@ -92,4 +94,8 @@ export function pageNote(current: number, last: number, total: number): string {
 
 export function resultsLabel(count: number): string {
   return `${count} 篇结果`;
+}
+
+export function allTagsLabel(count: number): string {
+  return `全部 ${count} 个标签`;
 }
