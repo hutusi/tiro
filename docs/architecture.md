@@ -101,6 +101,18 @@ flowchart LR
    site from the vault content, indexes it with Pagefind, and deploys to
    Cloudflare Pages. The site is fully public.
 
+   The site's shape follows the "Later Reader" design (ADR 0014): a paginated
+   Library at `/` and `/page/N/`, a 搜索与标签 page carrying Pagefind search
+   plus every tag and category as chips (`/tags/` and `/categories/` redirect
+   to it — `astro.config.mjs` for dev and the static fallback,
+   `public/_redirects` for Cloudflare's edge), the reader, and a settings
+   page. Reading preferences — paper, text size, default layout, list view —
+   live in the browser's `localStorage` and are applied by an inline script
+   before first paint; nothing about a reader ever reaches the server.
+   Reading time, the status pill and a lifted Chinese title are derived at
+   build time from the contract's existing fields (`src/lib/article-meta.ts`),
+   not stored.
+
    Rendering is one unified pipeline (`apps/site/src/lib/render.ts`). Shiki
    and KaTeX run *after* rehype-sanitize, as trusted generators over
    already-scrubbed text, so the allowlist never has to admit the classes and

@@ -1,5 +1,5 @@
 ---
-import ArticleCard from "../../components/ArticleCard.astro";
+import Library from "../../components/Library.astro";
 import Base from "../../layouts/Base.astro";
 import { tagIndex } from "../../lib/articles.ts";
 
@@ -16,12 +16,5 @@ const { label, articles } = Astro.props;
 ---
 
 <Base title={`#${label}`}>
-  <h1 class="mb-8 font-serif text-2xl font-bold">
-    #{label}
-    <span class="text-base font-normal text-ink-muted">({articles.length})</span
-    >
-  </h1>
-  <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-    {articles.map((article) => <ArticleCard article={article} />)}
-  </div>
+  <Library articles={articles} heading={`#${label}`} count={articles.length} />
 </Base>

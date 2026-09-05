@@ -1,0 +1,43 @@
+---
+import Library from "../../components/Library.astro";
+import Base from "../../layouts/Base.astro";
+import { type Article, getArticles } from "../../lib/articles.ts";
+import { pageCount, slicePage } from "../../lib/pager.ts";
+import { pageTitle, STRINGS } from "../../lib/strings.ts";
+
+interface Props {
+  articles: Article[];
+  current: number;
+  last: number;
+  total: number;
+}
+
+export async function getStaticPaths() {
+  const articles = await getArticles();
+  const last = pageCount(articles.length);
+  const paths = [];
+  // Page 1 is `/` (index.astro); this route owns the rest.
+  for (let page = 2; page <= last; page++) {
+    paths.push({
+      params: { page: String(page) },
+      props: {
+        articles: slicePage(articles, page),
+        current: page,
+        last,
+        total: articles.length,
+      } satisfies Props,
+    });
+  }
+  return paths;
+}
+
+const { articles, current, last, total } = Astro.props;
+---
+
+<Base title={`${STRINGS.library.title} · ${pageTitle(current)}`}>
+  <Library
+    articles={articles}
+    heading={STRINGS.library.title}
+    pager={{ current, last, total }}
+  />
+</Base>

@@ -1,81 +1,255 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:where([data-paper="dark"], [data-paper="dark"] *));
 
 /*
- * Raw semantic tokens — plain author CSS, present at runtime in both themes.
+ * Raw semantic tokens — plain author CSS, present at runtime on every paper.
  * Scoped <style> blocks in .astro files must reference THESE (var(--accent)),
  * never the --color-* names below: `@theme inline` substitutes those away at
  * build time, so they do not exist as runtime custom properties.
+ *
+ * Three papers (ADR 0014): cream is the default and lives on :root; white and
+ * dark override on `html[data-paper]`, which the pre-paint script in
+ * Base.astro sets before first paint.
  */
 :root {
-  --surface: #faf8f5;
-  --surface-raised: #fffefc;
-  --ink: #1f1b16;
-  --ink-muted: #6f6659;
-  --ink-faint: #857b6c; /* decorative only — fails AA on light surface */
-  --line: #e8e2d8;
-  --line-strong: #d6cec1;
-  --accent: #b4452f;
-  /* Light enough that accent-colored text on it clears 4.5:1 AA (4.74). */
-  --accent-soft: #f9ece7;
+  --header-h: 56px;
+
+  --paper: #f4efe4;
+  --field: #f9f5ec; /* cards, inputs — a shade lighter than the paper */
+  --ink: #1e1b16;
+  --ink-soft: #5a544a;
+  --ink-mute: #6f6a60; /* meta, help, counts: 4.7:1 on cream, 4.9:1 on field */
+  --ink-zh: #2a2620; /* translation body: a touch lighter than Latin ink */
+  --rule: rgba(30, 27, 22, 0.12);
+  --chip: rgba(30, 27, 22, 0.05); /* active nav, inline code */
+  --wash: rgba(30, 27, 22, 0.05); /* hover */
+  --accent: #8f2f2f; /* oxblood: links, rings — 7:1 on cream */
+  --accent-hover: #6b2020; /* links on hover: deeper on light paper */
+  /* Filled controls with white text (selected segment, current page). One
+     colour serves both roles on light paper; dark paper needs two, so every
+     fill goes through this token rather than --accent. */
+  --accent-fill: #8f2f2f; /* white on it: 8:1 */
+  --logo-accent: var(--accent);
+  --selection: #d5e3d9; /* sage, on every paper */
+  --shadow-card: 0 8px 24px rgba(30, 27, 22, 0.1);
 }
 
-.dark {
-  --surface: #161311;
-  --surface-raised: #1e1a17;
-  --ink: #eae4da;
-  --ink-muted: #a99f91;
-  --ink-faint: #8a8074;
-  --line: #2e2924;
-  --line-strong: #3d3730;
-  --accent: #e07a5f;
-  --accent-soft: #35201a;
+[data-paper="white"] {
+  --paper: #fbfaf7;
+  --field: #ffffff;
+}
+
+[data-paper="dark"] {
+  color-scheme: dark;
+  --paper: #1c1a17;
+  --field: #2a2723;
+  --ink: #e8e2d6;
+  --ink-soft: #b8b1a4;
+  --ink-mute: #9a9387; /* 5.7:1 on dark paper, 4.9:1 on the dark field */
+  --ink-zh: #ddd6c9;
+  --rule: rgba(232, 226, 214, 0.14);
+  --chip: rgba(232, 226, 214, 0.08);
+  --wash: rgba(232, 226, 214, 0.05);
+  /* Text and fill part ways on dark paper: a red light enough to read as a
+     link (5.4:1 on this ground) is too light to carry white text, and the
+     design's #c4544f manages neither (3.9:1 as text, 4.4:1 under white).
+     The hover goes lighter still — a deeper red would fall to ~2:1. */
+  --accent: #d4736c;
+  --accent-hover: #dc7d78; /* 6:1 */
+  --accent-fill: #bd4d48; /* white on it 4.9:1; 3.6:1 against the paper */
+  --logo-accent: #c4544f;
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 @theme inline {
-  --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
+  --color-paper: var(--paper);
+  --color-field: var(--field);
   --color-ink: var(--ink);
-  --color-ink-muted: var(--ink-muted);
-  --color-ink-faint: var(--ink-faint);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-mute: var(--ink-mute);
+  --color-ink-zh: var(--ink-zh);
+  --color-rule: var(--rule);
+  --color-chip: var(--chip);
+  --color-wash: var(--wash);
   --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fill: var(--accent-fill);
 }
 
 @theme {
-  --font-sans:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    "PingFang SC",
-    "Hiragino Sans GB",
-    "Noto Sans CJK SC",
-    "Microsoft YaHei",
-    sans-serif;
-  /* Source Serif 4 is the Latin companion to Source Han Serif (思源宋体);
-     CJK glyphs fall through to system serifs — no CJK webfont payload. */
+  /* Spectral is the Latin face; CJK glyphs fall through to system serifs —
+     no CJK webfont payload (ADR 0014). */
   --font-serif:
-    "Source Serif 4", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC",
-    "SimSun", serif;
+    "Spectral", "Noto Serif SC", "Songti SC", "Noto Serif CJK SC",
+    "Source Han Serif SC", "SimSun", serif;
+  /* Chinese-only lines (translated title, status pill): CJK face first so
+     Latin punctuation inside them matches the surrounding glyphs. */
+  --font-zh:
+    "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC",
+    "SimSun", "Spectral", serif;
+  /* Also what Preflight hands to code/pre/kbd via --default-mono-font-family. */
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @layer base {
   html {
-    font-family: var(--font-sans);
+    font-family: var(--font-serif);
+    -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+    background-color: var(--selection);
+    color: #1e1b16;
   }
 
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+}
+
+/*
+ * Shared UI primitives used by more than one page. Utilities still win over
+ * these (Tailwind's utilities layer comes last), so a page can nudge them.
+ */
+@layer components {
+  .logo-bars {
+    display: inline-flex;
+    gap: 3px;
+    align-self: center;
+  }
+  .logo-bars > i {
+    display: block;
+    width: 5px;
+    height: 18px;
+    border-radius: 1px;
+    background: var(--ink);
+  }
+  .logo-bars > i + i {
+    background: var(--logo-accent);
+  }
+  .logo-bars--mini {
+    gap: 2px;
+  }
+  .logo-bars--mini > i {
+    width: 3px;
+    height: 11px;
+    background: var(--ink-mute);
+  }
+  .logo-bars--mini > i + i {
+    background: var(--logo-accent);
+  }
+
+  .segmented {
+    display: inline-flex;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .segmented > button {
+    padding: 4px 10px;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .segmented > button + button {
+    border-left: 1px solid var(--rule);
+  }
+  .segmented > button:hover {
+    background: var(--wash);
+  }
+  .segmented > button[aria-pressed="true"] {
+    background: var(--accent-fill);
+    color: #fff;
+  }
+  .segmented--md {
+    font-size: 13px;
+  }
+  .segmented--md > button {
+    padding: 5px 12px;
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border: 1px solid var(--rule);
+    border-radius: 99px;
+    font-family: var(--font-zh);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ink-mute);
+    white-space: nowrap;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border: 1px solid var(--rule);
+    border-radius: 99px;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--ink);
+    background: transparent;
+    text-decoration: none;
+  }
+  .chip:hover {
+    background: var(--wash);
+    border-color: var(--ink-mute);
+  }
+  .chip > .count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    opacity: 0.65;
+  }
+
+  .paper-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--rule);
+    cursor: pointer;
+    padding: 0;
+  }
+  .paper-dot[data-value="cream"] {
+    background: #f4efe4;
+  }
+  .paper-dot[data-value="white"] {
+    background: #fbfaf7;
+  }
+  .paper-dot[data-value="dark"] {
+    background: #1c1a17;
+  }
+  .paper-dot[aria-checked="true"] {
+    border-color: var(--accent);
+  }
+
+  .step-btn {
+    width: 30px;
+    height: 28px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .step-btn:hover {
+    background: var(--wash);
+  }
+  .step-btn[data-step="-1"] {
+    font-size: 12px;
+  }
+  .step-btn[data-step="1"] {
+    font-size: 17px;
   }
 }
 
@@ -91,32 +265,34 @@
   font-family: var(--font-serif);
   --tw-prose-body: var(--ink);
   --tw-prose-headings: var(--ink);
-  --tw-prose-lead: var(--ink-muted);
+  --tw-prose-lead: var(--ink-soft);
   --tw-prose-links: var(--accent);
   --tw-prose-bold: var(--ink);
-  --tw-prose-counters: var(--ink-muted);
-  --tw-prose-bullets: var(--line-strong);
-  --tw-prose-hr: var(--line);
+  --tw-prose-counters: var(--ink-mute);
+  --tw-prose-bullets: var(--ink-mute);
+  --tw-prose-hr: var(--rule);
   --tw-prose-quotes: var(--ink);
-  --tw-prose-quote-borders: var(--accent-soft);
-  --tw-prose-captions: var(--ink-muted);
+  --tw-prose-quote-borders: var(--rule);
+  --tw-prose-captions: var(--ink-mute);
   --tw-prose-code: var(--ink);
-  /* One warm dark code theme in both modes. */
+  /* One warm dark code theme on every paper. */
   --tw-prose-pre-code: #e8e2d9;
   --tw-prose-pre-bg: #211d19;
-  --tw-prose-th-borders: var(--line-strong);
-  --tw-prose-td-borders: var(--line);
+  --tw-prose-th-borders: var(--rule);
+  --tw-prose-td-borders: var(--rule);
 }
 
-/* CJK body text wants more leading than the Latin default. */
+/* CJK body text wants more leading than the Latin default, and reads a touch
+   lighter (the design's inkZh) beside a 300-weight Latin column. */
 .prose:where([lang="zh-CN"], [lang="zh"]) {
+  --tw-prose-body: var(--ink-zh);
   line-height: 1.9;
   letter-spacing: 0.01em;
 }
 
-/* We ship no 800 weight — keep headings at a real 700, not faux-bold. */
+/* Spectral tops out at 600 — typography's 800/700 headings would be faux-bold. */
 .prose :where(h1, h2) {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Typography styles h1-h4 only, so h5/h6 inherited body size and weight and
@@ -140,7 +316,8 @@
   text-underline-offset: 3px;
 }
 .prose :where(a:hover) {
-  text-decoration-color: var(--accent);
+  color: var(--accent-hover);
+  text-decoration-color: var(--accent-hover);
 }
 
 .prose :where(code):not(:where(pre code))::before,
@@ -148,7 +325,7 @@
   content: none;
 }
 .prose :where(code):not(:where(pre code)) {
-  background-color: var(--accent-soft);
+  background-color: var(--chip);
   border-radius: 0.25rem;
   padding: 0.125rem 0.3rem;
   font-weight: 500;
@@ -157,9 +334,9 @@
 .prose :where(pre) {
   border-radius: 0.5rem;
 }
-/* Lift code blocks off the near-black page background. */
-.dark .prose :where(pre) {
-  border: 1px solid var(--line);
+/* Lift code blocks off the near-black paper. */
+[data-paper="dark"] .prose :where(pre) {
+  border: 1px solid var(--rule);
 }
 
 /* Paired mode renders each pane into a `minmax(0, 1fr)` track with `overflow:
@@ -212,9 +389,5 @@
 }
 
 .prose :where(figcaption) {
-  font-family: var(--font-sans);
   text-align: center;
-}
-.prose :where(thead th) {
-  font-family: var(--font-sans);
 }

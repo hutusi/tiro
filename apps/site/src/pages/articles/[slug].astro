@@ -1,9 +1,17 @@
 ---
 import "katex/dist/katex.min.css";
+import FontSteps from "../../components/FontSteps.astro";
+import PaperDots from "../../components/PaperDots.astro";
 import Base from "../../layouts/Base.astro";
+import { articleMeta } from "../../lib/article-meta.ts";
 import { categoryUrl, getArticles, tagUrl } from "../../lib/articles.ts";
 import { buildReaderView } from "../../lib/reader.ts";
-import { STRINGS } from "../../lib/strings.ts";
+import {
+  dateLabel,
+  minutesLabel,
+  readingAboutLabel,
+  STRINGS,
+} from "../../lib/strings.ts";
 
 export async function getStaticPaths() {
   const articles = await getArticles();
@@ -18,119 +26,184 @@ const { frontmatter } = article;
 const view = buildReaderView(article.body, article.zhBody, article.slug, {
   inlineMath: frontmatter.has_math === true,
 });
+const meta = articleMeta(article);
 const t = STRINGS.article;
-const date = frontmatter.clipped_at.slice(0, 10);
 // A single pane means no zh.md. Say why when the reason is "it's already in
 // the target language" — otherwise it looks identical to a failed translation.
 const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
+// The title block shows the title; a body that opens with the same H1 would
+// show it twice, so that first block is skipped (stacked view never skips —
+// it is the degraded mode and stays dumb).
+const rows =
+  view.kind === "paired"
+    ? meta.liftedH1
+      ? view.rows.slice(1)
+      : view.rows
+    : [];
+const blocks =
+  view.kind === "single"
+    ? meta.liftedH1
+      ? view.blocks.slice(1)
+      : view.blocks
+    : [];
+const hasZhTitle = meta.titleZh !== null;
+const date = dateLabel(frontmatter.clipped_at);
 ---
 
 <Base
   title={frontmatter.title}
   description={frontmatter.summary ?? frontmatter.excerpt}
   ogType="article"
+  width="full"
 >
-  <article data-pagefind-body>
-    <header class="mb-10 border-b border-line pb-8">
-      <h1
-        class="font-serif text-3xl font-bold leading-tight tracking-tight sm:text-4xl"
-      >
-        {frontmatter.title}
-      </h1>
-      <div
-        class="mt-4 flex flex-wrap items-center gap-2 text-sm text-ink-muted"
-      >
-        <a
-          href={frontmatter.url}
-          rel="noopener"
-          target="_blank"
-          class="hover:text-accent hover:underline"
-        >
-          {t.source} ↗
-        </a>
-        <span>·</span>
-        <span>{frontmatter.domain}</span>
-        <span>·</span>
-        <span
-          >{t.clippedAt}
-          <time datetime={frontmatter.clipped_at}>{date}</time></span
-        >
-        {
-          frontmatter.category !== undefined && (
-            <a
-              href={categoryUrl(frontmatter.category)}
-              data-pagefind-meta={`category:${frontmatter.category}`}
-              class="rounded-full bg-accent-soft px-2 py-0.5 text-xs text-accent transition-colors hover:bg-accent hover:text-surface-raised"
+  <article data-pagefind-body class="reader" data-view={view.kind}>
+    <div class="toolbar" data-pagefind-ignore>
+      <a href="/" class="back">{t.back}</a>
+      {
+        view.kind === "paired" && (
+          <Fragment>
+            <span class="divider" aria-hidden="true" />
+            <div
+              id="view-toggle"
+              class="segmented segmented--md"
+              role="group"
+              aria-label={t.layoutLabel}
             >
-              {frontmatter.category}
-            </a>
+              <button type="button" data-view="both" aria-pressed="false">
+                {t.sideBySide}
+              </button>
+              <button
+                type="button"
+                data-view="translation"
+                aria-pressed="false"
+                lang="zh-CN"
+              >
+                {t.translation}
+              </button>
+              <button type="button" data-view="original" aria-pressed="false">
+                {t.original}
+              </button>
+            </div>
+          </Fragment>
+        )
+      }
+      <span class="divider" aria-hidden="true"></span>
+      <FontSteps />
+      <span class="grow"></span>
+      <PaperDots />
+    </div>
+
+    <header class="head">
+      <div class:list={["titles", { "has-zh": hasZhTitle }]}>
+        <div>
+          <p class="meta">
+            <a
+              href={frontmatter.url}
+              rel="noopener"
+              target="_blank"
+              data-pagefind-meta="domain">{frontmatter.domain}</a
+            >
+            {
+              frontmatter.author !== undefined && (
+                <Fragment>
+                  <span aria-hidden="true">·</span>
+                  <span>{frontmatter.author}</span>
+                </Fragment>
+              )
+            }
+            <span aria-hidden="true">·</span>
+            <span>{minutesLabel(meta.minutes)}</span>
+          </p>
+          <h1 data-pagefind-meta="title">{frontmatter.title}</h1>
+          <time
+            hidden
+            datetime={frontmatter.clipped_at}
+            data-pagefind-meta="date">{date}</time
+          >
+        </div>
+        {
+          hasZhTitle && (
+            <div lang="zh-CN">
+              <p class="meta meta-zh">
+                <span>{frontmatter.domain}</span>
+                {frontmatter.author !== undefined && (
+                  <Fragment>
+                    <span aria-hidden="true">·</span>
+                    <span>{frontmatter.author}</span>
+                  </Fragment>
+                )}
+                <span aria-hidden="true">·</span>
+                <span>{readingAboutLabel(meta.minutes)}</span>
+              </p>
+              <p class="title-zh" data-pagefind-meta="title_zh">
+                {meta.titleZh}
+              </p>
+            </div>
           )
         }
         {
-          (frontmatter.tags ?? []).map((tag) => (
-            <a
-              href={tagUrl(tag)}
-              class="text-xs hover:text-accent hover:underline focus-visible:underline"
-            >
-              #{tag}
-            </a>
-          ))
+          (frontmatter.category !== undefined ||
+            (frontmatter.tags ?? []).length > 0) && (
+            <p class="terms">
+              {frontmatter.category !== undefined && (
+                <a
+                  href={categoryUrl(frontmatter.category)}
+                  class="pill"
+                  data-pagefind-meta={`category:${frontmatter.category}`}
+                >
+                  {frontmatter.category}
+                </a>
+              )}
+              {(frontmatter.tags ?? []).map((tag) => (
+                <a href={tagUrl(tag)}>#{tag}</a>
+              ))}
+            </p>
+          )
         }
       </div>
+      <hr class="title-rule" />
       {
         frontmatter.summary !== undefined && (
-          <div class="mt-5 rounded-lg border-l-2 border-accent bg-accent-soft/50 p-4 text-sm leading-relaxed text-ink">
-            <span class="font-semibold text-accent">{t.summary}：</span>
+          <p class="lead" lang="zh-CN">
+            <span class="lead-label">{t.summary}</span>
             {frontmatter.summary}
-          </div>
+          </p>
         )
       }
     </header>
 
     {
       view.kind === "paired" && (
-        <div>
-          <div
-            class="mb-8 inline-flex rounded-lg border border-line bg-surface-raised p-0.5 text-sm"
-            id="view-toggle"
-            role="group"
-          >
-            <button
-              type="button"
-              data-view="both"
-              class="rounded-md px-3 py-1 text-ink-muted transition-colors"
-            >
-              {t.sideBySide}
-            </button>
-            <button
-              type="button"
-              data-view="original"
-              class="rounded-md px-3 py-1 text-ink-muted transition-colors"
-            >
-              {t.original}
-            </button>
-            <button
-              type="button"
-              data-view="translation"
-              class="rounded-md px-3 py-1 text-ink-muted transition-colors"
-            >
-              {t.translation}
-            </button>
-          </div>
-          <div id="reader" data-mode="both" class="space-y-6">
-            {view.rows.map((row) => (
-              <div class="reader-row grid gap-x-12 gap-y-2 lg:grid-cols-2">
-                <div
-                  class="pane-original prose max-w-none min-w-0"
-                  lang={frontmatter.lang}
-                  set:html={row.original}
-                />
-                <div
-                  class="pane-translation prose max-w-none min-w-0"
-                  lang="zh-CN"
-                  set:html={row.translation}
-                />
-              </div>
+        <div id="reader" data-mode="both">
+          {rows.map((row) => (
+            <div class="reader-row">
+              <div
+                class="pane-original prose max-w-none min-w-0"
+                lang={frontmatter.lang}
+                set:html={row.original}
+              />
+              <div
+                class="pane-translation prose max-w-none min-w-0"
+                lang="zh-CN"
+                set:html={row.translation}
+              />
+            </div>
+          ))}
+        </div>
+      )
+    }
+
+    {
+      view.kind === "single" && (
+        <div class="reader-single">
+          {noTranslationNeeded && (
+            <p class="notice" data-pagefind-ignore>
+              {t.noTranslation}
+            </p>
+          )}
+          <div class="prose max-w-none" lang={frontmatter.lang}>
+            {blocks.map((html) => (
+              <Fragment set:html={html} />
             ))}
           </div>
         </div>
@@ -138,34 +211,17 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
     }
 
     {
-      view.kind === "single" && (
-        <Fragment>
-          {noTranslationNeeded && (
-            <p class="mb-6 text-sm text-ink-muted" data-pagefind-ignore>
-              {t.noTranslation}
-            </p>
-          )}
-          <div class="prose mx-auto max-w-3xl" lang={frontmatter.lang}>
-            {view.blocks.map((html) => (
-              <Fragment set:html={html} />
-            ))}
-          </div>
-        </Fragment>
-      )
-    }
-
-    {
       view.kind === "stacked" && (
-        <div class="space-y-10">
-          <p class="text-sm text-amber-700 dark:text-amber-500">
+        <div class="reader-single space-y-10">
+          <p class="notice text-amber-700 dark:text-amber-500">
             {t.misaligned}
           </p>
-          <div class="prose mx-auto max-w-3xl" lang={frontmatter.lang}>
+          <div class="prose max-w-none" lang={frontmatter.lang}>
             {view.original.map((html) => (
               <Fragment set:html={html} />
             ))}
           </div>
-          <div class="prose mx-auto max-w-3xl" lang="zh-CN">
+          <div class="prose max-w-none" lang="zh-CN">
             {view.translation.map((html) => (
               <Fragment set:html={html} />
             ))}
@@ -173,67 +229,291 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
         </div>
       )
     }
+
+    <p class="end-note" data-pagefind-ignore>
+      {t.clippedAt}
+      <time datetime={frontmatter.clipped_at}>{date}</time>
+      <span aria-hidden="true">·</span>
+      {t.publishedAt}
+      <a href={frontmatter.url} rel="noopener" target="_blank"
+        >{frontmatter.domain}</a
+      >
+      {
+        view.kind === "paired" && (
+          <Fragment>
+            <span aria-hidden="true">·</span>
+            <span lang="zh-CN">{t.translatedDone}</span>
+          </Fragment>
+        )
+      }
+    </p>
   </article>
 </Base>
 
 <style>
-  #reader[data-mode="original"] .pane-translation {
-    display: none;
+  /* Raw tokens (--paper/--accent…), never --color-*: `@theme inline`
+     substitutes those away at build time. */
+  .reader {
+    --size: var(--reader-size, 19px);
+    --gutter: 16px;
   }
+  @media (min-width: 40rem) {
+    .reader {
+      --gutter: 24px;
+    }
+  }
+  @media (min-width: 64rem) {
+    .reader {
+      --gutter: 40px;
+    }
+  }
+
+  .toolbar {
+    position: sticky;
+    top: var(--header-h);
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 10px var(--gutter);
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+    font-size: 13px;
+  }
+  .back {
+    color: var(--ink-mute);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .back:hover {
+    color: var(--ink);
+  }
+  .divider {
+    width: 1px;
+    height: 18px;
+    background: var(--rule);
+  }
+  .grow {
+    flex: 1;
+  }
+
+  /* One reading measure for everything below the toolbar: 720px for a single
+     column, 1240px when two columns sit side by side. */
+  .head,
+  #reader,
+  .reader-single,
+  .end-note {
+    max-width: 720px;
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+  .reader[data-view="paired"] .head,
+  #reader[data-mode="both"] {
+    max-width: 1240px;
+  }
+
+  .head {
+    padding-top: 56px;
+    padding-bottom: 8px;
+  }
+  .titles {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px 64px;
+  }
+  @media (min-width: 64rem) {
+    .reader[data-view="paired"] .titles.has-zh {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--ink-mute);
+  }
+  .meta a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .meta a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .meta-zh {
+    font-family: var(--font-zh);
+    letter-spacing: 0;
+  }
+  .titles h1 {
+    margin: 0;
+    font-size: 38px;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    text-wrap: pretty;
+  }
+  .title-zh {
+    margin: 0;
+    font-family: var(--font-zh);
+    font-size: 34px;
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: 0.01em;
+    text-wrap: pretty;
+  }
+  @media (max-width: 39.99rem) {
+    .titles h1 {
+      font-size: 30px;
+    }
+    .title-zh {
+      font-size: 27px;
+    }
+  }
+  .terms {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-mute);
+  }
+  .terms a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .terms a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .terms .pill {
+    font-size: 11px;
+  }
+  .title-rule {
+    margin: 36px 0 8px;
+    border: 0;
+    border-top: 1px solid var(--rule);
+  }
+  .lead {
+    max-width: 640px;
+    margin: 20px 0 0;
+    font-family: var(--font-zh);
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+  .lead-label {
+    margin-right: 0.5em;
+    color: var(--ink-mute);
+  }
+
+  #reader,
+  .reader-single {
+    padding-top: 16px;
+    padding-bottom: 64px;
+  }
+  .notice {
+    margin: 8px 0 24px;
+    font-size: 13px;
+    color: var(--ink-mute);
+  }
+
+  /* One grid row per block keeps the two panes aligned while scrolling. The
+     `minmax(0, 1fr)` tracks are load-bearing — see the overflow comment in
+     global.css. */
+  .reader-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px 64px;
+    padding: 14px 16px;
+    margin: 0 -16px;
+    border-radius: 8px;
+    transition: background 0.15s;
+  }
+  @media (min-width: 64rem) {
+    #reader[data-mode="both"] .reader-row {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    #reader[data-mode="both"] .reader-row:hover {
+      background: var(--wash);
+    }
+  }
+  #reader[data-mode="original"] .pane-translation,
   #reader[data-mode="translation"] .pane-original {
     display: none;
   }
-  /* 48rem must stay in sync with the max-w-3xl on the single/stacked roots. */
-  #reader[data-mode="original"] .reader-row,
-  #reader[data-mode="translation"] .reader-row {
-    grid-template-columns: 1fr;
-    max-width: 48rem;
-    margin-inline: auto;
+
+  /* Body type. The original reads light (Spectral 300) at the chosen size;
+     the translation one px smaller, on its own leading from global.css. */
+  .pane-original,
+  .reader-single .prose:not([lang="zh-CN"], [lang="zh"]) {
+    font-size: var(--size);
+    line-height: 1.62;
+    font-weight: 300;
+    text-wrap: pretty;
   }
-  /* In single-pane modes the pair grouping is meaningless — tighten the
-     space-y-6 back to paragraph rhythm (the ID out-specifies its :where()). */
-  #reader[data-mode="original"] > :not(:last-child),
-  #reader[data-mode="translation"] > :not(:last-child) {
-    margin-block-end: 1.25rem;
+  .pane-translation,
+  .reader-single .prose:is([lang="zh-CN"], [lang="zh"]) {
+    font-size: calc(var(--size) - 1px);
+    text-wrap: pretty;
   }
+
   /* Per-block prose roots suppress prose's own heading margins — every block is
      both :first-child and :last-child of its pane, so typography zeroes them —
-     and space-y-6 then spaces every row identically. Give rows that open a
-     section their breathing room back, graded by level so the hierarchy reads.
-     All six levels, not just h2/h3: clipped papers use h1 for the title and
-     h4-h6 for abstracts, theorems and proofs. */
+     and the row padding then spaces every row identically. Give rows that open
+     a section their breathing room back, graded by level so the hierarchy
+     reads. All six levels: clipped papers use h1 for the title and h4-h6 for
+     abstracts, theorems and proofs. */
   #reader > :global(.reader-row:has(h1, h2):not(:first-child)) {
-    margin-top: 3rem;
+    margin-top: 2.5rem;
   }
   #reader > :global(.reader-row:has(h3):not(:first-child)) {
-    margin-top: 2rem;
-  }
-  #reader > :global(.reader-row:has(h4, h5, h6):not(:first-child)) {
     margin-top: 1.5rem;
   }
-  /* Raw tokens (--surface/--accent), not --color-*: `@theme inline`
-     substitutes the --color-* names away at build time. */
-  #view-toggle button[aria-pressed="true"] {
-    background-color: var(--surface);
+  #reader > :global(.reader-row:has(h4, h5, h6):not(:first-child)) {
+    margin-top: 1rem;
+  }
+
+  .end-note {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0 8px;
+    padding-bottom: 96px;
+    font-size: 13px;
+    color: var(--ink-mute);
+  }
+  .end-note a {
+    color: inherit;
+  }
+  .end-note a:hover {
     color: var(--accent);
-    font-weight: 500;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
   }
 </style>
 
 <script is:inline>
-  const reader = document.getElementById("reader");
-  const toggle = document.getElementById("view-toggle");
-  if (reader !== null && toggle !== null) {
-    const buttons = toggle.querySelectorAll("button");
-    const apply = (mode) => {
-      reader.dataset.mode = mode;
+  {
+    const reader = document.getElementById("reader");
+    const toggle = document.getElementById("view-toggle");
+    if (reader !== null && toggle !== null) {
+      const buttons = toggle.querySelectorAll("button");
+      const apply = (mode) => {
+        reader.dataset.mode = mode;
+        for (const b of buttons)
+          b.setAttribute("aria-pressed", String(b.dataset.view === mode));
+      };
       for (const b of buttons)
-        b.setAttribute("aria-pressed", String(b.dataset.view === mode));
-      localStorage.setItem("tiro-reader-mode", mode);
-    };
-    for (const b of buttons)
-      b.addEventListener("click", () => apply(b.dataset.view));
-    apply(localStorage.getItem("tiro-reader-mode") ?? "both");
+        b.addEventListener("click", () => {
+          apply(b.dataset.view);
+          window.tiroPrefs.setReaderMode(b.dataset.view);
+        });
+      apply(window.tiroPrefs.readerMode());
+    }
   }
 </script>

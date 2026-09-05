@@ -256,6 +256,12 @@ record itself; don't hand-edit it.
 - The domain is mirrored in `apps/site/astro.config.mjs` (`site:`) for
   absolute-URL generation, and hardcoded in `apps/site/public/robots.txt`
   (the `Sitemap:` line) — keep all three in sync if the domain ever moves.
+- **Redirects** live in two places on purpose: `apps/site/public/_redirects`
+  is what Cloudflare Pages serves as real 301s at the edge, and the
+  `redirects` map in `apps/site/astro.config.mjs` mirrors it so `astro dev`
+  redirects too and the static build carries meta-refresh pages as a
+  fallback. Today both map `/tags/` and `/categories/` to `/search/`
+  (ADR 0014); change them together.
 - `robots.txt` welcomes search — traditional engines and AI search or
   user-request agents alike (they cite with links) — and disallows
   AI-training and bulk-scraping crawlers by user agent (the site republishes
@@ -622,4 +628,5 @@ permanent extension ID, unrelated to the unpacked one.
 | A red formula on the page, `katex-error` in the HTML | the clipped LaTeX does not parse | by design: KaTeX never fails the build. Hover the formula for KaTeX's own message, then fix the markdown in the vault |
 | A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |
 | A price renders as a formula | `has_math: true` on an article whose literal dollars are not escaped | escape them as `\$`, or clear the flag |
+| The search page shows "搜索索引在构建后生成" in production | `pagefind --site dist` did not run after `astro build`, so `dist/pagefind/` is missing | check the deploy log for the pagefind step; the results UI imports `/pagefind/pagefind.js` and shows the notice when that import fails |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |

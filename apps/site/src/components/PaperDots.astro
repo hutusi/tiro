@@ -1,0 +1,51 @@
+---
+/**
+ * The paper switch — three swatches, one selected. Pure presentation plus a
+ * tiny inline script that talks to `tiroPrefs` (Base.astro); every instance on
+ * a page stays in sync through the `tiro:prefs` event that script dispatches.
+ */
+import { PAPERS } from "../lib/prefs.ts";
+import { STRINGS } from "../lib/strings.ts";
+
+const t = STRINGS.settings.paper;
+---
+
+<div
+  class="paper-dots flex items-center gap-2"
+  role="radiogroup"
+  aria-label={t.label}
+>
+  {
+    PAPERS.map((paper) => (
+      <button
+        type="button"
+        role="radio"
+        class="paper-dot"
+        data-value={paper}
+        aria-checked="false"
+        aria-label={t.options[paper]}
+        title={t.options[paper]}
+      />
+    ))
+  }
+</div>
+
+<script is:inline>
+  for (const group of document.querySelectorAll(
+    ".paper-dots:not([data-bound])",
+  )) {
+    group.dataset.bound = "";
+    const dots = group.querySelectorAll("button");
+    const sync = () => {
+      const current = window.tiroPrefs.paper();
+      for (const dot of dots)
+        dot.setAttribute("aria-checked", String(dot.dataset.value === current));
+    };
+    for (const dot of dots)
+      dot.addEventListener("click", () =>
+        window.tiroPrefs.setPaper(dot.dataset.value),
+      );
+    document.addEventListener("tiro:prefs", sync);
+    sync();
+  }
+</script>

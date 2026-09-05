@@ -1,6 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="72" height="72">
   <title>Tiro</title>
-  <rect width="128" height="128" rx="28" fill="#b4452f"/>
-  <path fill="#ffffff"
-        d="M46 30 H82 a6 6 0 0 1 6 6 V98 a3 3 0 0 1 -4.8 2.4 L64 86 L44.8 100.4 A3 3 0 0 1 40 98 V36 a6 6 0 0 1 6 -6 Z"/>
+  <rect width="72" height="72" rx="16" fill="#8f2f2f"/>
+  <path fill="#f4efe4" d="M43.64 49.18L28.32 49.18L28.32 48.44L33.10 46.56L33.10 21.35L26.16 21.35L22.71 28.57L21.97 28.57L21.97 18.82L50.03 18.82L50.03 28.57L49.29 28.57L45.84 21.35L38.90 21.35L38.90 46.56L43.64 48.44"/>
 </svg>

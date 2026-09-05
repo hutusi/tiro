@@ -5,13 +5,13 @@
 // read English.
 import Base from "../layouts/Base.astro";
 
-const updated = "2026-09-04";
+const updated = "2026-09-05";
 ---
 
 <Base title="隐私政策">
   <article class="prose mx-auto max-w-3xl prose-headings:font-bold">
     <h1>隐私政策 / Privacy Policy</h1>
-    <p class="text-sm text-ink-muted">最后更新 / Last updated: {updated}</p>
+    <p class="text-sm text-ink-soft">最后更新 / Last updated: {updated}</p>
 
     <h2>中文</h2>
 
@@ -110,8 +110,8 @@ const updated = "2026-09-04";
     <p>
       站点是纯静态页面，不设置追踪
       Cookie，不运行分析脚本；搜索完全在浏览器本地完成。
-      深色模式偏好保存在浏览器的 <code>localStorage</code> 里。站点托管在 Cloudflare
-      Pages，由其按常规方式处理访问日志。
+      阅读偏好（纸色、字号、默认排版、列表视图）保存在浏览器的
+      <code>localStorage</code> 里，不会上传。站点托管在 Cloudflare Pages，由其按常规方式处理访问日志。
     </p>
 
     <h2>English</h2>
@@ -228,9 +228,10 @@ const updated = "2026-09-04";
     <h3>This site</h3>
     <p>
       The site is static. It sets no tracking cookies and runs no analytics;
-      search runs entirely in your browser. Your dark-mode preference is kept in
-      <code>localStorage</code>. It is hosted on Cloudflare Pages, which handles
-      request logs in the ordinary way.
+      search runs entirely in your browser. Your reading preferences — paper,
+      text size, default layout, list view — are kept in
+      <code>localStorage</code> and never uploaded. It is hosted on Cloudflare Pages,
+      which handles request logs in the ordinary way.
     </p>
 
     <h3>Contact</h3>

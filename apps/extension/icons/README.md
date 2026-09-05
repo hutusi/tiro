@@ -71,64 +71,8 @@ open apps/extension/public/icons/icon-16.png
 
 ## Site assets
 
-The site reuses this mark; its copies live in `apps/site/public/` and are
-committed, not built:
-
-- `favicon.svg` — a copy of `icon.svg` with the `<title>` changed to "Tiro"
-  (the site is Tiro, the extension is Tiro Clipper). Edit both when the mark
-  changes.
-- `favicon-32.png` and `favicon.ico` — byte copies of
-  `../public/icons/icon-32.png`. The `.ico` holds PNG bytes: every current
-  browser accepts that at `/favicon.ico`, and it spares the repo an ico
-  toolchain for the one path browsers request blindly.
-- `apple-touch-icon.png` — 180×180, rendered with the same headless-Chrome
-  recipe but with `background:#b4452f` on the wrapper and the image at
-  180px: the rounded rect blends into the background, giving the full-bleed
-  square iOS expects (iOS applies its own corner mask; transparent corners
-  would go black).
-- `og.png` — the 1200×630 social card: the site's paper background, centered
-  160px mark, "Tiro" in Source Serif 4 (loaded straight from the site's
-  node_modules via @font-face) and the tagline, same wrapper technique with
-  `--window-size=1200,630`. Render it on macOS (the tagline needs
-  PingFang SC).
-
-```sh
-CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-tmp="$(mktemp -d)"
-cat > "$tmp/apple-touch-icon.html" <<HTML
-<!doctype html><meta charset="utf-8">
-<style>html,body{margin:0;padding:0;background:#b4452f}
-img{display:block;width:180px;height:180px}</style>
-<img src="file://$PWD/apps/site/public/favicon.svg" alt="">
-HTML
-"$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=1 --window-size=180,180 \
-  --screenshot=apps/site/public/apple-touch-icon.png \
-  "file://$tmp/apple-touch-icon.html"
-
-cat > "$tmp/og.html" <<HTML
-<!doctype html><meta charset="utf-8">
-<style>
-@font-face {
-  font-family: "Source Serif 4";
-  font-weight: 700;
-  src: url("file://$PWD/apps/site/node_modules/@fontsource/source-serif-4/files/source-serif-4-latin-700-normal.woff2") format("woff2");
-}
-html,body{margin:0;padding:0;background:#faf8f5}
-body{width:1200px;height:630px;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:28px}
-img{display:block;width:160px;height:160px}
-h1{margin:0;font:700 96px/1 "Source Serif 4","Songti SC",serif;
-  letter-spacing:-0.02em;color:#1f1b16}
-p{margin:0;font:400 34px/1 -apple-system,"PingFang SC",sans-serif;
-  color:#6f6659}
-</style>
-<img src="file://$PWD/apps/site/public/favicon.svg" alt="">
-<h1>Tiro</h1>
-<p>个人稍后读知识库</p>
-HTML
-"$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=1 --window-size=1200,630 \
-  --screenshot=apps/site/public/og.png \
-  "file://$tmp/og.html"
-```
+The site no longer reuses this mark. Its favicon, touch icon and social card
+are the oxblood "T" monogram of the Later Reader design (ADR 0014), generated
+by `apps/site/scripts/brand.ts` with the same headless-Chrome wrapper recipe
+described above — see `apps/site/brand/README.md`. The extension keeps the
+bookmark until the popup is redesigned to match, which is its own PR.

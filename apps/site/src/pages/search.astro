@@ -1,55 +1,276 @@
 ---
+/**
+ * 搜索与标签: full-text search over the Pagefind index plus every tag and
+ * category as a chip. The results UI is ours, over Pagefind's JS API rather
+ * than PagefindUI — the design's result item (mono domain · date, title,
+ * Chinese title) is not something PagefindUI's template can render, and the
+ * index's own meta comes from `data-pagefind-meta` in the reader's title block.
+ */
 import Base from "../layouts/Base.astro";
-import { STRINGS } from "../lib/strings.ts";
+import { type ArticleGroup, categoryIndex, tagIndex } from "../lib/articles.ts";
+import { allTagsLabel, resultsLabel, STRINGS } from "../lib/strings.ts";
+
+const byCount = (a: ArticleGroup, b: ArticleGroup): number =>
+  b.articles.length - a.articles.length || a.label.localeCompare(b.label, "zh");
+const tags = (await tagIndex()).sort(byCount);
+const categories = (await categoryIndex()).sort(byCount);
+// The live vault has ~190 tags; the long tail folds away behind a summary.
+const TOP_TAGS = 30;
+const t = STRINGS.search;
 ---
 
-<Base title={STRINGS.search.title}>
-  <h1 class="mb-8 font-serif text-2xl font-bold">{STRINGS.search.title}</h1>
-  <link rel="stylesheet" href="/pagefind/pagefind-ui.css" />
-  <div id="search" class="mx-auto max-w-2xl"></div>
-  <p id="search-notice" hidden class="text-sm text-ink-muted">
-    {STRINGS.search.devNotice}
+<Base title={t.title}>
+  <form role="search" onsubmit="return false">
+    <label for="q" class="sr-only">{t.title}</label>
+    <input
+      id="q"
+      type="search"
+      autocomplete="off"
+      autofocus
+      placeholder={t.placeholder}
+      class="w-full border-0 border-b border-rule bg-transparent px-0 pt-2 pb-3.5 text-[30px] font-normal text-ink outline-none placeholder:text-ink-mute focus:border-ink-soft"
+    />
+  </form>
+
+  <section class="mt-[22px]" aria-label={t.tags}>
+    <div class="flex flex-wrap gap-2">
+      {
+        tags.slice(0, TOP_TAGS).map((tag) => (
+          <a class="chip" href={`/tags/${tag.slug}/`}>
+            {tag.label}
+            <span class="count">{tag.articles.length}</span>
+          </a>
+        ))
+      }
+    </div>
+    {
+      tags.length > TOP_TAGS && (
+        <details class="mt-2">
+          <summary class="chip cursor-pointer list-none marker:content-none">
+            {allTagsLabel(tags.length)}
+          </summary>
+          <div class="mt-2 flex flex-wrap gap-2">
+            {tags.slice(TOP_TAGS).map((tag) => (
+              <a class="chip" href={`/tags/${tag.slug}/`}>
+                {tag.label}
+                <span class="count">{tag.articles.length}</span>
+              </a>
+            ))}
+          </div>
+        </details>
+      )
+    }
+  </section>
+
+  {
+    categories.length > 0 && (
+      <section class="mt-4 flex flex-wrap gap-2" aria-label={t.categories}>
+        {categories.map((category) => (
+          <a class="chip rounded-md" href={`/categories/${category.slug}/`}>
+            {category.label}
+            <span class="count">{category.articles.length}</span>
+          </a>
+        ))}
+      </section>
+    )
+  }
+
+  <p id="search-count" class="mt-9 mb-2 text-[13px] text-ink-mute" hidden></p>
+  <ol id="search-results" class="m-0 list-none p-0"></ol>
+  <button id="search-more" type="button" class="chip mt-5" hidden></button>
+  <p id="search-notice" hidden class="mt-9 text-sm text-ink-mute">
+    {t.devNotice}
   </p>
 </Base>
 
-<!-- Global: Pagefind injects its DOM at runtime, out of reach of Astro's
-     scoped selectors. Its stock CSS defines every variable once on :root
-     with light values only, so overriding on #search with our raw tokens
-     both restyles it and fixes dark mode (the tokens flip with .dark). -->
+<!-- Global: the result items are created by the script below, out of reach of
+     Astro's scoped selectors. Raw tokens (--rule…), never --color-*. -->
 <style is:global>
-  #search {
-    --pagefind-ui-scale: 0.85;
-    --pagefind-ui-primary: var(--accent);
-    --pagefind-ui-text: var(--ink);
-    --pagefind-ui-background: var(--surface-raised);
-    --pagefind-ui-border: var(--line);
-    --pagefind-ui-tag: var(--accent-soft);
-    --pagefind-ui-border-width: 1px;
-    --pagefind-ui-border-radius: 8px;
-    --pagefind-ui-image-border-radius: 8px;
-    --pagefind-ui-font: var(--font-sans, system-ui, sans-serif);
+  #search-results > li {
+    padding: 18px 0;
+    border-bottom: 1px solid var(--rule);
   }
-  #search mark {
-    background: color-mix(in srgb, var(--accent) 25%, transparent);
+  #search-results > li > a {
+    display: block;
     color: inherit;
-    border-radius: 2px;
+    text-decoration: none;
   }
-  /* Pagefind's stylesheet sets `outline: revert`, resurrecting the UA blue
-     focus ring past our layered base rule — reclaim it for the accent. */
-  #search input:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+  #search-results > li > a:hover .result-title {
+    color: var(--accent);
+  }
+  #search-results .result-meta {
+    margin: 0 0 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--ink-mute);
+  }
+  #search-results .result-title {
+    margin: 0 0 2px;
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  #search-results .result-zh {
+    margin: 0;
+    font-family: var(--font-zh);
+    font-size: 14px;
+    color: var(--ink-soft);
+  }
+  #search-results .result-excerpt {
+    margin: 6px 0 0;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+  #search-results mark {
+    background: var(--selection);
+    color: #1e1b16;
+    border-radius: 2px;
   }
 </style>
 
-<script is:inline>
-  const script = document.createElement("script");
-  script.src = "/pagefind/pagefind-ui.js";
-  script.onload = () => {
-    new PagefindUI({ element: "#search", showSubResults: true });
-  };
-  script.onerror = () => {
-    document.getElementById("search-notice")?.removeAttribute("hidden");
-  };
-  document.head.appendChild(script);
+<script
+  define:vars={{
+    T: {
+      results: resultsLabel(0).replace(/^0\s*/, ""),
+      more: t.more,
+      remaining: t.remaining,
+      retry: t.retry,
+    },
+  }}
+>
+  {
+    const input = document.getElementById("q");
+    const count = document.getElementById("search-count");
+    const list = document.getElementById("search-results");
+    const more = document.getElementById("search-more");
+    const notice = document.getElementById("search-notice");
+    // Result bodies load lazily (`result.data()`), so a broad query shows the
+    // first page and a button for the rest rather than fetching every match.
+    const PAGE = 30;
+
+    // Pagefind's bundle is written by `pagefind --site dist` after the build,
+    // so in `astro dev` the import rejects and the notice explains why.
+    let pagefind = null;
+    const ready = (async () => {
+      try {
+        pagefind = await import("/pagefind/pagefind.js");
+        await pagefind.options({ excerptLength: 30 });
+        await pagefind.init();
+      } catch {
+        notice.hidden = false;
+        input.disabled = true;
+      }
+    })();
+
+    const el = (tag, className, text) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+    const render = (result) => {
+      const item = el("li");
+      const link = el("a");
+      link.href = result.url;
+      link.append(
+        el(
+          "p",
+          "result-meta",
+          [result.meta.domain, result.meta.date].filter(Boolean).join(" · "),
+        ),
+        el("h2", "result-title", result.meta.title),
+      );
+      if (result.meta.title_zh) {
+        const zh = el("p", "result-zh", result.meta.title_zh);
+        zh.lang = "zh-CN";
+        link.append(zh);
+      }
+      const excerpt = el("p", "result-excerpt");
+      // Pagefind escapes indexed text and adds only <mark>; nothing else is
+      // ever injected as HTML on this page.
+      excerpt.innerHTML = result.excerpt;
+      link.append(excerpt);
+      item.append(link);
+      return item;
+    };
+
+    // Every keystroke is a new request; anything older that resolves later
+    // is dropped. Pagefind's debouncedSearch returns null only when a *newer
+    // search* superseded it — clearing the field starts no search, and the
+    // result data loads in a second async step — so the check is ours.
+    let request = 0;
+    // The matches of the current request that are not on the page yet.
+    let rest = null;
+
+    const showPage = async (results, from, id) => {
+      const slice = results.slice(from, from + PAGE);
+      // Consume the page before awaiting: a second click while the bodies
+      // load must not append the same 30 again. On failure hand it back and
+      // turn the button into a retry — for the first page too, which has no
+      // button of its own yet.
+      rest = null;
+      more.disabled = true;
+      if (from === 0) more.hidden = true;
+      let data;
+      try {
+        data = await Promise.all(slice.map((r) => r.data()));
+      } catch {
+        if (id === request) {
+          rest = { id, results, shown: from };
+          more.textContent = T.retry;
+          more.hidden = false;
+          more.disabled = false;
+        }
+        return;
+      }
+      more.disabled = false;
+      if (id !== request) return;
+      const items = data.map(render);
+      if (from === 0) list.replaceChildren(...items);
+      else list.append(...items);
+      const shown = from + slice.length;
+      const remaining = results.length - shown;
+      rest = remaining > 0 ? { id, results, shown } : null;
+      more.hidden = remaining <= 0;
+      more.textContent = `${T.more}（${T.remaining.replace("{n}", remaining)}）`;
+    };
+
+    const clear = () => {
+      list.replaceChildren();
+      count.hidden = true;
+      more.hidden = true;
+      more.disabled = false;
+      rest = null;
+    };
+
+    input.addEventListener("input", async () => {
+      const id = ++request;
+      await ready;
+      if (id !== request) return;
+      const term = input.value.trim();
+      if (pagefind === null || term === "") {
+        clear();
+        return;
+      }
+      const response = await pagefind.debouncedSearch(term, {}, 250);
+      if (response === null || id !== request) return;
+      count.textContent = `${response.results.length} ${T.results}`;
+      count.hidden = false;
+      await showPage(response.results, 0, id);
+    });
+
+    more.addEventListener("click", () => {
+      if (rest !== null && rest.id === request) {
+        showPage(rest.results, rest.shown, rest.id);
+      }
+    });
+
+    const q = new URLSearchParams(location.search).get("q");
+    if (q) {
+      input.value = q;
+      input.dispatchEvent(new Event("input"));
+    }
+  }
 </script>

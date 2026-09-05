@@ -1,0 +1,50 @@
+---
+/**
+ * A- / A+ for the reader body size. Talks to `tiroPrefs` (Base.astro); any
+ * element on the page carrying `data-font-size-value` is kept showing the
+ * current size, which is how the settings page prints "当前 19px".
+ */
+import { STRINGS } from "../lib/strings.ts";
+
+const t = STRINGS.settings.fontSize;
+---
+
+<div
+  class="font-steps flex items-center gap-0.5"
+  role="group"
+  aria-label={t.label}
+>
+  <button type="button" class="step-btn" data-step="-1" aria-label={t.smaller}
+    >A</button
+  >
+  <button type="button" class="step-btn" data-step="1" aria-label={t.larger}
+    >A</button
+  >
+</div>
+
+<script is:inline>
+  for (const group of document.querySelectorAll(
+    ".font-steps:not([data-bound])",
+  )) {
+    group.dataset.bound = "";
+    const buttons = group.querySelectorAll("button");
+    const sync = () => {
+      const size = window.tiroPrefs.fontSize();
+      const { min, max } = window.tiroPrefs.fontSizeRange();
+      for (const b of buttons) {
+        const next = size + Number(b.dataset.step);
+        b.disabled = next < min || next > max;
+      }
+      for (const out of document.querySelectorAll("[data-font-size-value]"))
+        out.textContent = `${size}px`;
+    };
+    for (const b of buttons)
+      b.addEventListener("click", () =>
+        window.tiroPrefs.setFontSize(
+          window.tiroPrefs.fontSize() + Number(b.dataset.step),
+        ),
+      );
+    document.addEventListener("tiro:prefs", sync);
+    sync();
+  }
+</script>
