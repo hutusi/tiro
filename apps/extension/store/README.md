@@ -51,7 +51,12 @@ The two compositions still render over `file://`.
 ```sh
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 bun run --cwd apps/extension build:dev
+
+# Serve dist/ for the options capture; stop it again when done, and wait
+# for it to answer before pointing Chrome at it.
 (cd apps/extension/dist && python3 -m http.server 4322 --bind 127.0.0.1 &)
+trap 'pkill -f "http.server 4322"' EXIT
+until curl -sf -o /dev/null http://127.0.0.1:4322/src/options/options.html; do sleep 0.2; done
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
   --force-device-scale-factor=2 --window-size=560,600 \
