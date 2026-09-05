@@ -17,7 +17,11 @@ what it deliberately left out.
 ## Decision
 
 **Tokens.** Cream paper (`#f4efe4`), oxblood accent (`#8f2f2f`), warm inks,
-hairline rules at 12% ink. Three papers — cream (default), white, dark — as raw
+hairline rules at 12% ink. Every text token clears WCAG AA (4.5:1) on the paper
+it sits on, including the muted meta grey — a step darker than the design's,
+which measured 3.3:1 at 12px. On dark paper the accent splits into a text
+colour (`--accent`, links and rings) and a fill colour (`--accent-fill`, white
+text on selected controls), because no single red satisfies both there. Three papers — cream (default), white, dark — as raw
 custom properties on `:root` and `html[data-paper]`, aliased into Tailwind
 through `@theme inline`. The `.dark` class is gone; the `dark` variant keys off
 `[data-paper="dark"]`, so the pre-paint script writes one attribute.

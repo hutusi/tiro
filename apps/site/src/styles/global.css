@@ -20,13 +20,17 @@
   --field: #f9f5ec; /* cards, inputs — a shade lighter than the paper */
   --ink: #1e1b16;
   --ink-soft: #5a544a;
-  --ink-mute: #8a8378; /* meta only — 3:1 on cream, below AA for body text */
+  --ink-mute: #6f6a60; /* meta, help, counts: 4.7:1 on cream, 4.9:1 on field */
   --ink-zh: #2a2620; /* translation body: a touch lighter than Latin ink */
   --rule: rgba(30, 27, 22, 0.12);
   --chip: rgba(30, 27, 22, 0.05); /* active nav, inline code */
   --wash: rgba(30, 27, 22, 0.05); /* hover */
-  --accent: #8f2f2f; /* oxblood */
+  --accent: #8f2f2f; /* oxblood: links, rings — 7:1 on cream */
   --accent-hover: #6b2020; /* links on hover: deeper on light paper */
+  /* Filled controls with white text (selected segment, current page). One
+     colour serves both roles on light paper; dark paper needs two, so every
+     fill goes through this token rather than --accent. */
+  --accent-fill: #8f2f2f; /* white on it: 8:1 */
   --logo-accent: var(--accent);
   --selection: #d5e3d9; /* sage, on every paper */
   --shadow-card: 0 8px 24px rgba(30, 27, 22, 0.1);
@@ -43,16 +47,18 @@
   --field: #2a2723;
   --ink: #e8e2d6;
   --ink-soft: #b8b1a4;
-  --ink-mute: #847d71;
+  --ink-mute: #9a9387; /* 5.7:1 on dark paper, 4.9:1 on the dark field */
   --ink-zh: #ddd6c9;
   --rule: rgba(232, 226, 214, 0.14);
   --chip: rgba(232, 226, 214, 0.08);
   --wash: rgba(232, 226, 214, 0.05);
-  /* Lifted so accent text clears AA on the dark paper (the design's logo
-     bar colour); the hover goes lighter still — a deeper red would fall to
-     ~2:1 against this ground. */
-  --accent: #c4544f;
-  --accent-hover: #dc7d78;
+  /* Text and fill part ways on dark paper: a red light enough to read as a
+     link (5.4:1 on this ground) is too light to carry white text, and the
+     design's #c4544f manages neither (3.9:1 as text, 4.4:1 under white).
+     The hover goes lighter still — a deeper red would fall to ~2:1. */
+  --accent: #d4736c;
+  --accent-hover: #dc7d78; /* 6:1 */
+  --accent-fill: #bd4d48; /* white on it 4.9:1; 3.6:1 against the paper */
   --logo-accent: #c4544f;
   --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
@@ -69,6 +75,7 @@
   --color-wash: var(--wash);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
+  --color-accent-fill: var(--accent-fill);
 }
 
 @theme {
@@ -158,7 +165,7 @@
     background: var(--wash);
   }
   .segmented > button[aria-pressed="true"] {
-    background: var(--accent);
+    background: var(--accent-fill);
     color: #fff;
   }
   .segmented--md {

@@ -37,7 +37,10 @@ const cell =
         ) : item === current ? (
           <span
             aria-current="page"
-            class:list={[cell, "border border-accent bg-accent text-white"]}
+            class:list={[
+              cell,
+              "border border-accent-fill bg-accent-fill text-white",
+            ]}
           >
             {item}
           </span>
