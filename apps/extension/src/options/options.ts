@@ -94,6 +94,16 @@ function describeConnection(r: ConnectionTestResult): string {
 }
 
 async function init(): Promise<void> {
+  if (__DEV_FIXTURES__) {
+    // A development build served outside the extension has no chrome.storage
+    // to load from; `?preview` shows the empty form as it looks on first
+    // open, which is what the store listing's screenshot captures. Removed
+    // from production builds with the define.
+    if (new URLSearchParams(location.search).has("preview")) {
+      applyText("en");
+      return;
+    }
+  }
   // Interacting while the stored values are still loading would go wrong in
   // both directions — a typed value or language pick clobbered by the late
   // load, or Save persisting a still-empty config — so the form stays inert
