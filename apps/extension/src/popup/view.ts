@@ -124,8 +124,11 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     progress: null,
     preview,
     // A tab already showing the paper has nothing to fetch; the offer stays
-    // only while the gate is waiting on it.
-    arxivFetch: s.fetchOffered && (s.preview === null || s.gated),
+    // only while the gate is waiting on it. Not before Settings are complete
+    // either: a clip cannot follow, and the setup block would swallow the
+    // fetching feedback, so the click would look like it did nothing.
+    arxivFetch:
+      s.configured && s.fetchOffered && (s.preview === null || s.gated),
     clip: clipDisabled,
     links: null,
   };

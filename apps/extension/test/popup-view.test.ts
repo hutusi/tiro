@@ -206,6 +206,21 @@ describe("popupView", () => {
     expect(v.clip.enabled).toBe(false);
   });
 
+  test("the fetch is not offered until Settings are complete", () => {
+    const v = popupView(
+      state({
+        phase: "blocked",
+        configured: false,
+        problem: { text: m.settingsFirst, error: true },
+        gated: true,
+        fetchOffered: true,
+      }),
+      m,
+    );
+    expect(v.arxivFetch).toBe(false);
+    expect(v.message).toBe(m.settingsFirst);
+  });
+
   test("the fetch offer disappears once the gate is open", () => {
     const v = popupView(state({ gated: false, fetchOffered: true }), m);
     expect(v.arxivFetch).toBe(false);
