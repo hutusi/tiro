@@ -34,6 +34,9 @@ export const STRINGS = {
     placeholder: "搜索标题、正文、标签…",
     tags: "标签",
     categories: "分类",
+    more: "显示更多",
+    /** `{n}` is the number of matches not yet shown. */
+    remaining: "还有 {n} 篇",
     devNotice: "搜索索引在构建后生成，开发模式下不可用。",
   },
   categories: { title: "分类" },

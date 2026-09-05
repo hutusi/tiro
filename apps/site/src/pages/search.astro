@@ -77,6 +77,7 @@ const t = STRINGS.search;
 
   <p id="search-count" class="mt-9 mb-2 text-[13px] text-ink-mute" hidden></p>
   <ol id="search-results" class="m-0 list-none p-0"></ol>
+  <button id="search-more" type="button" class="chip mt-5" hidden></button>
   <p id="search-notice" hidden class="mt-9 text-sm text-ink-mute">
     {t.devNotice}
   </p>
@@ -129,12 +130,24 @@ const t = STRINGS.search;
   }
 </style>
 
-<script define:vars={{ resultsLabel: resultsLabel(0).replace(/^0\s*/, "") }}>
+<script
+  define:vars={{
+    T: {
+      results: resultsLabel(0).replace(/^0\s*/, ""),
+      more: t.more,
+      remaining: t.remaining,
+    },
+  }}
+>
   {
     const input = document.getElementById("q");
     const count = document.getElementById("search-count");
     const list = document.getElementById("search-results");
+    const more = document.getElementById("search-more");
     const notice = document.getElementById("search-notice");
+    // Result bodies load lazily (`result.data()`), so a broad query shows the
+    // first page and a button for the rest rather than fetching every match.
+    const PAGE = 30;
 
     // Pagefind's bundle is written by `pagefind --site dist` after the build,
     // so in `astro dev` the import rejects and the notice explains why.
@@ -187,25 +200,50 @@ const t = STRINGS.search;
     // search* superseded it — clearing the field starts no search, and the
     // result data loads in a second async step — so the check is ours.
     let request = 0;
+    // The matches of the current request that are not on the page yet.
+    let rest = null;
+
+    const showPage = async (results, from, id) => {
+      const slice = results.slice(from, from + PAGE);
+      const data = await Promise.all(slice.map((r) => r.data()));
+      if (id !== request) return;
+      const items = data.map(render);
+      if (from === 0) list.replaceChildren(...items);
+      else list.append(...items);
+      const shown = from + slice.length;
+      const remaining = results.length - shown;
+      rest = remaining > 0 ? { id, results, shown } : null;
+      more.hidden = remaining <= 0;
+      more.textContent = `${T.more}（${T.remaining.replace("{n}", remaining)}）`;
+    };
+
+    const clear = () => {
+      list.replaceChildren();
+      count.hidden = true;
+      more.hidden = true;
+      rest = null;
+    };
+
     input.addEventListener("input", async () => {
       const id = ++request;
       await ready;
       if (id !== request) return;
       const term = input.value.trim();
       if (pagefind === null || term === "") {
-        list.replaceChildren();
-        count.hidden = true;
+        clear();
         return;
       }
       const response = await pagefind.debouncedSearch(term, {}, 250);
       if (response === null || id !== request) return;
-      const data = await Promise.all(
-        response.results.slice(0, 30).map((r) => r.data()),
-      );
-      if (id !== request) return;
-      count.textContent = `${response.results.length} ${resultsLabel}`;
+      count.textContent = `${response.results.length} ${T.results}`;
       count.hidden = false;
-      list.replaceChildren(...data.map(render));
+      await showPage(response.results, 0, id);
+    });
+
+    more.addEventListener("click", () => {
+      if (rest !== null && rest.id === request) {
+        showPage(rest.results, rest.shown, rest.id);
+      }
     });
 
     const q = new URLSearchParams(location.search).get("q");
