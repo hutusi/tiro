@@ -7,11 +7,17 @@
 import { PAPERS } from "../lib/prefs.ts";
 import { STRINGS } from "../lib/strings.ts";
 
+interface Props {
+  /** Display and placement classes — the header passes `ml-auto hidden
+   * sm:flex` so the switch drops out where the nav needs the room. */
+  class?: string;
+}
+const { class: className = "flex" } = Astro.props;
 const t = STRINGS.settings.paper;
 ---
 
 <div
-  class="paper-dots flex items-center gap-2"
+  class:list={["paper-dots items-center gap-2", className]}
   role="radiogroup"
   aria-label={t.label}
 >

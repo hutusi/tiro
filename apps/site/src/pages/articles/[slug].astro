@@ -1,7 +1,6 @@
 ---
 import "katex/dist/katex.min.css";
 import FontSteps from "../../components/FontSteps.astro";
-import PaperDots from "../../components/PaperDots.astro";
 import Base from "../../layouts/Base.astro";
 import { articleMeta } from "../../lib/article-meta.ts";
 import { categoryUrl, getArticles, tagUrl } from "../../lib/articles.ts";
@@ -93,8 +92,6 @@ const date = dateLabel(frontmatter.clipped_at);
       }
       <span class="divider" aria-hidden="true"></span>
       <FontSteps />
-      <span class="grow"></span>
-      <PaperDots />
     </div>
 
     <header class="head">
@@ -300,10 +297,6 @@ const date = dateLabel(frontmatter.clipped_at);
     height: 18px;
     background: var(--rule);
   }
-  .grow {
-    flex: 1;
-  }
-
   /* One reading measure for everything below the toolbar: 720px for a single
      column, 1240px when two columns sit side by side. The mode lives on the
      article root, so the title block follows the switch along with the body
