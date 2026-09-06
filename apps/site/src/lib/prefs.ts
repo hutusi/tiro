@@ -16,6 +16,13 @@ export type ReaderMode = (typeof READER_MODES)[number];
 export const LIBRARY_VIEWS = ["list", "cards"] as const;
 export type LibraryView = (typeof LIBRARY_VIEWS)[number];
 
+/** How wide the library and the side-by-side reader run. Named steps rather
+ * than a free width: a slider can produce a line nobody can track, and the
+ * three the site ships are all measured. The single-column reader is not on
+ * this dial — see `--w-reader` in global.css. */
+export const LAYOUT_WIDTHS = ["compact", "standard", "wide"] as const;
+export type LayoutWidth = (typeof LAYOUT_WIDTHS)[number];
+
 /** Reader body size in px; the translation pane renders one px smaller. */
 export const FONT_SIZE = { min: 15, max: 26, default: 19, step: 1 } as const;
 
@@ -23,6 +30,7 @@ export const PREF_KEYS = {
   paper: "tiro-paper",
   fontSize: "tiro-font-size",
   libraryView: "tiro-library-view",
+  layoutWidth: "tiro-layout-width",
   readerMode: "tiro-reader-mode",
   /** The pre-redesign dark toggle. Read once, migrated to `paper`, removed. */
   legacyTheme: "theme",
@@ -31,6 +39,13 @@ export const PREF_KEYS = {
 export function isPaper(value: unknown): value is Paper {
   return (
     typeof value === "string" && (PAPERS as readonly string[]).includes(value)
+  );
+}
+
+export function isLayoutWidth(value: unknown): value is LayoutWidth {
+  return (
+    typeof value === "string" &&
+    (LAYOUT_WIDTHS as readonly string[]).includes(value)
   );
 }
 
@@ -52,6 +67,7 @@ export const PREF_SCRIPT_VARS = {
   PAPERS,
   READER_MODES,
   LIBRARY_VIEWS,
+  LAYOUT_WIDTHS,
   FONT_SIZE,
   PREF_KEYS,
 } as const;

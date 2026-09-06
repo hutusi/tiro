@@ -53,6 +53,11 @@ export const STRINGS = {
     interface: "界面",
     layout: { label: "默认阅读布局", help: "打开有译文的文章时的排版" },
     libraryView: { label: "首页视图", help: "文章列表的默认排列" },
+    width: {
+      label: "版面宽度",
+      help: "影响首页与左右对照；单栏正文的宽度固定不变",
+      options: { compact: "紧凑", standard: "标准", wide: "宽" },
+    },
     paper: {
       label: "纸色",
       help: "深色跟随系统，直到你在这里选定",

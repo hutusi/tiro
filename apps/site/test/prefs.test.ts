@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { clampFontSize, FONT_SIZE, isPaper } from "../src/lib/prefs.ts";
+import {
+  clampFontSize,
+  FONT_SIZE,
+  isLayoutWidth,
+  isPaper,
+} from "../src/lib/prefs.ts";
 
 describe("isPaper", () => {
   test("accepts the three papers", () => {
@@ -13,6 +18,20 @@ describe("isPaper", () => {
     expect(isPaper(null)).toBe(false);
     expect(isPaper(undefined)).toBe(false);
     expect(isPaper(1)).toBe(false);
+  });
+});
+
+describe("isLayoutWidth", () => {
+  test("accepts the three steps", () => {
+    expect(isLayoutWidth("compact")).toBe(true);
+    expect(isLayoutWidth("standard")).toBe(true);
+    expect(isLayoutWidth("wide")).toBe(true);
+  });
+
+  test("rejects anything else, including a raw width", () => {
+    expect(isLayoutWidth("1040px")).toBe(false);
+    expect(isLayoutWidth("widest")).toBe(false);
+    expect(isLayoutWidth(null)).toBe(false);
   });
 });
 

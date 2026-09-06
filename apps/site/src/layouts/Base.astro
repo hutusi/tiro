@@ -15,8 +15,8 @@ interface Props {
   title?: string;
   description?: string;
   ogType?: "website" | "article";
-  /** `library` (1040px) for lists, `narrow` (680px) for settings-like pages,
-   * `full` for the reader, which lays out its own columns. */
+  /** `library` (`--w-library`) for lists, `narrow` (680px) for settings-like
+   * pages, `full` for the reader, which lays out its own columns. */
   width?: "library" | "narrow" | "full";
 }
 const {
@@ -56,7 +56,7 @@ const nav = [
 const mainClass =
   width === "narrow"
     ? "mx-auto w-full max-w-[680px] px-4 pt-12 pb-16 sm:px-6 lg:px-10"
-    : "mx-auto w-full max-w-[1040px] px-4 pt-12 pb-16 sm:px-6 lg:px-10";
+    : "mx-auto w-full max-w-[var(--w-library)] px-4 pt-12 pb-16 sm:px-6 lg:px-10";
 ---
 
 <!doctype html>
@@ -150,6 +150,10 @@ const mainClass =
       if (!P.LIBRARY_VIEWS.includes(libraryView)) libraryView = "list";
       root.dataset.libraryView = libraryView;
 
+      let layoutWidth = read(P.PREF_KEYS.layoutWidth);
+      if (!P.LAYOUT_WIDTHS.includes(layoutWidth)) layoutWidth = "standard";
+      root.dataset.width = layoutWidth;
+
       window.tiroPrefs = {
         paper: () => root.dataset.paper,
         setPaper(value) {
@@ -166,6 +170,13 @@ const mainClass =
           write(P.PREF_KEYS.fontSize, String(fontSize));
           changed("fontSize", fontSize);
           return fontSize;
+        },
+        layoutWidth: () => root.dataset.width,
+        setLayoutWidth(value) {
+          if (!P.LAYOUT_WIDTHS.includes(value)) return;
+          root.dataset.width = value;
+          write(P.PREF_KEYS.layoutWidth, value);
+          changed("layoutWidth", value);
         },
         libraryView: () => root.dataset.libraryView,
         setLibraryView(value) {
@@ -228,7 +239,7 @@ const mainClass =
       )
     }
     <footer
-      class="mx-auto flex w-full max-w-[1040px] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-8 text-xs text-ink-mute sm:px-6 lg:px-10"
+      class="mx-auto flex w-full max-w-[var(--w-library)] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-8 text-xs text-ink-mute sm:px-6 lg:px-10"
     >
       <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span class="logo-bars logo-bars--mini" aria-hidden="true"
