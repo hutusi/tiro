@@ -50,7 +50,9 @@ export const STRINGS = {
   settings: {
     title: "设置",
     reading: "阅读",
+    interface: "界面",
     layout: { label: "默认阅读布局", help: "打开有译文的文章时的排版" },
+    libraryView: { label: "首页视图", help: "文章列表的默认排列" },
     paper: {
       label: "纸色",
       help: "深色跟随系统，直到你在这里选定",

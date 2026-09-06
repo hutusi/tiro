@@ -10,20 +10,21 @@ const layouts = [
   { value: "translation", label: STRINGS.article.translation },
   { value: "original", label: STRINGS.article.original },
 ];
+const views = [
+  { value: "list", label: STRINGS.library.viewList },
+  { value: "cards", label: STRINGS.library.viewCards },
+];
+const row = "flex items-center justify-between gap-6 border-b border-rule py-4";
+const section =
+  "mb-1.5 text-[13px] font-medium uppercase tracking-[0.06em] text-ink-mute";
 ---
 
 <Base title={t.title} width="narrow">
   <h1 class="mb-9 text-[34px] font-medium tracking-[-0.01em]">{t.title}</h1>
 
-  <h2
-    class="mb-1.5 text-[13px] font-medium uppercase tracking-[0.06em] text-ink-mute"
-  >
-    {t.reading}
-  </h2>
+  <h2 class:list={[section]}>{t.reading}</h2>
   <div class="border-t border-rule">
-    <div
-      class="flex items-center justify-between gap-6 border-b border-rule py-4"
-    >
+    <div class:list={[row]}>
       <div>
         <div class="text-base">{t.layout.label}</div>
         <div class="text-[13px] text-ink-mute">{t.layout.help}</div>
@@ -43,18 +44,7 @@ const layouts = [
         }
       </div>
     </div>
-    <div
-      class="flex items-center justify-between gap-6 border-b border-rule py-4"
-    >
-      <div>
-        <div class="text-base">{t.paper.label}</div>
-        <div class="text-[13px] text-ink-mute">{t.paper.help}</div>
-      </div>
-      <PaperDots />
-    </div>
-    <div
-      class="flex items-center justify-between gap-6 border-b border-rule py-4"
-    >
+    <div class:list={[row]}>
       <div>
         <div class="text-base">{t.fontSize.label}</div>
         <div class="text-[13px] text-ink-mute">
@@ -65,21 +55,58 @@ const layouts = [
       <FontSteps />
     </div>
   </div>
+
+  <h2 class:list={[section, "mt-10"]}>{t.interface}</h2>
+  <div class="border-t border-rule">
+    <div class:list={[row]}>
+      <div>
+        <div class="text-base">{t.libraryView.label}</div>
+        <div class="text-[13px] text-ink-mute">{t.libraryView.help}</div>
+      </div>
+      <div
+        id="view-pref"
+        class="segmented segmented--md shrink-0"
+        role="group"
+        aria-label={t.libraryView.label}
+      >
+        {
+          views.map((view) => (
+            <button type="button" data-value={view.value} aria-pressed="false">
+              {view.label}
+            </button>
+          ))
+        }
+      </div>
+    </div>
+    <div class:list={[row]}>
+      <div>
+        <div class="text-base">{t.paper.label}</div>
+        <div class="text-[13px] text-ink-mute">{t.paper.help}</div>
+      </div>
+      <PaperDots />
+    </div>
+  </div>
   <p class="mt-6 text-[13px] text-ink-mute">{t.note}</p>
 </Base>
 
 <script is:inline>
-  {
-    const group = document.getElementById("layout-pref");
-    const buttons = group.querySelectorAll("button");
+  // Each segmented row is the same three lines: read the current value from
+  // `tiroPrefs`, write on click, and re-sync on the prefs event so a control
+  // elsewhere on the site (the reader toolbar, the library's own toggle)
+  // moves this one too.
+  for (const [id, read, write] of [
+    ["layout-pref", "readerMode", "setReaderMode"],
+    ["view-pref", "libraryView", "setLibraryView"],
+  ]) {
+    const buttons = document.getElementById(id).querySelectorAll("button");
     const sync = () => {
-      const mode = window.tiroPrefs.readerMode();
+      const current = window.tiroPrefs[read]();
       for (const b of buttons)
-        b.setAttribute("aria-pressed", String(b.dataset.value === mode));
+        b.setAttribute("aria-pressed", String(b.dataset.value === current));
     };
     for (const b of buttons)
       b.addEventListener("click", () =>
-        window.tiroPrefs.setReaderMode(b.dataset.value),
+        window.tiroPrefs[write](b.dataset.value),
       );
     document.addEventListener("tiro:prefs", sync);
     sync();
