@@ -56,7 +56,11 @@ const date = dateLabel(frontmatter.clipped_at);
   ogType="article"
   width="full"
 >
-  <article data-pagefind-body class="reader" data-view={view.kind}>
+  <article
+    data-pagefind-body
+    class="reader"
+    data-mode={view.kind === "paired" ? "both" : undefined}
+  >
     <div class="toolbar" data-pagefind-ignore>
       <a href="/" class="back">{t.back}</a>
       {
@@ -94,7 +98,7 @@ const date = dateLabel(frontmatter.clipped_at);
     </div>
 
     <header class="head">
-      <div class:list={["titles", { "has-zh": hasZhTitle }]}>
+      <div class="titles">
         <div>
           <p class="meta">
             <a
@@ -120,56 +124,58 @@ const date = dateLabel(frontmatter.clipped_at);
             datetime={frontmatter.clipped_at}
             data-pagefind-meta="date">{date}</time
           >
+          {
+            (frontmatter.category !== undefined ||
+              (frontmatter.tags ?? []).length > 0) && (
+              <p class="terms">
+                {frontmatter.category !== undefined && (
+                  <a
+                    href={categoryUrl(frontmatter.category)}
+                    class="pill"
+                    data-pagefind-meta={`category:${frontmatter.category}`}
+                  >
+                    {frontmatter.category}
+                  </a>
+                )}
+                {(frontmatter.tags ?? []).map((tag) => (
+                  <a href={tagUrl(tag)}>#{tag}</a>
+                ))}
+              </p>
+            )
+          }
         </div>
         {
-          hasZhTitle && (
-            <div lang="zh-CN">
-              <p class="meta meta-zh">
-                <span>{frontmatter.domain}</span>
-                {frontmatter.author !== undefined && (
-                  <Fragment>
+          (hasZhTitle || frontmatter.summary !== undefined) && (
+            <div class:list={["zh", { "no-title": !hasZhTitle }]} lang="zh-CN">
+              {hasZhTitle && (
+                <Fragment>
+                  <p class="meta meta-zh">
+                    <span>{frontmatter.domain}</span>
+                    {frontmatter.author !== undefined && (
+                      <Fragment>
+                        <span aria-hidden="true">·</span>
+                        <span>{frontmatter.author}</span>
+                      </Fragment>
+                    )}
                     <span aria-hidden="true">·</span>
-                    <span>{frontmatter.author}</span>
-                  </Fragment>
-                )}
-                <span aria-hidden="true">·</span>
-                <span>{readingAboutLabel(meta.minutes)}</span>
-              </p>
-              <p class="title-zh" data-pagefind-meta="title_zh">
-                {meta.titleZh}
-              </p>
-            </div>
-          )
-        }
-        {
-          (frontmatter.category !== undefined ||
-            (frontmatter.tags ?? []).length > 0) && (
-            <p class="terms">
-              {frontmatter.category !== undefined && (
-                <a
-                  href={categoryUrl(frontmatter.category)}
-                  class="pill"
-                  data-pagefind-meta={`category:${frontmatter.category}`}
-                >
-                  {frontmatter.category}
-                </a>
+                    <span>{readingAboutLabel(meta.minutes)}</span>
+                  </p>
+                  <p class="title-zh" data-pagefind-meta="title_zh">
+                    {meta.titleZh}
+                  </p>
+                </Fragment>
               )}
-              {(frontmatter.tags ?? []).map((tag) => (
-                <a href={tagUrl(tag)}>#{tag}</a>
-              ))}
-            </p>
+              {frontmatter.summary !== undefined && (
+                <p class="lead">
+                  <span class="lead-label">{t.summary}</span>
+                  {frontmatter.summary}
+                </p>
+              )}
+            </div>
           )
         }
       </div>
       <hr class="title-rule" />
-      {
-        frontmatter.summary !== undefined && (
-          <p class="lead" lang="zh-CN">
-            <span class="lead-label">{t.summary}</span>
-            {frontmatter.summary}
-          </p>
-        )
-      }
     </header>
 
     {
@@ -299,7 +305,9 @@ const date = dateLabel(frontmatter.clipped_at);
   }
 
   /* One reading measure for everything below the toolbar: 720px for a single
-     column, 1240px when two columns sit side by side. */
+     column, 1240px when two columns sit side by side. The mode lives on the
+     article root, so the title block follows the switch along with the body
+     — before, it stayed at the side-by-side width while the body narrowed. */
   .head,
   #reader,
   .reader-single,
@@ -308,8 +316,8 @@ const date = dateLabel(frontmatter.clipped_at);
     margin-inline: auto;
     padding-inline: var(--gutter);
   }
-  .reader[data-view="paired"] .head,
-  #reader[data-mode="both"] {
+  .reader[data-mode="both"] .head,
+  .reader[data-mode="both"] #reader {
     max-width: 1240px;
   }
 
@@ -317,14 +325,22 @@ const date = dateLabel(frontmatter.clipped_at);
     padding-top: 56px;
     padding-bottom: 8px;
   }
+  /* Side by side: the original's title, meta and tags over the original pane,
+     the Chinese title and summary over the translation pane. One column
+     otherwise, and the summary follows the tags. */
   .titles {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 24px 64px;
   }
   @media (min-width: 64rem) {
-    .reader[data-view="paired"] .titles.has-zh {
+    .reader[data-mode="both"] .titles {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    /* Without a Chinese title the summary starts level with the h1, not with
+       the meta line above it. */
+    .reader[data-mode="both"] .zh.no-title {
+      padding-top: 32px;
     }
   }
   .meta {
@@ -375,12 +391,11 @@ const date = dateLabel(frontmatter.clipped_at);
     }
   }
   .terms {
-    grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 12px;
-    margin: 0;
+    margin: 18px 0 0;
     font-size: 13px;
     color: var(--ink-mute);
   }
@@ -401,12 +416,14 @@ const date = dateLabel(frontmatter.clipped_at);
     border-top: 1px solid var(--rule);
   }
   .lead {
-    max-width: 640px;
-    margin: 20px 0 0;
+    margin: 0;
     font-family: var(--font-zh);
     font-size: 15px;
     line-height: 1.8;
     color: var(--ink-soft);
+  }
+  .title-zh + .lead {
+    margin-top: 14px;
   }
   .lead-label {
     margin-right: 0.5em;
@@ -437,15 +454,15 @@ const date = dateLabel(frontmatter.clipped_at);
     transition: background 0.15s;
   }
   @media (min-width: 64rem) {
-    #reader[data-mode="both"] .reader-row {
+    .reader[data-mode="both"] .reader-row {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
-    #reader[data-mode="both"] .reader-row:hover {
+    .reader[data-mode="both"] .reader-row:hover {
       background: var(--wash);
     }
   }
-  #reader[data-mode="original"] .pane-translation,
-  #reader[data-mode="translation"] .pane-original {
+  .reader[data-mode="original"] .pane-translation,
+  .reader[data-mode="translation"] .pane-original {
     display: none;
   }
 
@@ -499,7 +516,9 @@ const date = dateLabel(frontmatter.clipped_at);
 
 <script is:inline>
   {
-    const reader = document.getElementById("reader");
+    // The mode sits on the article root so the title block and the rows take
+    // the same width from one attribute.
+    const reader = document.querySelector("article.reader");
     const toggle = document.getElementById("view-toggle");
     if (reader !== null && toggle !== null) {
       const buttons = toggle.querySelectorAll("button");
