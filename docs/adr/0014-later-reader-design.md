@@ -64,7 +64,7 @@ to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
 
 **Preferences** live in `localStorage` under keys defined once in
 `src/lib/prefs.ts` (`tiro-paper`, `tiro-font-size`, `tiro-library-view`,
-`tiro-reader-mode`). A single inline script in `<head>` applies them before
+`tiro-layout-width`, `tiro-reader-mode`). A single inline script in `<head>` applies them before
 first paint and exposes `tiroPrefs`; every control is a few lines that call it
 and listen for one `tiro:prefs` event. The old `theme=dark` key is migrated
 once. Preferences are per browser and never leave it.

@@ -16,9 +16,6 @@ versions follow the `0.x` line while Tiro is a personal system.
   same pair, with Re-clip as an outline.
 - **Reading time in the popup**, next to the word count — the same function
   the site uses, now in `@tiro/shared`.
-
-### Added
-
 - **Two more reading preferences.** The home view (list or cards) now has a
   row in Settings — it already persisted, but only the toggle above the list
   said so — and a new **layout width** runs the library and the side-by-side
