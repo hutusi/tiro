@@ -23,8 +23,10 @@ export type LibraryView = (typeof LIBRARY_VIEWS)[number];
 export const LAYOUT_WIDTHS = ["compact", "standard", "wide"] as const;
 export type LayoutWidth = (typeof LAYOUT_WIDTHS)[number];
 
-/** Reader body size in px; the translation pane renders one px smaller. */
-export const FONT_SIZE = { min: 15, max: 26, default: 19, step: 1 } as const;
+/** Reader body size in px; the translation pane renders one px smaller. The
+ * top of the range is large-print territory at the single column's 720px of
+ * text — about 45 Latin characters a line — which is the point. */
+export const FONT_SIZE = { min: 15, max: 32, default: 19, step: 1 } as const;
 
 export const PREF_KEYS = {
   paper: "tiro-paper",
