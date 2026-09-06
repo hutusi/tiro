@@ -15,7 +15,7 @@ interface Props {
   title?: string;
   description?: string;
   ogType?: "website" | "article";
-  /** `library` (880px) for lists, `narrow` (680px) for settings-like pages,
+  /** `library` (1040px) for lists, `narrow` (680px) for settings-like pages,
    * `full` for the reader, which lays out its own columns. */
   width?: "library" | "narrow" | "full";
 }
@@ -56,7 +56,7 @@ const nav = [
 const mainClass =
   width === "narrow"
     ? "mx-auto w-full max-w-[680px] px-4 pt-12 pb-16 sm:px-6 lg:px-10"
-    : "mx-auto w-full max-w-[880px] px-4 pt-12 pb-16 sm:px-6 lg:px-10";
+    : "mx-auto w-full max-w-[1040px] px-4 pt-12 pb-16 sm:px-6 lg:px-10";
 ---
 
 <!doctype html>
@@ -228,7 +228,7 @@ const mainClass =
       )
     }
     <footer
-      class="mx-auto flex w-full max-w-[880px] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-8 text-xs text-ink-mute sm:px-6 lg:px-10"
+      class="mx-auto flex w-full max-w-[1040px] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-8 text-xs text-ink-mute sm:px-6 lg:px-10"
     >
       <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span class="logo-bars logo-bars--mini" aria-hidden="true"

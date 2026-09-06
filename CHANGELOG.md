@@ -19,6 +19,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **Site layout follow-ups.** The reader's title block now follows the
+  layout switch, so 中文 and 原文 are one centred column top to bottom; side by
+  side, the summary sits in the right column over the translation pane
+  instead of hugging the left. The single-column reader widens to 800px and
+  the Library to 1040px. The paper switch moves from the reader toolbar into
+  the header, on every page.
 - **The extension follows the "Tiro Clipper" design** (ADR 0015). The popup
   and the options page move onto the site's tokens — cream or dark paper by the
   OS scheme, oxblood, Spectral and JetBrains Mono bundled from the same

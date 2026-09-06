@@ -37,7 +37,8 @@ to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
 **Information architecture.** Nav: 首页 · 搜索与标签 · 设置.
 
 - `/` and `/page/N/` — the Library: one list, ten articles a page, newest
-  first, with a List/Cards switch. Month grouping is gone; the date lives in
+  first, with a List/Cards switch, at 1040px (a step wider than the design's
+  880 after a week of use). Month grouping is gone; the date lives in
   each item's meta row. Pagination is two explicit routes slicing with
   `pager.ts`, not Astro's `paginate()`, which cannot emit a `/page/` prefix
   without rewriting its own params.
@@ -48,10 +49,14 @@ to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
   the static fallback, `public/_redirects` for Cloudflare's edge 301s); the
   per-tag and per-category pages stay, rendered as the same list.
 - `/settings/` — reading preferences: default reader layout, paper, text size.
+  The paper switch also sits at the right end of the header on every page
+  (the design put a clip field there, which a static site cannot honour).
 - `/articles/<slug>/` — the reader: a sticky toolbar (返回, 左右对照/中文/原文,
-  A-/A+, paper dots), a title block with domain · author · reading time, one
-  grid row per block with a hover wash, 720px single column or 1240px side by
-  side.
+  A-/A+), a title block with domain · author · reading time, one grid row per
+  block with a hover wash, 800px single column or 1240px side by side. The
+  reader mode lives on the article root, so the title block takes the same
+  width as the body; side by side, the Chinese title and summary sit in the
+  right column over the translation pane.
 
 **Preferences** live in `localStorage` under keys defined once in
 `src/lib/prefs.ts` (`tiro-paper`, `tiro-font-size`, `tiro-library-view`,

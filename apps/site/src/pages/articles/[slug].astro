@@ -297,15 +297,17 @@ const date = dateLabel(frontmatter.clipped_at);
     height: 18px;
     background: var(--rule);
   }
-  /* One reading measure for everything below the toolbar: 720px for a single
-     column, 1240px when two columns sit side by side. The mode lives on the
-     article root, so the title block follows the switch along with the body
-     — before, it stayed at the side-by-side width while the body narrowed. */
+  /* One reading measure for everything below the toolbar: 800px for a single
+     column (720px of text — about 78 Latin or 40 Chinese characters at the
+     default size), 1240px when two columns sit side by side. The mode lives
+     on the article root, so the title block follows the switch along with the
+     body — before, it stayed at the side-by-side width while the body
+     narrowed. */
   .head,
   #reader,
   .reader-single,
   .end-note {
-    max-width: 720px;
+    max-width: 800px;
     margin-inline: auto;
     padding-inline: var(--gutter);
   }
