@@ -38,7 +38,7 @@ to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
 
 - `/` and `/page/N/` — the Library: one list, ten articles a page, newest
   first, with a List/Cards switch, at 1040px (a step wider than the design's
-  880 after a week of use). Month grouping is gone; the date lives in
+  880 after a week of use) — adjustable to 880 or 1200 from Settings. Month grouping is gone; the date lives in
   each item's meta row. Pagination is two explicit routes slicing with
   `pager.ts`, not Astro's `paginate()`, which cannot emit a `/page/` prefix
   without rewriting its own params.
@@ -48,19 +48,23 @@ to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
   `/tags/` and `/categories/` redirect here (Astro `redirects` for dev and
   the static fallback, `public/_redirects` for Cloudflare's edge 301s); the
   per-tag and per-category pages stay, rendered as the same list.
-- `/settings/` — reading preferences: default reader layout, paper, text size.
-  The paper switch also sits at the right end of the header on every page
-  (the design put a clip field there, which a static site cannot honour).
+- `/settings/` — preferences in two sections: 阅读 (default reader layout, text
+  size, with the reader's own type shown at the chosen size) and 界面 (home
+  view, layout width, paper). The paper switch also sits at the right end of
+  the header on every page (the design put a clip field there, which a static
+  site cannot honour).
 - `/articles/<slug>/` — the reader: a sticky toolbar (返回, 左右对照/中文/原文,
   A-/A+), a title block with domain · author · reading time, one grid row per
-  block with a hover wash, 800px single column or 1240px side by side. The
+  block with a hover wash, 800px single column or 1240px side by side (the
+  second adjustable, the first deliberately not: line length there is a
+  typographic constraint rather than a taste). The
   reader mode lives on the article root, so the title block takes the same
   width as the body; side by side, the Chinese title and summary sit in the
   right column over the translation pane.
 
 **Preferences** live in `localStorage` under keys defined once in
 `src/lib/prefs.ts` (`tiro-paper`, `tiro-font-size`, `tiro-library-view`,
-`tiro-reader-mode`). A single inline script in `<head>` applies them before
+`tiro-layout-width`, `tiro-reader-mode`). A single inline script in `<head>` applies them before
 first paint and exposes `tiroPrefs`; every control is a few lines that call it
 and listen for one `tiro:prefs` event. The old `theme=dark` key is migrated
 once. Preferences are per browser and never leave it.

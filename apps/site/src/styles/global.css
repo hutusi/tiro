@@ -34,6 +34,25 @@
   --logo-accent: var(--accent);
   --selection: #d5e3d9; /* sage, on every paper */
   --shadow-card: 0 8px 24px rgba(30, 27, 22, 0.1);
+
+  /* Reading widths, adjustable in three steps from Settings (`data-width`).
+     `--w-reader` is not on that dial: the single column's line length is a
+     typographic constraint, not a taste, so widening it only makes prose
+     harder to track. The other two buy content rather than measure — more
+     list, more of both panes. */
+  --w-library: 1040px;
+  --w-reader: 800px;
+  --w-reader-wide: 1240px;
+}
+
+[data-width="compact"] {
+  --w-library: 880px;
+  --w-reader-wide: 1120px;
+}
+
+[data-width="wide"] {
+  --w-library: 1200px;
+  --w-reader-wide: 1400px;
 }
 
 [data-paper="white"] {

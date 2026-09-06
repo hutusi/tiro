@@ -50,7 +50,14 @@ export const STRINGS = {
   settings: {
     title: "设置",
     reading: "阅读",
+    interface: "界面",
     layout: { label: "默认阅读布局", help: "打开有译文的文章时的排版" },
+    libraryView: { label: "首页视图", help: "文章列表的默认排列" },
+    width: {
+      label: "版面宽度",
+      help: "影响首页与左右对照；单栏正文的宽度固定不变",
+      options: { compact: "紧凑", standard: "标准", wide: "宽" },
+    },
     paper: {
       label: "纸色",
       help: "深色跟随系统，直到你在这里选定",
@@ -61,6 +68,12 @@ export const STRINGS = {
       current: "当前",
       smaller: "缩小字号",
       larger: "放大字号",
+      /** Shown in the reader's own type, so the size is visible while it is
+       * being chosen. Both scripts, because the reader renders both. */
+      sample: {
+        en: "A clipped article reads here, at the size you choose.",
+        zh: "剪藏的文章在这里以你选择的字号呈现。",
+      },
     },
     note: "偏好只保存在这台浏览器的 localStorage 里，不会上传。",
   },

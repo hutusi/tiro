@@ -16,9 +16,18 @@ versions follow the `0.x` line while Tiro is a personal system.
   same pair, with Re-clip as an outline.
 - **Reading time in the popup**, next to the word count — the same function
   the site uses, now in `@tiro/shared`.
+- **Two more reading preferences.** The home view (list or cards) now has a
+  row in Settings — it already persisted, but only the toggle above the list
+  said so — and a new **layout width** runs the library and the side-by-side
+  reader in three steps (紧凑 880/1120, 标准 1040/1240, 宽 1200/1400). The
+  single column stays 800px on purpose: its line length is a typographic
+  constraint, not a taste.
 
 ### Changed
 
+- **Setting the type size shows the type.** Two lines in the reader's own
+  face, at the chosen size, sit under the row in Settings; the range now runs
+  to 32px instead of 26.
 - **Site layout follow-ups.** The reader's title block now follows the
   layout switch, so 中文 and 原文 are one centred column top to bottom; side by
   side, the summary sits in the right column over the translation pane
