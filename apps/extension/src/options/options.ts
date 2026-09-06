@@ -3,6 +3,7 @@ import "@fontsource/spectral/latin-500.css";
 import "@fontsource/spectral/latin-600.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "../ui/tokens.css";
+import "./options.css";
 import { type ConnectionTestResult, testConnection } from "../github.ts";
 import {
   getLocale,

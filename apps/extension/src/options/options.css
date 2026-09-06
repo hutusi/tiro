@@ -1,0 +1,45 @@
+/* Page-specific rules. Imported by options.ts *after* ui/tokens.css so
+ * they override the reset there; see the note in popup.css. */
+body {
+  min-height: 100vh;
+  padding: 48px 16px;
+  box-sizing: border-box;
+}
+.card {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 24px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--field);
+}
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+#heading {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.hint {
+  margin: 5px 0 14px;
+}
+.row {
+  margin-top: 22px;
+}
+#result {
+  margin: 12px 0 0;
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+#result.ok {
+  color: var(--ok);
+}
+#result.error {
+  color: var(--accent);
+}
