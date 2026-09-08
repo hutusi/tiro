@@ -4,7 +4,14 @@ export const STRINGS = {
   siteTagline: "个人稍后读知识库",
   siteDescription:
     "个人稍后读知识库：剪藏网页为 Markdown，自动摘要、打标签并翻译成中文，双语对照阅读。",
+  /** The public repo — the header Star button and the footer both link here. */
+  repoUrl: "https://github.com/hutusi/tiro",
   nav: { home: "首页", search: "搜索与标签", settings: "设置" },
+  /** The header's outbound Star link. Kept out of `nav`, which is iterated to
+   * build the internal-page nav and carries active-page state. "Star" stays in
+   * English because that is the word Chinese developers use; the sentence is
+   * for `aria-label` and the hover title. */
+  github: { star: "Star", label: "在 GitHub 上给 Tiro 点个 Star" },
   article: {
     original: "原文",
     translation: "中文",

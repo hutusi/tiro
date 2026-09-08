@@ -9,6 +9,15 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **A Star link in the site header.** The GitHub mark and a "Star" label sit at
+  the right end of the header beside the paper switch, on every page; below
+  `sm` the label drops and the mark stays, and under 360px the whole group
+  goes — measured, the button overflows the one-row header below 355px and
+  wraps 搜索与标签 onto a second line, and the nav is worth more there than an
+  outbound link. The footer already linked to the repo, but in mute 12px type
+  below the fold next to 隐私政策 and RSS. No star count: the site promises in
+  its privacy policy that it runs no third-party requests, and a build-time
+  number would go stale between deploys — the link is the whole affordance.
 - **"Open in Tiro →" after a clip.** The popup links to the article's page on
   the site (from the manifest's homepage and the slug it already holds) beside
   the GitHub "View in vault" link, with a note that the page appears once
