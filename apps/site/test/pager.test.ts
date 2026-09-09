@@ -55,13 +55,25 @@ describe("pageCount and slicePage", () => {
   test("rounds up", () => {
     expect(pageCount(PAGE_SIZE)).toBe(1);
     expect(pageCount(PAGE_SIZE + 1)).toBe(2);
-    expect(pageCount(40)).toBe(4);
+    expect(pageCount(PAGE_SIZE * 3 + 1)).toBe(4);
   });
 
   test("slices newest-first input into stable pages", () => {
-    const items = Array.from({ length: 23 }, (_, i) => i);
-    expect(slicePage(items, 1)).toEqual(items.slice(0, 10));
-    expect(slicePage(items, 3)).toEqual([20, 21, 22]);
+    const items = Array.from({ length: PAGE_SIZE * 2 + 3 }, (_, i) => i);
+    expect(slicePage(items, 1)).toEqual(items.slice(0, PAGE_SIZE));
+    expect(slicePage(items, 3)).toEqual(items.slice(PAGE_SIZE * 2));
+    expect(slicePage(items, 3)).toHaveLength(3);
     expect(slicePage(items, 4)).toEqual([]);
+  });
+
+  /*
+   * The page size is chosen to fill the card grid's rows, so it has to divide
+   * by every column count that grid produces (see the comment on PAGE_SIZE).
+   * This fails the moment someone rounds it to a friendlier-looking number.
+   */
+  test("divides by every column count the card grid can produce", () => {
+    for (const columns of [1, 2, 3, 4]) {
+      expect(PAGE_SIZE % columns).toBe(0);
+    }
   });
 });

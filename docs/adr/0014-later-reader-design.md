@@ -36,12 +36,18 @@ to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
 
 **Information architecture.** Nav: 首页 · 搜索与标签 · 设置.
 
-- `/` and `/page/N/` — the Library: one list, ten articles a page, newest
+- `/` and `/page/N/` — the Library: one list, twelve articles a page, newest
   first, with a List/Cards switch, at 1040px (a step wider than the design's
   880 after a week of use) — adjustable to 880 or 1200 from Settings. Month grouping is gone; the date lives in
   each item's meta row. Pagination is two explicit routes slicing with
   `pager.ts`, not Astro's `paginate()`, which cannot emit a `/page/` prefix
-  without rewriting its own params.
+  without rewriting its own params. The page size answers to the card grid
+  rather than to taste: `auto-fill` over `minmax(240px, 1fr)` divides whatever
+  the chosen width is into 1, 2, 3 or 4 tracks — never 5, which would need
+  1264px of content against a 1120px ceiling — and twelve is the number that
+  divides all four, so a full page always ends on a full row. Ten did not, and
+  left every wide page trailing two cards. A test in `pager.test.ts` pins the
+  divisibility so the constant cannot drift back.
 - `/search/` — 搜索与标签: a borderless search field over the Pagefind JS API
   (not PagefindUI, whose result template cannot render the design's item),
   every tag as a chip with its count, and the categories as a second row.

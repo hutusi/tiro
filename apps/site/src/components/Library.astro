@@ -64,6 +64,13 @@ const t = STRINGS.library;
 }
 
 <style>
+  /*
+   * Column count is not fixed: `auto-fill` divides whatever `--w-library`
+   * currently is (880/1040/1200, a Settings preference), so it lands on 1, 2,
+   * 3 or 4 tracks and never 5 — a fifth needs 1264px of content and the widest
+   * setting gives 1120px. PAGE_SIZE is 12 because it divides all four; keep
+   * the ceiling at four tracks or a full page goes ragged again.
+   */
   :global(html[data-library-view="cards"]) .items {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
