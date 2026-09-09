@@ -115,6 +115,16 @@
 @layer base {
   html {
     font-family: var(--font-serif);
+  }
+
+  /*
+   * Dark paper only, and deliberately so. Light text on a dark ground renders
+   * too heavy without this; on cream and white the same declaration is pure
+   * stroke loss, and at the 12-14px the chrome is set at it was the single
+   * biggest reason the nav, meta rows and footer read faint. Do not lift it
+   * back onto `html`.
+   */
+  html[data-paper="dark"] {
     -webkit-font-smoothing: antialiased;
   }
 

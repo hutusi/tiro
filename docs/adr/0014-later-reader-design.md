@@ -33,6 +33,9 @@ Noto Serif CJK, SimSun — because a CJK webfont costs megabytes per subset set
 and the design renders identically on the machines this site is read from.
 Spectral ships nothing above 600, so typography's 700/800 headings are pinned
 to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
+`-webkit-font-smoothing: antialiased` applies to the dark paper only: it keeps
+light-on-dark from rendering too heavy, but on cream and white the same
+declaration only thins strokes, which at 12-14px is felt as faintness.
 
 **Information architecture.** Nav: 首页 · 搜索与标签 · 设置.
 
