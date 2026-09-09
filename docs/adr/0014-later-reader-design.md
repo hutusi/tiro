@@ -26,11 +26,20 @@ custom properties on `:root` and `html[data-paper]`, aliased into Tailwind
 through `@theme inline`. The `.dark` class is gone; the `dark` variant keys off
 `[data-paper="dark"]`, so the pre-paint script writes one attribute.
 
-**Type.** Spectral (300–600, latin) for everything Latin, JetBrains Mono for
-domains, counts, pager numbers and code, both self-hosted through
-`@fontsource`. Chinese keeps falling through to the system serifs — Songti,
-Noto Serif CJK, SimSun — because a CJK webfont costs megabytes per subset set
-and the design renders identically on the machines this site is read from.
+**Type.** Spectral (300–600, latin) for reading — titles, summaries, article
+bodies — JetBrains Mono for domains, counts, pager numbers and code, both
+self-hosted through `@fontsource`. Chinese keeps falling through to the system
+serifs — Songti, Noto Serif CJK, SimSun — because a CJK webfont costs megabytes
+per subset set and the design renders identically on the machines this site is
+read from. That fallback is why the chrome does *not* use the serif: at the
+12–14px of the nav, meta rows, pager, footer and settings help, Songti's
+horizontal strokes are hairlines, and it ships no medium weight, so neither a
+darker ink nor a heavier weight can rescue it — both were tried. A third role,
+`--font-ui`, sets that layer in the system sans (system-ui, PingFang SC,
+Hiragino Sans GB), which costs no payload and so leaves the decision above
+intact. The split is chrome versus content, not Latin versus Chinese: the
+wordmark, page headings, item titles, summaries, the reader body and the
+Settings type sample all stay Spectral.
 Spectral ships nothing above 600, so typography's 700/800 headings are pinned
 to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
 `-webkit-font-smoothing: antialiased` applies to the dark paper only: it keeps

@@ -110,6 +110,16 @@
     "SimSun", "Spectral", serif;
   /* Also what Preflight hands to code/pre/kbd via --default-mono-font-family. */
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /*
+   * Chrome — nav, controls, meta rows, footer, help text. The reading serif
+   * cannot carry these: its CJK fallback is a system Songti whose horizontal
+   * strokes are hairlines at 12-14px, and it ships no medium weight, so
+   * neither colour nor font-weight can rescue it. All system faces, so this
+   * keeps the no-CJK-webfont decision. Content stays --font-serif.
+   */
+  --font-ui:
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
 }
 
 @layer base {
@@ -173,6 +183,7 @@
 
   .segmented {
     display: inline-flex;
+    font-family: var(--font-ui);
     border: 1px solid var(--rule);
     border-radius: 6px;
     overflow: hidden;
@@ -209,7 +220,7 @@
     padding: 1px 7px;
     border: 1px solid var(--rule);
     border-radius: 99px;
-    font-family: var(--font-zh);
+    font-family: var(--font-ui);
     font-size: 11px;
     line-height: 1.5;
     color: var(--ink-mute);
@@ -219,6 +230,7 @@
   .chip {
     display: inline-flex;
     align-items: center;
+    font-family: var(--font-ui);
     gap: 6px;
     padding: 5px 12px;
     border: 1px solid var(--rule);

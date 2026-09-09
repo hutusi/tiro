@@ -19,9 +19,10 @@ const widths = LAYOUT_WIDTHS.map((value) => ({
   value,
   label: STRINGS.settings.width.options[value],
 }));
-const row = "flex items-center justify-between gap-6 border-b border-rule py-4";
+const row =
+  "flex items-center justify-between gap-6 border-b border-rule py-4 font-ui";
 const section =
-  "mb-1.5 text-[13px] font-medium uppercase tracking-[0.06em] text-ink-mute";
+  "mb-1.5 font-ui text-[13px] font-medium uppercase tracking-[0.06em] text-ink-mute";
 ---
 
 <Base title={t.title} width="narrow">
@@ -115,7 +116,7 @@ const section =
       <PaperDots />
     </div>
   </div>
-  <p class="mt-6 text-[13px] text-ink-mute">{t.note}</p>
+  <p class="mt-6 font-ui text-[13px] text-ink-mute">{t.note}</p>
 </Base>
 
 <style>
