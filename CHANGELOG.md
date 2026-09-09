@@ -44,10 +44,6 @@ versions follow the `0.x` line while Tiro is a personal system.
   same pass `-webkit-font-smoothing: antialiased` became dark-paper-only, where
   it stops light-on-dark rendering too heavy; on cream and white it was only
   thinning strokes.
-- **Twelve articles a page instead of ten.** The card grid divides the chosen
-  library width into 3 or 4 columns, so ten cards always ended on a short row.
-  Twelve divides every column count that grid can produce, and a test pins that
-  so the number cannot drift back.
 - **The misalignment warning is visible again.** The notice shown when a `zh.md`
   fails block alignment carried a `text-amber-700` utility that Astro's scoped
   `.notice` rule outranked, so it had always rendered in the same muted grey as
@@ -78,7 +74,7 @@ versions follow the `0.x` line while Tiro is a personal system.
 - **The site follows the "Later Reader" design** (ADR 0014). Cream paper,
   oxblood accent, Spectral and JetBrains Mono replace the terracotta card
   grid and Source Serif 4. The home page is a paginated Library (`/`,
-  `/page/N/`, ten a page) with a List/Cards switch instead of month-grouped
+  `/page/N/`, twelve a page) with a List/Cards switch instead of month-grouped
   cards; the nav is 首页 · 搜索与标签 · 设置. `/search/` carries the search field,
   every tag and category as chips, and results rendered over the Pagefind JS
   API; `/tags/` and `/categories/` redirect to it. The reader gains a sticky
