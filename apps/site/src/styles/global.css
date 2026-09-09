@@ -31,6 +31,10 @@
      colour serves both roles on light paper; dark paper needs two, so every
      fill goes through this token rather than --accent. */
   --accent-fill: #8f2f2f; /* white on it: 8:1 */
+  /* Degraded-state notices (a zh.md that failed block alignment). Burnt
+     orange rather than the oxblood accent so a warning never reads as a
+     link. 5.5:1 on cream, 6.0:1 on white — it carries 13px body text. */
+  --warn: #a24400;
   --logo-accent: var(--accent);
   --selection: #d5e3d9; /* sage, on every paper */
   --shadow-card: 0 8px 24px rgba(30, 27, 22, 0.1);
@@ -78,6 +82,7 @@
   --accent: #d4736c;
   --accent-hover: #dc7d78; /* 6:1 */
   --accent-fill: #bd4d48; /* white on it 4.9:1; 3.6:1 against the paper */
+  --warn: #e8a13c; /* 7.9:1 on dark paper, 6.8:1 on the dark field */
   --logo-accent: #c4544f;
   --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
@@ -95,6 +100,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-fill: var(--accent-fill);
+  --color-warn: var(--warn);
 }
 
 @theme {

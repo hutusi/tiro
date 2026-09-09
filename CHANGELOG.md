@@ -34,6 +34,26 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **The chrome is set in a system sans.** The nav, meta rows, pager, footer,
+  reader toolbar and settings help left the reading serif for `--font-ui`
+  (system-ui, PingFang SC, Hiragino Sans GB). The serif's CJK fallback is a
+  system Songti whose horizontal strokes are hairlines at 12–14px and which
+  ships no medium weight, so the chrome read faint however dark the ink got —
+  it was never a contrast failure. Content is untouched: titles, summaries and
+  the reader body stay Spectral, domains and counts stay JetBrains Mono. In the
+  same pass `-webkit-font-smoothing: antialiased` became dark-paper-only, where
+  it stops light-on-dark rendering too heavy; on cream and white it was only
+  thinning strokes.
+- **Twelve articles a page instead of ten.** The card grid divides the chosen
+  library width into 3 or 4 columns, so ten cards always ended on a short row.
+  Twelve divides every column count that grid can produce, and a test pins that
+  so the number cannot drift back.
+- **The misalignment warning is visible again.** The notice shown when a `zh.md`
+  fails block alignment carried a `text-amber-700` utility that Astro's scoped
+  `.notice` rule outranked, so it had always rendered in the same muted grey as
+  an ordinary note. It now uses a `--warn` token applied in the scoped style
+  (5.5:1 on cream, 7.9:1 on dark). Disabled pager arrows moved off `--rule`
+  (1.3:1) to the muted ink.
 - **Setting the type size shows the type.** Two lines in the reader's own
   face, at the chosen size, sit under the row in Settings; the range now runs
   to 32px instead of 26.

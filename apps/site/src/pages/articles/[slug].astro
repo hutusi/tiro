@@ -216,9 +216,7 @@ const date = dateLabel(frontmatter.clipped_at);
     {
       view.kind === "stacked" && (
         <div class="reader-single space-y-10">
-          <p class="notice text-amber-700 dark:text-amber-500">
-            {t.misaligned}
-          </p>
+          <p class="notice notice--warn">{t.misaligned}</p>
           <div class="prose max-w-none" lang={frontmatter.lang}>
             {view.original.map((html) => (
               <Fragment set:html={html} />
@@ -438,6 +436,11 @@ const date = dateLabel(frontmatter.clipped_at);
     font-family: var(--font-ui);
     font-size: 13px;
     color: var(--ink-mute);
+  }
+  /* The colour lives here, not on a `text-*` utility: Astro scopes this rule
+     as `.notice[data-astro-cid-…]`, so any single-class utility loses to it. */
+  .notice--warn {
+    color: var(--warn);
   }
 
   /* One grid row per block keeps the two panes aligned while scrolling. The
