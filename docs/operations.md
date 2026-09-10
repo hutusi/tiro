@@ -604,9 +604,11 @@ It writes only `title_zh` — never `tiro.processed_at` — so nothing becomes
 pending, the processor will not re-run, and **no deploy is triggered**. Commit
 the vault and deploy by hand, the same way a slug migration does.
 
-One gotcha it shares with `summary`: a `title_zh` fixed by hand is overwritten by
-the next `--force` run of that article, which re-rolls the title along with the
-summary and the tags.
+One gotcha it shares with `summary`: a hand-fixed `title_zh` is not durable.
+Both forced paths overwrite it, and they differ in what else they touch —
+`backfill-titles --force` rewrites the title and nothing else, while a forced
+*processing* run (`run --force`, or the workflow with `force: true`) re-rolls the
+summary and the tags alongside it.
 
 ### Cutting an extension release
 
