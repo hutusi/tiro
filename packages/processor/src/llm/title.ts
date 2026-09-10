@@ -1,6 +1,9 @@
+import { z } from "zod";
+import type { ChatFn, ChatMessage } from "./client.ts";
+
 /**
- * The rules a translated title follows, and the guard that decides a candidate
- * is one.
+ * The rules a translated title follows, the guard that decides a candidate is
+ * one, and the standalone call the backfill makes.
  *
  * Two callers prompt from here: the summary call, which gets the title for free
  * alongside the summary it has to share vocabulary with, and `backfill-titles`,
@@ -81,4 +84,113 @@ export function acceptableSourceSummary(
     return undefined;
   }
   return trimmed;
+}
+
+const TitleResponseSchema = z.object({ title_zh: z.string().min(1) });
+
+const MAX_ATTEMPTS = 2;
+
+export interface TranslateTitleOptions {
+  chat: ChatFn;
+  model: string;
+  targetLang: string;
+  title: string;
+  domain: string;
+  /**
+   * The article's already-written summary, in the target language.
+   *
+   * This is the whole reason a backfilled title is worth as much as one the
+   * summary call produced: it is the text the title will render directly above
+   * in every library row, so handing it over is what keeps the two agreeing on
+   * how a term is rendered. Marked as context in the prompt, never as something
+   * to translate.
+   */
+  summary?: string;
+  log?: (message: string) => void;
+}
+
+/**
+ * Translate one title. For articles the pipeline already processed — a title
+ * that comes with a body gets translated by the summary call instead, in the
+ * same request as the summary.
+ *
+ * Two corrective attempts rather than the summary call's three, and no fallback:
+ * the title is the entire point of this call, so a correction is proportionate
+ * and there is nothing to salvage if it does not work. Null means the article
+ * keeps no `title_zh` and the site goes on showing what it showed before.
+ *
+ * Transport and HTTP errors propagate, the rule `summarize` and `translateBlocks`
+ * already follow: a 403 or an outage is not something a reworded prompt fixes.
+ */
+export async function translateTitle(
+  options: TranslateTitleOptions,
+): Promise<string | null> {
+  const {
+    chat,
+    model,
+    targetLang,
+    title,
+    domain,
+    summary,
+    log = () => {},
+  } = options;
+
+  // DashScope's JSON mode rejects requests whose messages don't contain the
+  // literal word "JSON", so the word must appear in the prompt.
+  const system = [
+    "You are a precise reading assistant for a personal knowledge base.",
+    "Respond with a single JSON object with exactly this key:",
+    ...titlePromptLines(targetLang),
+    "Output JSON only, no markdown fences.",
+  ].join("\n");
+
+  const context = [
+    `Title: ${title}`,
+    `Published on: ${domain}`,
+    ...(summary === undefined
+      ? []
+      : [
+          "",
+          "The article's summary, for terminology only — do not translate it, and do not summarize it into the title:",
+          summary,
+        ]),
+  ].join("\n");
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: context },
+  ];
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const raw = await chat({
+      model,
+      messages,
+      response_format: { type: "json_object" },
+    });
+
+    let feedback: string;
+    try {
+      const parsed = TitleResponseSchema.safeParse(JSON.parse(raw));
+      if (!parsed.success) {
+        feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
+      } else {
+        const accepted = acceptableTitleZh(parsed.data.title_zh);
+        if (accepted !== undefined) return accepted;
+        feedback = `Your previous "title_zh" (${parsed.data.title_zh}) is not written in the language "${targetLang}".`;
+      }
+    } catch (error) {
+      feedback = `Your previous response was not valid JSON: ${String(error).slice(0, 200)}`;
+    }
+    log(`title attempt ${attempt}/${MAX_ATTEMPTS} failed: ${feedback}`);
+    if (attempt < MAX_ATTEMPTS) {
+      // The correction says "your previous response", so that response has to
+      // be in the transcript for the reference to resolve to anything.
+      messages.push({ role: "assistant", content: raw });
+      messages.push({
+        role: "user",
+        content: `${feedback}\nRespond again with a corrected JSON object.`,
+      });
+    }
+  }
+  return null;
 }
