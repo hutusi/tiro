@@ -1,6 +1,12 @@
 import { splitBlocks } from "@tiro/shared";
 import { z } from "zod";
 import type { ChatFn, ChatMessage } from "./client.ts";
+import {
+  acceptableSourceSummary,
+  acceptableTitleZh,
+  sourceSummaryPromptLine,
+  titlePromptLines,
+} from "./title.ts";
 
 export interface SummarizeOptions {
   chat: ChatFn;
@@ -10,6 +16,15 @@ export interface SummarizeOptions {
   body: string;
   /** Language the summary should be written in (config.translation.target). */
   targetLang: string;
+  /**
+   * Ask for the pair as well: the title translated into `targetLang`, and the
+   * summary written a second time in the article's own language.
+   *
+   * False for an article already in the target language. It has no pair — its
+   * title needs no translation and `summary` is already in its own language —
+   * and a model asked anyway invents one.
+   */
+  bilingual?: boolean;
   maxBodyChars?: number;
   log?: (message: string) => void;
 }
@@ -18,14 +33,30 @@ export interface SummaryResult {
   summary: string;
   category: string;
   tags: string[];
+  /** The title translated into `targetLang`. Absent unless asked for, and
+   * absent when what came back was not a translation — see `acceptableTitleZh`. */
+  titleZh?: string;
+  /** The summary in the article's own language, the other half of the pair. */
+  summaryOrig?: string;
   /** True when the LLM failed and the excerpt fallback was used. */
   failed: boolean;
 }
 
+/**
+ * `title_zh` and `summary_orig` stay optional **even when the prompt asked for
+ * them**, and tightening that would be a mistake worth the comment: a schema
+ * failure here is fed back as a correction and, after MAX_ATTEMPTS, drops the
+ * article to an excerpt with `summary_failed` — an operator signal meaning
+ * "reprocess this one by hand". Requiring them would spend three round trips on
+ * a 30 K-char body and cost the article its summary, category and tags because
+ * a model omitted a title. A missing half is worth exactly nothing, not that.
+ */
 const ResponseSchema = z.object({
   summary: z.string().min(1),
   category: z.string().min(1),
   tags: z.array(z.string().min(1)).max(8),
+  title_zh: z.string().min(1).optional(),
+  summary_orig: z.string().min(1).optional(),
 });
 
 const MAX_ATTEMPTS = 3;
@@ -53,6 +84,7 @@ export async function summarize(
     title,
     body,
     targetLang,
+    bilingual = false,
     maxBodyChars = 30_000,
     log = () => {},
   } = options;
@@ -67,6 +99,9 @@ export async function summarize(
     `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`,
     `- "category": exactly one of: ${categories.join(", ")}.`,
     '- "tags": 3 to 6 short free-form topic tags, lowercase.',
+    ...(bilingual
+      ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
+      : []),
     "Output JSON only, no markdown fences.",
   ].join("\n");
 
@@ -94,7 +129,7 @@ export async function summarize(
       } else if (!categories.includes(parsed.data.category)) {
         feedback = `Your previous "category" (${parsed.data.category}) is not in the allowed list: ${categories.join(", ")}.`;
       } else {
-        return { ...parsed.data, failed: false };
+        return { ...accept(parsed.data, bilingual, log), failed: false };
       }
     } catch (error) {
       feedback = `Your previous response was not valid JSON: ${String(error).slice(0, 200)}`;
@@ -118,6 +153,38 @@ export async function summarize(
     category: fallbackCategory(categories),
     tags: [],
     failed: true,
+  };
+}
+
+/**
+ * Keep the two halves that survive their guards, and say so in the log when one
+ * does not. An omission is not a failure — nothing is marked, and the article
+ * simply renders the way it did before the field existed — but a run whose
+ * titles are quietly all missing has to be visible in the workflow log rather
+ * than only in the vault diff.
+ */
+function accept(
+  data: z.infer<typeof ResponseSchema>,
+  bilingual: boolean,
+  log: (message: string) => void,
+): Omit<SummaryResult, "failed"> {
+  const { title_zh, summary_orig, ...rest } = data;
+  // Gated on `bilingual` here as well as in the prompt, so a title volunteered
+  // for an article that has no source language is discarded in one place and
+  // the pipeline's write stays a plain spread.
+  if (!bilingual) return rest;
+  const titleZh = acceptableTitleZh(title_zh);
+  const summaryOrig = acceptableSourceSummary(summary_orig, rest.summary);
+  if (titleZh === undefined) {
+    log("no usable title translation in the summary reply; leaving it unset");
+  }
+  if (summaryOrig === undefined) {
+    log("no usable source-language summary in the reply; leaving it unset");
+  }
+  return {
+    ...rest,
+    ...(titleZh !== undefined ? { titleZh } : {}),
+    ...(summaryOrig !== undefined ? { summaryOrig } : {}),
   };
 }
 
