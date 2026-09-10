@@ -274,6 +274,28 @@ describe("backfillTitles", () => {
     expect(report.remaining).toHaveLength(1);
   });
 
+  test("--dry-run honours --limit, the way it honours --slug", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    writeFileSync(
+      join(vault, "articles", HAS_TITLE, "index.md"),
+      withoutTitleZh(indexOf(vault, HAS_TITLE)),
+    );
+    const chat: ChatFn = async () => {
+      throw new Error("dry run must not reach the provider");
+    };
+    const report = await backfillTitles(
+      vault,
+      config,
+      { dryRun: true, limit: 1 },
+      { chat },
+    );
+    // Two candidates, one asked for: the flag has to mean the same thing in
+    // both modes or a dry run cannot answer "what would the next batch do".
+    expect(report.filled).toHaveLength(1);
+    expect(report.remaining).toHaveLength(1);
+  });
+
   test("an unreadable article is reported, not fatal", async () => {
     const vault = freshVault();
     const config = await loadVaultConfig(vault);

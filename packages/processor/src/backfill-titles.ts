@@ -133,18 +133,27 @@ export async function backfillTitles(
       report.skipped.push({ slug, reason: "already-translated" });
       continue;
     }
+    // Everything from here down is a genuine candidate, which is why the three
+    // skips above come first: `remaining` promises a re-run will get to these,
+    // and a Chinese original listed there would be a promise nothing can keep.
+    //
+    // The limit is applied above the dry-run branch, not with the deadline
+    // below it, because it scopes *which articles this invocation is about* —
+    // the same job `--slug` does, and `--slug` has always narrowed a dry run.
+    // A dry run answering "what would --limit 3 do" with all 39 is the flag
+    // meaning one thing in one mode and another in the other.
+    if (options.limit !== undefined && report.filled.length >= options.limit) {
+      stopped = true;
+      report.remaining.push(slug);
+      continue;
+    }
     if (options.dryRun === true) {
       report.filled.push({ slug, title: frontmatter.title, titleZh: null });
       continue;
     }
-    // Everything that follows is a genuine candidate, which is why the three
-    // skips above come first: `remaining` promises a re-run will get to these,
-    // and a Chinese original listed there would be a promise nothing can keep.
-    if (
-      stopped ||
-      deadline.expired(config.llm.timeout_ms) ||
-      (options.limit !== undefined && report.filled.length >= options.limit)
-    ) {
+    // The budget is not applied to a dry run: it makes no calls, so there is
+    // nothing for a clock to protect.
+    if (stopped || deadline.expired(config.llm.timeout_ms)) {
       stopped = true;
       report.remaining.push(slug);
       continue;
