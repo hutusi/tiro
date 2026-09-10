@@ -75,10 +75,15 @@ const t = STRINGS.search;
     )
   }
 
-  <p id="search-count" class="mt-9 mb-2 text-[13px] text-ink-mute" hidden></p>
+  <p
+    id="search-count"
+    class="mt-9 mb-2 font-ui text-[13px] text-ink-mute"
+    hidden
+  >
+  </p>
   <ol id="search-results" class="m-0 list-none p-0"></ol>
   <button id="search-more" type="button" class="chip mt-5" hidden></button>
-  <p id="search-notice" hidden class="mt-9 text-sm text-ink-mute">
+  <p id="search-notice" hidden class="mt-9 font-ui text-sm text-ink-mute">
     {t.devNotice}
   </p>
 </Base>

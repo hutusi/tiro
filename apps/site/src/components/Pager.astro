@@ -16,7 +16,7 @@ const cell =
 
 <nav
   aria-label={t.pagerLabel}
-  class="mt-10 flex flex-wrap items-center justify-center gap-4 text-[13px]"
+  class="mt-10 flex flex-wrap items-center justify-center gap-4 font-ui text-[13px]"
 >
   {
     current > 1 ? (
@@ -24,7 +24,7 @@ const cell =
         {t.newer}
       </a>
     ) : (
-      <span aria-disabled="true" class="text-rule">
+      <span aria-disabled="true" class="text-ink-mute">
         {t.newer}
       </span>
     )
@@ -64,7 +64,7 @@ const cell =
         {t.older}
       </a>
     ) : (
-      <span aria-disabled="true" class="text-rule">
+      <span aria-disabled="true" class="text-ink-mute">
         {t.older}
       </span>
     )

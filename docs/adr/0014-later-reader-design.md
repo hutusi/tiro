@@ -26,22 +26,40 @@ custom properties on `:root` and `html[data-paper]`, aliased into Tailwind
 through `@theme inline`. The `.dark` class is gone; the `dark` variant keys off
 `[data-paper="dark"]`, so the pre-paint script writes one attribute.
 
-**Type.** Spectral (300–600, latin) for everything Latin, JetBrains Mono for
-domains, counts, pager numbers and code, both self-hosted through
-`@fontsource`. Chinese keeps falling through to the system serifs — Songti,
-Noto Serif CJK, SimSun — because a CJK webfont costs megabytes per subset set
-and the design renders identically on the machines this site is read from.
+**Type.** Spectral (300–600, latin) for reading — titles, summaries, article
+bodies — JetBrains Mono for domains, counts, pager numbers and code, both
+self-hosted through `@fontsource`. Chinese keeps falling through to the system
+serifs — Songti, Noto Serif CJK, SimSun — because a CJK webfont costs megabytes
+per subset set and the design renders identically on the machines this site is
+read from. That fallback is why the chrome does *not* use the serif: at the
+12–14px of the nav, meta rows, pager, footer and settings help, Songti's
+horizontal strokes are hairlines, and it ships no medium weight, so neither a
+darker ink nor a heavier weight can rescue it — both were tried. A third role,
+`--font-ui`, sets that layer in the system sans (system-ui, PingFang SC,
+Hiragino Sans GB), which costs no payload and so leaves the decision above
+intact. The split is chrome versus content, not Latin versus Chinese: the
+wordmark, page headings, item titles, summaries, the reader body and the
+Settings type sample all stay Spectral.
 Spectral ships nothing above 600, so typography's 700/800 headings are pinned
 to 600 rather than synthesized. Reader body text is 300 at a user-chosen size.
+`-webkit-font-smoothing: antialiased` applies to the dark paper only: it keeps
+light-on-dark from rendering too heavy, but on cream and white the same
+declaration only thins strokes, which at 12-14px is felt as faintness.
 
 **Information architecture.** Nav: 首页 · 搜索与标签 · 设置.
 
-- `/` and `/page/N/` — the Library: one list, ten articles a page, newest
+- `/` and `/page/N/` — the Library: one list, twelve articles a page, newest
   first, with a List/Cards switch, at 1040px (a step wider than the design's
   880 after a week of use) — adjustable to 880 or 1200 from Settings. Month grouping is gone; the date lives in
   each item's meta row. Pagination is two explicit routes slicing with
   `pager.ts`, not Astro's `paginate()`, which cannot emit a `/page/` prefix
-  without rewriting its own params.
+  without rewriting its own params. The page size answers to the card grid
+  rather than to taste: `auto-fill` over `minmax(240px, 1fr)` divides whatever
+  the chosen width is into 1, 2, 3 or 4 tracks — never 5, which would need
+  1264px of content against a 1120px ceiling — and twelve is the number that
+  divides all four, so a full page always ends on a full row. Ten did not, and
+  left every wide page trailing two cards. A test in `pager.test.ts` pins the
+  divisibility so the constant cannot drift back.
 - `/search/` — 搜索与标签: a borderless search field over the Pagefind JS API
   (not PagefindUI, whose result template cannot render the design's item),
   every tag as a chip with its count, and the categories as a second row.

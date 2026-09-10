@@ -31,6 +31,10 @@
      colour serves both roles on light paper; dark paper needs two, so every
      fill goes through this token rather than --accent. */
   --accent-fill: #8f2f2f; /* white on it: 8:1 */
+  /* Degraded-state notices (a zh.md that failed block alignment). Burnt
+     orange rather than the oxblood accent so a warning never reads as a
+     link. 5.5:1 on cream, 6.0:1 on white — it carries 13px body text. */
+  --warn: #a24400;
   --logo-accent: var(--accent);
   --selection: #d5e3d9; /* sage, on every paper */
   --shadow-card: 0 8px 24px rgba(30, 27, 22, 0.1);
@@ -78,6 +82,7 @@
   --accent: #d4736c;
   --accent-hover: #dc7d78; /* 6:1 */
   --accent-fill: #bd4d48; /* white on it 4.9:1; 3.6:1 against the paper */
+  --warn: #e8a13c; /* 7.9:1 on dark paper, 6.8:1 on the dark field */
   --logo-accent: #c4544f;
   --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
@@ -95,6 +100,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-fill: var(--accent-fill);
+  --color-warn: var(--warn);
 }
 
 @theme {
@@ -110,11 +116,31 @@
     "SimSun", "Spectral", serif;
   /* Also what Preflight hands to code/pre/kbd via --default-mono-font-family. */
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /*
+   * Chrome — nav, controls, meta rows, footer, help text. The reading serif
+   * cannot carry these: its CJK fallback is a system Songti whose horizontal
+   * strokes are hairlines at 12-14px, and it ships no medium weight, so
+   * neither colour nor font-weight can rescue it. All system faces, so this
+   * keeps the no-CJK-webfont decision. Content stays --font-serif.
+   */
+  --font-ui:
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
 }
 
 @layer base {
   html {
     font-family: var(--font-serif);
+  }
+
+  /*
+   * Dark paper only, and deliberately so. Light text on a dark ground renders
+   * too heavy without this; on cream and white the same declaration is pure
+   * stroke loss, and at the 12-14px the chrome is set at it was the single
+   * biggest reason the nav, meta rows and footer read faint. Do not lift it
+   * back onto `html`.
+   */
+  html[data-paper="dark"] {
     -webkit-font-smoothing: antialiased;
   }
 
@@ -163,6 +189,7 @@
 
   .segmented {
     display: inline-flex;
+    font-family: var(--font-ui);
     border: 1px solid var(--rule);
     border-radius: 6px;
     overflow: hidden;
@@ -199,7 +226,7 @@
     padding: 1px 7px;
     border: 1px solid var(--rule);
     border-radius: 99px;
-    font-family: var(--font-zh);
+    font-family: var(--font-ui);
     font-size: 11px;
     line-height: 1.5;
     color: var(--ink-mute);
@@ -209,6 +236,7 @@
   .chip {
     display: inline-flex;
     align-items: center;
+    font-family: var(--font-ui);
     gap: 6px;
     padding: 5px 12px;
     border: 1px solid var(--rule);

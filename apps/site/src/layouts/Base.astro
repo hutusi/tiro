@@ -206,7 +206,10 @@ const mainClass =
             >{STRINGS.siteTitle}</span
           >
         </a>
-        <nav aria-label="主导航" class="flex items-center gap-1 text-sm">
+        <nav
+          aria-label="主导航"
+          class="flex items-center gap-1 font-ui text-[13.5px]"
+        >
           {
             nav.map((item) => (
               <a
@@ -231,7 +234,9 @@ const mainClass =
             360 keeps the button on every phone still in use and costs it only
             on 320px-class screens; the alternative was shrinking the padding,
             both gaps and the nav links to buy 35px, which taxes the real nav
-            for an outbound link. The paper switch inside is `sm`-gated anyway,
+            for an outbound link. (That 355px was measured when the nav was
+            14px serif; the UI sans at 13.5px is narrower, so the guard is now
+            conservative rather than tight.) The paper switch inside is `sm`-gated anyway,
             so the whole group goes — leaving an empty `ml-auto` box behind
             would still cost a 16px gap. */
         }
@@ -244,7 +249,7 @@ const mainClass =
             rel="noopener"
             aria-label={STRINGS.github.label}
             title={STRINGS.github.label}
-            class="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-ink-soft transition-colors hover:bg-wash hover:text-ink sm:px-2.5"
+            class="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 font-ui text-[13.5px] text-ink-soft transition-colors hover:bg-wash hover:text-ink sm:px-2.5"
           >
             <svg
               viewBox="0 0 16 16"
@@ -275,7 +280,7 @@ const mainClass =
       )
     }
     <footer
-      class="mx-auto flex w-full max-w-[var(--w-library)] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-8 text-xs text-ink-mute sm:px-6 lg:px-10"
+      class="mx-auto flex w-full max-w-[var(--w-library)] flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-8 font-ui text-xs text-ink-mute sm:px-6 lg:px-10"
     >
       <p class="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span class="logo-bars logo-bars--mini" aria-hidden="true"
