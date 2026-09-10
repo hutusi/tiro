@@ -67,6 +67,14 @@ decide not to be content. Frontmatter is the one place left.
   label — a French article is filed as `en` and would be told to summarize
   itself in English.
 
+  It renders **only as half of a pair** — when the article also has a Chinese
+  title. On its own the two summaries stop opposing each other (side by side,
+  `.zh.no-title` pads the Chinese one up to the `h1` while this one sits below
+  it; stacked, they are two paragraphs both labelled 摘要 with nothing between
+  them), and requiring the title carries the `lang` guard for free, since a
+  Chinese original has none. The field is still stored when the title is missing:
+  a later run that produces one makes it visible.
+
 - **The site prefers the stored title**, falling back to the derived one for
   articles processed before the field existed and for the fixtures that exercise
   that path. `liftedH1` is *not* re-derived from it: it answers a different
