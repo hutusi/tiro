@@ -266,6 +266,10 @@ async function processOne(
     title: frontmatter.title,
     body,
     targetLang: config.translation.target,
+    // The same condition the translation branch below runs on: an article
+    // already in the target language has no title to translate and no second
+    // language to summarize itself in.
+    bilingual: lang !== config.translation.target,
     log,
   });
   if (summary.failed) {
@@ -331,19 +335,38 @@ async function processOne(
     await rm(zhAbs, { force: true });
   }
 
-  // Rebuild the failure markers from this run only — a --force reprocess
-  // must clear a stale summary_failed/translation_failed from a prior run.
+  // Rebuild the derived fields from this run only — a --force reprocess must
+  // clear a stale summary_failed/translation_failed from a prior run.
+  //
+  // title_zh and summary_orig are stripped here rather than overwritten because
+  // they are the two that can legitimately go missing, and a leftover is worse
+  // than an absence: a re-clip may have moved the article into the branch below
+  // that has no translation at all, or changed the title the old one translated,
+  // or the summary may have fallen back to an excerpt this time. In each case
+  // the previous title would sit under a title it no longer belongs to. Stripped
+  // and re-added rather than reassigned so both land after `tags`, which is also
+  // where `backfill-titles` puts title_zh — otherwise a later --force run
+  // produces a pure-reordering diff across every article it touches.
+  const {
+    title_zh: _staleTitleZh,
+    summary_orig: _staleSummaryOrig,
+    ...previous
+  } = frontmatter;
   const {
     summary_failed: _staleSummaryFailed,
     translation_failed: _staleTranslationFailed,
     ...previousTiro
   } = frontmatter.tiro;
   const updated = {
-    ...frontmatter,
+    ...previous,
     lang,
     summary: summary.summary,
     category: summary.category,
     tags: summary.tags,
+    ...(summary.titleZh !== undefined ? { title_zh: summary.titleZh } : {}),
+    ...(summary.summaryOrig !== undefined
+      ? { summary_orig: summary.summaryOrig }
+      : {}),
     tiro: {
       ...previousTiro,
       processed_at: now().toISOString(),

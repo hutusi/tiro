@@ -27,6 +27,7 @@ import { makeFakeChat } from "./helpers.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
+const ZH = "example-cn-posts-ai-times-0d21367e";
 
 // The fixture image is a hotlink to example.org; tests must not touch the
 // network, so the injected fetch fails and the pipeline keeps the hotlink.
@@ -69,6 +70,8 @@ describe("runPipeline", () => {
     expect(frontmatter.category).toBe("ai");
     expect(frontmatter.summary).toContain("测试摘要");
     expect(frontmatter.tags).toEqual(["test", "fixture"]);
+    expect(frontmatter.title_zh).toBe("测试标题（来自摘要）");
+    expect(frontmatter.summary_orig).toBe("An English test summary.");
     expect(frontmatter.tiro.processed_at).toBe("2026-08-22T12:00:00.000Z");
   });
 
@@ -211,6 +214,24 @@ describe("failure markers", () => {
     expect(() => readFileSync(join(vault, "articles", RAW, "zh.md"))).toThrow();
   });
 
+  test("a summary that fell back to an excerpt leaves no pair", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: { summary: "s", category: "not-in-taxonomy", tags: [] },
+      }),
+    });
+    expect(report.summaryFailed).toEqual([RAW_SLUG]);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.tiro.summary_failed).toBe(true);
+    expect(frontmatter.title_zh).toBeUndefined();
+    expect(frontmatter.summary_orig).toBeUndefined();
+  });
+
   test("--force reprocess clears a stale summary_failed marker", async () => {
     const vault = freshVault();
     const config = await loadVaultConfig(vault);
@@ -239,6 +260,56 @@ describe("failure markers", () => {
     ));
     expect(frontmatter.tiro.summary_failed).toBeUndefined();
     expect(frontmatter.category).toBe("ai");
+  });
+});
+
+describe("the translated pair", () => {
+  test("an article already in the target language gets no pair, and is never asked", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const prompts: string[] = [];
+    // The fake volunteers a title for every summary request; the gate, not the
+    // model's restraint, is what has to keep it out of a Chinese original.
+    await runPipeline({ vaultDir: vault, force: true, slug: ZH }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: (request) => {
+          if (request.response_format?.type === "json_object") {
+            prompts.push(
+              request.messages.find((m) => m.role === "system")?.content ?? "",
+            );
+          }
+        },
+      }),
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).not.toContain("title_zh");
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", ZH, "index.md"), "utf8"),
+    );
+    expect(frontmatter.lang).toBe("zh");
+    expect(frontmatter.title_zh).toBeUndefined();
+    expect(frontmatter.summary_orig).toBeUndefined();
+  });
+
+  test("--force clears a title the article no longer has", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const indexAbs = join(vault, "articles", ZH, "index.md");
+    // What a re-clip into the Chinese branch leaves behind: a translated title
+    // for a title that no longer needs one.
+    const stale = parseArticle(readFileSync(indexAbs, "utf8"));
+    writeFileSync(
+      indexAbs,
+      stringifyArticle(
+        { ...stale.frontmatter, title_zh: "过时的标题" },
+        stale.body,
+      ),
+    );
+
+    await runPipeline({ vaultDir: vault, force: true, slug: ZH }, config, deps);
+    const { frontmatter } = parseArticle(readFileSync(indexAbs, "utf8"));
+    expect(frontmatter.title_zh).toBeUndefined();
   });
 });
 
