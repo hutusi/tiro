@@ -65,18 +65,39 @@ describe("frontmatter schemas", () => {
     expect(parsed.summary_orig).toBe("One English summary.");
   });
 
-  test("rejects an empty translated title or source-language summary", () => {
-    // An empty string is not a translation. Without .min(1) the site would
-    // render a blank line under the title instead of falling back to the one
-    // it can derive.
+  test("rejects a blank translated title or source-language summary", () => {
+    // Neither an empty string nor whitespace is a translation, and the
+    // difference matters: a blank string is truthy on the site, so it would
+    // suppress the fallback title and render an empty line in its place.
+    for (const blank of ["", "   ", "\n\t"]) {
+      expect(
+        ArticleFrontmatterSchema.safeParse({ ...validClip, title_zh: blank })
+          .success,
+      ).toBe(false);
+      expect(
+        ArticleFrontmatterSchema.safeParse({
+          ...validClip,
+          summary_orig: blank,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("normalizes surrounding whitespace, and only that", () => {
+    const parsed = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      title_zh: "  你好，AI  ",
+      summary_orig: "\n  One English summary.  ",
+    });
+    expect(parsed.title_zh).toBe("你好，AI");
+    expect(parsed.summary_orig).toBe("One English summary.");
+    // Inner spacing is content — a title mixing scripts needs it.
     expect(
-      ArticleFrontmatterSchema.safeParse({ ...validClip, title_zh: "" })
-        .success,
-    ).toBe(false);
-    expect(
-      ArticleFrontmatterSchema.safeParse({ ...validClip, summary_orig: "" })
-        .success,
-    ).toBe(false);
+      ArticleFrontmatterSchema.parse({
+        ...validClip,
+        title_zh: "为 Claude Fable 5.1 编写提示词",
+      }).title_zh,
+    ).toBe("为 Claude Fable 5.1 编写提示词");
   });
 
   test("the clip schema does not carry a translated title", () => {

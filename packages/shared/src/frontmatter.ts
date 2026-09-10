@@ -88,11 +88,15 @@ const sourceUrl = z.string().optional();
  * *should* drop it: the page's title may have changed, and the same clip clears
  * `tiro.processed_at`, so the next run regenerates it against the new title.
  *
- * `.min(1)` because an empty string is not a translation — it would render an
- * empty line under every title instead of falling back to the derived one.
+ * Trimmed and non-empty, because whitespace is not a translation — a blank
+ * string is truthy on the site, so it would suppress the derived fallback and
+ * render an empty line where the title belongs. `.trim()` rather than a refusal
+ * so a hand-edit with stray whitespace is normalized on the next write instead
+ * of being preserved and rendered.
+ *
  * Optional and additive, so no `tiro.schema` bump.
  */
-const titleZh = z.string().min(1).optional();
+const titleZh = z.string().trim().min(1).optional();
 
 /**
  * The summary, written a second time in the article's own language.
@@ -108,9 +112,10 @@ const titleZh = z.string().min(1).optional();
  * "orig" is the reader's own word for that column (原文).
  *
  * Written only for an article that is not already in the target language, and
- * named on the article schema only, for the same reason as `title_zh`.
+ * named on the article schema only — and trimmed non-empty — for the same
+ * reasons as `title_zh`.
  */
-const summaryOrig = z.string().min(1).optional();
+const summaryOrig = z.string().trim().min(1).optional();
 
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
