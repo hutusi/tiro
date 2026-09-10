@@ -103,6 +103,19 @@ export interface ArticleMeta extends LiftedTitles {
   status: ArticleStatus;
 }
 
+/**
+ * The title the processor wrote, when there is one to trust.
+ *
+ * The `lang` guard is not redundant with the processor's own — the site reads a
+ * hand-editable repo, and `usableTranslation` refuses `zh.md` on exactly these
+ * grounds. A stray `title_zh` on a Chinese original would print the article's
+ * title twice, once as the heading and once as its own translation.
+ */
+function storedTitleZh(frontmatter: ArticleFrontmatter): string | null {
+  if (frontmatter.lang === "zh") return null;
+  return frontmatter.title_zh ?? null;
+}
+
 // `getArticles()` caches its array, so article identity is stable across the
 // list pages and the reader — one derivation per article per build.
 const cache = new WeakMap<ArticleLike, ArticleMeta>();
@@ -110,10 +123,23 @@ const cache = new WeakMap<ArticleLike, ArticleMeta>();
 export function articleMeta(article: ArticleLike): ArticleMeta {
   let meta = cache.get(article);
   if (meta === undefined) {
+    const lifted = liftTitles(
+      article.body,
+      article.zhBody,
+      article.frontmatter.title,
+    );
     meta = {
       minutes: readingMinutes(article.body),
       status: articleStatus(article.frontmatter),
-      ...liftTitles(article.body, article.zhBody, article.frontmatter.title),
+      // `liftedH1` is taken from `lifted` untouched, and must stay that way: it
+      // answers "does the body repeat its own title", which has nothing to do
+      // with where the Chinese title came from. Re-deriving it from
+      // `titleZh !== null` would drop a `zh.md` row the translation pane still
+      // needs — the case `liftTitles` refuses on purpose.
+      ...lifted,
+      // The stored title wins. The lifted one stays the fallback for articles
+      // processed before `title_zh` existed (ADR 0016).
+      titleZh: storedTitleZh(article.frontmatter) ?? lifted.titleZh,
     };
     cache.set(article, meta);
   }

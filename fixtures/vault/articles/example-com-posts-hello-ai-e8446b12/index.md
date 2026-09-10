@@ -5,7 +5,9 @@ domain: "example.com"
 clipped_at: "2026-08-20T09:30:00.000Z"
 author: "Jane Doe"
 lang: "en"
-summary: "A gentle introduction to working with large language models, covering what they are good at, a minimal code example, and a comparison of common usage patterns."
+title_zh: "你好，AI：实用入门"
+summary: "一篇面向实践的大语言模型入门：它擅长什么，一个最小的代码示例，以及几种常见用法的对比。"
+summary_orig: "A gentle introduction to working with large language models, covering what they are good at, a minimal code example, and a comparison of common usage patterns."
 category: "ai"
 tags:
   - llm

@@ -12,15 +12,17 @@ function frontmatter(
     lang?: string;
     processed_at?: string;
     translation_failed?: boolean;
+    title_zh?: string;
   } = {},
 ): ArticleFrontmatter {
-  const { lang, processed_at, translation_failed } = overrides;
+  const { lang, processed_at, translation_failed, title_zh } = overrides;
   return {
     url: "https://example.com/posts/hello",
     title: "Hello",
     domain: "example.com",
     clipped_at: "2026-08-20T09:00:00.000Z",
     ...(lang === undefined ? {} : { lang }),
+    ...(title_zh === undefined ? {} : { title_zh }),
     tiro: {
       schema: 1,
       ...(processed_at === undefined ? {} : { processed_at }),
@@ -156,6 +158,8 @@ describe("normalizeTitle", () => {
   });
 });
 
+// The liftTitles block above is unchanged on purpose: ADR 0016 moved where the
+// Chinese title is *ranked*, not what that function means.
 describe("articleMeta", () => {
   test("combines the derivations and memoizes per article object", () => {
     const article = {
@@ -171,5 +175,69 @@ describe("articleMeta", () => {
       liftedH1: true,
     });
     expect(articleMeta(article)).toBe(meta);
+  });
+
+  test("a stored title wins over the one lifted out of zh.md", () => {
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "en",
+        processed_at: PROCESSED,
+        title_zh: "你好，人工智能",
+      }),
+      body: "# Hello\n\nBody text here.",
+      zhBody: "# 你好\n\n正文。",
+    });
+    expect(meta.titleZh).toBe("你好，人工智能");
+    expect(meta.liftedH1).toBe(true);
+  });
+
+  test("a stored title on the shape every live article has", () => {
+    // A scraped body opens with prose, not with its own title — which is why
+    // the lifted path produced nothing for any real article and this field
+    // exists (ADR 0016). Nothing is lifted, so nothing is skipped.
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "en",
+        processed_at: PROCESSED,
+        title_zh: "你好，人工智能",
+      }),
+      body: "Body text here, with no heading at all.",
+      zhBody: "正文，没有任何标题。",
+    });
+    expect(meta.titleZh).toBe("你好，人工智能");
+    expect(meta.liftedH1).toBe(false);
+  });
+
+  test("a stored title does not decide which rows the reader skips", () => {
+    // The test that fails if liftedH1 is ever "simplified" to titleZh !== null.
+    // The body repeats its title but zh.md does not, so the Chinese first row
+    // is content the translation pane still has to show.
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "en",
+        processed_at: PROCESSED,
+        title_zh: "你好，人工智能",
+      }),
+      body: "# Hello\n\nBody text here.",
+      zhBody: "正文，第一块不是标题。\n\n更多正文。",
+    });
+    expect(meta.titleZh).toBe("你好，人工智能");
+    expect(meta.liftedH1).toBe(false);
+  });
+
+  test("a Chinese original's stored title is ignored", () => {
+    // The site reads a hand-editable repo; the processor's own strip is not the
+    // only thing standing between a stray field and the article's title
+    // printed twice.
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "zh",
+        processed_at: PROCESSED,
+        title_zh: "不该出现的标题",
+      }),
+      body: "正文。",
+      zhBody: null,
+    });
+    expect(meta.titleZh).toBeNull();
   });
 });
