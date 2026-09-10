@@ -100,17 +100,23 @@ export async function backfillTitles(
     if (slug === undefined) continue;
     if (options.slug !== undefined && options.slug !== slug) continue;
 
+    // Counted before the read, the way `repairVault` does it: an article that
+    // cannot be parsed was still looked at, and "0 of 0" would read as "nothing
+    // to do" rather than "the one you named is broken".
+    report.scanned += 1;
+
     const indexAbs = `${articlesDir}/${relPath}`;
     let parsed: ReturnType<typeof parseArticle>;
     try {
       parsed = parseArticle(await Bun.file(indexAbs).text());
     } catch (error) {
       // One unreadable article never wedges the batch — the same isolation
-      // `run` gives a failing article (invariant 7).
+      // `run` gives a failing article (invariant 7). It is still counted
+      // against the command's exit status by the caller: it got no title, and
+      // nothing else will say so.
       report.invalid.push({ path: relPath, error: String(error) });
       continue;
     }
-    report.scanned += 1;
     const { frontmatter, body } = parsed;
 
     if (frontmatter.lang === target) {

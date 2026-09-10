@@ -230,11 +230,18 @@ async function backfill(vault: string): Promise<number> {
   }
   console.log(
     `${dryRun ? "would fill" : "filled"} ${report.filled.length} of ${report.scanned} article(s), ` +
-      `${report.skipped.length} skipped, ${report.failed.length} failed, ${report.remaining.length} left for a re-run`,
+      `${report.skipped.length} skipped, ${report.failed.length} failed, ${report.invalid.length} unreadable, ` +
+      `${report.remaining.length} left for a re-run`,
   );
   if (report.remaining.length > 0) {
     console.log(`re-run to continue: ${report.remaining.join(", ")}`);
   }
-  // A failure is the only signal that an article still has no title.
-  return report.failed.length > 0 ? 1 : 0;
+  // This exit code is the only signal that an article still has no title, so an
+  // article that could not be read has to count too: it got no title and no call
+  // was even attempted. Unlike `run`, which treats invalid articles as warnings
+  // because exiting non-zero there would fail the vault workflow before its
+  // commit step and discard the articles that did process (invariant 7), this
+  // command is hand-run and read as a diff — like `repair`, which exits non-zero
+  // on a refusal.
+  return report.failed.length > 0 || report.invalid.length > 0 ? 1 : 0;
 }
