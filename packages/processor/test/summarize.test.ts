@@ -9,6 +9,7 @@ const baseOptions = {
   title: "Hello",
   body: "First paragraph of the article.\n\nSecond paragraph.",
   targetLang: "zh",
+  cjkThreshold: 0.3,
 };
 
 function scripted(responses: string[]): { chat: ChatFn; calls: () => number } {
@@ -142,6 +143,58 @@ describe("summarize", () => {
     const result = await summarize({ ...baseOptions, chat, bilingual: true });
     expect(result.titleZh).toBeUndefined();
     expect(result.failed).toBe(false);
+  });
+
+  test("drops a title echoed back with Han already in it", async () => {
+    // The Han test alone cannot see this one: the source title mixes scripts,
+    // so handing it back unchanged satisfies "contains Chinese".
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要",
+        category: "ai",
+        tags: [],
+        title_zh: "AI 与 the Future",
+      }),
+    ]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      title: "AI 与 the Future",
+      bilingual: true,
+    });
+    expect(result.titleZh).toBeUndefined();
+    expect(result.failed).toBe(false);
+  });
+
+  test("drops a source summary rewritten in the target language", async () => {
+    // The likelier failure by far, and the one an equality test cannot see: the
+    // model writes the target language again, in different words.
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "小模型已经到来，成本大幅下降。",
+        category: "ai",
+        tags: [],
+        summary_orig: "这是另一段中文摘要，措辞不同但仍然是中文。",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.summaryOrig).toBeUndefined();
+  });
+
+  test("keeps a source summary that only quotes the target language", async () => {
+    // The line the ratio has to sit on the right side of.
+    const candidate =
+      'The author calls this habit "读后感" throughout the piece.';
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "中文摘要。",
+        category: "ai",
+        tags: [],
+        summary_orig: candidate,
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.summaryOrig).toBe(candidate);
   });
 
   test("drops a source summary that just repeats the target one", async () => {

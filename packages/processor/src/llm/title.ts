@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { detectLang } from "../language.ts";
 import type { ChatFn, ChatMessage } from "./client.ts";
 
 /**
@@ -58,31 +59,55 @@ const HAN_RE = /\p{Script=Han}/u;
  */
 export function acceptableTitleZh(
   candidate: string | undefined,
+  sourceTitle: string,
 ): string | undefined {
   const trimmed = candidate?.trim();
   if (trimmed === undefined || trimmed === "" || !HAN_RE.test(trimmed)) {
     return undefined;
   }
+  // A Han character alone is not proof of a translation: a source title that
+  // already mixes scripts — `AI 与 the Future` — passes that test while
+  // unchanged. Compared against the source for the same reason the summary
+  // below is compared against its own counterpart.
+  if (sameTitle(trimmed, sourceTitle)) return undefined;
   return trimmed;
+}
+
+/** Case, width and spacing folded, which is all an echo can differ by. Not the
+ * site's `normalizeTitle`: that one folds quotes and dashes to ask "is this the
+ * same title across scraping variants", and this asks the narrower question of
+ * whether the model handed back what it was given. */
+function sameTitle(a: string, b: string): boolean {
+  const fold = (text: string) =>
+    text.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  return fold(a) === fold(b);
 }
 
 /**
  * A candidate source-language summary, or undefined when it is not one.
  *
- * The only failure worth guarding is the degenerate one — the model repeating
- * the summary it just wrote, which would put Chinese in the column the reader
- * labels 原文. No script test here, unlike the title above: this is generated
- * prose rather than a short string handed back verbatim, and an English summary
- * that quotes a Chinese term is still an English summary.
+ * Two ways it can be wrong, and the second is the one that happens. A model
+ * asked for "the same summary in the article's own language" sometimes repeats
+ * the summary it just wrote verbatim — cheap to catch — and more often writes
+ * the target language again in different words, which an equality test cannot
+ * see at all. Either way the reader would show that text in the column it
+ * labels 原文.
+ *
+ * The language test is the same ratio the pipeline already uses to decide
+ * whether an article needs translating at all, at the vault's own threshold, so
+ * an English summary quoting a Chinese term stays an English summary.
  */
 export function acceptableSourceSummary(
   candidate: string | undefined,
   summary: string,
+  targetLang: string,
+  cjkThreshold: number,
 ): string | undefined {
   const trimmed = candidate?.trim();
   if (trimmed === undefined || trimmed === "" || trimmed === summary.trim()) {
     return undefined;
   }
+  if (detectLang(trimmed, cjkThreshold) === targetLang) return undefined;
   return trimmed;
 }
 
@@ -174,9 +199,9 @@ export async function translateTitle(
       if (!parsed.success) {
         feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
       } else {
-        const accepted = acceptableTitleZh(parsed.data.title_zh);
+        const accepted = acceptableTitleZh(parsed.data.title_zh, title);
         if (accepted !== undefined) return accepted;
-        feedback = `Your previous "title_zh" (${parsed.data.title_zh}) is not written in the language "${targetLang}".`;
+        feedback = `Your previous "title_zh" (${parsed.data.title_zh}) is not a translation of the title into the language "${targetLang}".`;
       }
     } catch (error) {
       feedback = `Your previous response was not valid JSON: ${String(error).slice(0, 200)}`;

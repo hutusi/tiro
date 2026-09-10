@@ -25,6 +25,13 @@ export interface SummarizeOptions {
    * and a model asked anyway invents one.
    */
   bilingual?: boolean;
+  /**
+   * `translation.cjk_threshold`, used to tell a source-language summary from
+   * the target language written twice. Required rather than defaulted, so the
+   * vault's own threshold is the only one in play and this file does not become
+   * a second place that number lives.
+   */
+  cjkThreshold: number;
   maxBodyChars?: number;
   log?: (message: string) => void;
 }
@@ -85,6 +92,7 @@ export async function summarize(
     body,
     targetLang,
     bilingual = false,
+    cjkThreshold,
     maxBodyChars = 30_000,
     log = () => {},
   } = options;
@@ -129,7 +137,14 @@ export async function summarize(
       } else if (!categories.includes(parsed.data.category)) {
         feedback = `Your previous "category" (${parsed.data.category}) is not in the allowed list: ${categories.join(", ")}.`;
       } else {
-        return { ...accept(parsed.data, bilingual, log), failed: false };
+        return {
+          ...accept(
+            parsed.data,
+            { bilingual, title, targetLang, cjkThreshold },
+            log,
+          ),
+          failed: false,
+        };
       }
     } catch (error) {
       feedback = `Your previous response was not valid JSON: ${String(error).slice(0, 200)}`;
@@ -165,16 +180,26 @@ export async function summarize(
  */
 function accept(
   data: z.infer<typeof ResponseSchema>,
-  bilingual: boolean,
+  context: {
+    bilingual: boolean;
+    title: string;
+    targetLang: string;
+    cjkThreshold: number;
+  },
   log: (message: string) => void,
 ): Omit<SummaryResult, "failed"> {
   const { title_zh, summary_orig, ...rest } = data;
   // Gated on `bilingual` here as well as in the prompt, so a title volunteered
   // for an article that has no source language is discarded in one place and
   // the pipeline's write stays a plain spread.
-  if (!bilingual) return rest;
-  const titleZh = acceptableTitleZh(title_zh);
-  const summaryOrig = acceptableSourceSummary(summary_orig, rest.summary);
+  if (!context.bilingual) return rest;
+  const titleZh = acceptableTitleZh(title_zh, context.title);
+  const summaryOrig = acceptableSourceSummary(
+    summary_orig,
+    rest.summary,
+    context.targetLang,
+    context.cjkThreshold,
+  );
   if (titleZh === undefined) {
     log("no usable title translation in the summary reply; leaving it unset");
   }

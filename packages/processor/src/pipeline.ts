@@ -270,6 +270,7 @@ async function processOne(
     // already in the target language has no title to translate and no second
     // language to summarize itself in.
     bilingual: lang !== config.translation.target,
+    cjkThreshold: config.translation.cjk_threshold,
     log,
   });
   if (summary.failed) {
