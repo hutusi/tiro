@@ -46,9 +46,51 @@ describe("frontmatter schemas", () => {
     // stripped rather than rejected (ADR 0009).
     const parsed = ArticleFrontmatterSchema.parse(validClip);
     expect(parsed.has_math).toBeUndefined();
+    expect(parsed.title_zh).toBeUndefined();
+    expect(parsed.summary_orig).toBeUndefined();
     expect(
       ArticleFrontmatterSchema.parse({ ...validClip, unknown_field: 1 }),
     ).not.toHaveProperty("unknown_field");
+  });
+
+  test("carries a translated title and a source-language summary", () => {
+    const parsed = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      lang: "en",
+      title_zh: "你好，AI",
+      summary: "一句中文摘要。",
+      summary_orig: "One English summary.",
+    });
+    expect(parsed.title_zh).toBe("你好，AI");
+    expect(parsed.summary_orig).toBe("One English summary.");
+  });
+
+  test("rejects an empty translated title or source-language summary", () => {
+    // An empty string is not a translation. Without .min(1) the site would
+    // render a blank line under the title instead of falling back to the one
+    // it can derive.
+    expect(
+      ArticleFrontmatterSchema.safeParse({ ...validClip, title_zh: "" })
+        .success,
+    ).toBe(false);
+    expect(
+      ArticleFrontmatterSchema.safeParse({ ...validClip, summary_orig: "" })
+        .success,
+    ).toBe(false);
+  });
+
+  test("the clip schema does not carry a translated title", () => {
+    // The deliberate inverse of the provenance round-trip below: these two are
+    // written by the processor, not the clipper, so the clip schema must strip
+    // them — a re-clip may be clipping a page whose title has changed, and it
+    // clears tiro.processed_at, so the next run writes them again.
+    const clipped = ClipFrontmatterSchema.parse({
+      ...validClip,
+      title_zh: "你好，AI",
+      summary_orig: "One English summary.",
+    });
+    expect(clipped).not.toHaveProperty("title_zh");
+    expect(clipped).not.toHaveProperty("summary_orig");
   });
 
   test("normalizes YAML Date objects to ISO strings", () => {
@@ -83,6 +125,21 @@ describe("parseArticle / stringifyArticle", () => {
     const back = parseArticle(text);
     expect(back.frontmatter).toEqual(frontmatter);
     expect(back.body).toBe(body);
+  });
+
+  test("round-trips a YAML-hostile translated title", () => {
+    // A translated title is likelier than the original to carry the characters
+    // YAML argues with: a full-width colon reads as a mapping separator to a
+    // reader that normalizes width, and quotes come free with the model.
+    const frontmatter = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      lang: "en",
+      title_zh: 'KAN：柯尔莫哥洛夫–阿诺德网络 "笔记" #1',
+    });
+    const back = parseArticle(stringifyArticle(frontmatter, "Body.\n"));
+    expect(back.frontmatter.title_zh).toBe(
+      'KAN：柯尔莫哥洛夫–阿诺德网络 "笔记" #1',
+    );
   });
 
   test("preserves the clipper's provenance through a processor round-trip", () => {
