@@ -122,10 +122,10 @@ const date = dateLabel(frontmatter.clipped_at);
             data-pagefind-meta="date">{date}</time
           >
           {
-            frontmatter.summary_orig !== undefined && (
+            meta.summaryOrig !== null && (
               <p class="lead lead-orig" lang={frontmatter.lang}>
                 <span class="lead-label">{t.summary}</span>
-                {frontmatter.summary_orig}
+                {meta.summaryOrig}
               </p>
             )
           }

@@ -13,9 +13,11 @@ function frontmatter(
     processed_at?: string;
     translation_failed?: boolean;
     title_zh?: string;
+    summary_orig?: string;
   } = {},
 ): ArticleFrontmatter {
-  const { lang, processed_at, translation_failed, title_zh } = overrides;
+  const { lang, processed_at, translation_failed, title_zh, summary_orig } =
+    overrides;
   return {
     url: "https://example.com/posts/hello",
     title: "Hello",
@@ -23,6 +25,7 @@ function frontmatter(
     clipped_at: "2026-08-20T09:00:00.000Z",
     ...(lang === undefined ? {} : { lang }),
     ...(title_zh === undefined ? {} : { title_zh }),
+    ...(summary_orig === undefined ? {} : { summary_orig }),
     tiro: {
       schema: 1,
       ...(processed_at === undefined ? {} : { processed_at }),
@@ -173,6 +176,7 @@ describe("articleMeta", () => {
       status: "translated",
       titleZh: "你好",
       liftedH1: true,
+      summaryOrig: null,
     });
     expect(articleMeta(article)).toBe(meta);
   });
@@ -223,6 +227,56 @@ describe("articleMeta", () => {
     });
     expect(meta.titleZh).toBe("你好，人工智能");
     expect(meta.liftedH1).toBe(false);
+  });
+
+  test("the source summary shows as the other half of a pair", () => {
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "en",
+        processed_at: PROCESSED,
+        title_zh: "你好，人工智能",
+        summary_orig: "An English summary.",
+      }),
+      body: "Body text here.",
+      zhBody: "正文。",
+    });
+    expect(meta.titleZh).toBe("你好，人工智能");
+    expect(meta.summaryOrig).toBe("An English summary.");
+  });
+
+  test("a source summary with no Chinese title above it is not shown", () => {
+    // Reachable: the model writes a usable English summary and echoes the
+    // title, which the Han guard rejects. Side by side the two summaries would
+    // stop opposing each other; stacked they would be two paragraphs labelled
+    // 摘要 with nothing between them.
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "en",
+        processed_at: PROCESSED,
+        summary_orig: "An English summary.",
+      }),
+      body: "Body text here.",
+      zhBody: "正文。",
+    });
+    expect(meta.titleZh).toBeNull();
+    expect(meta.summaryOrig).toBeNull();
+  });
+
+  test("a Chinese original shows neither half, however the file was edited", () => {
+    const meta = articleMeta({
+      frontmatter: frontmatter({
+        lang: "zh",
+        processed_at: PROCESSED,
+        title_zh: "不该出现的标题",
+        summary_orig: "一段不该出现的摘要。",
+      }),
+      body: "正文。",
+      zhBody: null,
+    });
+    expect(meta.titleZh).toBeNull();
+    // Two same-language summaries, one labelled as the original. The lang guard
+    // on the title carries this one too.
+    expect(meta.summaryOrig).toBeNull();
   });
 
   test("a Chinese original's stored title is ignored", () => {
