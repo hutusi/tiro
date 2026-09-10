@@ -9,6 +9,21 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Article titles are translated.** The library, the reader's title block and
+  search results now show a Chinese title beside the original — the last thing
+  on the page that was still in the source language, under a Chinese summary,
+  Chinese tags and a Chinese interface. It is written into frontmatter as
+  `title_zh` by the same LLM call that writes the summary, which is the point
+  rather than a saving: the two render one under the other in every library row,
+  so produced together they agree on how a term is rendered. The reader's
+  two-column title block was built for this in the "Later Reader" design and had
+  never held real content, because the title it could *derive* only exists for a
+  body that opens by repeating its own title, which no scraped page does
+  (ADR 0016). Alongside it, `summary_orig` gives the reader's 摘要 a counterpart
+  in the article's own language, so the head reads as a pair like every row
+  below it — for new clips and re-clips only. Existing articles get their titles
+  from a one-shot `tiro-process backfill-titles`, which spends one small call
+  each instead of re-translating 27 whole bodies.
 - **A Star link in the site header.** The GitHub mark and a "Star" label sit at
   the right end of the header beside the paper switch, on every page; below
   `sm` the label drops and the mark stays, and under 360px the whole group
