@@ -124,25 +124,6 @@ const date = dateLabel(frontmatter.clipped_at);
               </p>
             )
           }
-          {
-            (frontmatter.category !== undefined ||
-              (frontmatter.tags ?? []).length > 0) && (
-              <p class="terms">
-                {frontmatter.category !== undefined && (
-                  <a
-                    href={categoryUrl(frontmatter.category)}
-                    class="pill"
-                    data-pagefind-meta={`category:${frontmatter.category}`}
-                  >
-                    {frontmatter.category}
-                  </a>
-                )}
-                {(frontmatter.tags ?? []).map((tag) => (
-                  <a href={tagUrl(tag)}>#{tag}</a>
-                ))}
-              </p>
-            )
-          }
         </div>
         {
           (hasZhTitle || frontmatter.summary !== undefined) && (
@@ -162,6 +143,25 @@ const date = dateLabel(frontmatter.clipped_at);
           )
         }
       </div>
+      {
+        (frontmatter.category !== undefined ||
+          (frontmatter.tags ?? []).length > 0) && (
+          <p class="terms">
+            {frontmatter.category !== undefined && (
+              <a
+                href={categoryUrl(frontmatter.category)}
+                class="pill"
+                data-pagefind-meta={`category:${frontmatter.category}`}
+              >
+                {frontmatter.category}
+              </a>
+            )}
+            {(frontmatter.tags ?? []).map((tag) => (
+              <a href={tagUrl(tag)}>#{tag}</a>
+            ))}
+          </p>
+        )
+      }
       <hr class="title-rule" />
     </header>
 
@@ -382,12 +382,16 @@ const date = dateLabel(frontmatter.clipped_at);
       font-size: 27px;
     }
   }
+  /* Under both columns rather than inside the original's. The tags describe the
+     article, not the language you are reading it in — and with the title block
+     collapsing by mode, leaving them in the left column made 中文 read
+     meta, tags, title, summary. */
   .terms {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 12px;
-    margin: 18px 0 0;
+    margin: 24px 0 0;
     font-family: var(--font-ui);
     font-size: 13px;
     color: var(--ink-mute);
