@@ -104,10 +104,6 @@ export function minutesLabel(minutes: number): string {
   return `${minutes} 分钟`;
 }
 
-export function readingAboutLabel(minutes: number): string {
-  return `阅读约 ${minutes} 分钟`;
-}
-
 export function pageTitle(page: number): string {
   return `第 ${page} 页`;
 }

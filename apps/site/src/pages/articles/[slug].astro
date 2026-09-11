@@ -5,12 +5,7 @@ import Base from "../../layouts/Base.astro";
 import { articleMeta } from "../../lib/article-meta.ts";
 import { categoryUrl, getArticles, tagUrl } from "../../lib/articles.ts";
 import { buildReaderView } from "../../lib/reader.ts";
-import {
-  dateLabel,
-  minutesLabel,
-  readingAboutLabel,
-  STRINGS,
-} from "../../lib/strings.ts";
+import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 
 export async function getStaticPaths() {
   const articles = await getArticles();
@@ -151,24 +146,11 @@ const date = dateLabel(frontmatter.clipped_at);
         </div>
         {
           (hasZhTitle || frontmatter.summary !== undefined) && (
-            <div class:list={["zh", { "no-title": !hasZhTitle }]} lang="zh-CN">
+            <div class="zh" lang="zh-CN">
               {hasZhTitle && (
-                <Fragment>
-                  <p class="meta meta-zh">
-                    <span>{frontmatter.domain}</span>
-                    {frontmatter.author !== undefined && (
-                      <Fragment>
-                        <span aria-hidden="true">·</span>
-                        <span>{frontmatter.author}</span>
-                      </Fragment>
-                    )}
-                    <span aria-hidden="true">·</span>
-                    <span>{readingAboutLabel(meta.minutes)}</span>
-                  </p>
-                  <p class="title-zh" data-pagefind-meta="title_zh">
-                    {meta.titleZh}
-                  </p>
-                </Fragment>
+                <p class="title-zh" data-pagefind-meta="title_zh">
+                  {meta.titleZh}
+                </p>
               )}
               {frontmatter.summary !== undefined && (
                 <p class="lead">
@@ -348,9 +330,12 @@ const date = dateLabel(frontmatter.clipped_at);
     :global(html[data-reader-mode="both"]) .reader[data-paired] .titles {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
-    /* Without a Chinese title the summary starts level with the h1, not with
-       the meta line above it. */
-    :global(html[data-reader-mode="both"]) .reader[data-paired] .zh.no-title {
+    /* The Chinese column has no meta row of its own — it was the original's
+       line over again, differing only in how the reading time was phrased — so
+       it is offset by that row's height instead. One rule for both cases: with
+       a Chinese title it puts the title level with the h1, without one it puts
+       the summary there. */
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .zh {
       padding-top: 32px;
     }
   }
@@ -371,15 +356,6 @@ const date = dateLabel(frontmatter.clipped_at);
   .meta a:hover {
     color: var(--accent);
     text-decoration: underline;
-  }
-  /* The Chinese mirror of the meta row above. It cannot inherit that row's
-     mono — JetBrains Mono carries no CJK, so the glyphs would fall through to
-     whatever the browser picked — and the reading serif puts it back in
-     hairline Songti at 12px, which is the size --font-ui exists for. The mono
-     tracking goes with the mono. */
-  .meta-zh {
-    font-family: var(--font-ui);
-    letter-spacing: 0;
   }
   .titles h1 {
     margin: 0;
