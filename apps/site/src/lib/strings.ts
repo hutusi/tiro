@@ -17,6 +17,11 @@ export const STRINGS = {
     translation: "中文",
     sideBySide: "左右对照",
     summary: "摘要",
+    // The same label on the original's side of the pair, in its own language:
+    // 摘要 twice was one word repeated, and the Chinese one sat on an English
+    // paragraph. "Summary" rather than "Abstract" because the pipeline writes
+    // this after the fact — an abstract is the author's own.
+    summaryOriginal: "Summary",
     back: "← 返回",
     layoutLabel: "阅读布局",
     clippedAt: "剪藏于",

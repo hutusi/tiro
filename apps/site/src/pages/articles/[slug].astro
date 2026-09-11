@@ -119,7 +119,7 @@ const date = dateLabel(frontmatter.clipped_at);
           {
             meta.summaryOrig !== null && (
               <p class="lead lead-orig" lang={frontmatter.lang}>
-                <span class="lead-label">{t.summary}</span>
+                <span class="lead-label">{t.summaryOriginal}</span>
                 {meta.summaryOrig}
               </p>
             )
@@ -428,8 +428,17 @@ const date = dateLabel(frontmatter.clipped_at);
     margin-top: 14px;
     font-family: inherit;
   }
+  /* A label, not the summary's first word — which is how it read while it
+     inherited the lead's serif at the lead's size and differed only in colour.
+     --font-ui is the token for exactly this ("chrome — nav, controls, meta rows,
+     footer, help text… content stays --font-serif" in global.css), and it also
+     sidesteps the case that comment warns about: 摘要 at this size in the
+     reading serif falls back to a hairline Songti. */
   .lead-label {
-    margin-right: 0.5em;
+    margin-right: 0.6em;
+    font-family: var(--font-ui);
+    font-size: 12px;
+    letter-spacing: 0.02em;
     color: var(--ink-mute);
   }
 
