@@ -54,6 +54,7 @@ const date = dateLabel(frontmatter.clipped_at);
     data-pagefind-body
     class="reader"
     data-paired={view.kind === "paired" ? "" : undefined}
+    data-zh-title={hasZhTitle ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
       <a href="/" class="back">{t.back}</a>
@@ -502,9 +503,17 @@ const date = dateLabel(frontmatter.clipped_at);
      This is why the Chinese title is an h1 as well. The page had exactly one,
      the original, and hiding it would leave 中文 with no h1 at all; now each
      single-language mode has exactly one and side by side has two, which is what
-     a document with two titles is. */
+     a document with two titles is.
+
+     And it is why the 中文 rule also asks for `data-zh-title`. title_zh is
+     optional by design, so a fully translated article can have no Chinese title
+     — the model omitted it, it was rejected as an echo, or the article was
+     processed before the field existed, which is every article in a vault whose
+     backfill has not run. Hiding the original title there would leave the page
+     with no title at all. The original half only steps aside when the other
+     half can stand in its place. */
   :global(html[data-reader-mode="translation"])
-    .reader[data-paired]
+    .reader[data-paired][data-zh-title]
     .orig
     :is(h1, .lead-orig),
   :global(html[data-reader-mode="original"]) .reader[data-paired] .zh {

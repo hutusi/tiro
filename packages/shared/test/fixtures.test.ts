@@ -29,6 +29,11 @@ describe("fixture vault", () => {
       // rather than repeating its own title. The reader's two-column title
       // block is only exercised by this one.
       "example-io-notes-the-cost-of-a-second-opinion-e72f13a9/index.md",
+      // Paired and translated, but with no title_zh and a body that does not
+      // repeat its own title, so nothing can be lifted either. This was every
+      // article in the vault before translated titles existed, and stays the
+      // shape of any article whose title the model omitted.
+      "example-org-essays-before-the-backfill-80754d43/index.md",
       "example-org-blog-raw-clip-b5de6fbd/index.md",
     ]) {
       expect(indexFiles).toContain(expected);

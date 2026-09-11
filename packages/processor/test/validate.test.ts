@@ -28,7 +28,7 @@ describe("validateVault", () => {
     const vault = freshVault();
     const report = await validateVault(vault);
     expect(report.errors).toEqual([]);
-    expect(report.articles).toBe(6);
+    expect(report.articles).toBe(7);
     rmSync(vault, { recursive: true, force: true });
   });
 

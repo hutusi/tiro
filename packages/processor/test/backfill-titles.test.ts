@@ -14,6 +14,9 @@ const NEEDS_TITLE = "example-net-papers-attention-notes-278b43cb";
 const HAS_TITLE = "example-com-posts-hello-ai-e8446b12";
 const ZH = "example-cn-posts-ai-times-0d21367e";
 const PENDING = "example-org-blog-raw-clip-b5de6fbd";
+// A second candidate: paired and translated, but with no title_zh. This is the
+// shape every article in the vault had before the field existed.
+const ALSO_NEEDS_TITLE = "example-org-essays-before-the-backfill-80754d43";
 
 function freshVault(): string {
   const dir = mkdtempSync(join(tmpdir(), "tiro-backfill-"));
@@ -50,12 +53,22 @@ describe("backfillTitles", () => {
     const config = await loadVaultConfig(vault);
     const before = {
       zh: readFileSync(join(vault, "articles", NEEDS_TITLE, "zh.md"), "utf8"),
-      others: [HAS_TITLE, ZH, PENDING].map((slug) => indexOf(vault, slug)),
+      // ALSO_NEEDS_TITLE belongs in here: it is a candidate too, so its staying
+      // byte-identical is what proves --slug scoped the write rather than the
+      // scan simply having missed it.
+      others: [HAS_TITLE, ZH, PENDING, ALSO_NEEDS_TITLE].map((slug) =>
+        indexOf(vault, slug),
+      ),
     };
     const parsedBefore = parseArticle(indexOf(vault, NEEDS_TITLE));
 
     const { chat, calls } = titleChat();
-    const report = await backfillTitles(vault, config, {}, { chat });
+    const report = await backfillTitles(
+      vault,
+      config,
+      { slug: NEEDS_TITLE },
+      { chat },
+    );
 
     expect(calls()).toBe(1);
     expect(report.filled).toEqual([
@@ -78,7 +91,9 @@ describe("backfillTitles", () => {
       readFileSync(join(vault, "articles", NEEDS_TITLE, "zh.md"), "utf8"),
     ).toBe(before.zh);
     expect(
-      [HAS_TITLE, ZH, PENDING].map((slug) => indexOf(vault, slug)),
+      [HAS_TITLE, ZH, PENDING, ALSO_NEEDS_TITLE].map((slug) =>
+        indexOf(vault, slug),
+      ),
     ).toEqual(before.others);
   });
 
@@ -131,7 +146,9 @@ describe("backfillTitles", () => {
     const config = await loadVaultConfig(vault);
     const { chat, calls } = titleChat();
     const report = await backfillTitles(vault, config, {}, { chat });
-    expect(calls()).toBe(1); // only NEEDS_TITLE
+    // One call per article that actually wants a title, and none for the two
+    // the skips are about.
+    expect(calls()).toBe(2);
     expect(report.skipped).toContainEqual({ slug: ZH, reason: "zh-original" });
     // A pending article is `run`'s job: it has the body, and it writes the
     // title in the same call as the summary.
@@ -154,13 +171,14 @@ describe("backfillTitles", () => {
       { dryRun: true },
       { chat },
     );
-    expect(report.filled).toEqual([
-      {
-        slug: NEEDS_TITLE,
-        title: "Notes on Scaled Dot-Product Attention",
-        titleZh: null,
-      },
-    ]);
+    expect(report.filled).toContainEqual({
+      slug: NEEDS_TITLE,
+      title: "Notes on Scaled Dot-Product Attention",
+      titleZh: null,
+    });
+    expect(report.filled.map((a) => a.slug).sort()).toEqual(
+      [ALSO_NEEDS_TITLE, NEEDS_TITLE].sort(),
+    );
     expect(indexOf(vault, NEEDS_TITLE)).toBe(before);
   });
 
@@ -199,7 +217,7 @@ describe("backfillTitles", () => {
   test("one article's failure does not stop the rest", async () => {
     const vault = freshVault();
     const config = await loadVaultConfig(vault);
-    // Two articles want a title; the first request throws, the second answers.
+    // Three articles want a title; the first request throws, the rest answer.
     writeFileSync(
       join(vault, "articles", HAS_TITLE, "index.md"),
       withoutTitleZh(indexOf(vault, HAS_TITLE)),
@@ -212,7 +230,7 @@ describe("backfillTitles", () => {
     };
     const report = await backfillTitles(vault, config, {}, { chat });
     expect(report.failed).toHaveLength(1);
-    expect(report.filled).toHaveLength(1);
+    expect(report.filled).toHaveLength(2);
   });
 
   test("stops after three failures in a row rather than repeating them", async () => {
@@ -271,7 +289,7 @@ describe("backfillTitles", () => {
     const report = await backfillTitles(vault, config, { limit: 1 }, { chat });
     expect(calls()).toBe(1);
     expect(report.filled).toHaveLength(1);
-    expect(report.remaining).toHaveLength(1);
+    expect(report.remaining).toHaveLength(2);
   });
 
   test("--dry-run honours --limit, the way it honours --slug", async () => {
@@ -290,10 +308,10 @@ describe("backfillTitles", () => {
       { dryRun: true, limit: 1 },
       { chat },
     );
-    // Two candidates, one asked for: the flag has to mean the same thing in
+    // Three candidates, one asked for: the flag has to mean the same thing in
     // both modes or a dry run cannot answer "what would the next batch do".
     expect(report.filled).toHaveLength(1);
-    expect(report.remaining).toHaveLength(1);
+    expect(report.remaining).toHaveLength(2);
   });
 
   test("an unreadable article is reported, not fatal", async () => {
@@ -306,10 +324,10 @@ describe("backfillTitles", () => {
     const { chat } = titleChat();
     const report = await backfillTitles(vault, config, {}, { chat });
     expect(report.invalid).toHaveLength(1);
-    expect(report.filled).toHaveLength(1);
+    expect(report.filled).toHaveLength(2);
     // Counted, so the CLI can say "0 of 1" rather than "0 of 0" and exit
     // non-zero: an unreadable article got no title, and nothing else reports it.
-    expect(report.scanned).toBe(6);
+    expect(report.scanned).toBe(7);
   });
 });
 
