@@ -88,11 +88,16 @@ const mainClass =
       href="/rss.xml"
     />
     <script define:vars={{ P: PREF_SCRIPT_VARS }}>
-      // Runs before first paint: puts the stored paper, reader text size and
-      // library view on <html>, then exposes `tiroPrefs` for the controls that
-      // change them. Inline on purpose — a bundled module is deferred and
-      // would flash the default paper. Keys and ranges come from
-      // src/lib/prefs.ts through `P`; the clamp below mirrors clampFontSize.
+      // Runs before first paint: puts every stored preference — paper, reader
+      // text size, library view, layout width and reader mode — on <html>, then
+      // exposes `tiroPrefs` for the controls that change them. Inline on purpose
+      // — a bundled module is deferred and would flash the default paper. Keys
+      // and ranges come from src/lib/prefs.ts through `P`; the clamp below
+      // mirrors clampFontSize.
+      //
+      // The reader mode joined the others once the reader's title block began
+      // collapsing with it: applied after paint, it moved text the reader was
+      // already looking at.
       const root = document.documentElement;
       const read = (key) => {
         try {
@@ -154,6 +159,10 @@ const mainClass =
       if (!P.LAYOUT_WIDTHS.includes(layoutWidth)) layoutWidth = "standard";
       root.dataset.width = layoutWidth;
 
+      let readerMode = read(P.PREF_KEYS.readerMode);
+      if (!P.READER_MODES.includes(readerMode)) readerMode = "both";
+      root.dataset.readerMode = readerMode;
+
       window.tiroPrefs = {
         paper: () => root.dataset.paper,
         setPaper(value) {
@@ -185,12 +194,13 @@ const mainClass =
           write(P.PREF_KEYS.libraryView, value);
           changed("libraryView", value);
         },
-        readerMode() {
-          const mode = read(P.PREF_KEYS.readerMode);
-          return P.READER_MODES.includes(mode) ? mode : "both";
-        },
+        readerMode: () => root.dataset.readerMode,
         setReaderMode(value) {
           if (!P.READER_MODES.includes(value)) return;
+          // Before `changed`, like every setter above it: the getter reads the
+          // DOM now, so dispatching first would hand every listener the value
+          // that is on its way out.
+          root.dataset.readerMode = value;
           write(P.PREF_KEYS.readerMode, value);
           changed("readerMode", value);
         },

@@ -58,7 +58,7 @@ const date = dateLabel(frontmatter.clipped_at);
   <article
     data-pagefind-body
     class="reader"
-    data-mode={view.kind === "paired" ? "both" : undefined}
+    data-paired={view.kind === "paired" ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
       <a href="/" class="back">{t.back}</a>
@@ -185,7 +185,7 @@ const date = dateLabel(frontmatter.clipped_at);
 
     {
       view.kind === "paired" && (
-        <div id="reader" data-mode="both">
+        <div id="reader">
           {rows.map((row) => (
             <div class="reader-row">
               <div
@@ -307,10 +307,18 @@ const date = dateLabel(frontmatter.clipped_at);
   /* One reading measure for everything below the toolbar: `--w-reader` for a
      single column (800px — about 78 Latin or 40 Chinese characters at the
      default size, and fixed), `--w-reader-wide` when two columns sit side by
-     side (1240 by default, adjustable in Settings). The mode lives
-     on the article root, so the title block follows the switch along with the
-     body — before, it stayed at the side-by-side width while the body
-     narrowed. */
+     side (1240 by default, adjustable in Settings). The title block follows the
+     switch along with the body — before, it stayed at the side-by-side width
+     while the body narrowed.
+
+     Every rule below that reads the mode does so as
+     `:global(html[data-reader-mode="…"]) .reader[data-paired]`, and both halves
+     are load-bearing. The mode is on <html> because it has to be applied before
+     first paint (Base.astro) — which means it is set on every page, including
+     articles that have no translation at all. `data-paired` is rendered only for
+     a paired view, so it is what stops `原文` from hiding the only Chinese on a
+     single-pane article, and `中文` from hiding the English title above an
+     English body. Add the guard to any new rule even where it looks redundant. */
   .head,
   #reader,
   .reader-single,
@@ -319,8 +327,8 @@ const date = dateLabel(frontmatter.clipped_at);
     margin-inline: auto;
     padding-inline: var(--gutter);
   }
-  .reader[data-mode="both"] .head,
-  .reader[data-mode="both"] #reader {
+  :global(html[data-reader-mode="both"]) .reader[data-paired] .head,
+  :global(html[data-reader-mode="both"]) .reader[data-paired] #reader {
     max-width: var(--w-reader-wide);
   }
 
@@ -337,12 +345,12 @@ const date = dateLabel(frontmatter.clipped_at);
     gap: 24px 64px;
   }
   @media (min-width: 64rem) {
-    .reader[data-mode="both"] .titles {
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .titles {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
     /* Without a Chinese title the summary starts level with the h1, not with
        the meta line above it. */
-    .reader[data-mode="both"] .zh.no-title {
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .zh.no-title {
       padding-top: 32px;
     }
   }
@@ -479,15 +487,21 @@ const date = dateLabel(frontmatter.clipped_at);
     transition: background 0.15s;
   }
   @media (min-width: 64rem) {
-    .reader[data-mode="both"] .reader-row {
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .reader-row {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
-    .reader[data-mode="both"] .reader-row:hover {
+    :global(html[data-reader-mode="both"])
+      .reader[data-paired]
+      .reader-row:hover {
       background: var(--wash);
     }
   }
-  .reader[data-mode="original"] .pane-translation,
-  .reader[data-mode="translation"] .pane-original {
+  :global(html[data-reader-mode="original"])
+    .reader[data-paired]
+    .pane-translation,
+  :global(html[data-reader-mode="translation"])
+    .reader[data-paired]
+    .pane-original {
     display: none;
   }
 
@@ -542,23 +556,28 @@ const date = dateLabel(frontmatter.clipped_at);
 
 <script is:inline>
   {
-    // The mode sits on the article root so the title block and the rows take
-    // the same width from one attribute.
-    const reader = document.querySelector("article.reader");
+    // The toolbar only moves the preference; the mode itself is written onto
+    // <html> before first paint, by the same script that handles paper and
+    // width. Applying it here instead moved text the reader was already
+    // looking at, every time an article loaded. What is left is the three lines
+    // every other control on the site has — read, write, re-sync on the event.
+    //
+    // The null guard stays: unlike the library's toggle, this one renders only
+    // for an article that actually has a translation.
     const toggle = document.getElementById("view-toggle");
-    if (reader !== null && toggle !== null) {
+    if (toggle !== null) {
       const buttons = toggle.querySelectorAll("button");
-      const apply = (mode) => {
-        reader.dataset.mode = mode;
+      const sync = () => {
+        const mode = window.tiroPrefs.readerMode();
         for (const b of buttons)
           b.setAttribute("aria-pressed", String(b.dataset.view === mode));
       };
       for (const b of buttons)
-        b.addEventListener("click", () => {
-          apply(b.dataset.view);
-          window.tiroPrefs.setReaderMode(b.dataset.view);
-        });
-      apply(window.tiroPrefs.readerMode());
+        b.addEventListener("click", () =>
+          window.tiroPrefs.setReaderMode(b.dataset.view),
+        );
+      document.addEventListener("tiro:prefs", sync);
+      sync();
     }
   }
 </script>

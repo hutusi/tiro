@@ -309,7 +309,7 @@ describe("backfillTitles", () => {
     expect(report.filled).toHaveLength(1);
     // Counted, so the CLI can say "0 of 1" rather than "0 of 0" and exit
     // non-zero: an unreadable article got no title, and nothing else reports it.
-    expect(report.scanned).toBe(5);
+    expect(report.scanned).toBe(6);
   });
 });
 

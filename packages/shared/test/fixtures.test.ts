@@ -19,6 +19,11 @@ describe("fixture vault", () => {
     for (const expected of [
       "example-cn-posts-ai-times-0d21367e/index.md",
       "example-com-posts-hello-ai-e8446b12/index.md",
+      // Processed, English, with a stored title_zh and a Chinese summary — but
+      // no zh.md, because its translation was refused. The site renders it
+      // single-pane while still holding a Chinese title, which is the one
+      // combination every reader-mode rule has to survive.
+      "example-dev-notes-a-clip-awaiting-retranslation-6d1b7b92/index.md",
       // The shape every live article has and no other fixture did: processed,
       // English, a stored title_zh, and a body that opens with a paragraph
       // rather than repeating its own title. The reader's two-column title
