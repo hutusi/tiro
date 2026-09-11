@@ -32,6 +32,11 @@ export function makeFakeChat(overrides?: {
           summary: "这是一段测试摘要。要点一。要点二。",
           category: "ai",
           tags: ["test", "fixture"],
+          // Deliberately not what fakeTranslateBlock would make of a heading
+          // ("# X（中文）"), so a test can tell a title that came from the
+          // summary call from one the site lifted out of zh.md.
+          title_zh: "测试标题（来自摘要）",
+          summary_orig: "An English test summary.",
         },
       );
     }

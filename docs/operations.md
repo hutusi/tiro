@@ -175,6 +175,9 @@ so re-runs are always safe no-ops for finished articles.
   re-translate, change `llm.model` or `translation.target` in `tiro.yml`, which
   invalidates every checkpoint wholesale, or delete the article's
   `.tiro-zh-cache.json`.
+- **Redo one article's title only**:
+  `backfill-titles --slug <slug> --force` (below). Far cheaper than a forced
+  run when the title is the only thing wrong with the article.
 - **Locally**: `TIRO_LLM_API_KEY=… bun run process -- --vault ../tiro-vault`
   (then commit/push the vault yourself).
 - **Contract check over the whole vault**:
@@ -557,6 +560,55 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    byte-identical, because no vault page wraps a lone figure in a sidebar. It
    finds corpus regressions; a green sweep is not a safety argument, and
    adversarial shapes belong in `apps/extension/test/dom-prepare.test.ts`.
+
+### Backfilling translated titles
+
+`title_zh` arrived after most of the vault was already processed (ADR 0016), so
+those articles show their original title in the library and the reader until it
+is filled in. `backfill-titles` fills it: one small LLM call per article, from
+the title and the article's already-written Chinese summary — the summary is
+handed over as terminology context so a backfilled title agrees with the text it
+renders above, which is what the pipeline gets for free by writing both in one
+call.
+
+Not `--force` over the vault. Only 12 of the 39 translated articles still hold a
+`.tiro-zh-cache.json`, so a forced run re-translates 27 whole bodies and
+re-downloads every image, across hours of workflow runs, to add one line each.
+
+```sh
+# What would it spend? (no LLM calls, no writes)
+bun run packages/processor/src/cli.ts backfill-titles --vault ../tiro-vault --dry-run
+
+# One article first, then read the diff in the vault
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts backfill-titles \
+  --vault ../tiro-vault --slug 12factor-net-93566134
+
+# The rest (--limit <n> to go in batches)
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts backfill-titles --vault ../tiro-vault
+```
+
+The single-article run first is the point of the sequence: `stringifyArticle`
+re-serializes the whole file, so any unrelated churn shows up in that one diff
+before 38 more follow. Expect exactly one added line.
+
+It skips Chinese originals, articles still pending (`run` does those better — it
+has the body), and articles that already have a title unless `--force` is
+passed. That last skip is what makes it resumable: `title_zh` is its own
+progress marker, so an interrupted run is continued by running it again, and
+there is no checkpoint to clean up. It stops itself at `processing.run_budget_ms`
+and after three consecutive failures, naming what is left; failures exit
+non-zero, because an article silently keeping no title is the one thing nothing
+else would report.
+
+It writes only `title_zh` — never `tiro.processed_at` — so nothing becomes
+pending, the processor will not re-run, and **no deploy is triggered**. Commit
+the vault and deploy by hand, the same way a slug migration does.
+
+One gotcha it shares with `summary`: a hand-fixed `title_zh` is not durable.
+Both forced paths overwrite it, and they differ in what else they touch —
+`backfill-titles --force` rewrites the title and nothing else, while a forced
+*processing* run (`run --force`, or the workflow with `force: true`) re-rolls the
+summary and the tags alongside it.
 
 ### Cutting an extension release
 

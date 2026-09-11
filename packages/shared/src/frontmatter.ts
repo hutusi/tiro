@@ -73,6 +73,50 @@ const clipperCommit = z.string().optional();
  */
 const sourceUrl = z.string().optional();
 
+/**
+ * The article's title, translated into the vault's target language.
+ *
+ * `zh.md` is a bare body that must stay strictly 1:1 block-aligned with
+ * `index.md` (ADR 0003), so a translated title has nowhere to live in it, and
+ * the site can only *derive* one from a body that opens with its own title —
+ * which a scraped page does not do. Frontmatter is the one place left, and this
+ * is it (ADR 0016).
+ *
+ * Named on the article schema **only**, unlike the three fields above. Those are
+ * written by the extension, so omitting them here would delete them on the first
+ * processor round-trip. This one is written by the processor, and a re-clip
+ * *should* drop it: the page's title may have changed, and the same clip clears
+ * `tiro.processed_at`, so the next run regenerates it against the new title.
+ *
+ * Trimmed and non-empty, because whitespace is not a translation — a blank
+ * string is truthy on the site, so it would suppress the derived fallback and
+ * render an empty line where the title belongs. `.trim()` rather than a refusal
+ * so a hand-edit with stray whitespace is normalized on the next write instead
+ * of being preserved and rendered.
+ *
+ * Optional and additive, so no `tiro.schema` bump.
+ */
+const titleZh = z.string().trim().min(1).optional();
+
+/**
+ * The summary, written a second time in the article's own language.
+ *
+ * `summary` is always in the target language — the LLM writes it there rather
+ * than translating it — so an article has no summary in its own language at all,
+ * and the reader's title block shows 摘要 with nothing opposite it while every
+ * other row on the page is a pair. This is the other half.
+ *
+ * `summary_orig`, not a rename of `summary` to `summary_zh`: every article in
+ * every vault already carries `summary` meaning the target-language one, and
+ * renaming it is exactly the breaking change `tiro.schema` exists to version.
+ * "orig" is the reader's own word for that column (原文).
+ *
+ * Written only for an article that is not already in the target language, and
+ * named on the article schema only — and trimmed non-empty — for the same
+ * reasons as `title_zh`.
+ */
+const summaryOrig = z.string().trim().min(1).optional();
+
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
@@ -105,7 +149,9 @@ export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
 /** Full frontmatter after the processor has (possibly) run. */
 export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
   lang: z.string().min(2).optional(),
+  title_zh: titleZh,
   summary: z.string().optional(),
+  summary_orig: summaryOrig,
   category: z.string().optional(),
   tags: z.array(z.string()).optional(),
   tiro: z.object({

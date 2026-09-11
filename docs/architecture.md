@@ -88,7 +88,11 @@ flowchart LR
    - download images into `assets/` and rewrite body URLs to relative paths
      (per-image fallback to hotlink on failure),
    - one LLM call for a structured summary, one category (from the taxonomy in
-     `config/tiro.yml`), and free-form tags, written into frontmatter,
+     `config/tiro.yml`), and free-form tags, written into frontmatter — and, for
+     an article not already in the target language, the title translated into it
+     and the summary written a second time in the article's own language. One
+     call, so a title and the summary it renders under agree on their terms
+     (ADR 0016),
    - for non-Chinese articles, a block-aligned Chinese translation → `zh.md`,
      batched and checkpointed so a long article resumes rather than restarts
      (ADR 0008),
@@ -109,9 +113,12 @@ flowchart LR
    page. Reading preferences — paper, text size, default layout, list view —
    live in the browser's `localStorage` and are applied by an inline script
    before first paint; nothing about a reader ever reaches the server.
-   Reading time, the status pill and a lifted Chinese title are derived at
-   build time from the contract's existing fields (`src/lib/article-meta.ts`),
-   not stored.
+   Reading time and the status pill are derived at build time from the
+   contract's existing fields (`src/lib/article-meta.ts`). The Chinese title is
+   *stored* — `title_zh`, written by the processor (ADR 0016) — with the title
+   lifted out of `zh.md` kept as the fallback for articles processed before the
+   field existed. That lifted pair still decides one thing on its own: whether
+   the body repeats its own title and the reader should skip its first row.
 
    Rendering is one unified pipeline (`apps/site/src/lib/render.ts`). Shiki
    and KaTeX run *after* rehype-sanitize, as trusted generators over
@@ -176,6 +183,14 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   object does not name, and the processor reparses and rewrites frontmatter on
   every run, so an unnamed field is deleted the first time an article is
   processed.
+- **The translated title is stored, not derived** (ADR 0016): the optional
+  `title_zh`, and beside it `summary_orig`, the summary written a second time in
+  the article's own language. Both are named on `ArticleFrontmatterSchema` only
+  — the inverse of the provenance rule above, and for the inverse reason: the
+  processor writes them, so a re-clip *should* drop them. The page's title may
+  have changed, and the clip that rewrites `index.md` also clears
+  `tiro.processed_at`, so the next run writes them again. Optional and additive,
+  so no `tiro.schema` bump.
 - **Math is declared, not guessed**: the optional `has_math` flag records that
   the clipper escaped every literal `$` in the article's prose, so every bare
   `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;

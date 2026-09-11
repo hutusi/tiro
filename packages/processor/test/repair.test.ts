@@ -462,8 +462,8 @@ describe("inline verbatim spans", () => {
     // original as a string lost a `$`, and `$&` put the token itself into the
     // article.
     for (const inner of ["a$$b", "a$&b", "a$'b"]) {
-      const body = "Text `" + inner + '` and title `[x](/a "one\ntwo")` here.';
-      expect(repairBody(body)).toContain("`" + inner + "`");
+      const body = `Text \`${inner}\` and title \`[x](/a "one\ntwo")\` here.`;
+      expect(repairBody(body)).toContain(`\`${inner}\``);
     }
   });
 

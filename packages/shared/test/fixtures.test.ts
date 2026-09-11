@@ -19,6 +19,11 @@ describe("fixture vault", () => {
     for (const expected of [
       "example-cn-posts-ai-times-0d21367e/index.md",
       "example-com-posts-hello-ai-e8446b12/index.md",
+      // The shape every live article has and no other fixture did: processed,
+      // English, a stored title_zh, and a body that opens with a paragraph
+      // rather than repeating its own title. The reader's two-column title
+      // block is only exercised by this one.
+      "example-io-notes-the-cost-of-a-second-opinion-e72f13a9/index.md",
       "example-org-blog-raw-clip-b5de6fbd/index.md",
     ]) {
       expect(indexFiles).toContain(expected);

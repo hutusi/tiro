@@ -9,6 +9,7 @@ const baseOptions = {
   title: "Hello",
   body: "First paragraph of the article.\n\nSecond paragraph.",
   targetLang: "zh",
+  cjkThreshold: 0.3,
 };
 
 function scripted(responses: string[]): { chat: ChatFn; calls: () => number } {
@@ -83,6 +84,153 @@ describe("summarize", () => {
       maxBodyChars: 1000,
     });
     expect(seenLength).toBeLessThan(2000);
+  });
+
+  test("asks for the pair only when the article has a source language", async () => {
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({ summary: "摘要", category: "ai", tags: [] });
+    };
+    await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(system).toContain("title_zh");
+    expect(system).toContain("summary_orig");
+
+    await summarize({ ...baseOptions, chat });
+    expect(system).not.toContain("title_zh");
+    expect(system).not.toContain("summary_orig");
+  });
+
+  test("returns the pair when the model supplies it", async () => {
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要",
+        category: "ai",
+        tags: ["a"],
+        title_zh: "你好",
+        summary_orig: "An English summary.",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.titleZh).toBe("你好");
+    expect(result.summaryOrig).toBe("An English summary.");
+    expect(result.failed).toBe(false);
+  });
+
+  test("a missing title costs the article nothing", async () => {
+    // The trap this pins: requiring title_zh in the response schema would feed
+    // the omission back as a correction and, three attempts later, cost the
+    // article its summary, category and tags and mark it summary_failed.
+    const { chat, calls } = scripted([
+      JSON.stringify({ summary: "摘要", category: "ai", tags: ["a"] }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.failed).toBe(false);
+    expect(result.summary).toBe("摘要");
+    expect(result.titleZh).toBeUndefined();
+    expect(calls()).toBe(1);
+  });
+
+  test("drops a title the model echoed in the source language", async () => {
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要",
+        category: "ai",
+        tags: [],
+        title_zh: "Hello",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.titleZh).toBeUndefined();
+    expect(result.failed).toBe(false);
+  });
+
+  test("drops a title echoed back with Han already in it", async () => {
+    // The Han test alone cannot see this one: the source title mixes scripts,
+    // so handing it back unchanged satisfies "contains Chinese".
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要",
+        category: "ai",
+        tags: [],
+        title_zh: "AI 与 the Future",
+      }),
+    ]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      title: "AI 与 the Future",
+      bilingual: true,
+    });
+    expect(result.titleZh).toBeUndefined();
+    expect(result.failed).toBe(false);
+  });
+
+  test("drops a source summary rewritten in the target language", async () => {
+    // The likelier failure by far, and the one an equality test cannot see: the
+    // model writes the target language again, in different words.
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "小模型已经到来，成本大幅下降。",
+        category: "ai",
+        tags: [],
+        summary_orig: "这是另一段中文摘要，措辞不同但仍然是中文。",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.summaryOrig).toBeUndefined();
+  });
+
+  test("keeps a source summary that only quotes the target language", async () => {
+    // The line the ratio has to sit on the right side of.
+    const candidate =
+      'The author calls this habit "读后感" throughout the piece.';
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "中文摘要。",
+        category: "ai",
+        tags: [],
+        summary_orig: candidate,
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.summaryOrig).toBe(candidate);
+  });
+
+  test("drops a source summary that just repeats the target one", async () => {
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要",
+        category: "ai",
+        tags: [],
+        summary_orig: "摘要",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.summaryOrig).toBeUndefined();
+  });
+
+  test("ignores a pair volunteered for an article already in the target language", async () => {
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要",
+        category: "ai",
+        tags: [],
+        title_zh: "另一个标题",
+        summary_orig: "An English summary.",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.titleZh).toBeUndefined();
+    expect(result.summaryOrig).toBeUndefined();
+  });
+
+  test("the excerpt fallback carries no pair", async () => {
+    const { chat } = scripted(["nope", "still nope", "nope again"]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.failed).toBe(true);
+    expect(result.titleZh).toBeUndefined();
+    expect(result.summaryOrig).toBeUndefined();
   });
 
   test("propagates provider errors instead of falling back", async () => {

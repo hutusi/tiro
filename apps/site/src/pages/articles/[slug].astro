@@ -122,6 +122,14 @@ const date = dateLabel(frontmatter.clipped_at);
             data-pagefind-meta="date">{date}</time
           >
           {
+            meta.summaryOrig !== null && (
+              <p class="lead lead-orig" lang={frontmatter.lang}>
+                <span class="lead-label">{t.summary}</span>
+                {meta.summaryOrig}
+              </p>
+            )
+          }
+          {
             (frontmatter.category !== undefined ||
               (frontmatter.tags ?? []).length > 0) && (
               <p class="terms">
@@ -425,6 +433,16 @@ const date = dateLabel(frontmatter.clipped_at);
   }
   .title-zh + .lead {
     margin-top: 14px;
+  }
+  /* The original's half of the pair: the same shape in the reading serif, since
+     the Chinese face is for Chinese. It sits directly under the h1, where its
+     counterpart sits under the Chinese title, so the two start level; the tags
+     move below it, which changes nothing for an article that has no
+     summary_orig. Same 摘要 label on both — the meta row above already repeats
+     itself across the columns rather than labelling one of them. */
+  .lead-orig {
+    margin-top: 14px;
+    font-family: inherit;
   }
   .lead-label {
     margin-right: 0.5em;
