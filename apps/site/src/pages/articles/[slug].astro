@@ -91,7 +91,7 @@ const date = dateLabel(frontmatter.clipped_at);
 
     <header class="head">
       <div class="titles">
-        <div>
+        <div class="orig">
           <p class="meta">
             <a
               href={frontmatter.url}
@@ -129,9 +129,9 @@ const date = dateLabel(frontmatter.clipped_at);
           (hasZhTitle || frontmatter.summary !== undefined) && (
             <div class="zh" lang="zh-CN">
               {hasZhTitle && (
-                <p class="title-zh" data-pagefind-meta="title_zh">
+                <h1 class="title-zh" data-pagefind-meta="title_zh">
                   {meta.titleZh}
-                </p>
+                </h1>
               )}
               {frontmatter.summary !== undefined && (
                 <p class="lead">
@@ -357,7 +357,7 @@ const date = dateLabel(frontmatter.clipped_at);
     color: var(--accent);
     text-decoration: underline;
   }
-  .titles h1 {
+  .titles h1:not(.title-zh) {
     margin: 0;
     font-size: 38px;
     font-weight: 500;
@@ -375,7 +375,7 @@ const date = dateLabel(frontmatter.clipped_at);
     text-wrap: pretty;
   }
   @media (max-width: 39.99rem) {
-    .titles h1 {
+    .titles h1:not(.title-zh) {
       font-size: 30px;
     }
     .title-zh {
@@ -491,6 +491,23 @@ const date = dateLabel(frontmatter.clipped_at);
   :global(html[data-reader-mode="translation"])
     .reader[data-paired]
     .pane-original {
+    display: none;
+  }
+  /* The head follows the panes: one language at a time means one title and one
+     summary, not both sitting over a single column of text. The meta row and the
+     tags stay in either mode — they are the article's, not one version's — which
+     is why the original's title and summary are hidden one by one instead of by
+     hiding the column that also holds them.
+
+     This is why the Chinese title is an h1 as well. The page had exactly one,
+     the original, and hiding it would leave 中文 with no h1 at all; now each
+     single-language mode has exactly one and side by side has two, which is what
+     a document with two titles is. */
+  :global(html[data-reader-mode="translation"])
+    .reader[data-paired]
+    .orig
+    :is(h1, .lead-orig),
+  :global(html[data-reader-mode="original"]) .reader[data-paired] .zh {
     display: none;
   }
 
