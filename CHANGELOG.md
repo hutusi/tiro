@@ -49,6 +49,27 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **The reader's title block shows one language at a time.** Choosing 中文 or 原文
+  used to collapse the body panes but leave both titles and both summaries in the
+  head; now the head follows the panes, with the meta row and the tags staying in
+  either mode because they are the article's rather than one version's. The
+  Chinese title became an `h1` in the process — the page had exactly one, so
+  hiding it would have left 中文 with none. In the same pass the mirrored Chinese
+  meta row is gone (it repeated the original's domain and author, differing only
+  in how the reading time was phrased), the tags moved under both columns, and
+  the summary labels stopped reading as the summary's first word: the original's
+  side says "Summary" rather than a second 摘要, and both are set in the UI sans
+  that `--font-ui` exists for.
+- **Reading preferences are now all applied before first paint.** The reader mode
+  was the only one of the five read from `localStorage` after hydration, which
+  cost a flash; it now sits on `<html>` beside paper, text size, library view and
+  layout width, written by the same blocking head script. The article root
+  carries `data-paired` instead, a build-time fact, and every rule keyed on the
+  mode requires it — without that, 原文 would hide the only Chinese on an article
+  whose translation was refused, and 中文 the English title above an English body.
+  With JavaScript off a paired article now renders in the single measure rather
+  than side by side, the same way paper and width already fall back.
+
 - **The chrome is set in a system sans.** The nav, meta rows, pager, footer,
   reader toolbar and settings help left the reading serif for `--font-ui`
   (system-ui, PingFang SC, Hiragino Sans GB). The serif's CJK fallback is a
