@@ -49,15 +49,22 @@ decision about a different thing.
   that already fetches the blob sha, so no extra request.
 
   That read is deliberately lenient and deliberately unwilling to guess. The
-  frontmatter is parsed *without* contract validation (`parseFrontmatterLoose`),
+  frontmatter is parsed *without* contract validation (`readFrontmatterLoose`),
   because the flag is hand-set and the same hand can leave a neighbouring field
   invalid — a strict read would hear "this article does not validate" as "this
-  article is not hidden". A block whose YAML will not parse at all still gets a
-  line scan. And where the Contents API omits the body, which it does above 1MB,
-  the blob is fetched instead of assumed; if *that* fails the clip fails, because
-  overwriting an article whose visibility is unknown is the one outcome worth
-  failing for. The asymmetry is the whole argument: a wrong "no" republishes
-  something someone hid, a wrong "yes" costs a line in a file being rewritten.
+  article is not hidden". Where the Contents API omits the body, which it does
+  above 1MB, the blob is fetched instead of assumed.
+
+  What it will not do is guess. Frontmatter it cannot parse — a truncated file,
+  a typo one line above the flag — stops the clip rather than answering
+  "listed", and so does a failed blob read. `readFrontmatterLoose` reports three
+  states for that reason, not two: a file with no frontmatter is *knowledge*
+  that no flag is there, while a block that will not parse is ignorance. A
+  stale-sha conflict redoes the lookup and rebuilds the payload rather than
+  re-sending bytes built against a file that has since changed — that window is
+  seconds wide, and it is the window in which someone hides an article by hand.
+  The asymmetry is the whole argument: a wrong "no" republishes something
+  someone hid, a wrong "yes" costs a line in a file being rewritten.
 
 - **A per-article flag, not a list of slugs in `config/tiro.yml`.** The flag
   travels with the article and is visible in the file where the decision is
@@ -70,15 +77,17 @@ decision about a different thing.
   them at once. The reader route reads a new `getAllArticles()`, because being
   reachable at its URL is the whole point.
 
-  Two guards, not one. The existing empty-collection check stays on the
-  *unfiltered* count and keeps its own message — "no articles at all" means a
-  broken vault checkout or glob base (ADR 0006). A second one refuses a build
-  whose *listed* count is zero. An all-unlisted vault is not a site: its library
-  is empty, and Pagefind exits non-zero rather than write an empty index, so the
-  build fails regardless — several steps later and blaming the wrong component.
-  Refusing it up front also makes the search-index rule below structural: every
-  build that succeeds has at least one listed article, so at least one page
-  always declares a `data-pagefind-body`.
+  The empty-collection guard stays on the *unfiltered* count: "no articles at
+  all" means a broken vault checkout or glob base (ADR 0006). A vault whose
+  articles are *all* unlisted still builds, and renders an empty library.
+
+  Refusing that build is the tempting alternative — it is almost certainly not
+  a site anyone wanted — and it is wrong, because the deploy workflow builds
+  before it uploads. A refusal leaves the *previous* deployment live: the one
+  where the article now being hidden is still listed. A feature whose job is to
+  stop publishing something must not answer "I could not do that" by carrying on
+  publishing it. This shipped as a guard first and was reversed for exactly that
+  reason.
 
 - **Out of the search index by dropping `data-pagefind-body` and ignoring the
   whole page.** Both, not either, and the second one has to be on `<body>`:
@@ -89,6 +98,14 @@ decision about a different thing.
   included — in the index, which is most of what the flag is for. Measured, not
   reasoned: a vault holding one unlisted article indexed 6 pages with a fragment
   naming the hidden URL, and 5 with none once the ignore covered the page.
+
+  The declaration that keeps that rule in force when no article supplies one is
+  the library's **empty state** — the paragraph that renders only when nothing
+  is listed. It is the one page in such a vault that can carry a
+  `data-pagefind-body` without putting a non-article in the index, and it gives
+  Pagefind something to index, which it requires: handed an empty index it exits
+  non-zero and fails the build. That vault indexes exactly one page, the empty
+  state's own line; a normal vault emits no such element and is untouched.
 
 - **Terms are shown, not linked, when they have no page.** Tag and category
   routes are generated from the listed articles, so a term carried only by
@@ -120,12 +137,14 @@ decision about a different thing.
   them is the point. This describes a decision about the article, which the
   clip did not revisit — and the failure was silent, which is how a hidden
   article ends up in the library without anyone doing anything.
-- **Hiding the last listed article fails the build**, with a message naming the
-  reason. The alternative was a site whose library, search page and feed are all
-  empty. An earlier cut tried to keep that vault building by giving Pagefind an
-  empty body to index; Pagefind refuses to write an empty index and exits
-  non-zero, so it broke the build anyway, with "Pagefind was not able to build
-  an index" instead of a sentence about unlisted articles.
+- **Hiding the last listed article publishes an empty library**, and the search
+  page then returns only that page's own empty-state line. Odd-looking, and the
+  honest rendering of that vault — and it deploys, which is the part that
+  matters: the article the owner hid stops being listed.
+- **A re-clip can now fail** where it used to succeed: an article whose
+  frontmatter no longer parses, or one too large to inline whose blob cannot be
+  fetched. Both mean the vault holds something this cannot read, which fails the
+  site build too, so the article needs a hand either way.
 - **The assets stay publicly fetchable.** `copy-assets.ts` copies `*/assets/*`
   for every article off the filesystem with no frontmatter check, and has to —
   the unlisted page's own images come from there. Their paths are as guessable as
