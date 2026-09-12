@@ -511,7 +511,12 @@ async function main(): Promise<void> {
       render();
       try {
         const nowIso = new Date().toISOString();
-        const file = await buildClipFile({
+        // The lookup comes first now: the flat layout makes the slug — and so
+        // the path — derivable without building the file, and a re-clip has to
+        // read the old article's `unlisted` flag before it rebuilds `index.md`
+        // over it (ADR 0017).
+        const slug = await slugForUrl(payload.url);
+        const clip = {
           url: payload.url,
           sourceUrl,
           title: payload.title,
@@ -523,16 +528,34 @@ async function main(): Promise<void> {
           clippedAt: nowIso,
           clipperVersion: chrome.runtime.getManifest().version,
           clipperCommit: __CLIPPER_COMMIT__,
+        };
+        const existing = await findExistingIndex(config, slug);
+        const file = await buildClipFile({
+          ...clip,
+          unlisted: existing?.unlisted,
         });
-        // The flat layout makes file.path deterministic; the lookup only
-        // supplies the sha that turns the PUT into an overwrite.
-        const existing = await findExistingIndex(config, file.slug);
         const path = file.path;
         await putFile(config, {
           path,
           contentBase64: encodeBase64Utf8(file.content),
           message: `clip: ${file.title}`,
           ...(existing !== null ? { sha: existing.sha } : {}),
+          // A stale sha means something committed to this article between the
+          // lookup above and this PUT. Retrying the bytes already built would
+          // overwrite whatever it did — including, if it was a hand-edit
+          // hiding the article, the `unlisted` flag this clip read as absent.
+          // So the retry redoes the lookup and rebuilds against the answer.
+          resolveConflict: async () => {
+            const again = await findExistingIndex(config, slug);
+            const rebuilt = await buildClipFile({
+              ...clip,
+              unlisted: again?.unlisted,
+            });
+            return {
+              ...(again !== null ? { sha: again.sha } : {}),
+              contentBase64: encodeBase64Utf8(rebuilt.content),
+            };
+          },
         });
         saved = {
           updated: existing !== null,

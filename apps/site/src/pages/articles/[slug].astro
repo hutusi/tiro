@@ -3,12 +3,19 @@ import "katex/dist/katex.min.css";
 import FontSteps from "../../components/FontSteps.astro";
 import Base from "../../layouts/Base.astro";
 import { articleMeta } from "../../lib/article-meta.ts";
-import { categoryUrl, getArticles, tagUrl } from "../../lib/articles.ts";
+import {
+  categoryPageUrl,
+  getAllArticles,
+  tagPageUrl,
+} from "../../lib/articles.ts";
 import { buildReaderView } from "../../lib/reader.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
+import { isUnlisted } from "../../lib/visibility.ts";
 
 export async function getStaticPaths() {
-  const articles = await getArticles();
+  // Every article, unlisted ones included: the flag removes an article from
+  // the lists, not from the site — its URL has to keep working.
+  const articles = await getAllArticles();
   return articles.map((article) => ({
     params: { slug: article.slug },
     props: { article },
@@ -42,6 +49,28 @@ const blocks =
     : [];
 const hasZhTitle = meta.titleZh !== null;
 const date = dateLabel(frontmatter.clipped_at);
+// An unlisted article drops the `data-pagefind-body` that would otherwise put
+// it in the search index. That alone is not enough: Pagefind restricts indexing
+// to `data-pagefind-body` elements only while at least one page on the site has
+// one, so in a vault where every article is unlisted it falls back to indexing
+// every page's whole <body> — which indexed the hidden article's URL and title
+// even with this element ignored. `noindex` below puts the ignore on <body>,
+// where it covers the page rather than one element of it.
+const unlisted = isUnlisted(frontmatter);
+// Term routes are built from the listed articles only, so a tag or category
+// nothing else carries has no page and must be shown as plain text rather than
+// linked into a 404. Every listed article's terms resolve, so in practice this
+// only ever degrades an unlisted article's.
+const categoryHref =
+  frontmatter.category === undefined
+    ? null
+    : await categoryPageUrl(frontmatter.category);
+const tagLinks = await Promise.all(
+  (frontmatter.tags ?? []).map(async (tag) => ({
+    tag,
+    href: await tagPageUrl(tag),
+  })),
+);
 ---
 
 <Base
@@ -49,9 +78,10 @@ const date = dateLabel(frontmatter.clipped_at);
   description={frontmatter.summary ?? frontmatter.excerpt}
   ogType="article"
   width="full"
+  noindex={unlisted}
 >
   <article
-    data-pagefind-body
+    data-pagefind-body={unlisted ? undefined : true}
     class="reader"
     data-paired={view.kind === "paired" ? "" : undefined}
     data-zh-title={hasZhTitle ? "" : undefined}
@@ -110,6 +140,7 @@ const date = dateLabel(frontmatter.clipped_at);
             }
             <span aria-hidden="true">·</span>
             <span>{minutesLabel(meta.minutes)}</span>
+            {unlisted && <span class="pill">{t.unlisted}</span>}
           </p>
           <h1 data-pagefind-meta="title">{frontmatter.title}</h1>
           <time
@@ -148,18 +179,26 @@ const date = dateLabel(frontmatter.clipped_at);
         (frontmatter.category !== undefined ||
           (frontmatter.tags ?? []).length > 0) && (
           <p class="terms">
-            {frontmatter.category !== undefined && (
-              <a
-                href={categoryUrl(frontmatter.category)}
-                class="pill"
-                data-pagefind-meta={`category:${frontmatter.category}`}
-              >
-                {frontmatter.category}
-              </a>
+            {frontmatter.category !== undefined &&
+              (categoryHref === null ? (
+                <span
+                  class="pill"
+                  data-pagefind-meta={`category:${frontmatter.category}`}
+                >
+                  {frontmatter.category}
+                </span>
+              ) : (
+                <a
+                  href={categoryHref}
+                  class="pill"
+                  data-pagefind-meta={`category:${frontmatter.category}`}
+                >
+                  {frontmatter.category}
+                </a>
+              ))}
+            {tagLinks.map(({ tag, href }) =>
+              href === null ? <span>#{tag}</span> : <a href={href}>#{tag}</a>,
             )}
-            {(frontmatter.tags ?? []).map((tag) => (
-              <a href={tagUrl(tag)}>#{tag}</a>
-            ))}
           </p>
         )
       }

@@ -240,9 +240,37 @@ devDependencies — the action must log "using pre-installed wrangler".
 
 - A failed deploy is always safe to **Re-run** from the Actions UI.
 - **Empty-vault guard**: the build refuses to publish a site with zero
-  articles. Keep at least one article in the vault.
-- Deleting an article: remove its directory from the vault and push — the
-  push triggers processing (a no-op) which triggers a redeploy.
+  articles. Keep at least one article in the vault. A vault whose articles are
+  all *unlisted* does build, and publishes an empty library — hiding something
+  has to take effect even when it is the last listed thing.
+- **A vault push alone does not redeploy.** It starts the vault's
+  `process.yml`, but that workflow only dispatches `vault-updated` when its
+  commit step actually committed something (`steps.commit.outputs.committed ==
+  'true'`). An edit with nothing pending to process commits nothing, so the
+  site keeps serving the old build until a deploy is dispatched by hand
+  (Actions → Deploy site → Run workflow) or some push to `hutusi/tiro` main
+  triggers one. This applies to every vault-only edit below.
+- Deleting an article: remove its directory from the vault and push. The whole
+  article is in that directory — `index.md`, `zh.md`, `assets/` and the
+  `.tiro-zh-cache.json` checkpoint — and nothing outside it refers to the
+  article, so there is nothing else to clean up. Then dispatch a deploy.
+- Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
+  frontmatter and push, then dispatch a deploy. It drops out of the library,
+  the pager, the tag and category pages, search, RSS and the sitemap, and stays
+  reachable at `/articles/<slug>/` with a `未公开` label and a
+  `noindex, nofollow` robots tag. Remove the line (or set it to `false`) to
+  list it again.
+  - A re-clip keeps the flag: the clipper reads it off the article it
+    overwrites, tolerating frontmatter that no longer validates and fetching
+    the blob when the file is too large for the Contents API to inline. If it
+    cannot read the old article at all — frontmatter that will not parse, an
+    `unlisted:` value that is not `true`/`false`, or a blob it cannot fetch —
+    the clip fails rather than guess. The popup shows
+    the reason; fix the article in the vault and clip again. (The same file
+    would fail the site build, so it needs the fix regardless.)
+  - **Unlisted is not private.** The site is public and the slug is computable
+    from the source URL, as are the paths under `/vault-assets/<slug>/`. It
+    hides an article from anyone browsing, not from anyone looking.
 
 ### Domain
 

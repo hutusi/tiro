@@ -117,6 +117,29 @@ const titleZh = z.string().trim().min(1).optional();
  */
 const summaryOrig = z.string().trim().min(1).optional();
 
+/**
+ * Keep this article out of every list, the search index and the sitemap. It is
+ * still built, still processed, and still reachable at its own URL.
+ *
+ * **Unlisted is not private.** The site is public and slugs are deterministic
+ * from the URL (ADR 0007), so anyone who knows the source URL can compute the
+ * address; the slug spells out the domain and path besides. This hides an
+ * article from anyone browsing the site, not from anyone who goes looking for
+ * it. Access control would have to sit in front of the site (ADR 0017).
+ *
+ * Set by hand in the vault — nothing *originates* it. Named here on the clip
+ * schema all the same, because the clipper writes it: a re-clip rebuilds
+ * `index.md` from scratch, so it reads the flag off the article it is about to
+ * overwrite and carries it forward. Without that, an ordinary re-clip would
+ * silently republish an article someone deliberately hid — unlike `title_zh`
+ * and `summary_orig`, which a re-clip drops on purpose because they describe
+ * content that just changed, this is a decision about the article that did not.
+ *
+ * Optional and additive, so no `tiro.schema` bump: an article without the key
+ * means exactly what it meant before the key existed.
+ */
+const unlisted = z.boolean().optional();
+
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
@@ -137,6 +160,7 @@ export const ClipFrontmatterSchema = z.object({
    * still get `$$…$$`, which is unambiguous.
    */
   has_math: z.boolean().optional(),
+  unlisted,
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,
@@ -192,6 +216,53 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
  */
 export function frontmatterLength(fileText: string): number | null {
   return fileText.match(FRONTMATTER_RE)?.[0].length ?? null;
+}
+
+/** What a lenient frontmatter read found: nothing to read, something it could
+ * not read, or the mapping. */
+export type LooseFrontmatter =
+  | { kind: "none" }
+  | { kind: "unreadable" }
+  | { kind: "ok"; data: Record<string, unknown> };
+
+/**
+ * The frontmatter block as plain YAML, with no contract validation at all.
+ *
+ * For reading one field off a file whose *other* fields are none of the
+ * reader's business. `parseArticle` is the right tool almost everywhere, but it
+ * is all-or-nothing: an article carrying a key from a newer schema, or a
+ * hand-edit that broke an unrelated field, throws — and a caller that only
+ * wanted to know whether the article is unlisted would take "invalid" for "no"
+ * and act on it (ADR 0017).
+ *
+ * Three outcomes, not two, because "there is no frontmatter" and "there is
+ * frontmatter I cannot read" are opposite answers for such a caller. The first
+ * is knowledge — the file is right there and holds no flag. The second is
+ * ignorance, and the whole point is not to act on it. A block opened and never
+ * closed counts as unreadable rather than absent, since a truncated file is
+ * exactly where a flag goes missing. All three share `FRONTMATTER_RE`, for the
+ * reason its comment above gives.
+ *
+ * Never use this to write. Anything that rewrites an article must go through
+ * the schema, or it will persist whatever nonsense it read.
+ */
+export function readFrontmatterLoose(fileText: string): LooseFrontmatter {
+  const match = fileText.match(FRONTMATTER_RE);
+  if (match?.[1] === undefined) {
+    return /^---\r?\n/.test(fileText)
+      ? { kind: "unreadable" }
+      : { kind: "none" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(match[1]);
+  } catch {
+    return { kind: "unreadable" };
+  }
+  if (parsed === null || parsed === undefined) return { kind: "none" };
+  return typeof parsed === "object" && !Array.isArray(parsed)
+    ? { kind: "ok", data: parsed as Record<string, unknown> }
+    : { kind: "unreadable" };
 }
 
 /** Parse and validate a full `index.md` file. Throws on schema violations. */

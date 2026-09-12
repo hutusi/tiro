@@ -4,6 +4,7 @@ import {
   ClipFrontmatterSchema,
   needsProcessing,
   parseArticle,
+  readFrontmatterLoose,
   stringifyArticle,
 } from "../src/frontmatter.ts";
 
@@ -233,6 +234,88 @@ describe("parseArticle / stringifyArticle", () => {
     expect(processed.frontmatter.tiro.source_url).toBe(
       "https://arxiv.org/html/2404.19756v1",
     );
+  });
+
+  test("preserves an unlisted article's flag through a processor round-trip", () => {
+    // Same trap as the two above, and the one with the worst failure mode: the
+    // flag is set by hand and the loss is silent, so an article hidden on
+    // purpose would quietly rejoin the library the next time it is processed.
+    const flagged = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      unlisted: true,
+    });
+    const processed = parseArticle(
+      stringifyArticle(
+        {
+          ...flagged,
+          lang: "en",
+          summary: "A summary.",
+          tiro: {
+            ...flagged.tiro,
+            processed_at: "2026-09-12T11:00:00.000Z",
+            processor_version: "0.1.0",
+          },
+        },
+        "Body.\n",
+      ),
+    );
+    expect(processed.frontmatter.unlisted).toBe(true);
+  });
+
+  test("leaves an ordinary article's unlisted flag absent, not false", () => {
+    // The site asks `unlisted === true`; an article that never carried the key
+    // must round-trip without gaining one, or every vault file would grow a
+    // line the first time it is processed.
+    const frontmatter = ArticleFrontmatterSchema.parse(validClip);
+    const back = parseArticle(stringifyArticle(frontmatter, "Body.\n"));
+    expect(back.frontmatter.unlisted).toBeUndefined();
+    expect(stringifyArticle(frontmatter, "Body.\n")).not.toContain("unlisted");
+  });
+
+  test("reads frontmatter the contract would reject, loosely", () => {
+    // What the clipper uses to decide whether the article it is overwriting was
+    // unlisted. Strict parsing would answer "invalid" where the caller can only
+    // hear "not unlisted", and would republish a hidden article (ADR 0017).
+    const text = [
+      "---",
+      "url: 42",
+      "unlisted: true",
+      "tiro:",
+      "  schema: 9",
+      "---",
+      "",
+      "Body.",
+      "",
+    ].join("\n");
+    expect(() => parseArticle(text)).toThrow();
+    const loose = readFrontmatterLoose(text);
+    expect(loose.kind).toBe("ok");
+    expect(loose.kind === "ok" && loose.data.unlisted).toBe(true);
+  });
+
+  test("separates having no frontmatter from having unreadable frontmatter", () => {
+    // The distinction the clipper acts on: "none" is knowledge — the file holds
+    // no flag — while "unreadable" is ignorance, and it must stop a re-clip
+    // rather than answer "not hidden" (ADR 0017).
+    expect(readFrontmatterLoose("just a body\n").kind).toBe("none");
+    // An empty block — one whose YAML is nothing at all — holds no flag.
+    expect(readFrontmatterLoose("---\n\n---\n\nBody.\n").kind).toBe("none");
+    // `---\n---` is not a block the contract's own pattern recognizes, so it
+    // counts as unreadable rather than absent, like any other malformed head.
+    expect(readFrontmatterLoose("---\n---\n\nBody.\n").kind).toBe("unreadable");
+    expect(readFrontmatterLoose("---\n  : : :\n---\n\nBody.\n").kind).toBe(
+      "unreadable",
+    );
+    // Opened and never closed. A truncated file is precisely where a flag goes
+    // missing, so it cannot be read as "there was no frontmatter".
+    expect(readFrontmatterLoose("---\nunlisted: true\n\nBody.\n").kind).toBe(
+      "unreadable",
+    );
+    // Parses, but not into a mapping: a caller reading a field off it would
+    // otherwise index into a string.
+    expect(
+      readFrontmatterLoose("---\njust a scalar\n---\n\nBody.\n").kind,
+    ).toBe("unreadable");
   });
 
   test("parses an unquoted YAML timestamp (js-yaml Date) into a string", () => {

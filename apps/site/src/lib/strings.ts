@@ -29,6 +29,9 @@ export const STRINGS = {
     translatedDone: "全文已翻译完毕",
     noTranslation: "中文原文，无需翻译",
     misaligned: "译文与原文段落未对齐，以上下排列显示",
+    // Shown on the article's own page only — by definition it appears in no
+    // list — so it has to say what "unlisted" means, not just name it.
+    unlisted: "未公开 · 仅通过链接访问",
   },
   list: { empty: "还没有剪藏任何文章" },
   library: {
