@@ -18,12 +18,18 @@ interface Props {
   /** `library` (`--w-library`) for lists, `narrow` (680px) for settings-like
    * pages, `full` for the reader, which lays out its own columns. */
   width?: "library" | "narrow" | "full";
+  /** Ask crawlers to leave this page out of their index — set by the reader
+   * for an unlisted article. Kept off robots.txt on purpose: that file is
+   * public, so a `Disallow` line there would publish the very list the flag
+   * exists to hide. */
+  noindex?: boolean;
 }
 const {
   title,
   description,
   ogType = "website",
   width = "library",
+  noindex = false,
 } = Astro.props;
 const pageTitle =
   title === undefined ? STRINGS.siteTitle : `${title} · ${STRINGS.siteTitle}`;
@@ -70,6 +76,7 @@ const mainClass =
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="description" content={metaDescription} />
     <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
     <meta property="og:site_name" content={STRINGS.siteTitle} />
     <meta property="og:type" content={ogType} />
     <meta property="og:title" content={pageTitle} />

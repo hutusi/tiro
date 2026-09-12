@@ -58,6 +58,7 @@ const unlisted = isUnlisted(frontmatter);
   description={frontmatter.summary ?? frontmatter.excerpt}
   ogType="article"
   width="full"
+  noindex={unlisted}
 >
   <article
     data-pagefind-body={unlisted ? undefined : true}
