@@ -76,14 +76,26 @@ export async function getAllArticles(): Promise<Article[]> {
  * memo on article identity (`article-meta.ts`), which holds only while the
  * list pages and the reader see the same objects.
  *
- * The empty-collection guard above deliberately stays on the *unfiltered*
- * count: "no articles at all" means a broken vault checkout and must fail the
- * build, while "every article is unlisted" is a legitimate, if odd, vault that
- * renders an empty library. */
+ * The guard above answers "is the vault there at all"; the one below answers
+ * "is there a site to publish". Separate failures, separate messages, both
+ * hard. A library with nothing in it is not something to deploy, and Pagefind
+ * exits non-zero rather than write an empty index, so that build fails anyway —
+ * several steps later, blaming the wrong component.
+ *
+ * It also makes the search index honest by construction rather than by habit.
+ * Pagefind narrows indexing to `data-pagefind-body` elements only while at
+ * least one page declares one, and the reader declares it for each *listed*
+ * article; a build with none would quietly fall back to indexing the library,
+ * the settings page and the 404 instead. */
 export async function getArticles(): Promise<Article[]> {
   listedCache ??= (await getAllArticles()).filter(
     (article) => !isUnlisted(article.frontmatter),
   );
+  if (listedCache.length === 0 && import.meta.env.PROD) {
+    throw new Error(
+      "every article in the vault is unlisted — refusing to build a site with an empty library",
+    );
+  }
   return listedCache;
 }
 

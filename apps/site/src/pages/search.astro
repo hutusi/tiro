@@ -7,12 +7,7 @@
  * index's own meta comes from `data-pagefind-meta` in the reader's title block.
  */
 import Base from "../layouts/Base.astro";
-import {
-  type ArticleGroup,
-  categoryIndex,
-  getArticles,
-  tagIndex,
-} from "../lib/articles.ts";
+import { type ArticleGroup, categoryIndex, tagIndex } from "../lib/articles.ts";
 import { allTagsLabel, resultsLabel, STRINGS } from "../lib/strings.ts";
 
 const byCount = (a: ArticleGroup, b: ArticleGroup): number =>
@@ -22,14 +17,6 @@ const categories = (await categoryIndex()).sort(byCount);
 // The live vault has ~190 tags; the long tail folds away behind a summary.
 const TOP_TAGS = 30;
 const t = STRINGS.search;
-// Pagefind narrows the index to `data-pagefind-body` elements only while at
-// least one page declares one; with none, it indexes every page's whole <body>
-// instead. The reader supplies that declaration for each listed article — but
-// a vault whose articles are *all* unlisted supplies none, and the index fills
-// up with this page, the settings page, the 404 and the library instead of
-// being empty. An empty declaration here keeps the narrowing in force, so what
-// is not an article is still not in the index.
-const noListedArticles = (await getArticles()).length === 0;
 ---
 
 <Base title={t.title}>
@@ -99,7 +86,6 @@ const noListedArticles = (await getArticles()).length === 0;
   <p id="search-notice" hidden class="mt-9 font-ui text-sm text-ink-mute">
     {t.devNotice}
   </p>
-  {noListedArticles && <div data-pagefind-body hidden />}
 </Base>
 
 <!-- Global: the result items are created by the script below, out of reach of
