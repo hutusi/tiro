@@ -121,6 +121,7 @@ const unlisted = isUnlisted(frontmatter);
             }
             <span aria-hidden="true">·</span>
             <span>{minutesLabel(meta.minutes)}</span>
+            {unlisted && <span class="pill">{t.unlisted}</span>}
           </p>
           <h1 data-pagefind-meta="title">{frontmatter.title}</h1>
           <time
