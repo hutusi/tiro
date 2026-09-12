@@ -62,10 +62,21 @@ decision about a different thing.
   all" means a broken vault checkout or glob base (ADR 0006) and must fail the
   build; "every article is unlisted" is a legitimate, if odd, vault.
 
-- **Out of the search index by dropping `data-pagefind-body` and adding
-  `data-pagefind-ignore`.** Both, not either: Pagefind restricts indexing to
-  `data-pagefind-body` elements only while at least one page on the site has one,
-  and in a vault where every article is unlisted that guarantee disappears.
+- **Out of the search index by dropping `data-pagefind-body` and ignoring the
+  whole page.** Both, not either, and the second one has to be on `<body>`:
+  Pagefind restricts indexing to `data-pagefind-body` elements only while at
+  least one page on the site has one, so in a vault where every article is
+  unlisted it falls back to indexing each page's entire `<body>`. Ignoring only
+  the reader's `<article>` removed the text and left the page — URL and title
+  included — in the index, which is most of what the flag is for. Measured, not
+  reasoned: a vault holding one unlisted article indexed 6 pages with a fragment
+  naming the hidden URL, and 5 with none once the ignore covered the page.
+
+- **Terms are shown, not linked, when they have no page.** Tag and category
+  routes are generated from the listed articles, so a term carried only by
+  unlisted ones addresses nothing, and the reader linked to it anyway.
+  Generating those pages from unlisted articles instead would publish an index
+  page for an article that is meant to be in no index.
 
 - **Out of the sitemap, and `noindex, nofollow` on the page.** The sitemap
   filter cannot ask the content layer — `astro.config.mjs` is evaluated before it
@@ -103,6 +114,10 @@ decision about a different thing.
   workflow's deploy dispatch — gated on a commit landing — does not fire. The
   deploy must be dispatched by hand, exactly as for a deletion. See
   [operations](../operations.md).
+- An unlisted article's tags and category render as plain text whenever no
+  listed article shares them — the terms are still recorded, and start linking
+  again the moment something listed carries one. A reader can tell the two
+  states apart only by hovering, which is the smaller wrong than a 404.
 - Nothing in the extension or the processor changes. An unlisted article is
   summarized and translated like any other: `validate` and `sweep` are
   field-agnostic, and the pipeline's `...previous` spread carries the flag
