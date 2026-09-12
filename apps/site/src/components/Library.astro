@@ -46,7 +46,23 @@ const t = STRINGS.library;
   </div>
 </div>
 
-{articles.length === 0 && <p class="text-ink-soft">{STRINGS.list.empty}</p>}
+{
+  /* The `data-pagefind-body` is load-bearing, and only here. Pagefind narrows
+the index to those elements while at least one page declares one, and the
+reader declares it per *listed* article — so a vault whose articles are all
+unlisted would declare none, and Pagefind would fall back to indexing every
+page's whole body (the settings page, the 404, this one) or, with nothing to
+index at all, exit non-zero and fail the build. This empty state renders in
+exactly that case, so it is the one page that can hold the declaration without
+putting anything in the index that is not an article. */
+}
+{
+  articles.length === 0 && (
+    <p class="text-ink-soft" data-pagefind-body>
+      {STRINGS.list.empty}
+    </p>
+  )
+}
 
 <ol class="items m-0 list-none p-0">
   {articles.map((article) => <ArticleItem article={article} />)}

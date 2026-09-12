@@ -76,26 +76,22 @@ export async function getAllArticles(): Promise<Article[]> {
  * memo on article identity (`article-meta.ts`), which holds only while the
  * list pages and the reader see the same objects.
  *
- * The guard above answers "is the vault there at all"; the one below answers
- * "is there a site to publish". Separate failures, separate messages, both
- * hard. A library with nothing in it is not something to deploy, and Pagefind
- * exits non-zero rather than write an empty index, so that build fails anyway —
- * several steps later, blaming the wrong component.
+ * The empty-collection guard above stays on the *unfiltered* count, and this
+ * one adds no guard of its own. It is tempting: a vault whose articles are all
+ * unlisted builds a site with an empty library, which is almost certainly not
+ * what anyone wanted. But refusing the build fails in the wrong direction —
+ * the deploy workflow builds before it uploads, so a refusal leaves the
+ * *previous* deployment live, the one where the article now being hidden is
+ * still listed. A feature whose job is to stop publishing something must not
+ * answer "I could not do that" by continuing to publish it. The empty library
+ * is the truthful rendering of that vault; the owner can see it and unhide.
  *
- * It also makes the search index honest by construction rather than by habit.
- * Pagefind narrows indexing to `data-pagefind-body` elements only while at
- * least one page declares one, and the reader declares it for each *listed*
- * article; a build with none would quietly fall back to indexing the library,
- * the settings page and the 404 instead. */
+ * `Library.astro`'s empty state carries the `data-pagefind-body` that keeps the
+ * search index narrow in exactly this case — see the comment there. */
 export async function getArticles(): Promise<Article[]> {
   listedCache ??= (await getAllArticles()).filter(
     (article) => !isUnlisted(article.frontmatter),
   );
-  if (listedCache.length === 0 && import.meta.env.PROD) {
-    throw new Error(
-      "every article in the vault is unlisted — refusing to build a site with an empty library",
-    );
-  }
   return listedCache;
 }
 
