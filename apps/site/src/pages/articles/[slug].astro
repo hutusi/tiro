@@ -6,6 +6,7 @@ import { articleMeta } from "../../lib/article-meta.ts";
 import { categoryUrl, getAllArticles, tagUrl } from "../../lib/articles.ts";
 import { buildReaderView } from "../../lib/reader.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
+import { isUnlisted } from "../../lib/visibility.ts";
 
 export async function getStaticPaths() {
   // Every article, unlisted ones included: the flag removes an article from
@@ -44,6 +45,12 @@ const blocks =
     : [];
 const hasZhTitle = meta.titleZh !== null;
 const date = dateLabel(frontmatter.clipped_at);
+// An unlisted article drops the `data-pagefind-body` that would put it in the
+// search index, and carries `data-pagefind-ignore` as well. Both, because
+// Pagefind only restricts indexing to `data-pagefind-body` elements while at
+// least one page on the site has one — in a vault where every article is
+// unlisted that guarantee disappears, and the ignore is what still holds.
+const unlisted = isUnlisted(frontmatter);
 ---
 
 <Base
@@ -53,7 +60,8 @@ const date = dateLabel(frontmatter.clipped_at);
   width="full"
 >
   <article
-    data-pagefind-body
+    data-pagefind-body={unlisted ? undefined : true}
+    data-pagefind-ignore={unlisted ? "all" : undefined}
     class="reader"
     data-paired={view.kind === "paired" ? "" : undefined}
     data-zh-title={hasZhTitle ? "" : undefined}
