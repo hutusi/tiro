@@ -58,7 +58,12 @@ decision about a different thing.
 
   What it will not do is guess. Frontmatter it cannot parse — a truncated file,
   a typo one line above the flag — stops the clip rather than answering
-  "listed", and so does a failed blob read. `readFrontmatterLoose` reports three
+  "listed", and so does a failed blob read, and so does an `unlisted` value
+  that is not a boolean. That last one (`unlisted: "true"`, or the YAML 1.2
+  reading of `unlisted: yes`) the contract rejects outright, so the site cannot
+  build while it is there; the danger is not that it publishes but that a clip
+  silently *repairs* it by dropping the key, turning a loud failure the owner
+  would investigate into a quiet republish of what they meant to hide. `readFrontmatterLoose` reports three
   states for that reason, not two: a file with no frontmatter is *knowledge*
   that no flag is there, while a block that will not parse is ignorance. A
   stale-sha conflict redoes the lookup and rebuilds the payload rather than

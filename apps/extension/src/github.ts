@@ -127,7 +127,21 @@ function readsAsUnlisted(path: string, text: string): boolean {
       `${path}: the article already there has frontmatter this cannot read — refusing to overwrite it`,
     );
   }
-  return frontmatter.kind === "ok" && frontmatter.data.unlisted === true;
+  if (frontmatter.kind === "none" || !("unlisted" in frontmatter.data)) {
+    return false;
+  }
+  const value = frontmatter.data.unlisted;
+  if (typeof value !== "boolean") {
+    // `unlisted: "true"`, or the YAML 1.2 reading of `unlisted: yes` — a
+    // string. The contract rejects it, so the site cannot build at all while
+    // it is there; what must not happen is this clip quietly *repairing* the
+    // article by dropping the key, turning a loud failure the owner would
+    // investigate into a silent republish of something they meant to hide.
+    throw new Error(
+      `${path}: the article already there has an \`unlisted\` value this cannot read (${JSON.stringify(value)}) — refusing to overwrite it`,
+    );
+  }
+  return value;
 }
 
 async function fetchBlobContent(

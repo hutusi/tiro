@@ -183,6 +183,33 @@ describe("findExistingIndex", () => {
     }
   });
 
+  test("refuses to overwrite an unlisted value that is not a boolean", async () => {
+    // `"true"` is a hand-edit that quoted the value; bare `yes` is one that
+    // expected YAML 1.1. The contract rejects both, so the site cannot build
+    // while either is in the vault — and a clip that silently dropped the key
+    // would "fix" that by republishing the article instead of failing loudly.
+    for (const value of ['"true"', "yes", "1", ""]) {
+      const text = [
+        "---",
+        'url: "https://example.com/posts/hello"',
+        `unlisted: ${value}`,
+        "---",
+        "",
+        "Body.",
+        "",
+      ].join("\n");
+      await expect(
+        findExistingIndex(config, "slug-a1b2c3d4", async () =>
+          json(200, {
+            sha: "abc123",
+            encoding: "base64",
+            content: base64(text),
+          }),
+        ),
+      ).rejects.toThrow(/refusing to overwrite/);
+    }
+  });
+
   test("reads a flag that carries a trailing comment", async () => {
     // The line the refusal above is protecting, once its block parses.
     const commented = [

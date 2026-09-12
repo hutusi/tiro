@@ -263,8 +263,9 @@ devDependencies — the action must log "using pre-installed wrangler".
   - A re-clip keeps the flag: the clipper reads it off the article it
     overwrites, tolerating frontmatter that no longer validates and fetching
     the blob when the file is too large for the Contents API to inline. If it
-    cannot read the old article at all — frontmatter that will not parse, or a
-    blob it cannot fetch — the clip fails rather than guess. The popup shows
+    cannot read the old article at all — frontmatter that will not parse, an
+    `unlisted:` value that is not `true`/`false`, or a blob it cannot fetch —
+    the clip fails rather than guess. The popup shows
     the reason; fix the article in the vault and clip again. (The same file
     would fail the site build, so it needs the fix regardless.)
   - **Unlisted is not private.** The site is public and the slug is computable
