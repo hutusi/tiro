@@ -14,10 +14,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   the RSS feed and the sitemap, while leaving it built and reachable at its own
   URL with a `未公开` label and `noindex`. The vault's only levers until now were
   deleting the article or moving it out of `articles/`, both of which take the
-  URL with it. Set by hand; a re-clip rewrites `index.md` whole and drops it.
-  It hides an article from anyone browsing the site, not from anyone who knows
-  the source URL — slugs are computable from it — so it is not access control
-  (ADR 0017).
+  URL with it. Set by hand, and carried forward by both the processor and a
+  re-clip, so hiding an article stays hidden. It hides an article from anyone
+  browsing the site, not from anyone who knows the source URL — slugs are
+  computable from it — so it is not access control (ADR 0017).
 - **Article titles are translated.** The library, the reader's title block and
   search results now show a Chinese title beside the original — the last thing
   on the page that was still in the source language, under a Chinese summary,

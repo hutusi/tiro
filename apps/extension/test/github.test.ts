@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ArticleFrontmatterSchema, stringifyArticle } from "@tiro/shared";
 import {
   encodeBase64Utf8,
   findExistingIndex,
@@ -102,10 +103,76 @@ describe("findExistingIndex", () => {
     expect(result).toEqual({
       path: "articles/slug-a1b2c3d4/index.md",
       sha: "abc123",
+      unlisted: false,
     });
     expect(requested).toHaveLength(1);
   });
+
+  test("reports the unlisted flag of the article being overwritten", async () => {
+    // A re-clip rebuilds index.md from scratch, so this lookup is the only
+    // chance to notice that the article it overwrites was hidden on purpose.
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", async () =>
+      json(200, {
+        sha: "abc123",
+        encoding: "base64",
+        content: base64(article({ unlisted: true })),
+      }),
+    );
+    expect(result?.unlisted).toBe(true);
+  });
+
+  test("reports not-unlisted for an article that carries no flag", async () => {
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", async () =>
+      json(200, {
+        sha: "abc123",
+        encoding: "base64",
+        content: base64(article({})),
+      }),
+    );
+    expect(result?.unlisted).toBe(false);
+  });
+
+  test("does not fail the clip when the old content cannot be read", async () => {
+    // Over 1MB the Contents API omits `content` entirely, and a hand-broken
+    // article no longer parses. Either way the clip must still go through —
+    // losing the flag is bad, losing the clip is worse.
+    for (const body of [
+      { sha: "abc123" },
+      { sha: "abc123", encoding: "none", content: "" },
+      { sha: "abc123", encoding: "base64", content: base64("not an article") },
+    ]) {
+      const result = await findExistingIndex(
+        config,
+        "slug-a1b2c3d4",
+        async () => json(200, body),
+      );
+      expect(result).toEqual({
+        path: "articles/slug-a1b2c3d4/index.md",
+        sha: "abc123",
+        unlisted: false,
+      });
+    }
+  });
 });
+
+/** A minimal contract-valid index.md, as the Contents API would hold it. */
+function article(extra: Record<string, unknown>): string {
+  return stringifyArticle(
+    ArticleFrontmatterSchema.parse({
+      url: "https://example.com/posts/hello",
+      title: "Hello",
+      domain: "example.com",
+      clipped_at: "2026-09-12T09:00:00.000Z",
+      ...extra,
+      tiro: { schema: 1 },
+    }),
+    "Body.\n",
+  );
+}
+
+function base64(text: string): string {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+}
 
 describe("putFile", () => {
   test("creates a new file without a sha", async () => {

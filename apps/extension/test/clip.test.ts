@@ -35,6 +35,24 @@ describe("buildClipFile", () => {
     expect(body).toBe("# Hello\n\nA paragraph.\n");
   });
 
+  test("carries a re-clipped article's unlisted flag forward", async () => {
+    // The popup reads it off the article being overwritten. Without it a
+    // re-clip would rebuild index.md without the flag and silently return a
+    // deliberately hidden article to the public library (ADR 0017).
+    const file = await buildClipFile({ ...input, unlisted: true });
+    expect(parseArticle(file.content).frontmatter.unlisted).toBe(true);
+  });
+
+  test("writes no unlisted key for an ordinary clip", async () => {
+    // Absent, not `false`: an article that never carried the key must look
+    // exactly as it did before the flag existed.
+    for (const unlisted of [false, undefined]) {
+      const file = await buildClipFile({ ...input, unlisted });
+      expect(parseArticle(file.content).frontmatter.unlisted).toBeUndefined();
+      expect(file.content).not.toContain("unlisted:");
+    }
+  });
+
   test("omits the clipper version when it is unavailable", async () => {
     // `chrome.runtime.getManifest()` is the only source, and an article with no
     // version recorded is better than one claiming an empty string.

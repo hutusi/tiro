@@ -511,6 +511,14 @@ async function main(): Promise<void> {
       render();
       try {
         const nowIso = new Date().toISOString();
+        // The lookup comes first now: the flat layout makes the slug — and so
+        // the path — derivable without building the file, and a re-clip has to
+        // read the old article's `unlisted` flag before it rebuilds `index.md`
+        // over it (ADR 0017).
+        const existing = await findExistingIndex(
+          config,
+          await slugForUrl(payload.url),
+        );
         const file = await buildClipFile({
           url: payload.url,
           sourceUrl,
@@ -523,10 +531,8 @@ async function main(): Promise<void> {
           clippedAt: nowIso,
           clipperVersion: chrome.runtime.getManifest().version,
           clipperCommit: __CLIPPER_COMMIT__,
+          unlisted: existing?.unlisted,
         });
-        // The flat layout makes file.path deterministic; the lookup only
-        // supplies the sha that turns the PUT into an overwrite.
-        const existing = await findExistingIndex(config, file.slug);
         const path = file.path;
         await putFile(config, {
           path,

@@ -257,8 +257,9 @@ devDependencies — the action must log "using pre-installed wrangler".
   the pager, the tag and category pages, search, RSS and the sitemap, and stays
   reachable at `/articles/<slug>/` with a `未公开` label and `noindex`. Remove
   the line (or set it to `false`) to list it again.
-  - **A re-clip drops the flag** — the extension overwrites `index.md` whole —
-    so an article clipped again comes back listed with no warning. Re-add it.
+  - A re-clip keeps the flag: the clipper reads it off the article it
+    overwrites. It cannot when the old `index.md` is over 1MB or no longer
+    parses, so check those after re-clipping a hidden article.
   - **Unlisted is not private.** The site is public and the slug is computable
     from the source URL, as are the paths under `/vault-assets/<slug>/`. It
     hides an article from anyone browsing, not from anyone looking.

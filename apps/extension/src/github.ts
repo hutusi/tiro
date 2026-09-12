@@ -1,3 +1,4 @@
+import { parseArticle } from "@tiro/shared";
 import type { TiroExtensionConfig } from "./storage.ts";
 
 const API = "https://api.github.com";
@@ -72,12 +73,39 @@ export async function testConnection(
 export interface ExistingIndex {
   path: string;
   sha: string;
+  /** Was the article being overwritten unlisted? A re-clip rebuilds
+   * `index.md` from scratch, so a flag nobody carried forward would be
+   * dropped and the article would silently rejoin the public library
+   * (ADR 0017). False when the content could not be read — see below. */
+  unlisted: boolean;
+}
+
+/**
+ * Read the `unlisted` flag off the article a re-clip is about to overwrite.
+ *
+ * The Contents API inlines `content` for files up to 1MB and omits it above
+ * that; an article that large, or one whose frontmatter no longer satisfies
+ * the contract, reports false rather than failing the clip. Losing the flag
+ * is bad — losing the clip is worse, and the article is about to be rewritten
+ * either way.
+ */
+function readUnlisted(file: { content?: string; encoding?: string }): boolean {
+  if (file.content === undefined || file.encoding !== "base64") return false;
+  try {
+    const binary = atob(file.content.replace(/\s/g, ""));
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const text = new TextDecoder().decode(bytes);
+    return parseArticle(text).frontmatter.unlisted === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Look up an existing index.md for this slug. The flat layout makes the path
- * deterministic from the slug, so this is a single GET — its only job is
- * fetching the blob sha a re-clip must send to overwrite instead of create.
+ * deterministic from the slug, so this is a single GET — it supplies the blob
+ * sha a re-clip must send to overwrite instead of create, and the one piece of
+ * the old article a re-clip has to keep.
  */
 export async function findExistingIndex(
   config: TiroExtensionConfig,
@@ -96,8 +124,12 @@ export async function findExistingIndex(
       `checking ${path} failed: ${res.status}`,
     );
   }
-  const file = (await res.json()) as { sha: string };
-  return { path, sha: file.sha };
+  const file = (await res.json()) as {
+    sha: string;
+    content?: string;
+    encoding?: string;
+  };
+  return { path, sha: file.sha, unlisted: readUnlisted(file) };
 }
 
 export interface PutFileOptions {

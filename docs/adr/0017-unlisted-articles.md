@@ -40,12 +40,16 @@ decision about a different thing.
 
   Read strictly as `=== true`, never truthiness, for the same reason.
 
-- **Set by hand in the vault. Nothing writes it.** It is named on the article
-  schema only — the extension cannot produce it, so naming it on the clip schema
-  would advertise a capability the clipper does not have. It must be named
-  *somewhere*, because zod strips keys an object does not name and the processor
-  reparses and rewrites frontmatter on every run; an unnamed flag would be
-  deleted the first time the article was processed.
+- **Set by hand in the vault; carried forward by everything that rewrites the
+  article.** Nothing originates the flag. It must still be named on both
+  schemas, because zod strips keys an object does not name: the processor
+  reparses and rewrites frontmatter on every run, and a re-clip rebuilds
+  `index.md` from scratch. The processor's `...previous` spread keeps it; the
+  clipper reads it off the article it is about to overwrite, in the same GET
+  that already fetches the blob sha, so no extra request. Where the old content
+  cannot be read — over 1MB the Contents API omits it, and a hand-broken article
+  no longer parses — the clip still goes through without the flag: losing it is
+  bad, losing the clip is worse, and the article is being rewritten either way.
 
 - **A per-article flag, not a list of slugs in `config/tiro.yml`.** The flag
   travels with the article and is visible in the file where the decision is
@@ -61,6 +65,14 @@ decision about a different thing.
   The empty-collection guard stays on the *unfiltered* count. "No articles at
   all" means a broken vault checkout or glob base (ADR 0006) and must fail the
   build; "every article is unlisted" is a legitimate, if odd, vault.
+
+- **A sentinel keeps the index narrow when no article declares a body.** The
+  rule below cuts both ways: with every article unlisted, nothing declares a
+  `data-pagefind-body`, and Pagefind indexes the library, the settings page, the
+  404 and the search page itself instead. An empty `data-pagefind-body` on the
+  search page, emitted only when no listed article exists, keeps the narrowing
+  in force — measured, that vault indexes 0 pages instead of 5, and a normal
+  vault is untouched.
 
 - **Out of the search index by dropping `data-pagefind-body` and ignoring the
   whole page.** Both, not either, and the second one has to be on `<body>`:
@@ -94,14 +106,18 @@ decision about a different thing.
 
 ## Consequences
 
-- **A re-clip un-hides the article, silently.** The extension overwrites
-  `index.md` wholesale — `findExistingIndex` fetches the blob sha and never the
-  content — so the flag goes with it and the article rejoins the library on the
-  next build. This is the same class as `title_zh` and `summary_orig`, which a
-  re-clip drops on purpose, but this one is a decision a person made rather than
-  a value a model produced, and nothing warns. Re-flag by hand after re-clipping.
-  A `validate` check cannot help as things stand: nothing records that the
-  article was ever unlisted.
+- **A re-clip keeps the flag** — which is why `findExistingIndex` now reads the
+  old article's content rather than only its sha, and why the clip flow looks up
+  the existing file before building the new one. The first cut dropped it, on
+  the argument that a re-clip already drops `title_zh` and `summary_orig`; that
+  argument is wrong. Those describe content that just changed, so regenerating
+  them is the point. This describes a decision about the article, which the
+  clip did not revisit — and the failure was silent, which is how a hidden
+  article ends up in the library without anyone doing anything.
+- **An all-unlisted vault has no search index at all**, so `/search/` shows its
+  "index unavailable" notice and disables the input. Honest, if imprecisely
+  worded: there is nothing to search. Its tag and category chips are empty for
+  the same reason.
 - **The assets stay publicly fetchable.** `copy-assets.ts` copies `*/assets/*`
   for every article off the filesystem with no frontmatter check, and has to —
   the unlisted page's own images come from there. Their paths are as guessable as
@@ -126,10 +142,11 @@ decision about a different thing.
 
 ## Rejected
 
-- **A slug list in the vault's `config/tiro.yml`.** Survives re-clips, which is
-  the one real advantage, and nothing else: nothing in the article says it is
-  hidden, the slugs are hand-typed and unchecked, and the site would have to
-  start reading vault config to serve one boolean.
+- **A slug list in the vault's `config/tiro.yml`.** Its one argument was that a
+  re-clip could not clobber it; the clipper carrying the flag forward answers
+  that without the costs — nothing in the article saying it is hidden, slugs
+  hand-typed and unchecked, and the site having to start reading vault config to
+  serve one boolean.
 - **`Disallow: /articles/<slug>/` in `robots.txt`.** Publishes the list.
 - **Moving the directory out of `articles/`.** Still the right answer for "don't
   publish this at all" — and it remains available — but it removes the URL, which

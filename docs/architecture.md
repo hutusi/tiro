@@ -194,9 +194,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 - **Unlisted articles are enumerated nowhere** (ADR 0017): the optional
   `unlisted` flag, set by hand in the vault, keeps an article out of the
   library, the pager, the tag and category pages, the search index, the RSS feed
-  and the sitemap, while leaving it built and reachable at its URL. Named on
-  `ArticleFrontmatterSchema` only — nothing writes it, so a re-clip drops it and
-  the article rejoins the library until it is flagged again. The site is public
+  and the sitemap, while leaving it built and reachable at its URL. Nothing
+  originates it, but it is named on *both* schemas, because both sides rewrite
+  frontmatter: the processor spreads it through, and the clipper reads it off
+  the article a re-clip is about to overwrite (in the GET that already fetches
+  the blob sha) so hiding survives a re-clip. The site is public
   and slugs are deterministic (ADR 0007), so this hides an article from anyone
   browsing, not from anyone who knows the source URL: it is not access control.
   Optional and additive, so no `tiro.schema` bump.

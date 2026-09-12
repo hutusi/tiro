@@ -127,10 +127,13 @@ const summaryOrig = z.string().trim().min(1).optional();
  * article from anyone browsing the site, not from anyone who goes looking for
  * it. Access control would have to sit in front of the site (ADR 0017).
  *
- * Set by hand in the vault — nothing writes it. Named on the article schema
- * only, since the extension never produces it; a re-clip therefore drops it,
- * the way it drops `title_zh` and `summary_orig`, and the article comes back
- * listed until it is flagged again.
+ * Set by hand in the vault — nothing *originates* it. Named here on the clip
+ * schema all the same, because the clipper writes it: a re-clip rebuilds
+ * `index.md` from scratch, so it reads the flag off the article it is about to
+ * overwrite and carries it forward. Without that, an ordinary re-clip would
+ * silently republish an article someone deliberately hid — unlike `title_zh`
+ * and `summary_orig`, which a re-clip drops on purpose because they describe
+ * content that just changed, this is a decision about the article that did not.
  *
  * Optional and additive, so no `tiro.schema` bump: an article without the key
  * means exactly what it meant before the key existed.
@@ -157,6 +160,7 @@ export const ClipFrontmatterSchema = z.object({
    * still get `$$…$$`, which is unambiguous.
    */
   has_math: z.boolean().optional(),
+  unlisted,
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,
@@ -174,7 +178,6 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
   summary_orig: summaryOrig,
   category: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  unlisted,
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,

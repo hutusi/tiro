@@ -40,6 +40,11 @@ export interface ClipInput {
    * it an input is what lets this function be tested without a build.
    */
   clipperCommit?: string;
+  /** Carried over from the article this clip overwrites, when it was unlisted
+   * (ADR 0017). Nothing here originates it — a re-clip rebuilds the file, and
+   * without this the flag would be dropped and a deliberately hidden article
+   * would rejoin the library. */
+  unlisted?: boolean;
 }
 
 export interface ClipFile {
@@ -74,6 +79,7 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       : {}),
     ...(input.readabilityFailed === true ? { readability_failed: true } : {}),
     ...(input.hasMath === true ? { has_math: true } : {}),
+    ...(input.unlisted === true ? { unlisted: true } : {}),
     tiro: {
       schema: TIRO_SCHEMA_VERSION,
       ...(input.clipperVersion !== ""
