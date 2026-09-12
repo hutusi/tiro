@@ -171,7 +171,7 @@ describe("findExistingIndex", () => {
       "",
     ].join("\n");
     for (const content of [unparseable, truncated]) {
-      expect(
+      await expect(
         findExistingIndex(config, "slug-a1b2c3d4", async () =>
           json(200, {
             sha: "abc123",
@@ -235,7 +235,7 @@ describe("findExistingIndex", () => {
       String(input).includes("/git/blobs/")
         ? json(500, {})
         : json(200, { sha: "abc123", encoding: "none", content: "" });
-    expect(
+    await expect(
       findExistingIndex(config, "slug-a1b2c3d4", fetchImpl),
     ).rejects.toThrow(GitHubHttpError);
   });
