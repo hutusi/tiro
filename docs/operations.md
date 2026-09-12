@@ -257,8 +257,9 @@ devDependencies — the action must log "using pre-installed wrangler".
 - Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
   frontmatter and push, then dispatch a deploy. It drops out of the library,
   the pager, the tag and category pages, search, RSS and the sitemap, and stays
-  reachable at `/articles/<slug>/` with a `未公开` label and `noindex`. Remove
-  the line (or set it to `false`) to list it again.
+  reachable at `/articles/<slug>/` with a `未公开` label and a
+  `noindex, nofollow` robots tag. Remove the line (or set it to `false`) to
+  list it again.
   - A re-clip keeps the flag: the clipper reads it off the article it
     overwrites, tolerating frontmatter that no longer validates and fetching
     the blob when the file is too large for the Contents API to inline. If it

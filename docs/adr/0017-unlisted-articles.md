@@ -45,8 +45,9 @@ decision about a different thing.
   schemas, because zod strips keys an object does not name: the processor
   reparses and rewrites frontmatter on every run, and a re-clip rebuilds
   `index.md` from scratch. The processor's `...previous` spread keeps it; the
-  clipper reads it off the article it is about to overwrite, in the same GET
-  that already fetches the blob sha, so no extra request.
+  clipper reads it off the article it is about to overwrite, in the GET that
+  already fetches the blob sha — so no extra request for any article the
+  Contents API will inline, which is all of them under 1MB.
 
   That read is deliberately lenient and deliberately unwilling to guess. The
   frontmatter is parsed *without* contract validation (`readFrontmatterLoose`),

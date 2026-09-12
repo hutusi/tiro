@@ -191,9 +191,9 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   have changed, and the clip that rewrites `index.md` also clears
   `tiro.processed_at`, so the next run writes them again. Optional and additive,
   so no `tiro.schema` bump.
-- **Unlisted articles are enumerated nowhere** (ADR 0017): the optional
-  `unlisted` flag, set by hand in the vault, keeps an article out of the
-  library, the pager, the tag and category pages, the search index, the RSS feed
+- **Unlisted articles are kept out of every public index** (ADR 0017): the
+  optional `unlisted` flag, set by hand in the vault, keeps an article out of
+  the library, the pager, the tag and category pages, the search index, the feed
   and the sitemap, while leaving it built and reachable at its URL. Nothing
   originates it, but it is named on *both* schemas, because both sides rewrite
   frontmatter: the processor spreads it through, and the clipper reads it off

@@ -12,10 +12,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 - **Unlisted articles.** `unlisted: true` in an article's frontmatter keeps it
   out of the library, the pager, the tag and category pages, the search index,
   the RSS feed and the sitemap, while leaving it built and reachable at its own
-  URL with a `未公开` label and `noindex`. The vault's only levers until now were
-  deleting the article or moving it out of `articles/`, both of which take the
-  URL with it. Set by hand, and carried forward by both the processor and a
-  re-clip, so hiding an article stays hidden. It hides an article from anyone
+  URL with a `未公开` label and a `noindex, nofollow` robots tag. The vault's
+  only levers until now were deleting the article or moving it out of
+  `articles/`, both of which take the URL with it. Set by hand, and carried
+  forward by both the processor and a re-clip, so hiding an article stays
+  hidden. It hides an article from anyone
   browsing the site, not from anyone who knows the source URL — slugs are
   computable from it — so it is not access control (ADR 0017).
 - **Article titles are translated.** The library, the reader's title block and
