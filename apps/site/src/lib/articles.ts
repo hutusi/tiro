@@ -6,6 +6,7 @@ import {
 } from "@tiro/shared";
 import { groupByTerm, type TermGroup } from "./terms.ts";
 import { usableTranslation } from "./translation.ts";
+import { isUnlisted } from "./visibility.ts";
 
 export interface Article {
   /** The slug — the article's whole identity (flat layout, ADR 0007). */
@@ -17,12 +18,18 @@ export interface Article {
 }
 
 let cache: Article[] | null = null;
+let listedCache: Article[] | null = null;
 
-/** All articles, newest first, validated through the shared contract and
- * joined with their translations. Throws (failing the build) on any invalid
- * frontmatter and on an empty production collection — both are signs the
- * vault checkout or glob base is wrong, never something to ship silently. */
-export async function getArticles(): Promise<Article[]> {
+/** Every article, unlisted ones included, newest first, validated through the
+ * shared contract and joined with their translations. Throws (failing the
+ * build) on any invalid frontmatter and on an empty production collection —
+ * both are signs the vault checkout or glob base is wrong, never something to
+ * ship silently.
+ *
+ * Only the reader route wants this one: it must still build a page for an
+ * unlisted article, since being reachable at its URL is the whole point of the
+ * flag. Everything that *lists* articles wants `getArticles()` below. */
+export async function getAllArticles(): Promise<Article[]> {
   if (cache !== null) return cache;
   const [entries, translations] = await Promise.all([
     getCollection("articles"),
@@ -55,6 +62,29 @@ export async function getArticles(): Promise<Article[]> {
   );
   cache = articles;
   return articles;
+}
+
+/** The articles every list, feed and index is built from — unlisted ones
+ * removed.
+ *
+ * This is the single funnel: the library, the pager, the tag and category
+ * pages, the search page's chip counts and the RSS feed all read it, so the
+ * flag takes effect everywhere by removing it here rather than by teaching
+ * seven call sites to check.
+ *
+ * Filters the cached array rather than rebuilding one — `articleMeta` keys its
+ * memo on article identity (`article-meta.ts`), which holds only while the
+ * list pages and the reader see the same objects.
+ *
+ * The empty-collection guard above deliberately stays on the *unfiltered*
+ * count: "no articles at all" means a broken vault checkout and must fail the
+ * build, while "every article is unlisted" is a legitimate, if odd, vault that
+ * renders an empty library. */
+export async function getArticles(): Promise<Article[]> {
+  listedCache ??= (await getAllArticles()).filter(
+    (article) => !isUnlisted(article.frontmatter),
+  );
+  return listedCache;
 }
 
 export function articleUrl(article: Article): string {
