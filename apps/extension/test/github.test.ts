@@ -148,12 +148,47 @@ describe("findExistingIndex", () => {
     expect(result?.unlisted).toBe(true);
   });
 
-  test("falls back to a line scan when the YAML will not parse", async () => {
+  test("refuses to overwrite frontmatter it cannot parse", async () => {
+    // A block this cannot read is exactly where a hand-set flag hides: behind
+    // a typo one line above it, or a truncated file. Answering "listed" would
+    // republish it; the clip stops instead.
     const unparseable = [
       "---",
       'url: "https://example.com/posts/hello"',
-      "unlisted: true",
+      "unlisted: true # keep this one private",
       "  : : :",
+      "---",
+      "",
+      "Body.",
+      "",
+    ].join("\n");
+    const truncated = [
+      "---",
+      'url: "https://example.com/posts/hello"',
+      "unlisted: true",
+      "",
+      "Body.",
+      "",
+    ].join("\n");
+    for (const content of [unparseable, truncated]) {
+      expect(
+        findExistingIndex(config, "slug-a1b2c3d4", async () =>
+          json(200, {
+            sha: "abc123",
+            encoding: "base64",
+            content: base64(content),
+          }),
+        ),
+      ).rejects.toThrow(/refusing to overwrite/);
+    }
+  });
+
+  test("reads a flag that carries a trailing comment", async () => {
+    // The line the refusal above is protecting, once its block parses.
+    const commented = [
+      "---",
+      'url: "https://example.com/posts/hello"',
+      "unlisted: true # keep this one private",
       "---",
       "",
       "Body.",
@@ -163,7 +198,7 @@ describe("findExistingIndex", () => {
       json(200, {
         sha: "abc123",
         encoding: "base64",
-        content: base64(unparseable),
+        content: base64(commented),
       }),
     );
     expect(result?.unlisted).toBe(true);
@@ -286,6 +321,41 @@ describe("putFile", () => {
     expect(puts).toHaveLength(2);
     expect(puts[0]?.sha).toBe("stale-sha");
     expect(puts[1]?.sha).toBe("fresh-sha");
+  });
+
+  test("rebuilds the payload on 409 when the caller supplies a resolver", async () => {
+    // The race this closes: a hand-edit hides the article between the clip's
+    // lookup and its PUT. Retrying the bytes already built would overwrite the
+    // flag with listed content, and nothing would say so (ADR 0017).
+    const puts: Record<string, unknown>[] = [];
+    let putCount = 0;
+    const fetchImpl = async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      if (init?.method === "PUT") {
+        putCount += 1;
+        puts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return putCount === 1 ? json(409, {}) : json(200, {});
+      }
+      return json(200, { sha: "fresh-sha" });
+    };
+    await putFile(
+      config,
+      {
+        path: "p/index.md",
+        contentBase64: "QQ==",
+        message: "m",
+        sha: "stale-sha",
+        resolveConflict: async () => ({
+          sha: "resolved-sha",
+          contentBase64: "Qg==",
+        }),
+      },
+      fetchImpl,
+    );
+    expect(puts).toHaveLength(2);
+    expect(puts[1]).toMatchObject({ sha: "resolved-sha", content: "Qg==" });
   });
 
   test("throws with status and body on persistent failure", async () => {

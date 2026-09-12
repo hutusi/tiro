@@ -1,4 +1,4 @@
-import { frontmatterLength, parseFrontmatterLoose } from "@tiro/shared";
+import { readFrontmatterLoose } from "@tiro/shared";
 import type { TiroExtensionConfig } from "./storage.ts";
 
 const API = "https://api.github.com";
@@ -95,13 +95,13 @@ function decodeBase64Utf8(content: string): string {
  * asymmetric: "no" silently republishes an article someone deliberately hid
  * (ADR 0017), while "yes" costs a line in a file that is about to be rewritten
  * anyway. So the frontmatter is parsed without contract validation — an article
- * whose *other* fields are invalid keeps its flag — and a block whose YAML will
- * not parse at all still gets a line scan.
+ * whose *other* fields are invalid keeps its flag.
  *
  * What it will not do is guess. The Contents API omits `content` above 1MB, so
- * that case re-reads the body as a blob (100MB limit) rather than assuming; if
- * that read fails, the error propagates and the clip stops, because overwriting
- * an article whose visibility is unknown is the one outcome worth failing for.
+ * that case re-reads the body as a blob (100MB limit) rather than assuming, and
+ * frontmatter it cannot parse stops the clip rather than answering "listed". If
+ * either read fails the error propagates, because overwriting an article whose
+ * visibility is unknown is the one outcome worth failing for.
  */
 async function readUnlisted(
   config: TiroExtensionConfig,
@@ -113,16 +113,21 @@ async function readUnlisted(
     file.encoding === "base64" && file.content !== undefined
       ? file.content
       : await fetchBlobContent(config, path, file.sha, fetchImpl);
-  return readsAsUnlisted(decodeBase64Utf8(inline));
+  return readsAsUnlisted(path, decodeBase64Utf8(inline));
 }
 
-function readsAsUnlisted(text: string): boolean {
-  const frontmatter = parseFrontmatterLoose(text);
-  if (frontmatter !== null) return frontmatter.unlisted === true;
-  const end = frontmatterLength(text);
-  return (
-    end !== null && /^unlisted:[ \t]*true[ \t]*$/m.test(text.slice(0, end))
-  );
+function readsAsUnlisted(path: string, text: string): boolean {
+  const frontmatter = readFrontmatterLoose(text);
+  if (frontmatter.kind === "unreadable") {
+    // Not "assume listed": a block this cannot parse is exactly where a
+    // hand-set flag hides — behind a truncated file, or a typo one line above
+    // it. The clip stops instead, which is loud, retryable, and fixable by
+    // opening the article in the vault.
+    throw new Error(
+      `${path}: the article already there has frontmatter this cannot read — refusing to overwrite it`,
+    );
+  }
+  return frontmatter.kind === "ok" && frontmatter.data.unlisted === true;
 }
 
 async function fetchBlobContent(
@@ -188,16 +193,30 @@ export interface PutFileOptions {
   contentBase64: string;
   message: string;
   sha?: string;
+  /**
+   * Build the retry payload after a stale-sha rejection, against the file as it
+   * now stands.
+   *
+   * Without it the retry re-sends the same bytes, which is right for content
+   * derived from nothing but this clip, and wrong for anything the intervening
+   * commit may have added that the payload cannot regenerate. An article's
+   * `unlisted` flag is exactly that: hand-set, unregenerable, and the one field
+   * whose loss silently republishes something someone hid (ADR 0017).
+   */
+  resolveConflict?: () => Promise<{ sha?: string; contentBase64: string }>;
 }
 
 /** Create or update one file via the Contents API. A 409/422 (stale sha —
- * e.g. the processor committed meanwhile) re-reads the sha and retries once. */
+ * e.g. the processor committed meanwhile) re-reads and retries once. */
 export async function putFile(
   config: TiroExtensionConfig,
   options: PutFileOptions,
   fetchImpl: FetchLike = fetch,
 ): Promise<void> {
-  const attempt = async (sha: string | undefined): Promise<Response> =>
+  const attempt = async (
+    sha: string | undefined,
+    contentBase64: string,
+  ): Promise<Response> =>
     fetchImpl(
       `${API}/repos/${config.owner}/${config.repo}/contents/${options.path}`,
       {
@@ -205,24 +224,23 @@ export async function putFile(
         headers: { ...headers(config), "Content-Type": "application/json" },
         body: JSON.stringify({
           message: options.message,
-          content: options.contentBase64,
+          content: contentBase64,
           branch: config.branch,
           ...(sha !== undefined ? { sha } : {}),
         }),
       },
     );
 
-  let res = await attempt(options.sha);
+  let res = await attempt(options.sha, options.contentBase64);
   if (res.status === 409 || res.status === 422) {
-    const fresh = await fetchImpl(
-      `${API}/repos/${config.owner}/${config.repo}/contents/${options.path}?ref=${encodeURIComponent(config.branch)}`,
-      { headers: headers(config) },
-    );
-    const sha =
-      fresh.ok && fresh.status !== 404
-        ? ((await fresh.json()) as { sha?: string }).sha
-        : undefined;
-    res = await attempt(sha);
+    const next =
+      options.resolveConflict === undefined
+        ? {
+            sha: await freshSha(config, options.path, fetchImpl),
+            contentBase64: options.contentBase64,
+          }
+        : await options.resolveConflict();
+    res = await attempt(next.sha, next.contentBase64);
   }
   if (!res.ok) {
     throw new GitHubHttpError(
@@ -230,4 +248,18 @@ export async function putFile(
       `committing ${options.path} failed: ${res.status} ${await res.text()}`,
     );
   }
+}
+
+async function freshSha(
+  config: TiroExtensionConfig,
+  path: string,
+  fetchImpl: FetchLike,
+): Promise<string | undefined> {
+  const res = await fetchImpl(
+    `${API}/repos/${config.owner}/${config.repo}/contents/${path}?ref=${encodeURIComponent(config.branch)}`,
+    { headers: headers(config) },
+  );
+  return res.ok && res.status !== 404
+    ? ((await res.json()) as { sha?: string }).sha
+    : undefined;
 }

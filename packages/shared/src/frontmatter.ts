@@ -218,35 +218,51 @@ export function frontmatterLength(fileText: string): number | null {
   return fileText.match(FRONTMATTER_RE)?.[0].length ?? null;
 }
 
+/** What a lenient frontmatter read found: nothing to read, something it could
+ * not read, or the mapping. */
+export type LooseFrontmatter =
+  | { kind: "none" }
+  | { kind: "unreadable" }
+  | { kind: "ok"; data: Record<string, unknown> };
+
 /**
- * The frontmatter block as plain YAML, with no contract validation at all —
- * null when there is no block, or when it is not a mapping.
+ * The frontmatter block as plain YAML, with no contract validation at all.
  *
  * For reading one field off a file whose *other* fields are none of the
  * reader's business. `parseArticle` is the right tool almost everywhere, but it
  * is all-or-nothing: an article carrying a key from a newer schema, or a
  * hand-edit that broke an unrelated field, throws — and a caller that only
  * wanted to know whether the article is unlisted would take "invalid" for "no"
- * and act on it (ADR 0017). Shares `FRONTMATTER_RE`, for the reason its comment
- * above gives.
+ * and act on it (ADR 0017).
+ *
+ * Three outcomes, not two, because "there is no frontmatter" and "there is
+ * frontmatter I cannot read" are opposite answers for such a caller. The first
+ * is knowledge — the file is right there and holds no flag. The second is
+ * ignorance, and the whole point is not to act on it. A block opened and never
+ * closed counts as unreadable rather than absent, since a truncated file is
+ * exactly where a flag goes missing. All three share `FRONTMATTER_RE`, for the
+ * reason its comment above gives.
  *
  * Never use this to write. Anything that rewrites an article must go through
  * the schema, or it will persist whatever nonsense it read.
  */
-export function parseFrontmatterLoose(
-  fileText: string,
-): Record<string, unknown> | null {
+export function readFrontmatterLoose(fileText: string): LooseFrontmatter {
   const match = fileText.match(FRONTMATTER_RE);
-  if (match?.[1] === undefined) return null;
+  if (match?.[1] === undefined) {
+    return /^---\r?\n/.test(fileText)
+      ? { kind: "unreadable" }
+      : { kind: "none" };
+  }
   let parsed: unknown;
   try {
     parsed = parseYaml(match[1]);
   } catch {
-    return null;
+    return { kind: "unreadable" };
   }
-  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : null;
+  if (parsed === null || parsed === undefined) return { kind: "none" };
+  return typeof parsed === "object" && !Array.isArray(parsed)
+    ? { kind: "ok", data: parsed as Record<string, unknown> }
+    : { kind: "unreadable" };
 }
 
 /** Parse and validate a full `index.md` file. Throws on schema violations. */

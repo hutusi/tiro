@@ -4,7 +4,7 @@ import {
   ClipFrontmatterSchema,
   needsProcessing,
   parseArticle,
-  parseFrontmatterLoose,
+  readFrontmatterLoose,
   stringifyArticle,
 } from "../src/frontmatter.ts";
 
@@ -288,17 +288,34 @@ describe("parseArticle / stringifyArticle", () => {
       "",
     ].join("\n");
     expect(() => parseArticle(text)).toThrow();
-    expect(parseFrontmatterLoose(text)?.unlisted).toBe(true);
+    const loose = readFrontmatterLoose(text);
+    expect(loose.kind).toBe("ok");
+    expect(loose.kind === "ok" && loose.data.unlisted).toBe(true);
   });
 
-  test("returns null for a file with no frontmatter block or a broken one", () => {
-    expect(parseFrontmatterLoose("just a body\n")).toBeNull();
-    expect(parseFrontmatterLoose("---\n  : : :\n---\n\nBody.\n")).toBeNull();
-    // A block that parses but is not a mapping: a caller reading a field off it
-    // would otherwise index into a string.
+  test("separates having no frontmatter from having unreadable frontmatter", () => {
+    // The distinction the clipper acts on: "none" is knowledge — the file holds
+    // no flag — while "unreadable" is ignorance, and it must stop a re-clip
+    // rather than answer "not hidden" (ADR 0017).
+    expect(readFrontmatterLoose("just a body\n").kind).toBe("none");
+    // An empty block — one whose YAML is nothing at all — holds no flag.
+    expect(readFrontmatterLoose("---\n\n---\n\nBody.\n").kind).toBe("none");
+    // `---\n---` is not a block the contract's own pattern recognizes, so it
+    // counts as unreadable rather than absent, like any other malformed head.
+    expect(readFrontmatterLoose("---\n---\n\nBody.\n").kind).toBe("unreadable");
+    expect(readFrontmatterLoose("---\n  : : :\n---\n\nBody.\n").kind).toBe(
+      "unreadable",
+    );
+    // Opened and never closed. A truncated file is precisely where a flag goes
+    // missing, so it cannot be read as "there was no frontmatter".
+    expect(readFrontmatterLoose("---\nunlisted: true\n\nBody.\n").kind).toBe(
+      "unreadable",
+    );
+    // Parses, but not into a mapping: a caller reading a field off it would
+    // otherwise index into a string.
     expect(
-      parseFrontmatterLoose("---\njust a scalar\n---\n\nBody.\n"),
-    ).toBeNull();
+      readFrontmatterLoose("---\njust a scalar\n---\n\nBody.\n").kind,
+    ).toBe("unreadable");
   });
 
   test("parses an unquoted YAML timestamp (js-yaml Date) into a string", () => {
