@@ -117,6 +117,26 @@ const titleZh = z.string().trim().min(1).optional();
  */
 const summaryOrig = z.string().trim().min(1).optional();
 
+/**
+ * Keep this article out of every list, the search index and the sitemap. It is
+ * still built, still processed, and still reachable at its own URL.
+ *
+ * **Unlisted is not private.** The site is public and slugs are deterministic
+ * from the URL (ADR 0007), so anyone who knows the source URL can compute the
+ * address; the slug spells out the domain and path besides. This hides an
+ * article from anyone browsing the site, not from anyone who goes looking for
+ * it. Access control would have to sit in front of the site (ADR 0017).
+ *
+ * Set by hand in the vault — nothing writes it. Named on the article schema
+ * only, since the extension never produces it; a re-clip therefore drops it,
+ * the way it drops `title_zh` and `summary_orig`, and the article comes back
+ * listed until it is flagged again.
+ *
+ * Optional and additive, so no `tiro.schema` bump: an article without the key
+ * means exactly what it meant before the key existed.
+ */
+const unlisted = z.boolean().optional();
+
 /** Fields written by the extension at clip time. */
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
@@ -154,6 +174,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
   summary_orig: summaryOrig,
   category: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  unlisted,
   tiro: z.object({
     schema: z.literal(TIRO_SCHEMA_VERSION),
     clipper_version: clipperVersion,

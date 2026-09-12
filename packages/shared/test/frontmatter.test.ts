@@ -235,6 +235,42 @@ describe("parseArticle / stringifyArticle", () => {
     );
   });
 
+  test("preserves an unlisted article's flag through a processor round-trip", () => {
+    // Same trap as the two above, and the one with the worst failure mode: the
+    // flag is set by hand and the loss is silent, so an article hidden on
+    // purpose would quietly rejoin the library the next time it is processed.
+    const flagged = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      unlisted: true,
+    });
+    const processed = parseArticle(
+      stringifyArticle(
+        {
+          ...flagged,
+          lang: "en",
+          summary: "A summary.",
+          tiro: {
+            ...flagged.tiro,
+            processed_at: "2026-09-12T11:00:00.000Z",
+            processor_version: "0.1.0",
+          },
+        },
+        "Body.\n",
+      ),
+    );
+    expect(processed.frontmatter.unlisted).toBe(true);
+  });
+
+  test("leaves an ordinary article's unlisted flag absent, not false", () => {
+    // The site asks `unlisted === true`; an article that never carried the key
+    // must round-trip without gaining one, or every vault file would grow a
+    // line the first time it is processed.
+    const frontmatter = ArticleFrontmatterSchema.parse(validClip);
+    const back = parseArticle(stringifyArticle(frontmatter, "Body.\n"));
+    expect(back.frontmatter.unlisted).toBeUndefined();
+    expect(stringifyArticle(frontmatter, "Body.\n")).not.toContain("unlisted");
+  });
+
   test("parses an unquoted YAML timestamp (js-yaml Date) into a string", () => {
     const text = [
       "---",
