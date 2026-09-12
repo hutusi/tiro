@@ -119,6 +119,40 @@ export async function tagIndex(): Promise<ArticleGroup[]> {
   );
 }
 
+let termPageCache: { tags: Set<string>; categories: Set<string> } | null = null;
+
+/** The term slugs that actually have a page.
+ *
+ * Term routes are generated from the *listed* articles, so a tag or category
+ * carried only by unlisted ones addresses no page at all — the reader linking
+ * to it would 404. Every listed article's terms are in here by construction,
+ * so this only ever says no about an unlisted article's.
+ */
+async function termPages(): Promise<{
+  tags: Set<string>;
+  categories: Set<string>;
+}> {
+  termPageCache ??= {
+    tags: new Set((await tagIndex()).map((group) => group.slug)),
+    categories: new Set((await categoryIndex()).map((group) => group.slug)),
+  };
+  return termPageCache;
+}
+
+/** `tagUrl(tag)` if that tag has a page, otherwise null. */
+export async function tagPageUrl(tag: string): Promise<string | null> {
+  return (await termPages()).tags.has(tagSlug(tag)) ? tagUrl(tag) : null;
+}
+
+/** `categoryUrl(category)` if that category has a page, otherwise null. */
+export async function categoryPageUrl(
+  category: string,
+): Promise<string | null> {
+  return (await termPages()).categories.has(tagSlug(category))
+    ? categoryUrl(category)
+    : null;
+}
+
 export async function categoryIndex(): Promise<ArticleGroup[]> {
   return toArticleGroups(
     groupByTerm(await getArticles(), (a) =>

@@ -3,7 +3,11 @@ import "katex/dist/katex.min.css";
 import FontSteps from "../../components/FontSteps.astro";
 import Base from "../../layouts/Base.astro";
 import { articleMeta } from "../../lib/article-meta.ts";
-import { categoryUrl, getAllArticles, tagUrl } from "../../lib/articles.ts";
+import {
+  categoryPageUrl,
+  getAllArticles,
+  tagPageUrl,
+} from "../../lib/articles.ts";
 import { buildReaderView } from "../../lib/reader.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 import { isUnlisted } from "../../lib/visibility.ts";
@@ -53,6 +57,20 @@ const date = dateLabel(frontmatter.clipped_at);
 // even with this element ignored. `noindex` below puts the ignore on <body>,
 // where it covers the page rather than one element of it.
 const unlisted = isUnlisted(frontmatter);
+// Term routes are built from the listed articles only, so a tag or category
+// nothing else carries has no page and must be shown as plain text rather than
+// linked into a 404. Every listed article's terms resolve, so in practice this
+// only ever degrades an unlisted article's.
+const categoryHref =
+  frontmatter.category === undefined
+    ? null
+    : await categoryPageUrl(frontmatter.category);
+const tagLinks = await Promise.all(
+  (frontmatter.tags ?? []).map(async (tag) => ({
+    tag,
+    href: await tagPageUrl(tag),
+  })),
+);
 ---
 
 <Base
@@ -161,18 +179,26 @@ const unlisted = isUnlisted(frontmatter);
         (frontmatter.category !== undefined ||
           (frontmatter.tags ?? []).length > 0) && (
           <p class="terms">
-            {frontmatter.category !== undefined && (
-              <a
-                href={categoryUrl(frontmatter.category)}
-                class="pill"
-                data-pagefind-meta={`category:${frontmatter.category}`}
-              >
-                {frontmatter.category}
-              </a>
+            {frontmatter.category !== undefined &&
+              (categoryHref === null ? (
+                <span
+                  class="pill"
+                  data-pagefind-meta={`category:${frontmatter.category}`}
+                >
+                  {frontmatter.category}
+                </span>
+              ) : (
+                <a
+                  href={categoryHref}
+                  class="pill"
+                  data-pagefind-meta={`category:${frontmatter.category}`}
+                >
+                  {frontmatter.category}
+                </a>
+              ))}
+            {tagLinks.map(({ tag, href }) =>
+              href === null ? <span>#{tag}</span> : <a href={href}>#{tag}</a>,
             )}
-            {(frontmatter.tags ?? []).map((tag) => (
-              <a href={tagUrl(tag)}>#{tag}</a>
-            ))}
           </p>
         )
       }
