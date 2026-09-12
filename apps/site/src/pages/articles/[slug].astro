@@ -45,11 +45,13 @@ const blocks =
     : [];
 const hasZhTitle = meta.titleZh !== null;
 const date = dateLabel(frontmatter.clipped_at);
-// An unlisted article drops the `data-pagefind-body` that would put it in the
-// search index, and carries `data-pagefind-ignore` as well. Both, because
-// Pagefind only restricts indexing to `data-pagefind-body` elements while at
-// least one page on the site has one — in a vault where every article is
-// unlisted that guarantee disappears, and the ignore is what still holds.
+// An unlisted article drops the `data-pagefind-body` that would otherwise put
+// it in the search index. That alone is not enough: Pagefind restricts indexing
+// to `data-pagefind-body` elements only while at least one page on the site has
+// one, so in a vault where every article is unlisted it falls back to indexing
+// every page's whole <body> — which indexed the hidden article's URL and title
+// even with this element ignored. `noindex` below puts the ignore on <body>,
+// where it covers the page rather than one element of it.
 const unlisted = isUnlisted(frontmatter);
 ---
 
@@ -62,7 +64,6 @@ const unlisted = isUnlisted(frontmatter);
 >
   <article
     data-pagefind-body={unlisted ? undefined : true}
-    data-pagefind-ignore={unlisted ? "all" : undefined}
     class="reader"
     data-paired={view.kind === "paired" ? "" : undefined}
     data-zh-title={hasZhTitle ? "" : undefined}

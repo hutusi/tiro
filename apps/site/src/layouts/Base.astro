@@ -18,10 +18,10 @@ interface Props {
   /** `library` (`--w-library`) for lists, `narrow` (680px) for settings-like
    * pages, `full` for the reader, which lays out its own columns. */
   width?: "library" | "narrow" | "full";
-  /** Ask crawlers to leave this page out of their index — set by the reader
-   * for an unlisted article. Kept off robots.txt on purpose: that file is
-   * public, so a `Disallow` line there would publish the very list the flag
-   * exists to hide. */
+  /** Keep this page out of every index — crawlers' and the site's own search
+   * — set by the reader for an unlisted article. Kept off robots.txt on
+   * purpose: that file is public, so a `Disallow` line there would publish the
+   * very list the flag exists to hide. */
   noindex?: boolean;
 }
 const {
@@ -214,7 +214,10 @@ const mainClass =
       };
     </script>
   </head>
-  <body class="flex min-h-screen flex-col bg-paper text-ink">
+  <body
+    class="flex min-h-screen flex-col bg-paper text-ink"
+    data-pagefind-ignore={noindex ? "all" : undefined}
+  >
     <header class="sticky top-0 z-20 border-b border-rule bg-paper">
       <div class="flex h-14 items-center gap-4 px-4 sm:gap-7 sm:px-6 lg:px-10">
         <a href="/" class="inline-flex items-center gap-2 text-ink">
