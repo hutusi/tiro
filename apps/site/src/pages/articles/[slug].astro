@@ -5,12 +5,7 @@ import Base from "../../layouts/Base.astro";
 import { articleMeta } from "../../lib/article-meta.ts";
 import { categoryUrl, getArticles, tagUrl } from "../../lib/articles.ts";
 import { buildReaderView } from "../../lib/reader.ts";
-import {
-  dateLabel,
-  minutesLabel,
-  readingAboutLabel,
-  STRINGS,
-} from "../../lib/strings.ts";
+import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 
 export async function getStaticPaths() {
   const articles = await getArticles();
@@ -58,7 +53,8 @@ const date = dateLabel(frontmatter.clipped_at);
   <article
     data-pagefind-body
     class="reader"
-    data-mode={view.kind === "paired" ? "both" : undefined}
+    data-paired={view.kind === "paired" ? "" : undefined}
+    data-zh-title={hasZhTitle ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
       <a href="/" class="back">{t.back}</a>
@@ -96,7 +92,7 @@ const date = dateLabel(frontmatter.clipped_at);
 
     <header class="head">
       <div class="titles">
-        <div>
+        <div class="orig">
           <p class="meta">
             <a
               href={frontmatter.url}
@@ -124,51 +120,19 @@ const date = dateLabel(frontmatter.clipped_at);
           {
             meta.summaryOrig !== null && (
               <p class="lead lead-orig" lang={frontmatter.lang}>
-                <span class="lead-label">{t.summary}</span>
+                <span class="lead-label">{t.summaryOriginal}</span>
                 {meta.summaryOrig}
-              </p>
-            )
-          }
-          {
-            (frontmatter.category !== undefined ||
-              (frontmatter.tags ?? []).length > 0) && (
-              <p class="terms">
-                {frontmatter.category !== undefined && (
-                  <a
-                    href={categoryUrl(frontmatter.category)}
-                    class="pill"
-                    data-pagefind-meta={`category:${frontmatter.category}`}
-                  >
-                    {frontmatter.category}
-                  </a>
-                )}
-                {(frontmatter.tags ?? []).map((tag) => (
-                  <a href={tagUrl(tag)}>#{tag}</a>
-                ))}
               </p>
             )
           }
         </div>
         {
           (hasZhTitle || frontmatter.summary !== undefined) && (
-            <div class:list={["zh", { "no-title": !hasZhTitle }]} lang="zh-CN">
+            <div class="zh" lang="zh-CN">
               {hasZhTitle && (
-                <Fragment>
-                  <p class="meta meta-zh">
-                    <span>{frontmatter.domain}</span>
-                    {frontmatter.author !== undefined && (
-                      <Fragment>
-                        <span aria-hidden="true">·</span>
-                        <span>{frontmatter.author}</span>
-                      </Fragment>
-                    )}
-                    <span aria-hidden="true">·</span>
-                    <span>{readingAboutLabel(meta.minutes)}</span>
-                  </p>
-                  <p class="title-zh" data-pagefind-meta="title_zh">
-                    {meta.titleZh}
-                  </p>
-                </Fragment>
+                <h1 class="title-zh" data-pagefind-meta="title_zh">
+                  {meta.titleZh}
+                </h1>
               )}
               {frontmatter.summary !== undefined && (
                 <p class="lead">
@@ -180,12 +144,31 @@ const date = dateLabel(frontmatter.clipped_at);
           )
         }
       </div>
+      {
+        (frontmatter.category !== undefined ||
+          (frontmatter.tags ?? []).length > 0) && (
+          <p class="terms">
+            {frontmatter.category !== undefined && (
+              <a
+                href={categoryUrl(frontmatter.category)}
+                class="pill"
+                data-pagefind-meta={`category:${frontmatter.category}`}
+              >
+                {frontmatter.category}
+              </a>
+            )}
+            {(frontmatter.tags ?? []).map((tag) => (
+              <a href={tagUrl(tag)}>#{tag}</a>
+            ))}
+          </p>
+        )
+      }
       <hr class="title-rule" />
     </header>
 
     {
       view.kind === "paired" && (
-        <div id="reader" data-mode="both">
+        <div id="reader">
           {rows.map((row) => (
             <div class="reader-row">
               <div
@@ -307,10 +290,18 @@ const date = dateLabel(frontmatter.clipped_at);
   /* One reading measure for everything below the toolbar: `--w-reader` for a
      single column (800px — about 78 Latin or 40 Chinese characters at the
      default size, and fixed), `--w-reader-wide` when two columns sit side by
-     side (1240 by default, adjustable in Settings). The mode lives
-     on the article root, so the title block follows the switch along with the
-     body — before, it stayed at the side-by-side width while the body
-     narrowed. */
+     side (1240 by default, adjustable in Settings). The title block follows the
+     switch along with the body — before, it stayed at the side-by-side width
+     while the body narrowed.
+
+     Every rule below that reads the mode does so as
+     `:global(html[data-reader-mode="…"]) .reader[data-paired]`, and both halves
+     are load-bearing. The mode is on <html> because it has to be applied before
+     first paint (Base.astro) — which means it is set on every page, including
+     articles that have no translation at all. `data-paired` is rendered only for
+     a paired view, so it is what stops `原文` from hiding the only Chinese on a
+     single-pane article, and `中文` from hiding the English title above an
+     English body. Add the guard to any new rule even where it looks redundant. */
   .head,
   #reader,
   .reader-single,
@@ -319,8 +310,8 @@ const date = dateLabel(frontmatter.clipped_at);
     margin-inline: auto;
     padding-inline: var(--gutter);
   }
-  .reader[data-mode="both"] .head,
-  .reader[data-mode="both"] #reader {
+  :global(html[data-reader-mode="both"]) .reader[data-paired] .head,
+  :global(html[data-reader-mode="both"]) .reader[data-paired] #reader {
     max-width: var(--w-reader-wide);
   }
 
@@ -337,12 +328,15 @@ const date = dateLabel(frontmatter.clipped_at);
     gap: 24px 64px;
   }
   @media (min-width: 64rem) {
-    .reader[data-mode="both"] .titles {
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .titles {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
-    /* Without a Chinese title the summary starts level with the h1, not with
-       the meta line above it. */
-    .reader[data-mode="both"] .zh.no-title {
+    /* The Chinese column has no meta row of its own — it was the original's
+       line over again, differing only in how the reading time was phrased — so
+       it is offset by that row's height instead. One rule for both cases: with
+       a Chinese title it puts the title level with the h1, without one it puts
+       the summary there. */
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .zh {
       padding-top: 32px;
     }
   }
@@ -364,16 +358,7 @@ const date = dateLabel(frontmatter.clipped_at);
     color: var(--accent);
     text-decoration: underline;
   }
-  /* The Chinese mirror of the meta row above. It cannot inherit that row's
-     mono — JetBrains Mono carries no CJK, so the glyphs would fall through to
-     whatever the browser picked — and the reading serif puts it back in
-     hairline Songti at 12px, which is the size --font-ui exists for. The mono
-     tracking goes with the mono. */
-  .meta-zh {
-    font-family: var(--font-ui);
-    letter-spacing: 0;
-  }
-  .titles h1 {
+  .titles h1:not(.title-zh) {
     margin: 0;
     font-size: 38px;
     font-weight: 500;
@@ -391,19 +376,23 @@ const date = dateLabel(frontmatter.clipped_at);
     text-wrap: pretty;
   }
   @media (max-width: 39.99rem) {
-    .titles h1 {
+    .titles h1:not(.title-zh) {
       font-size: 30px;
     }
     .title-zh {
       font-size: 27px;
     }
   }
+  /* Under both columns rather than inside the original's. The tags describe the
+     article, not the language you are reading it in — and with the title block
+     collapsing by mode, leaving them in the left column made 中文 read
+     meta, tags, title, summary. */
   .terms {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 12px;
-    margin: 18px 0 0;
+    margin: 24px 0 0;
     font-family: var(--font-ui);
     font-size: 13px;
     color: var(--ink-mute);
@@ -444,8 +433,17 @@ const date = dateLabel(frontmatter.clipped_at);
     margin-top: 14px;
     font-family: inherit;
   }
+  /* A label, not the summary's first word — which is how it read while it
+     inherited the lead's serif at the lead's size and differed only in colour.
+     --font-ui is the token for exactly this ("chrome — nav, controls, meta rows,
+     footer, help text… content stays --font-serif" in global.css), and it also
+     sidesteps the case that comment warns about: 摘要 at this size in the
+     reading serif falls back to a hairline Songti. */
   .lead-label {
-    margin-right: 0.5em;
+    margin-right: 0.6em;
+    font-family: var(--font-ui);
+    font-size: 12px;
+    letter-spacing: 0.02em;
     color: var(--ink-mute);
   }
 
@@ -479,15 +477,46 @@ const date = dateLabel(frontmatter.clipped_at);
     transition: background 0.15s;
   }
   @media (min-width: 64rem) {
-    .reader[data-mode="both"] .reader-row {
+    :global(html[data-reader-mode="both"]) .reader[data-paired] .reader-row {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
-    .reader[data-mode="both"] .reader-row:hover {
+    :global(html[data-reader-mode="both"])
+      .reader[data-paired]
+      .reader-row:hover {
       background: var(--wash);
     }
   }
-  .reader[data-mode="original"] .pane-translation,
-  .reader[data-mode="translation"] .pane-original {
+  :global(html[data-reader-mode="original"])
+    .reader[data-paired]
+    .pane-translation,
+  :global(html[data-reader-mode="translation"])
+    .reader[data-paired]
+    .pane-original {
+    display: none;
+  }
+  /* The head follows the panes: one language at a time means one title and one
+     summary, not both sitting over a single column of text. The meta row and the
+     tags stay in either mode — they are the article's, not one version's — which
+     is why the original's title and summary are hidden one by one instead of by
+     hiding the column that also holds them.
+
+     This is why the Chinese title is an h1 as well. The page had exactly one,
+     the original, and hiding it would leave 中文 with no h1 at all; now each
+     single-language mode has exactly one and side by side has two, which is what
+     a document with two titles is.
+
+     And it is why the 中文 rule also asks for `data-zh-title`. title_zh is
+     optional by design, so a fully translated article can have no Chinese title
+     — the model omitted it, it was rejected as an echo, or the article was
+     processed before the field existed, which is every article in a vault whose
+     backfill has not run. Hiding the original title there would leave the page
+     with no title at all. The original half only steps aside when the other
+     half can stand in its place. */
+  :global(html[data-reader-mode="translation"])
+    .reader[data-paired][data-zh-title]
+    .orig
+    :is(h1, .lead-orig),
+  :global(html[data-reader-mode="original"]) .reader[data-paired] .zh {
     display: none;
   }
 
@@ -542,23 +571,28 @@ const date = dateLabel(frontmatter.clipped_at);
 
 <script is:inline>
   {
-    // The mode sits on the article root so the title block and the rows take
-    // the same width from one attribute.
-    const reader = document.querySelector("article.reader");
+    // The toolbar only moves the preference; the mode itself is written onto
+    // <html> before first paint, by the same script that handles paper and
+    // width. Applying it here instead moved text the reader was already
+    // looking at, every time an article loaded. What is left is the three lines
+    // every other control on the site has — read, write, re-sync on the event.
+    //
+    // The null guard stays: unlike the library's toggle, this one renders only
+    // for an article that actually has a translation.
     const toggle = document.getElementById("view-toggle");
-    if (reader !== null && toggle !== null) {
+    if (toggle !== null) {
       const buttons = toggle.querySelectorAll("button");
-      const apply = (mode) => {
-        reader.dataset.mode = mode;
+      const sync = () => {
+        const mode = window.tiroPrefs.readerMode();
         for (const b of buttons)
           b.setAttribute("aria-pressed", String(b.dataset.view === mode));
       };
       for (const b of buttons)
-        b.addEventListener("click", () => {
-          apply(b.dataset.view);
-          window.tiroPrefs.setReaderMode(b.dataset.view);
-        });
-      apply(window.tiroPrefs.readerMode());
+        b.addEventListener("click", () =>
+          window.tiroPrefs.setReaderMode(b.dataset.view),
+        );
+      document.addEventListener("tiro:prefs", sync);
+      sync();
     }
   }
 </script>
