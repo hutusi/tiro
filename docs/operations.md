@@ -240,7 +240,9 @@ devDependencies — the action must log "using pre-installed wrangler".
 
 - A failed deploy is always safe to **Re-run** from the Actions UI.
 - **Empty-vault guard**: the build refuses to publish a site with zero
-  articles. Keep at least one article in the vault.
+  articles, and equally with zero *listed* ones — hiding the last visible
+  article fails the build rather than deploying an empty library. Keep at least
+  one listed article in the vault.
 - **A vault push alone does not redeploy.** It starts the vault's
   `process.yml`, but that workflow only dispatches `vault-updated` when its
   commit step actually committed something (`steps.commit.outputs.committed ==
@@ -258,8 +260,10 @@ devDependencies — the action must log "using pre-installed wrangler".
   reachable at `/articles/<slug>/` with a `未公开` label and `noindex`. Remove
   the line (or set it to `false`) to list it again.
   - A re-clip keeps the flag: the clipper reads it off the article it
-    overwrites. It cannot when the old `index.md` is over 1MB or no longer
-    parses, so check those after re-clipping a hidden article.
+    overwrites, tolerating frontmatter that no longer validates and fetching
+    the blob when the file is too large for the Contents API to inline. If it
+    cannot read the old article at all, the clip fails rather than guess —
+    retry, and if it persists, check the article by hand in the vault.
   - **Unlisted is not private.** The site is public and the slug is computable
     from the source URL, as are the paths under `/vault-assets/<slug>/`. It
     hides an article from anyone browsing, not from anyone looking.

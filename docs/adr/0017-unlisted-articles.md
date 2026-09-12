@@ -46,10 +46,18 @@ decision about a different thing.
   reparses and rewrites frontmatter on every run, and a re-clip rebuilds
   `index.md` from scratch. The processor's `...previous` spread keeps it; the
   clipper reads it off the article it is about to overwrite, in the same GET
-  that already fetches the blob sha, so no extra request. Where the old content
-  cannot be read — over 1MB the Contents API omits it, and a hand-broken article
-  no longer parses — the clip still goes through without the flag: losing it is
-  bad, losing the clip is worse, and the article is being rewritten either way.
+  that already fetches the blob sha, so no extra request.
+
+  That read is deliberately lenient and deliberately unwilling to guess. The
+  frontmatter is parsed *without* contract validation (`parseFrontmatterLoose`),
+  because the flag is hand-set and the same hand can leave a neighbouring field
+  invalid — a strict read would hear "this article does not validate" as "this
+  article is not hidden". A block whose YAML will not parse at all still gets a
+  line scan. And where the Contents API omits the body, which it does above 1MB,
+  the blob is fetched instead of assumed; if *that* fails the clip fails, because
+  overwriting an article whose visibility is unknown is the one outcome worth
+  failing for. The asymmetry is the whole argument: a wrong "no" republishes
+  something someone hid, a wrong "yes" costs a line in a file being rewritten.
 
 - **A per-article flag, not a list of slugs in `config/tiro.yml`.** The flag
   travels with the article and is visible in the file where the decision is
@@ -62,17 +70,15 @@ decision about a different thing.
   them at once. The reader route reads a new `getAllArticles()`, because being
   reachable at its URL is the whole point.
 
-  The empty-collection guard stays on the *unfiltered* count. "No articles at
-  all" means a broken vault checkout or glob base (ADR 0006) and must fail the
-  build; "every article is unlisted" is a legitimate, if odd, vault.
-
-- **A sentinel keeps the index narrow when no article declares a body.** The
-  rule below cuts both ways: with every article unlisted, nothing declares a
-  `data-pagefind-body`, and Pagefind indexes the library, the settings page, the
-  404 and the search page itself instead. An empty `data-pagefind-body` on the
-  search page, emitted only when no listed article exists, keeps the narrowing
-  in force — measured, that vault indexes 0 pages instead of 5, and a normal
-  vault is untouched.
+  Two guards, not one. The existing empty-collection check stays on the
+  *unfiltered* count and keeps its own message — "no articles at all" means a
+  broken vault checkout or glob base (ADR 0006). A second one refuses a build
+  whose *listed* count is zero. An all-unlisted vault is not a site: its library
+  is empty, and Pagefind exits non-zero rather than write an empty index, so the
+  build fails regardless — several steps later and blaming the wrong component.
+  Refusing it up front also makes the search-index rule below structural: every
+  build that succeeds has at least one listed article, so at least one page
+  always declares a `data-pagefind-body`.
 
 - **Out of the search index by dropping `data-pagefind-body` and ignoring the
   whole page.** Both, not either, and the second one has to be on `<body>`:
@@ -114,10 +120,12 @@ decision about a different thing.
   them is the point. This describes a decision about the article, which the
   clip did not revisit — and the failure was silent, which is how a hidden
   article ends up in the library without anyone doing anything.
-- **An all-unlisted vault has no search index at all**, so `/search/` shows its
-  "index unavailable" notice and disables the input. Honest, if imprecisely
-  worded: there is nothing to search. Its tag and category chips are empty for
-  the same reason.
+- **Hiding the last listed article fails the build**, with a message naming the
+  reason. The alternative was a site whose library, search page and feed are all
+  empty. An earlier cut tried to keep that vault building by giving Pagefind an
+  empty body to index; Pagefind refuses to write an empty index and exits
+  non-zero, so it broke the build anyway, with "Pagefind was not able to build
+  an index" instead of a sentence about unlisted articles.
 - **The assets stay publicly fetchable.** `copy-assets.ts` copies `*/assets/*`
   for every article off the filesystem with no frontmatter check, and has to —
   the unlisted page's own images come from there. Their paths are as guessable as

@@ -218,6 +218,37 @@ export function frontmatterLength(fileText: string): number | null {
   return fileText.match(FRONTMATTER_RE)?.[0].length ?? null;
 }
 
+/**
+ * The frontmatter block as plain YAML, with no contract validation at all —
+ * null when there is no block, or when it is not a mapping.
+ *
+ * For reading one field off a file whose *other* fields are none of the
+ * reader's business. `parseArticle` is the right tool almost everywhere, but it
+ * is all-or-nothing: an article carrying a key from a newer schema, or a
+ * hand-edit that broke an unrelated field, throws — and a caller that only
+ * wanted to know whether the article is unlisted would take "invalid" for "no"
+ * and act on it (ADR 0017). Shares `FRONTMATTER_RE`, for the reason its comment
+ * above gives.
+ *
+ * Never use this to write. Anything that rewrites an article must go through
+ * the schema, or it will persist whatever nonsense it read.
+ */
+export function parseFrontmatterLoose(
+  fileText: string,
+): Record<string, unknown> | null {
+  const match = fileText.match(FRONTMATTER_RE);
+  if (match?.[1] === undefined) return null;
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(match[1]);
+  } catch {
+    return null;
+  }
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
+
 /** Parse and validate a full `index.md` file. Throws on schema violations. */
 export function parseArticle(fileText: string): ParsedArticle {
   const match = fileText.match(FRONTMATTER_RE);

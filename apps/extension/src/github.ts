@@ -1,4 +1,4 @@
-import { parseArticle } from "@tiro/shared";
+import { frontmatterLength, parseFrontmatterLoose } from "@tiro/shared";
 import type { TiroExtensionConfig } from "./storage.ts";
 
 const API = "https://api.github.com";
@@ -80,25 +80,72 @@ export interface ExistingIndex {
   unlisted: boolean;
 }
 
+/** The inverse of `encodeBase64Utf8`, for content GitHub hands back. */
+function decodeBase64Utf8(content: string): string {
+  const binary = atob(content.replace(/\s/g, ""));
+  return new TextDecoder().decode(
+    Uint8Array.from(binary, (c) => c.charCodeAt(0)),
+  );
+}
+
 /**
- * Read the `unlisted` flag off the article a re-clip is about to overwrite.
+ * Is the article at this path unlisted?
  *
- * The Contents API inlines `content` for files up to 1MB and omits it above
- * that; an article that large, or one whose frontmatter no longer satisfies
- * the contract, reports false rather than failing the clip. Losing the flag
- * is bad — losing the clip is worse, and the article is about to be rewritten
- * either way.
+ * Read as leniently as the file allows, because the cost of a wrong answer is
+ * asymmetric: "no" silently republishes an article someone deliberately hid
+ * (ADR 0017), while "yes" costs a line in a file that is about to be rewritten
+ * anyway. So the frontmatter is parsed without contract validation — an article
+ * whose *other* fields are invalid keeps its flag — and a block whose YAML will
+ * not parse at all still gets a line scan.
+ *
+ * What it will not do is guess. The Contents API omits `content` above 1MB, so
+ * that case re-reads the body as a blob (100MB limit) rather than assuming; if
+ * that read fails, the error propagates and the clip stops, because overwriting
+ * an article whose visibility is unknown is the one outcome worth failing for.
  */
-function readUnlisted(file: { content?: string; encoding?: string }): boolean {
-  if (file.content === undefined || file.encoding !== "base64") return false;
-  try {
-    const binary = atob(file.content.replace(/\s/g, ""));
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const text = new TextDecoder().decode(bytes);
-    return parseArticle(text).frontmatter.unlisted === true;
-  } catch {
-    return false;
+async function readUnlisted(
+  config: TiroExtensionConfig,
+  path: string,
+  file: { sha: string; content?: string; encoding?: string },
+  fetchImpl: FetchLike,
+): Promise<boolean> {
+  const inline =
+    file.encoding === "base64" && file.content !== undefined
+      ? file.content
+      : await fetchBlobContent(config, path, file.sha, fetchImpl);
+  return readsAsUnlisted(decodeBase64Utf8(inline));
+}
+
+function readsAsUnlisted(text: string): boolean {
+  const frontmatter = parseFrontmatterLoose(text);
+  if (frontmatter !== null) return frontmatter.unlisted === true;
+  const end = frontmatterLength(text);
+  return (
+    end !== null && /^unlisted:[ \t]*true[ \t]*$/m.test(text.slice(0, end))
+  );
+}
+
+async function fetchBlobContent(
+  config: TiroExtensionConfig,
+  path: string,
+  sha: string,
+  fetchImpl: FetchLike,
+): Promise<string> {
+  const res = await fetchImpl(
+    `${API}/repos/${config.owner}/${config.repo}/git/blobs/${sha}`,
+    { headers: headers(config) },
+  );
+  if (!res.ok) {
+    throw new GitHubHttpError(
+      res.status,
+      `reading ${path} failed: ${res.status}`,
+    );
   }
+  const blob = (await res.json()) as { content?: string; encoding?: string };
+  if (blob.encoding !== "base64" || blob.content === undefined) {
+    throw new Error(`reading ${path} returned no content`);
+  }
+  return blob.content;
 }
 
 /**
@@ -129,7 +176,11 @@ export async function findExistingIndex(
     content?: string;
     encoding?: string;
   };
-  return { path, sha: file.sha, unlisted: readUnlisted(file) };
+  return {
+    path,
+    sha: file.sha,
+    unlisted: await readUnlisted(config, path, file, fetchImpl),
+  };
 }
 
 export interface PutFileOptions {

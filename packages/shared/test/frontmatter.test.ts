@@ -4,6 +4,7 @@ import {
   ClipFrontmatterSchema,
   needsProcessing,
   parseArticle,
+  parseFrontmatterLoose,
   stringifyArticle,
 } from "../src/frontmatter.ts";
 
@@ -269,6 +270,35 @@ describe("parseArticle / stringifyArticle", () => {
     const back = parseArticle(stringifyArticle(frontmatter, "Body.\n"));
     expect(back.frontmatter.unlisted).toBeUndefined();
     expect(stringifyArticle(frontmatter, "Body.\n")).not.toContain("unlisted");
+  });
+
+  test("reads frontmatter the contract would reject, loosely", () => {
+    // What the clipper uses to decide whether the article it is overwriting was
+    // unlisted. Strict parsing would answer "invalid" where the caller can only
+    // hear "not unlisted", and would republish a hidden article (ADR 0017).
+    const text = [
+      "---",
+      "url: 42",
+      "unlisted: true",
+      "tiro:",
+      "  schema: 9",
+      "---",
+      "",
+      "Body.",
+      "",
+    ].join("\n");
+    expect(() => parseArticle(text)).toThrow();
+    expect(parseFrontmatterLoose(text)?.unlisted).toBe(true);
+  });
+
+  test("returns null for a file with no frontmatter block or a broken one", () => {
+    expect(parseFrontmatterLoose("just a body\n")).toBeNull();
+    expect(parseFrontmatterLoose("---\n  : : :\n---\n\nBody.\n")).toBeNull();
+    // A block that parses but is not a mapping: a caller reading a field off it
+    // would otherwise index into a string.
+    expect(
+      parseFrontmatterLoose("---\njust a scalar\n---\n\nBody.\n"),
+    ).toBeNull();
   });
 
   test("parses an unquoted YAML timestamp (js-yaml Date) into a string", () => {

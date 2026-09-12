@@ -96,7 +96,11 @@ describe("findExistingIndex", () => {
       const url = String(input);
       requested.push(url);
       if (url.includes("/contents/articles/slug-a1b2c3d4/index.md"))
-        return json(200, { sha: "abc123" });
+        return json(200, {
+          sha: "abc123",
+          encoding: "base64",
+          content: base64(article({})),
+        });
       return json(500, {});
     };
     const result = await findExistingIndex(config, "slug-a1b2c3d4", fetchImpl);
@@ -121,37 +125,95 @@ describe("findExistingIndex", () => {
     expect(result?.unlisted).toBe(true);
   });
 
-  test("reports not-unlisted for an article that carries no flag", async () => {
+  test("reads the flag off frontmatter the contract would reject", async () => {
+    // Deliberately lenient. The flag is hand-set, so the same hand can leave a
+    // neighbouring field invalid — and a stricter read would take "this article
+    // does not validate" for "this article is not hidden" and republish it.
+    const broken = [
+      "---",
+      'url: "https://example.com/posts/hello"',
+      "title: 42",
+      "clipped_at: not-a-timestamp",
+      "unlisted: true",
+      "tiro:",
+      "  schema: 9",
+      "---",
+      "",
+      "Body.",
+      "",
+    ].join("\n");
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", async () =>
+      json(200, { sha: "abc123", encoding: "base64", content: base64(broken) }),
+    );
+    expect(result?.unlisted).toBe(true);
+  });
+
+  test("falls back to a line scan when the YAML will not parse", async () => {
+    const unparseable = [
+      "---",
+      'url: "https://example.com/posts/hello"',
+      "unlisted: true",
+      "  : : :",
+      "---",
+      "",
+      "Body.",
+      "",
+    ].join("\n");
     const result = await findExistingIndex(config, "slug-a1b2c3d4", async () =>
       json(200, {
         sha: "abc123",
         encoding: "base64",
-        content: base64(article({})),
+        content: base64(unparseable),
+      }),
+    );
+    expect(result?.unlisted).toBe(true);
+  });
+
+  test("reads the blob when the file is too large to inline", async () => {
+    // Over 1MB the Contents API answers with an empty body and
+    // `encoding: "none"`. Assuming "not unlisted" there would republish the
+    // article; the blob carries the same content up to 100MB.
+    const requested: string[] = [];
+    const fetchImpl = async (
+      input: string | URL | Request,
+    ): Promise<Response> => {
+      const url = String(input);
+      requested.push(url);
+      if (url.includes("/git/blobs/abc123"))
+        return json(200, {
+          encoding: "base64",
+          content: base64(article({ unlisted: true })),
+        });
+      return json(200, { sha: "abc123", encoding: "none", content: "" });
+    };
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", fetchImpl);
+    expect(result?.unlisted).toBe(true);
+    expect(requested).toHaveLength(2);
+  });
+
+  test("fails the clip rather than guess when the content cannot be read", async () => {
+    // The one outcome worth failing for: overwriting an article whose
+    // visibility is unknown. The popup surfaces it and the clip can be retried.
+    const fetchImpl = async (
+      input: string | URL | Request,
+    ): Promise<Response> =>
+      String(input).includes("/git/blobs/")
+        ? json(500, {})
+        : json(200, { sha: "abc123", encoding: "none", content: "" });
+    expect(
+      findExistingIndex(config, "slug-a1b2c3d4", fetchImpl),
+    ).rejects.toThrow(GitHubHttpError);
+  });
+
+  test("treats a file with no frontmatter as not unlisted", async () => {
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", async () =>
+      json(200, {
+        sha: "abc123",
+        encoding: "base64",
+        content: base64("just a body\n"),
       }),
     );
     expect(result?.unlisted).toBe(false);
-  });
-
-  test("does not fail the clip when the old content cannot be read", async () => {
-    // Over 1MB the Contents API omits `content` entirely, and a hand-broken
-    // article no longer parses. Either way the clip must still go through —
-    // losing the flag is bad, losing the clip is worse.
-    for (const body of [
-      { sha: "abc123" },
-      { sha: "abc123", encoding: "none", content: "" },
-      { sha: "abc123", encoding: "base64", content: base64("not an article") },
-    ]) {
-      const result = await findExistingIndex(
-        config,
-        "slug-a1b2c3d4",
-        async () => json(200, body),
-      );
-      expect(result).toEqual({
-        path: "articles/slug-a1b2c3d4/index.md",
-        sha: "abc123",
-        unlisted: false,
-      });
-    }
   });
 });
 
