@@ -35,6 +35,11 @@ describe("fixture vault", () => {
       // shape of any article whose title the model omitted.
       "example-org-essays-before-the-backfill-80754d43/index.md",
       "example-org-blog-raw-clip-b5de6fbd/index.md",
+      // The only unlisted fixture: processed and complete, but flagged out of
+      // every list, the search index and the sitemap. The site build against
+      // this vault is what proves the flag actually removes it from each of
+      // those surfaces while still rendering its page.
+      "example-cn-notes-unlisted-shelf-8145cda3/index.md",
     ]) {
       expect(indexFiles).toContain(expected);
     }

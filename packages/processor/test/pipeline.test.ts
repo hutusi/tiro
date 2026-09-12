@@ -28,6 +28,7 @@ import { makeFakeChat } from "./helpers.ts";
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
 const ZH = "example-cn-posts-ai-times-0d21367e";
+const UNLISTED = "example-cn-notes-unlisted-shelf-8145cda3";
 
 // The fixture image is a hotlink to example.org; tests must not touch the
 // network, so the injected fetch fails and the pipeline keeps the hotlink.
@@ -138,6 +139,24 @@ describe("runPipeline", () => {
         join(vault, "articles/example-cn-posts-ai-times-0d21367e/zh.md"),
       ),
     ).toThrow();
+  });
+
+  test("reprocessing an unlisted article keeps it unlisted", async () => {
+    // The flag is set by hand and read only by the site, so nothing here would
+    // notice its loss: the article would simply reappear in the library after
+    // the next run. Covered at the schema level too, but this is the path that
+    // actually rewrites vault files.
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: UNLISTED },
+      config,
+      deps,
+    );
+    expect(report.processed).toEqual([UNLISTED]);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", UNLISTED, "index.md"), "utf8"),
+    );
+    expect(frontmatter.unlisted).toBe(true);
   });
 
   test("dry-run reports without writing", async () => {
