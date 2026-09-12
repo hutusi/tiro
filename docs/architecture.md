@@ -191,6 +191,15 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   have changed, and the clip that rewrites `index.md` also clears
   `tiro.processed_at`, so the next run writes them again. Optional and additive,
   so no `tiro.schema` bump.
+- **Unlisted articles are enumerated nowhere** (ADR 0017): the optional
+  `unlisted` flag, set by hand in the vault, keeps an article out of the
+  library, the pager, the tag and category pages, the search index, the RSS feed
+  and the sitemap, while leaving it built and reachable at its URL. Named on
+  `ArticleFrontmatterSchema` only — nothing writes it, so a re-clip drops it and
+  the article rejoins the library until it is flagged again. The site is public
+  and slugs are deterministic (ADR 0007), so this hides an article from anyone
+  browsing, not from anyone who knows the source URL: it is not access control.
+  Optional and additive, so no `tiro.schema` bump.
 - **Math is declared, not guessed**: the optional `has_math` flag records that
   the clipper escaped every literal `$` in the article's prose, so every bare
   `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;

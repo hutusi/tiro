@@ -1,0 +1,129 @@
+# ADR 0017: Unlisted articles — enumeration is the thing being removed
+
+Status: accepted (2026-09). Does not reverse the "the site is fully public"
+decision recorded in ADR 0002's consequences; it narrows what the site
+*advertises*, not who may read it.
+
+## Context
+
+The site publishes every article the vault holds. Some are worth keeping and
+reading but not worth putting in front of whoever opens the site: a page clipped
+for one conversation, a draft translation, something whose source is public but
+whose presence in a personal library says more than intended.
+
+The two levers that existed both take the URL away. Deleting the article removes
+it outright. Moving its directory out of `articles/` hides it from the site and
+the processor at once — the glob loader reads `*/index.md` under
+`<vault>/articles` (ADR 0006) and the vault workflow's push filter is
+`articles/**` — which is the right answer for "don't publish this at all", and
+the wrong one for "publish it, just don't list it".
+
+What is wanted is narrower: the article stays clipped, processed, translated and
+built, and stays reachable at its own URL, but leaves the library, the pager, the
+tag and category pages, the search index, the RSS feed and the sitemap.
+
+**This is obscurity, not access control, and the difference matters here more
+than usual.** The site has no auth tier by design, and slugs are deterministic
+from the URL (ADR 0007): normalized URL → path slug + 8-hex SHA-256. Anyone who
+knows the source URL can compute the address, and the slug spells out the domain
+and path besides. An unlisted article is hidden from anyone browsing the site,
+not from anyone looking for it. Privacy would mean an auth layer in front of
+Cloudflare Pages — an Access rule or a Worker gate — which is a different
+decision about a different thing.
+
+## Decision
+
+- **`unlisted`**, an optional boolean, top-level on `ArticleFrontmatterSchema`.
+  `tiro.schema` stays 1 — optional and additive, the `has_math` /
+  `clipper_version` / `title_zh` precedent. An article without the key means
+  exactly what it meant before the key existed.
+
+  Read strictly as `=== true`, never truthiness, for the same reason.
+
+- **Set by hand in the vault. Nothing writes it.** It is named on the article
+  schema only — the extension cannot produce it, so naming it on the clip schema
+  would advertise a capability the clipper does not have. It must be named
+  *somewhere*, because zod strips keys an object does not name and the processor
+  reparses and rewrites frontmatter on every run; an unnamed flag would be
+  deleted the first time the article was processed.
+
+- **A per-article flag, not a list of slugs in `config/tiro.yml`.** The flag
+  travels with the article and is visible in the file where the decision is
+  made. A config list would also mean new plumbing: the site reads no vault
+  config at all today.
+
+- **One funnel does the work.** `getArticles()` is what the library, the pager,
+  the tag and category pages, the search page's chip counts and the RSS feed all
+  read, so it returns listed articles only and the flag takes effect in all of
+  them at once. The reader route reads a new `getAllArticles()`, because being
+  reachable at its URL is the whole point.
+
+  The empty-collection guard stays on the *unfiltered* count. "No articles at
+  all" means a broken vault checkout or glob base (ADR 0006) and must fail the
+  build; "every article is unlisted" is a legitimate, if odd, vault.
+
+- **Out of the search index by dropping `data-pagefind-body` and adding
+  `data-pagefind-ignore`.** Both, not either: Pagefind restricts indexing to
+  `data-pagefind-body` elements only while at least one page on the site has one,
+  and in a vault where every article is unlisted that guarantee disappears.
+
+- **Out of the sitemap, and `noindex, nofollow` on the page.** The sitemap
+  filter cannot ask the content layer — `astro.config.mjs` is evaluated before it
+  exists and `filter` is synchronous — so it reads the vault's `index.md` files
+  itself, through the shared `parseArticle`, keeping one definition of
+  "unlisted". It matches a whole path segment: a slug is also a publisher's own
+  path, and a substring test would drop innocent pages and keep `<slug>-2`.
+
+- **`robots.txt` says nothing.** It is a public file, so a `Disallow` line there
+  would publish exactly the list being hidden.
+
+- **The reader says so on the page.** The article's own page is the only place
+  the state can be seen, so the label spells out what it means rather than naming
+  it.
+
+## Consequences
+
+- **A re-clip un-hides the article, silently.** The extension overwrites
+  `index.md` wholesale — `findExistingIndex` fetches the blob sha and never the
+  content — so the flag goes with it and the article rejoins the library on the
+  next build. This is the same class as `title_zh` and `summary_orig`, which a
+  re-clip drops on purpose, but this one is a decision a person made rather than
+  a value a model produced, and nothing warns. Re-flag by hand after re-clipping.
+  A `validate` check cannot help as things stand: nothing records that the
+  article was ever unlisted.
+- **The assets stay publicly fetchable.** `copy-assets.ts` copies `*/assets/*`
+  for every article off the filesystem with no frontmatter check, and has to —
+  the unlisted page's own images come from there. Their paths are as guessable as
+  the article's.
+- **Two readers of the contract now run per build**: the glob loader and the
+  sitemap filter, which re-reads every `index.md` for one key. Trivial at vault
+  scale, and it fails loudly with the file path on an unparseable article, which
+  the build would have failed on anyway a moment later.
+- **Hiding an article is a vault push that commits nothing**, so the vault
+  workflow's deploy dispatch — gated on a commit landing — does not fire. The
+  deploy must be dispatched by hand, exactly as for a deletion. See
+  [operations](../operations.md).
+- Nothing in the extension or the processor changes. An unlisted article is
+  summarized and translated like any other: `validate` and `sweep` are
+  field-agnostic, and the pipeline's `...previous` spread carries the flag
+  through. Both round-trips are now covered by tests, because the failure mode is
+  silent.
+
+## Rejected
+
+- **A slug list in the vault's `config/tiro.yml`.** Survives re-clips, which is
+  the one real advantage, and nothing else: nothing in the article says it is
+  hidden, the slugs are hand-typed and unchecked, and the site would have to
+  start reading vault config to serve one boolean.
+- **`Disallow: /articles/<slug>/` in `robots.txt`.** Publishes the list.
+- **Moving the directory out of `articles/`.** Still the right answer for "don't
+  publish this at all" — and it remains available — but it removes the URL, which
+  is the thing being asked for here.
+- **An auth layer (Cloudflare Access, a Worker gate).** The actual answer for
+  privacy, and a much larger decision: it reverses the fully-public premise the
+  site is built on, and every sanitization and design choice that followed from
+  it. If a genuinely private article is ever needed, that is its own ADR — not a
+  quiet extension of this flag, which is what "unlisted" would otherwise drift
+  into meaning.
+- **Bumping `tiro.schema`.** ADR 0002's rule is for breaking changes. Every
+  existing article validates unchanged, and an absent flag is the old behavior.
