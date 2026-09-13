@@ -1,6 +1,13 @@
 # ADR 0006: Site loads vault content via Astro glob loader from an external directory
 
-Status: accepted (2026-08)
+Status: accepted (2026-08); the **loader** decision is superseded by ADR 0020
+(2026-09) — the site reads the vault from the filesystem rather than through
+Astro's content layer, because that layer measured images the site never used
+and one unmeasurable asset failed every deploy. The rest of this ADR stands:
+`TIRO_VAULT_DIR`, vault images bypassing Astro's image pipeline as plain copies
+under `/vault-assets/<slug>/`, and the guards against a bad vault base.
+
+Original status: accepted (2026-08)
 
 ## Context
 
