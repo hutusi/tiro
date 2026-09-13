@@ -89,14 +89,24 @@ file apps/extension/store/*.png
 Notes that will save you a confused half hour:
 
 - `--window-size` is the crop, not a scale, and the right height is a
-  measurement, not a constant. 678 is the card (581) plus the body's 48px of
-  paper above and below; too small silently shaves the card's bottom corner off
-  rather than scaling it down. **Re-measure whenever the options page changes
-  height** — in the served dev build, `.card`'s `getBoundingClientRect()` plus
-  twice the body padding. The number has been wrong twice now: 500 cropped the
-  buttons away after the redesign, and 600 outlived the margins fix that
-  followed it, because these images are only re-rendered when someone
-  remembers to.
+  measurement, not a constant. Too small silently shaves the card's bottom
+  corner off rather than scaling the card down, so **round up**: the card is
+  581.4px tall, and 48 + 581.4 + 48 = 677.4 rounds to the **678** used above.
+  Card heights are fractional — do not round the parts before adding them, or
+  you get 677 and lose a pixel of the card.
+
+  **Re-measure whenever the options page changes height.** In the served dev
+  build:
+
+  ```js
+  const r = document.querySelector(".card").getBoundingClientRect();
+  const cs = getComputedStyle(document.body);
+  Math.ceil(parseFloat(cs.paddingTop) + r.height + parseFloat(cs.paddingBottom));
+  ```
+
+  The number has been wrong twice: 500 cropped the buttons away after the
+  redesign, and 600 outlived the margins fix that followed it, because these
+  images are only re-rendered when someone remembers to.
 - The compositions load Spectral from `../node_modules/@fontsource/spectral/`
   — the same files the popup ships — so they need `bun install` to have run.
   Their palette is the site's (ADR 0014): cream `#f4efe4`, oxblood `#8f2f2f`,
