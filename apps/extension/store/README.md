@@ -59,7 +59,7 @@ trap 'pkill -f "http.server 4322"' EXIT
 until curl -sf -o /dev/null http://127.0.0.1:4322/src/options/options.html; do sleep 0.2; done
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=2 --window-size=560,677 \
+  --force-device-scale-factor=2 --window-size=560,678 \
   --screenshot="apps/extension/store/options-ui.png" \
   "http://127.0.0.1:4322/src/options/options.html?preview"
 
@@ -82,14 +82,14 @@ Confirm the sizes afterwards — the store rejects anything off by a pixel:
 ```sh
 file apps/extension/store/*.png
 # expect 1280x800 (screenshot) and 440x280 (promo tile) — the store uploads.
-# options-ui.png is 1120x1354: the 2x intermediate capture the screenshot
+# options-ui.png is 1120x1356: the 2x intermediate capture the screenshot
 # composition embeds, never uploaded itself.
 ```
 
 Notes that will save you a confused half hour:
 
 - `--window-size` is the crop, not a scale, and the right height is a
-  measurement, not a constant. 677 is the card (581) plus the body's 48px of
+  measurement, not a constant. 678 is the card (581) plus the body's 48px of
   paper above and below; too small silently shaves the card's bottom corner off
   rather than scaling it down. **Re-measure whenever the options page changes
   height** — in the served dev build, `.card`'s `getBoundingClientRect()` plus
