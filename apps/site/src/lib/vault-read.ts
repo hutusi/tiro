@@ -66,15 +66,14 @@ function vaultSignature(articlesDir: string): string {
  */
 export function readVault(): VaultEntry[] {
   const articlesDir = join(vaultDir(), "articles");
-  if (cache !== null) {
-    if (!REVALIDATE) return cache;
-    const signature = vaultSignature(articlesDir);
+  let signature: string | null = null;
+  if (REVALIDATE) {
+    signature = vaultSignature(articlesDir);
     // Returning the *same array reference* is what lets callers memoize off it
     // without repeating this check — see `getAllArticles`.
-    if (signature === cacheSignature) return cache;
-    cacheSignature = signature;
-  } else if (REVALIDATE) {
-    cacheSignature = vaultSignature(articlesDir);
+    if (cache !== null && signature === cacheSignature) return cache;
+  } else if (cache !== null) {
+    return cache;
   }
   const entries: VaultEntry[] = [];
 
@@ -104,6 +103,11 @@ export function readVault(): VaultEntry[] {
     });
   }
 
+  // Committed only now. Storing it above would mean that a read which threw
+  // still recorded the broken vault as "seen": the next read would match the
+  // signature and hand back the pre-edit articles, so a malformed article would
+  // report itself once and then serve stale content as though it were fixed.
+  cacheSignature = signature;
   cache = entries;
   return entries;
 }

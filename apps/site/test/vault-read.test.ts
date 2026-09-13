@@ -119,4 +119,39 @@ describe("readVault", () => {
   test("returns the same array while the vault is unchanged", () => {
     expect(readVault()).toBe(readVault());
   });
+
+  // The signature must be committed only after a read succeeds. Recording a
+  // broken vault as "seen" would let the next read match it and hand back the
+  // pre-edit articles — a malformed article reporting itself once, then
+  // serving stale content as though it had been fixed.
+  test("keeps throwing while an article stays malformed", () => {
+    const dir = makeVault({ a: { index: VALID } });
+    try {
+      withVault(dir, () => {
+        expect(readVault()).toHaveLength(1);
+        writeFileSync(
+          join(dir, "articles/a/index.md"),
+          "---\nurl: 42\n---\n\nBroken.\n",
+        );
+        expect(() => readVault()).toThrow(/a.index\.md/);
+        // The bug: this second call used to return the stale entry silently.
+        expect(() => readVault()).toThrow(/a.index\.md/);
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("picks a repair back up", () => {
+    const dir = makeVault({ a: { index: "---\nurl: 42\n---\n\nBroken.\n" } });
+    try {
+      withVault(dir, () => {
+        expect(() => readVault()).toThrow();
+        writeFileSync(join(dir, "articles/a/index.md"), VALID);
+        expect(readVault()).toHaveLength(1);
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

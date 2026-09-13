@@ -25,6 +25,7 @@ let listedCache: Article[] | null = null;
  * identity is the whole staleness check — in dev it is what makes an edit show
  * up, and in a build it is a pointer compare. */
 let cacheSource: unknown = null;
+let shortLinkCache: ShortLinks | null = null;
 
 /** Every article, unlisted ones included, newest first, validated through the
  * shared contract and joined with their translations. Throws (failing the
@@ -39,7 +40,11 @@ export async function getAllArticles(): Promise<Article[]> {
   const entries = readVault();
   if (cache !== null && cacheSource === entries) return cache;
   cacheSource = entries;
+  // Every cache derived from the articles, not just the listed one. Missing
+  // shortLinkCache here meant a dev edit rebuilt the articles while `/s/<id>/`
+  // kept mapping the slugs from before it.
   listedCache = null;
+  shortLinkCache = null;
 
   const articles = entries.map((entry): Article => {
     // Flat layout, so a slug is one path segment. A nested directory would be
@@ -103,8 +108,6 @@ export async function getArticles(): Promise<Article[]> {
 export function articleUrl(article: Article): string {
   return `/articles/${article.slug}/`;
 }
-
-let shortLinkCache: ShortLinks | null = null;
 
 /**
  * The site's short links, over every article — unlisted ones included. An
