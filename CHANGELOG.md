@@ -41,6 +41,22 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **One measure for the whole page.** The header's inner bar was the only
+  full-bleed element on the site — `main` and the footer already centred
+  themselves — so the footer lined up with the content and the header did not.
+  At 1920px the article text started at x=293 while the toolbar's 返回 sat at
+  x=40, and on Settings the gap was 592px. Every band now takes its left edge
+  from one token: the header, `main`, the footer, and on an article the reader's
+  toolbar and text, which follow the measure of what is being shown — 800px in
+  中文/原文, the wide measure in 左右对照. The header is no longer a full-width bar
+  anywhere; on the home page the logo moves from x=40 to x=472. On an article it
+  also stops being sticky and the toolbar takes the top, so one bar of chrome
+  sits above the text instead of two (~97px, and 146px at 390px where the
+  toolbar wraps). The view and font controls stay on the article's left edge
+  rather than moving to the middle: once the toolbar shares the text's measure
+  they already sit above the text they act on. ADR 0021, superseding ADR 0014's
+  sticky-toolbar clause.
+
 - **One mark, everywhere.** The favicon, touch icon, social card and the
   extension's toolbar and store icons were an oxblood "T" monogram while the
   site header and footer carried the two-bar mark, so Tiro looked like two
