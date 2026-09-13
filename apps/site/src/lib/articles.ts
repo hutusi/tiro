@@ -1,9 +1,4 @@
-import { getCollection } from "astro:content";
-import {
-  type ArticleFrontmatter,
-  ArticleFrontmatterSchema,
-  tagSlug,
-} from "@tiro/shared";
+import { type ArticleFrontmatter, tagSlug } from "@tiro/shared";
 import {
   buildShortLinks,
   reportShortLinks,
@@ -11,6 +6,7 @@ import {
 } from "./short-links.ts";
 import { groupByTerm, type TermGroup } from "./terms.ts";
 import { usableTranslation } from "./translation.ts";
+import { readVault } from "./vault-read.ts";
 import { isUnlisted } from "./visibility.ts";
 
 export interface Article {
@@ -24,6 +20,11 @@ export interface Article {
 
 let cache: Article[] | null = null;
 let listedCache: Article[] | null = null;
+/** The vault read these caches were built from. `readVault` hands back the same
+ * array while the vault is unchanged and a new one after an edit, so comparing
+ * identity is the whole staleness check — in dev it is what makes an edit show
+ * up, and in a build it is a pointer compare. */
+let cacheSource: unknown = null;
 
 /** Every article, unlisted ones included, newest first, validated through the
  * shared contract and joined with their translations. Throws (failing the
@@ -35,24 +36,23 @@ let listedCache: Article[] | null = null;
  * unlisted article, since being reachable at its URL is the whole point of the
  * flag. Everything that *lists* articles wants `getArticles()` below. */
 export async function getAllArticles(): Promise<Article[]> {
-  if (cache !== null) return cache;
-  const [entries, translations] = await Promise.all([
-    getCollection("articles"),
-    getCollection("translations"),
-  ]);
-  const zhById = new Map(translations.map((t) => [t.id, t.body ?? ""]));
+  const entries = readVault();
+  if (cache !== null && cacheSource === entries) return cache;
+  cacheSource = entries;
+  listedCache = null;
 
   const articles = entries.map((entry): Article => {
-    const frontmatter = ArticleFrontmatterSchema.parse(entry.data);
-    if (entry.id.includes("/")) {
-      throw new Error(`unexpected article id: ${entry.id}`);
+    // Flat layout, so a slug is one path segment. A nested directory would be
+    // a layout migration that never happened (ADR 0007).
+    if (entry.slug.includes("/")) {
+      throw new Error(`unexpected article id: ${entry.slug}`);
     }
     return {
-      id: entry.id,
-      slug: entry.id,
-      frontmatter,
-      body: entry.body ?? "",
-      zhBody: usableTranslation(frontmatter, zhById.get(entry.id) ?? null),
+      id: entry.slug,
+      slug: entry.slug,
+      frontmatter: entry.frontmatter,
+      body: entry.body,
+      zhBody: usableTranslation(entry.frontmatter, entry.zhBody),
     };
   });
 

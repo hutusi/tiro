@@ -1,50 +1,32 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parseArticle } from "@tiro/shared";
-import { vaultDir } from "./vault.ts";
+import { readVault } from "./vault-read.ts";
 import { isUnlisted } from "./visibility.ts";
 
 let cache: Set<string> | null = null;
+let cacheSource: unknown = null;
 
 /**
- * The slugs of every unlisted article, read straight off the vault.
+ * The slugs of every unlisted article.
  *
- * The sitemap needs this and cannot get it the way the rest of the site does:
- * `@astrojs/sitemap` is configured in `astro.config.mjs`, which is evaluated
- * before the content layer exists, and its `filter` is synchronous. So this
- * reads the files itself — with the shared `parseArticle`, not a hand-rolled
- * YAML pass, so "what counts as unlisted" has exactly one definition.
+ * Reads through `readVault`, the site's one reader of the vault (ADR 0020).
+ * This used to walk the vault itself, because `@astrojs/sitemap` is configured
+ * in `astro.config.mjs` — evaluated before Astro's content layer exists — and
+ * its `filter` is synchronous, so the content layer was unreachable from here.
+ * Now that nothing loads the vault through that layer, there is one reader
+ * again and "what counts as unlisted" has one definition rather than two that
+ * had to be kept in step.
  *
- * Memoized: the filter is called once per built page, and re-reading the whole
- * vault each time would be quadratic in article count for no gain.
- *
- * Throws on an unparseable article, naming the file. The build would fail on
- * it anyway a moment later (`articles.ts` validates every entry through the
- * same schema); failing here with the path is the better error.
+ * Memoized: the filter is called once per built page.
  */
 export function unlistedSlugs(): Set<string> {
-  if (cache !== null) return cache;
-  const articlesDir = join(vaultDir(), "articles");
-  const slugs = new Set<string>();
-  for (const entry of readdirSync(articlesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const indexPath = join(articlesDir, entry.name, "index.md");
-    let text: string;
-    try {
-      text = readFileSync(indexPath, "utf8");
-    } catch {
-      // A directory without an index.md is not an article; the glob loader
-      // ignores it too, so there is nothing here to hide or to publish.
-      continue;
-    }
-    try {
-      if (isUnlisted(parseArticle(text).frontmatter)) slugs.add(entry.name);
-    } catch (error) {
-      throw new Error(`${indexPath}: ${(error as Error).message}`);
-    }
-  }
-  cache = slugs;
-  return slugs;
+  const entries = readVault();
+  if (cache !== null && cacheSource === entries) return cache;
+  cacheSource = entries;
+  cache = new Set(
+    entries
+      .filter((entry) => isUnlisted(entry.frontmatter))
+      .map((entry) => entry.slug),
+  );
+  return cache;
 }
 
 /**

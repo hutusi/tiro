@@ -2,6 +2,7 @@ import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 import { isSitemapEligible } from "./src/lib/unlisted-slugs.ts";
+import { vaultWatcher } from "./src/lib/vault-watch.ts";
 
 export default defineConfig({
   // The custom domain; the generated *.pages.dev URL also still serves the site.
@@ -18,7 +19,7 @@ export default defineConfig({
   // where it would otherwise be handed to every crawler. The reader also sends
   // `noindex` for one — robots.txt deliberately says nothing, since that file
   // is public and would publish the list being hidden.
-  integrations: [sitemap({ filter: isSitemapEligible })],
+  integrations: [sitemap({ filter: isSitemapEligible }), vaultWatcher()],
   vite: {
     plugins: [tailwindcss()],
   },
