@@ -696,6 +696,42 @@ anything. `bun run --cwd apps/extension package` produces the same zip
 locally; `workflow_dispatch` builds one as a workflow artifact without
 publishing a release.
 
+### Cutting a repo release
+
+The `v*` tags are the repo-level milestone: what the *system* gained, across
+site, processor and clipper together. They are independent of the `ext-v*` line
+— see the note above the oldest `[Unreleased]` link in `CHANGELOG.md` for why
+extension work is filed under the repo release that carries it rather than
+getting its own heading.
+
+Unlike an extension release, **nothing is automated**. No workflow fires on a
+`v*` tag, and the deploy already happened when the commits landed on `main`.
+
+1. Roll `CHANGELOG.md` in a `docs: cut X.Y.0` commit that touches nothing else.
+   Insert `## [X.Y.0] - <date>` directly under `## [Unreleased]`, so everything
+   accumulated there becomes the new section and `[Unreleased]` is left empty.
+   At the foot of the file, repoint `[Unreleased]` to `compare/vX.Y.0...HEAD`
+   and add `[X.Y.0]: …/compare/v<prev>...vX.Y.0`. The edit is four lines; the
+   reasoning for the milestone goes in the commit body, which is the only place
+   it is recorded.
+2. **Cut the extension release first** if this milestone carries clipper work,
+   so the repo release can link to a zip that already exists.
+3. Tag `vX.Y.0` and push it. This triggers nothing.
+4. Create the GitHub Release by hand, titled `Tiro X.Y.0`:
+
+   ```sh
+   gh release create vX.Y.0 --title "Tiro X.Y.0" --notes-file <body>
+   ```
+
+   The body is a short paragraph saying the extension ships separately and
+   linking the matching `ext-v*` release by name and asset, then a `---`, then
+   the new CHANGELOG section verbatim. **No assets** — the clipper zip belongs
+   to its own release, and duplicating it would create two artifacts that can
+   drift.
+
+Verify with `gh release list`: the new `Tiro X.Y.0` should be `Latest`, with its
+`Tiro Clipper` counterpart directly beneath.
+
 ### Chrome Web Store
 
 Published **unlisted**: installable from the link, invisible in search. That
