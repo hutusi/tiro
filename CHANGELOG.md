@@ -31,7 +31,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   of above it. They now sit on the baseline and overshoot upward, the way an
   ascender does. Baseline alignment rather than a nudge, because the header is
   Spectral and the footer is a system sans: their metrics differ enough that any
-  fixed offset would be wrong in one of them.
+  fixed offset would be wrong in one of them. The extension's popup and options
+  page carry the same lockup and had the same 2px sag; both are fixed, so the
+  popup's status label now shares a baseline with the wordmark rather than
+  centring against it.
 
 ### Added
 
