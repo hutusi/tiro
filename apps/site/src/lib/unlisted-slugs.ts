@@ -52,11 +52,19 @@ export function unlistedSlugs(): Set<string> {
  * which hands over absolute URLs like
  * `https://tiro.ainaive.com/articles/<slug>/`.
  *
- * Matches on the path segment rather than a substring: a slug is also a
+ * Two things are kept out. Unlisted articles, which is the point of the flag.
+ * And every `/s/` alias: those exist to redirect, so listing them would offer
+ * a crawler a second address for content that already has a canonical one —
+ * and, worse, would publish an unlisted article's short link in the very file
+ * the flag keeps its long one out of.
+ *
+ * Matches on whole path segments rather than a substring: a slug is also a
  * publisher's own path, so a bare `includes()` would drop a page whose URL
  * merely contained one.
  */
 export function isSitemapEligible(page: string): boolean {
-  const match = new URL(page).pathname.match(/^\/articles\/([^/]+)\/?$/);
+  const { pathname } = new URL(page);
+  if (/^\/s\/[^/]*\/?$/.test(pathname)) return false;
+  const match = pathname.match(/^\/articles\/([^/]+)\/?$/);
   return match === null || !unlistedSlugs().has(match[1] as string);
 }

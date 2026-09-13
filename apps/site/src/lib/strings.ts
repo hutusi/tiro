@@ -33,6 +33,12 @@ export const STRINGS = {
     // list — so it has to say what "unlisted" means, not just name it.
     unlisted: "未公开 · 仅通过链接访问",
   },
+  /** The `/s/<id>` alias pages, which exist only to bounce to an article.
+   * Seen only when the edge redirect did not apply and JavaScript is off. */
+  shortLink: {
+    redirecting: "正在跳转…",
+    open: "直接打开文章",
+  },
   list: { empty: "还没有剪藏任何文章" },
   library: {
     title: "文章",

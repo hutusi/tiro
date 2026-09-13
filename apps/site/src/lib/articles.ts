@@ -4,6 +4,11 @@ import {
   ArticleFrontmatterSchema,
   tagSlug,
 } from "@tiro/shared";
+import {
+  buildShortLinks,
+  reportShortLinks,
+  type ShortLinks,
+} from "./short-links.ts";
 import { groupByTerm, type TermGroup } from "./terms.ts";
 import { usableTranslation } from "./translation.ts";
 import { isUnlisted } from "./visibility.ts";
@@ -97,6 +102,28 @@ export async function getArticles(): Promise<Article[]> {
 
 export function articleUrl(article: Article): string {
   return `/articles/${article.slug}/`;
+}
+
+let shortLinkCache: ShortLinks | null = null;
+
+/**
+ * The site's short links, over every article — unlisted ones included. An
+ * unlisted article is exactly the case a short link is for: its URL *is* the
+ * sharing mechanism, so it is the one that most wants to be short.
+ *
+ * Lives here rather than beside `buildShortLinks` so that module stays a pure
+ * function of a list of slugs, callable without the content layer — which is
+ * what lets the `_redirects` generator reuse it after the build, off a plain
+ * directory listing, instead of restating the rule.
+ */
+export async function shortLinks(): Promise<ShortLinks> {
+  if (shortLinkCache === null) {
+    shortLinkCache = buildShortLinks(
+      (await getAllArticles()).map((article) => article.slug),
+    );
+    reportShortLinks(shortLinkCache);
+  }
+  return shortLinkCache;
 }
 
 export function tagUrl(tag: string): string {

@@ -1,0 +1,67 @@
+---
+import Base from "../../layouts/Base.astro";
+import { articleUrl, getAllArticles, shortLinks } from "../../lib/articles.ts";
+import { STRINGS } from "../../lib/strings.ts";
+
+/**
+ * The short-link aliases. Each is a page whose only job is to send the reader
+ * on to `/articles/<slug>/`.
+ *
+ * Cloudflare serves these as real 301s from the generated `_redirects`
+ * (`scripts/short-redirects.ts`), so in production this HTML is reached only
+ * when that map is missing — a `bun run preview`, a local `dist/`, another
+ * host. It still has to be right: it carries the article's own `og:` tags so a
+ * link-preview scraper that stops here rather than following the redirect
+ * shows the right card, and it names the article as canonical so neither this
+ * page nor the redirect is mistaken for the content's home.
+ */
+export async function getStaticPaths() {
+  const articles = await getAllArticles();
+  const links = await shortLinks();
+  const bySlug = new Map(articles.map((article) => [article.slug, article]));
+  return [...links.bySlug].flatMap(([id, slug]) => {
+    const article = bySlug.get(slug);
+    return article === undefined
+      ? []
+      : [{ params: { hash: id }, props: { article } }];
+  });
+}
+
+const { article } = Astro.props;
+const { frontmatter } = article;
+const target = articleUrl(article);
+const t = STRINGS.shortLink;
+---
+
+<Base
+  title={frontmatter.title}
+  description={frontmatter.summary ?? frontmatter.excerpt}
+  ogType="article"
+  width="narrow"
+  canonicalPath={target}
+  noindex
+>
+  <meta http-equiv="refresh" content={`0; url=${target}`} slot="head" />
+  <p class="redirect">
+    {t.redirecting}
+    <a href={target}>{t.open}</a>
+  </p>
+  <script is:inline define:vars={{ target }}>
+    // Replace rather than assign: the alias must not sit in history between the
+    // page the reader came from and the article, or Back would bounce them
+    // straight forward again.
+    location.replace(target);
+  </script>
+</Base>
+
+<style>
+  .redirect {
+    padding: 48px 0;
+    color: var(--ink-soft);
+    font-family: var(--font-ui);
+    font-size: 14px;
+  }
+  .redirect a {
+    margin-left: 6px;
+  }
+</style>
