@@ -158,7 +158,10 @@ const tagLinks = await Promise.all(
             target="_blank"
             rel="noopener"
             aria-label={`${t.openSource}：${frontmatter.domain}`}
-            >{frontmatter.domain}<span aria-hidden="true">↗</span></a
+            title={frontmatter.domain}
+            ><span class="source-name">{frontmatter.domain}</span><span
+              aria-hidden="true">↗</span
+            ></a
           >
         </div>
       </div>
@@ -383,6 +386,20 @@ const tagLinks = await Promise.all(
   }
   .share .source {
     color: var(--ink-mute);
+  }
+  /* The toolbar is 720px of content at the single-column measure and its
+     controls need nearly all of it, so a long domain pushed the share group
+     onto a second row — 28 of the vault's 102 articles are over 17 characters,
+     which is too many to call an edge case. 16ch is the widest cap that keeps
+     one row for the longest domain in the vault. Short domains, which are most
+     of them, are untouched; the full value stays in `title` and `aria-label`. */
+  .share .source-name {
+    display: inline-block;
+    max-width: 16ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
   }
   .share .source:hover {
     color: var(--ink);
