@@ -99,6 +99,29 @@ export async function slugForUrl(rawUrl: string): Promise<string> {
   return base === "" ? `article-${hash}` : `${base}-${hash}`;
 }
 
+/** The hash part of a slug, as `slugForUrl` appends it. Anchored so a name that
+ * merely *contains* eight hex characters does not pass. */
+const SLUG_HASH_RE = new RegExp(`-([0-9a-f]{${HASH_SUFFIX_LEN}})$`);
+
+/**
+ * The short id of an article: the hash suffix `slugForUrl` already put at the
+ * end of its slug — read back out, never assigned (ADR 0019). That is what
+ * makes `/s/<id>` cost no registry: it is the same pure function of the
+ * normalized URL that named the directory, so nothing has to remember it.
+ *
+ * Returns null for a name that carries no such suffix. Directory names are the
+ * article identity and `validate` is the gate that keeps them derivable, but a
+ * hand-made or half-migrated one must degrade to "no short link" rather than
+ * hand out eight arbitrary characters as if they were a hash.
+ *
+ * Not a stable identifier across rule changes: the hash is taken of the
+ * normalized URL, and `canonicalizeUrl` runs inside `normalizeUrl`, so a
+ * canonicalization change moves the short id along with the readable base.
+ */
+export function shortIdForSlug(slug: string): string | null {
+  return SLUG_HASH_RE.exec(slug)?.[1] ?? null;
+}
+
 /** FNV-1a. Sync, unlike the SHA-256 used for article slugs, because the site
  * calls this once per tag per page render. */
 function shortHash(text: string): string {
