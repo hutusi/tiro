@@ -7,6 +7,16 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **The clipper installs from the Chrome Web Store.** Published unlisted, so the
+  [listing](https://chromewebstore.google.com/detail/tiro-clipper/nafagcbjjhifjekjahhcobhekgokgfbm)
+  link is the only way in and store search will not surface it. That buys
+  auto-updates and a permanent extension ID, which the unpacked install — still
+  the route for an unreleased build — cannot give: its ID is derived from the
+  folder path, and it never updates itself. Installing on a machine that already
+  has an unpacked copy means removing that copy first, or both clip every page.
+
 ## [0.6.0] - 2026-09-13
 
 ### Added

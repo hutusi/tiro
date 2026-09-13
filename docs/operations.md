@@ -458,7 +458,18 @@ Two decisions worth not relitigating:
 
 ### Installing on another computer
 
-No clone or toolchain needed — every `ext-v*` tag publishes a zip.
+Two routes. **The store is the normal one**, because it auto-updates — a machine
+installed that way never quietly drifts a release behind.
+
+1. Open the [listing](https://chromewebstore.google.com/detail/tiro-clipper/nafagcbjjhifjekjahhcobhekgokgfbm)
+   and **Add to Chrome**. The item is unlisted, so the link is the only way in;
+   searching the store will not find it.
+2. Open the extension's Settings and fill in owner, repository, branch, and a
+   PAT, then hit **Test connection**.
+
+**Unpacked** is for a build that is not released yet — a branch under test, or a
+fix wanted on one machine before a version is cut. No clone or toolchain needed:
+every `ext-v*` tag publishes a zip.
 
 1. Download `tiro-clipper-<version>.zip` from the repo's Releases page.
 2. Unzip it into a **permanent** folder (e.g. `~/Applications/tiro-clipper`).
@@ -466,8 +477,11 @@ No clone or toolchain needed — every `ext-v*` tag publishes a zip.
    deleting the folder breaks the install.
 3. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
    pick that folder.
-4. Open the extension's Settings and fill in owner, repository, branch, and a
-   PAT, then hit **Test connection**.
+4. Configure it as above.
+
+**Never both on one machine.** Two installs clip the same page twice, and the
+second write races the first over the same path. Remove the unpacked copy before
+installing from the store.
 
 Two things follow from how the extension stores its config
 (`chrome.storage.local`, see `apps/extension/src/storage.ts`):
@@ -478,9 +492,11 @@ Two things follow from how the extension stores its config
 - **Mint a separate fine-grained PAT per machine** (`tiro-vault`, Contents:
   Read and write) so a lost laptop can be revoked without breaking the other.
 
-An unpacked extension's ID is derived from its folder path, so the ID differs
-per machine. Harmless here: nothing depends on a stable ID (no OAuth redirect,
-no `externally_connectable`).
+An unpacked extension's ID is derived from its folder path, so it differs per
+machine; a store install carries the one permanent ID everywhere. Nothing here
+depends on a stable ID either way — no OAuth redirect, no
+`externally_connectable` — so the difference matters only when reading
+`chrome://extensions` to tell two installs apart.
 
 ### Sweeping the corpus for clip damage
 
@@ -685,6 +701,14 @@ publishing a release.
 Published **unlisted**: installable from the link, invisible in search. That
 buys auto-updates, a stable extension ID, and no Developer-mode banner — worth
 the $5 one-time registration for a tool installed on more than one machine.
+
+- **Listing**: <https://chromewebstore.google.com/detail/tiro-clipper/nafagcbjjhifjekjahhcobhekgokgfbm>
+- **Extension ID**: `nafagcbjjhifjekjahhcobhekgokgfbm`, permanent and assigned by
+  Google. Unrelated to the ID an unpacked install gets.
+
+Copy that link by hand rather than from the dashboard's address bar, which
+appends `?authuser=N` (tied to whichever Google account was signed in) and
+`&hl=…` (pins the page to one language). Neither belongs in a link you keep.
 
 Everything the dashboard asks for is drafted in
 `apps/extension/store/listing.md` (description, single-purpose statement,
