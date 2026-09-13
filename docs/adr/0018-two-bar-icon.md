@@ -1,9 +1,18 @@
 # ADR 0018: One mark — the two bars become the icon
 
-Status: accepted (2026-09). Supersedes the **Marks** paragraph of
-[ADR 0014](0014-later-reader-design.md), which assigned the header one mark and
-the icon another. Nothing else in 0014 changes, and [ADR 0015](0015-extension-popup-design.md)'s
-rule that one script writes both site and extension icons is kept, not reversed.
+Status: accepted (2026-09). Supersedes two records, in the same way and for the
+same reason:
+
+- the **Marks** paragraph of [ADR 0014](0014-later-reader-design.md), which
+  assigned the header one mark and the icon another;
+- two clauses of [ADR 0015](0015-extension-popup-design.md) — the one making the
+  toolbar and store icons the monogram, and the consequence offering "a heavier
+  or larger T" as the remedy if the icon ever read badly at 16px.
+
+Nothing else in either changes. In particular 0015's rule that **one script
+writes both the site's and the extension's icons** is kept, not reversed — it is
+what makes this a single edit rather than two, and what keeps `icon-32.png` and
+`favicon-32.png` byte-identical.
 
 ## Context
 
