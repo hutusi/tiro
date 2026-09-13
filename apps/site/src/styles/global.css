@@ -170,6 +170,13 @@
    * ascenders. Both call sites set `items-baseline` on the parent; this must
    * stay `baseline` or it overrides them, which is how the bug survived the
    * first fix.
+   *
+   * Heights are set against the cap height, not copied from the mockup. The
+   * design's small logo cell runs bars at 1.20x the cap and its large cell at
+   * 1.08x; centring used to hide the difference by splitting the excess above
+   * and below, and once the bars sat on the baseline the small cell's ratio
+   * read top-heavy. These follow the large cell: 16px on a 15.0px cap here,
+   * 10px on 8.83px in the mini. Re-derive them if the wordmark's size changes.
    */
   .logo-bars {
     display: inline-flex;
@@ -179,7 +186,7 @@
   .logo-bars > i {
     display: block;
     width: 5px;
-    height: 18px;
+    height: 16px;
     border-radius: 1px;
     background: var(--ink);
   }
@@ -191,7 +198,7 @@
   }
   .logo-bars--mini > i {
     width: 3px;
-    height: 11px;
+    height: 10px;
     background: var(--ink-mute);
   }
   .logo-bars--mini > i + i {

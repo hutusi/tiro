@@ -77,16 +77,25 @@ body [hidden] {
   outline-offset: 2px;
 }
 
-/* The two-bar wordmark, as on the site. */
+/* The two-bar wordmark, as on the site — including its alignment.
+   Baseline, not center: centering aligns the bars on the wordmark's line box,
+   but Spectral's ascent far exceeds its cap height and "Tiro" has no
+   descenders, so the bars' overshoot past the 12.17px capitals all landed
+   below the baseline (measured: 2px). The bars stand *on* the baseline and
+   overshoot upward, the way an ascender does — 13px, which is the design's
+   large-cell ratio of 1.08x the cap height rather than the 1.20x its small
+   cell uses; on the baseline that one read top-heavy. `.bar` sets `align-items:
+   baseline` to match; both must agree, because align-self here overrides the
+   parent and a lone baseline item has nothing to align against. */
 .logo-bars {
   display: inline-flex;
   gap: 3px;
-  align-self: center;
+  align-self: baseline;
 }
 .logo-bars > i {
   display: block;
   width: 4px;
-  height: 15px;
+  height: 13px;
   border-radius: 1px;
   background: var(--ink);
 }

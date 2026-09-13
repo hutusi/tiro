@@ -2,7 +2,10 @@
 
 Status: accepted (2026-09). Companion to ADR 0014 for `apps/extension`; the
 clipping pipeline, the content contract and the disclosure (see
-`docs/operations.md`, "Data disclosure and the token") are unchanged.
+`docs/operations.md`, "Data disclosure and the token") are unchanged. **The two
+clauses naming the monogram as the toolbar and store icon are superseded by
+[ADR 0018](0018-two-bar-icon.md)**, marked below; everything else stands,
+including the rule that one script writes both marks.
 
 ## Context
 
@@ -25,6 +28,13 @@ with Spectral and JetBrains Mono bundled from the same `@fontsource` packages
 the site uses (same-origin assets, no CSP change, ~100 KB in the zip). The
 toolbar and store icons become the monogram, written by the site's brand
 script (`apps/site/scripts/brand.ts`) so the two marks cannot drift.
+
+> **Partly superseded by [ADR 0018](0018-two-bar-icon.md).** The icons are the
+> two-bar tile now, not the monogram — the popup's two-bar wordmark and the
+> toolbar icon are finally the same mark, which is what this paragraph was
+> reaching for. The rest holds and is load-bearing: one script still writes both
+> the site's and the extension's icons, and `icon-32.png` and `favicon-32.png`
+> remain byte-identical.
 
 **Frames onto states.** Each popup state maps to a frame: a short header
 label beside the wordmark (Reading…, Ready, Saved ✓, Saved Sep 2, Failed) and
@@ -72,5 +82,11 @@ branch and the fixtures module.
 - The 16 px toolbar icon is a letterform in a filled square. It reads at that
   size; if it ever does not, the remedy is a heavier or larger T in the brand
   script, recorded in `apps/extension/icons/README.md`.
+
+  > **Superseded by [ADR 0018](0018-two-bar-icon.md).** There is no letterform
+  > any more, so there is no heavier T to reach for; `apps/extension/icons/README.md`
+  > now says the opposite. Two bars survive 16 px on their own — what this mark
+  > can lose is its *ground*, since the tile is cream rather than oxblood, and
+  > the remedy there is a darker tile or a hairline border.
 - Reading time moved to `@tiro/shared` so the popup and the site cannot
   disagree about it.

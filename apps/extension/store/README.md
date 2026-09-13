@@ -59,7 +59,7 @@ trap 'pkill -f "http.server 4322"' EXIT
 until curl -sf -o /dev/null http://127.0.0.1:4322/src/options/options.html; do sleep 0.2; done
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=2 --window-size=560,600 \
+  --force-device-scale-factor=2 --window-size=560,678 \
   --screenshot="apps/extension/store/options-ui.png" \
   "http://127.0.0.1:4322/src/options/options.html?preview"
 
@@ -82,15 +82,31 @@ Confirm the sizes afterwards — the store rejects anything off by a pixel:
 ```sh
 file apps/extension/store/*.png
 # expect 1280x800 (screenshot) and 440x280 (promo tile) — the store uploads.
-# options-ui.png is 1120x1200: the 2x intermediate capture the screenshot
+# options-ui.png is 1120x1356: the 2x intermediate capture the screenshot
 # composition embeds, never uploaded itself.
 ```
 
 Notes that will save you a confused half hour:
 
-- `--window-size` is the crop, not a scale. 600 fits the settings card with
-  its paper margin above and below; the card grew with the redesign, so an
-  older 500 crops the buttons away.
+- `--window-size` is the crop, not a scale, and the right height is a
+  measurement, not a constant. Too small silently shaves the card's bottom
+  corner off rather than scaling the card down, so **round up**: the card is
+  581.4px tall, and 48 + 581.4 + 48 = 677.4 rounds to the **678** used above.
+  Card heights are fractional — do not round the parts before adding them, or
+  you get 677 and lose a pixel of the card.
+
+  **Re-measure whenever the options page changes height.** In the served dev
+  build:
+
+  ```js
+  const r = document.querySelector(".card").getBoundingClientRect();
+  const cs = getComputedStyle(document.body);
+  Math.ceil(parseFloat(cs.paddingTop) + r.height + parseFloat(cs.paddingBottom));
+  ```
+
+  The number has been wrong twice: 500 cropped the buttons away after the
+  redesign, and 600 outlived the margins fix that followed it, because these
+  images are only re-rendered when someone remembers to.
 - The compositions load Spectral from `../node_modules/@fontsource/spectral/`
   — the same files the popup ships — so they need `bun install` to have run.
   Their palette is the site's (ADR 0014): cream `#f4efe4`, oxblood `#8f2f2f`,

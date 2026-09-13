@@ -3,10 +3,15 @@
  * Regenerate the site's brand assets — run `bun run brand` in apps/site after
  * changing the mark. brand/README.md says what each file is for.
  *
- * The mark is the oxblood monogram of ADR 0014: a rounded square carrying
- * Spectral's "T". The glyph is outlined from the webfont into a <path>, so
- * favicon.svg needs no font at render time (browsers draw SVG favicons
- * without webfonts, and a system-serif fallback would change the letter).
+ * The mark is the two-bar tile of ADR 0018 — a cream rounded square carrying
+ * an ink bar and an oxblood bar, the same pair the site header sets beside the
+ * wordmark. It supersedes the oxblood "T" monogram of ADR 0014.
+ *
+ * Spectral is still parsed here, but only for the social card's wordmark: it
+ * is outlined from the webfont into a <path> because these files are drawn
+ * without webfonts, and a system-serif fallback would change the letterforms.
+ * The mark itself is rectangles and needs no font.
+ *
  * The rasters come from headless Chrome, the one renderer this repo already
  * relies on for icons (apps/extension/icons/README.md explains the wrapper
  * trick: sizing an <img> in CSS is what makes viewport and drawing agree).
@@ -43,29 +48,33 @@ const spectral = parse(
   woff.buffer.slice(woff.byteOffset, woff.byteOffset + woff.byteLength),
 );
 
-/** Outline `text` at `size`px, its bounding box centred in a `box`px square
- * and nudged up by `lift`px — the design sets the T with 4px of bottom
- * padding, which reads as optically centred. */
-function centred(
-  text: string,
-  size: number,
-  box: number,
-  lift: number,
-): string {
-  const probe = spectral.getPath(text, 0, 0, size).getBoundingBox();
-  const dx = (box - (probe.x2 - probe.x1)) / 2 - probe.x1;
-  const dy = (box - (probe.y2 - probe.y1)) / 2 - probe.y1 - lift;
-  return spectral.getPath(text, dx, dy, size).toPathData(2);
-}
+/** The design's tile radius on the 64-unit canvas. The same proportion the
+ * oxblood badge used at 16/72, so the silhouette in a tab strip is unchanged. */
+const TILE_RADIUS = 14;
 
-/** The monogram on a 72-unit canvas; `radius` 16 is the design's badge,
- * 0 the full-bleed square iOS wants (it applies its own corner mask). */
-function monogram(radius: number): string {
+/**
+ * The two-bar mark on a 64-unit canvas — the design project's own
+ * `favicon.svg`, copied rather than re-derived: bars 12 wide and 36 tall, 8
+ * apart, centred both ways (16 of margin to either side, 14 above and below).
+ *
+ * `radius` is `TILE_RADIUS` for the badge and 0 for the full-bleed square iOS
+ * wants — it applies its own corner mask, and transparent corners would come
+ * out black.
+ *
+ * This replaces the oxblood "T" monogram (ADR 0018). Two things that mattered
+ * for the monogram no longer apply: the glyph had to be outlined from Spectral
+ * with opentype.js because browsers draw SVG favicons without webfonts, and it
+ * needed a 2px optical lift to sit right in the square. Rectangles need
+ * neither, which is why `centred()` and `monogram()` are gone — `git log` has
+ * them if the reasoning is ever wanted.
+ */
+function barsTile(radius: number): string {
   return [
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="72" height="72">',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">',
     "  <title>Tiro</title>",
-    `  <rect width="72" height="72" rx="${radius}" fill="${OXBLOOD}"/>`,
-    `  <path fill="${CREAM}" d="${centred("T", 46, 72, 2)}"/>`,
+    `  <rect width="64" height="64" rx="${radius}" fill="${CREAM}"/>`,
+    `  <rect x="16" y="14" width="12" height="36" rx="2.5" fill="${INK}"/>`,
+    `  <rect x="36" y="14" width="12" height="36" rx="2.5" fill="${OXBLOOD}"/>`,
     "</svg>",
     "",
   ].join("\n");
@@ -75,35 +84,46 @@ function monogram(radius: number): string {
  * Spectral, and the tagline in the system CJK sans (rendered by Chrome, so it
  * needs macOS for PingFang SC — the same constraint the old og.png had). */
 function socialCard(): string {
-  const mark = 160;
   const gap = 28;
   const wordSize = 96;
   const tagSize = 34;
-  const word = spectral.getPath("Tiro", 0, 0, wordSize, {
-    letterSpacing: -0.015,
-  });
-  const box = word.getBoundingBox();
+
+  // The card's paper is CREAM, so the tile the favicon uses would be invisible
+  // here — this draws the *inline* lockup instead, which is the same one the
+  // site header and footer carry. Proportions are the design's large logo cell:
+  // 10x40 bars, 6 apart, 14 clear of a 52px wordmark.
+  const barW = Math.round(wordSize * (10 / 52));
+  const barH = Math.round(wordSize * (40 / 52));
+  const barGap = Math.round(wordSize * (6 / 52));
+  const lockGap = Math.round(wordSize * (14 / 52));
+  const barsW = barW * 2 + barGap;
+
+  const box = spectral
+    .getPath("Tiro", 0, 0, wordSize, { letterSpacing: -0.015 })
+    .getBoundingBox();
+  const wordW = box.x2 - box.x1;
   const wordH = box.y2 - box.y1;
-  const total = mark + gap + wordH + gap + tagSize;
+
+  // Bars and wordmark share a baseline, the way they do in the header; the
+  // lockup is as tall as whichever reaches higher above it.
+  const lockH = Math.max(barH, wordH);
+  const total = lockH + gap + tagSize;
   const top = (630 - total) / 2;
-  const wordTop = top + mark + gap;
+  const baseline = top + lockH;
+  const lockLeft = 600 - (barsW + lockGap + wordW) / 2;
+
   const wordPath = spectral
-    .getPath(
-      "Tiro",
-      600 - (box.x2 - box.x1) / 2 - box.x1,
-      wordTop - box.y1,
-      wordSize,
-      { letterSpacing: -0.015 },
-    )
+    .getPath("Tiro", lockLeft + barsW + lockGap - box.x1, baseline, wordSize, {
+      letterSpacing: -0.015,
+    })
     .toPathData(2);
-  const tagBaseline = wordTop + wordH + gap + tagSize * 0.85;
+  const tagBaseline = baseline + gap + tagSize * 0.85;
+  const barR = barW * 0.2;
   return [
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">',
     `  <rect width="1200" height="630" fill="${CREAM}"/>`,
-    `  <svg x="${600 - mark / 2}" y="${top}" width="${mark}" height="${mark}" viewBox="0 0 72 72">`,
-    `    <rect width="72" height="72" rx="16" fill="${OXBLOOD}"/>`,
-    `    <path fill="${CREAM}" d="${centred("T", 46, 72, 2)}"/>`,
-    "  </svg>",
+    `  <rect x="${lockLeft}" y="${baseline - barH}" width="${barW}" height="${barH}" rx="${barR}" fill="${INK}"/>`,
+    `  <rect x="${lockLeft + barW + barGap}" y="${baseline - barH}" width="${barW}" height="${barH}" rx="${barR}" fill="${OXBLOOD}"/>`,
     `  <path fill="${INK}" d="${wordPath}"/>`,
     `  <text x="600" y="${tagBaseline}" text-anchor="middle" font-family="-apple-system, 'PingFang SC', 'Hiragino Sans GB', sans-serif" font-size="${tagSize}" fill="${INK_SOFT}">个人稍后读知识库</text>`,
     "</svg>",
@@ -159,9 +179,9 @@ function rasterize(
   return out;
 }
 
-writeFileSync(join(publicDir, "favicon.svg"), monogram(16));
+writeFileSync(join(publicDir, "favicon.svg"), barsTile(TILE_RADIUS));
 const favicon32 = rasterize(
-  monogram(16),
+  barsTile(TILE_RADIUS),
   join(publicDir, "favicon-32.png"),
   32,
   32,
@@ -169,7 +189,7 @@ const favicon32 = rasterize(
 // PNG bytes behind the .ico path: every current browser accepts that, and it
 // spares the repo an ico toolchain for the one path browsers request blindly.
 copyFileSync(favicon32, join(publicDir, "favicon.ico"));
-rasterize(monogram(0), join(publicDir, "apple-touch-icon.png"), 180, 180);
+rasterize(barsTile(0), join(publicDir, "apple-touch-icon.png"), 180, 180);
 rasterize(socialCard(), join(publicDir, "og.png"), 1200, 630);
 
 // The extension's toolbar and store icons are the same mark, written from
@@ -179,18 +199,21 @@ rasterize(socialCard(), join(publicDir, "og.png"), 1200, 630);
 const extension = resolve(site, "../extension");
 writeFileSync(
   join(extension, "icons/icon.svg"),
-  monogram(16).replace("<title>Tiro</title>", "<title>Tiro Clipper</title>"),
+  barsTile(TILE_RADIUS).replace(
+    "<title>Tiro</title>",
+    "<title>Tiro Clipper</title>",
+  ),
 );
 for (const size of [16, 32, 48]) {
   rasterize(
-    monogram(16),
+    barsTile(TILE_RADIUS),
     join(extension, `public/icons/icon-${size}.png`),
     size,
     size,
   );
 }
 rasterize(
-  monogram(16),
+  barsTile(TILE_RADIUS),
   join(extension, "public/icons/icon-128.png"),
   128,
   128,
