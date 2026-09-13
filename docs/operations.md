@@ -273,14 +273,16 @@ devDependencies — the action must log "using pre-installed wrangler".
     hides an article from anyone browsing, not from anyone looking. The same
     goes for its short link, which is part of the slug it already had.
 - **Short links** (ADR 0019): every article also answers at
-  `/s/<id>/`, where `<id>` is the 8-hex suffix of its slug. Both that form and
-  the slash-less one land on the article; only the form with the slash — the one
-  the share button copies — is a single hop.
-  `apps/site/scripts/short-redirects.ts` writes one `_redirects` rule per
-  article during the build so Cloudflare serves a real 301, and the prerendered
-  `/s/<id>/` page redirects on its own wherever that map is not in play. Nothing
-  is stored: the id is recomputed from the directory names on every build, so
-  there is no map to keep in step and nothing to migrate.
+  `/s/<id>/`, where `<id>` is the 8-hex suffix of its slug — a name `validate`
+  accepts always ends in one, so the only article without a short link is one
+  that lost it to a collision (below). Both that form and the slash-less one
+  land on the article; only the form with the slash — the one the share button
+  copies — is a single hop. `apps/site/scripts/short-redirects.ts` writes one
+  `_redirects` rule per article *that has an id* during the build so Cloudflare
+  serves a real 301, and the prerendered `/s/<id>/` page redirects on its own
+  wherever that map is not in play. Nothing is stored: the id is recomputed from
+  the directory names on every build, so there is no map to keep in step and
+  nothing to migrate.
   - The generated map lives only in `dist/`. **Never commit it** — a file
     pairing every id with every slug enumerates the vault, which is what keeps
     unlisted slugs out of `robots.txt` in the first place.
