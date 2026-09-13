@@ -4,10 +4,13 @@ import FontSteps from "../../components/FontSteps.astro";
 import Base from "../../layouts/Base.astro";
 import { articleMeta } from "../../lib/article-meta.ts";
 import {
+  articleUrl,
   categoryPageUrl,
   getAllArticles,
+  shortLinks,
   tagPageUrl,
 } from "../../lib/articles.ts";
+import { shortPathForSlug } from "../../lib/short-links.ts";
 import { buildReaderView } from "../../lib/reader.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 import { isUnlisted } from "../../lib/visibility.ts";
@@ -48,6 +51,16 @@ const blocks =
       : view.blocks
     : [];
 const hasZhTitle = meta.titleZh !== null;
+// Absolute, and against Astro.site rather than the dev origin: what this hands
+// someone has to work away from the machine that copied it. Falls back to the
+// long URL for an article with no short id — offering a link that does not
+// resolve would be worse than offering a long one that does.
+const shareUrl = new URL(
+  shortPathForSlug(await shortLinks(), article.slug) ?? articleUrl(article),
+  Astro.site,
+).href;
+// The title someone reading this site would recognise.
+const shareTitle = meta.titleZh ?? frontmatter.title;
 const date = dateLabel(frontmatter.clipped_at);
 // An unlisted article drops the `data-pagefind-body` that would otherwise put
 // it in the search index. That alone is not enough: Pagefind restricts indexing
@@ -118,6 +131,30 @@ const tagLinks = await Promise.all(
       }
       <span class="divider" aria-hidden="true"></span>
       <FontSteps />
+      <div
+        class="share"
+        data-share-url={shareUrl}
+        data-share-title={shareTitle}
+      >
+        <button type="button" class="chip" data-share hidden>{t.share}</button>
+        <button
+          type="button"
+          class="chip"
+          data-copy
+          data-idle={t.copyLink}
+          data-done={t.copied}
+          data-failed={t.copyFailed}
+          aria-live="polite">{t.copyLink}</button
+        >
+        <a
+          class="chip source"
+          href={frontmatter.url}
+          target="_blank"
+          rel="noopener"
+          aria-label={`${t.openSource}：${frontmatter.domain}`}
+          >{frontmatter.domain}<span aria-hidden="true">↗</span></a
+        >
+      </div>
     </div>
 
     <header class="head">
@@ -325,6 +362,25 @@ const tagLinks = await Promise.all(
     width: 1px;
     height: 18px;
     background: var(--rule);
+  }
+  /* The toolbar is left-packed; this group is the only thing that sits right.
+     It wraps onto its own line on a narrow screen, where `auto` collapses. */
+  .share {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  /* `.chip` is `display: inline-flex`, which beats the `hidden` attribute — the
+     share button would show on every desktop without this. */
+  .share .chip[hidden] {
+    display: none;
+  }
+  .share .source {
+    color: var(--ink-mute);
+  }
+  .share .source:hover {
+    color: var(--ink);
   }
   /* One reading measure for everything below the toolbar: `--w-reader` for a
      single column (800px — about 78 Latin or 40 Chinese characters at the
@@ -632,6 +688,71 @@ const tagLinks = await Promise.all(
         );
       document.addEventListener("tiro:prefs", sync);
       sync();
+    }
+  }
+</script>
+
+<script is:inline>
+  {
+    // Share controls. Progressive enhancement in both directions: 分享 is
+    // rendered hidden and only revealed where a share sheet exists (most
+    // desktop browsers have none, and a button that does nothing is worse than
+    // no button), and 复制链接 falls back to a throwaway <textarea> where the
+    // async clipboard is unavailable.
+    const group = document.querySelector(".share:not([data-bound])");
+    if (group !== null) {
+      group.dataset.bound = "";
+      const url = group.dataset.shareUrl;
+      const title = group.dataset.shareTitle;
+
+      const copyBtn = group.querySelector("[data-copy]");
+      let restore;
+      const flash = (text) => {
+        copyBtn.textContent = text;
+        clearTimeout(restore);
+        restore = setTimeout(() => {
+          copyBtn.textContent = copyBtn.dataset.idle;
+        }, 1500);
+      };
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          flash(copyBtn.dataset.done);
+          return;
+        } catch {
+          // Falls through: no async clipboard, or permission refused.
+        }
+        const area = document.createElement("textarea");
+        area.value = url;
+        area.setAttribute("readonly", "");
+        // Off-screen rather than hidden: a display:none field cannot be
+        // selected, and scrolling the page would move what the reader is
+        // looking at.
+        area.style.cssText = "position:fixed;top:-9999px;opacity:0";
+        document.body.append(area);
+        area.select();
+        let copied = false;
+        try {
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        }
+        area.remove();
+        flash(copied ? copyBtn.dataset.done : copyBtn.dataset.failed);
+      });
+
+      const shareBtn = group.querySelector("[data-share]");
+      if (typeof navigator.share === "function") {
+        shareBtn.hidden = false;
+        shareBtn.addEventListener("click", async () => {
+          try {
+            await navigator.share({ title, url });
+          } catch {
+            // Dismissing the sheet rejects. That is the reader deciding not to
+            // share, not a failure to report back to them.
+          }
+        });
+      }
     }
   }
 </script>
