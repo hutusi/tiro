@@ -20,3 +20,9 @@ tiro:
 信息过载不是新问题，但大语言模型第一次让"稍后读"变成了"真的会读"。剪藏、摘要、翻译、检索，每一步都可以自动化。
 
 真正稀缺的不是信息，而是把信息变成理解的过程。工具能做的，是把机械的部分接管过去，把判断留给人。
+
+<!-- A view-counter pixel, the shape that used to fail the build: an SVG with
+no width, height or viewBox, which Astro's image pipeline cannot measure. The
+site must serve it as a plain copy and carry on (ADR 0020). -->
+
+![](./assets/view-proxy.svg)
