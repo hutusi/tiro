@@ -160,10 +160,21 @@
  * these (Tailwind's utilities layer comes last), so a page can nudge them.
  */
 @layer components {
+  /*
+   * Baseline, not center. Centering aligns the bars on the wordmark's *line
+   * box*, but Spectral's ascent (~0.80em) far exceeds its cap height (~0.71em)
+   * and "Tiro" has no descenders, so the visible letters sit well below that
+   * box's middle — every pixel by which the bars overshoot the caps ended up
+   * hanging below the baseline (2.75px in the header, 1px in the footer). The
+   * bars are meant to stand *on* the baseline and overshoot upward, like
+   * ascenders. Both call sites set `items-baseline` on the parent; this must
+   * stay `baseline` or it overrides them, which is how the bug survived the
+   * first fix.
+   */
   .logo-bars {
     display: inline-flex;
     gap: 3px;
-    align-self: center;
+    align-self: baseline;
   }
   .logo-bars > i {
     display: block;
