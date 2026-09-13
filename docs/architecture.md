@@ -155,6 +155,13 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   from when that is not the article's own — for arXiv, the versioned HTML page.
   Changing a rule renames existing articles: `validate` detects it,
   `sweep --recanonicalize` repairs it.
+- **Short links are derived, not assigned** (ADR 0019). `/s/<id>` redirects to
+  `/articles/<slug>/`, where `<id>` is the slug's own 8-hex suffix read back
+  out — so there is no registry, nothing in the vault knows short links exist,
+  and any component that can compute a slug can compute the link. The long URL
+  stays canonical; the aliases carry `noindex` and are filtered out of the
+  sitemap. Two articles deriving one id lose it both, rather than one of them
+  being reassigned something a later rebuild could resolve differently.
 - **Needs processing** = frontmatter lacks `tiro.processed_at`. Idempotent and
   retry-safe; no dependence on push diffs. Every translated article keeps a
   `.tiro-zh-cache.json` checkpoint beside it: an article too long for one run
