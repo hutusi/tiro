@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildShortLinks,
+  redirectRules,
   shortLinkPath,
   shortPathForSlug,
 } from "../src/lib/short-links.ts";
@@ -67,5 +68,37 @@ describe("buildShortLinks", () => {
 describe("shortLinkPath", () => {
   test("is /s/<id>/, matching the route", () => {
     expect(shortLinkPath("e8446b12")).toBe("/s/e8446b12/");
+  });
+});
+
+describe("redirectRules", () => {
+  test("emits one rule per article, pointing at the long path", () => {
+    expect(redirectRules(buildShortLinks([HELLO, TIMES]))).toEqual([
+      `/s/0d21367e/  /articles/${TIMES}/  301`,
+      `/s/e8446b12/  /articles/${HELLO}/  301`,
+    ]);
+  });
+
+  // The bug this pins: the generator spelled the path itself as `/s/<id>` while
+  // the share button copied `/s/<id>/`. Cloudflare matches those literally, so
+  // every shared link fell through to the 200 fallback page instead of the 301.
+  test("the rule's source is exactly what the share button copies", () => {
+    const links = buildShortLinks([HELLO, TIMES, UNLISTED]);
+    const sources = redirectRules(links).map((rule) => rule.split(/\s+/)[0]);
+    const shared = [...links.byId.values()].map(shortLinkPath).sort();
+    expect(sources.sort()).toEqual(shared);
+  });
+
+  test("is sorted, so an unchanged vault rebuilds byte-identically", () => {
+    const slugs = [HELLO, TIMES, UNLISTED];
+    expect(redirectRules(buildShortLinks(slugs))).toEqual(
+      redirectRules(buildShortLinks([...slugs].reverse())),
+    );
+  });
+
+  test("emits nothing for an article that lost its id", () => {
+    const other = `other-com-notes-thing-${"e8446b12"}`;
+    const rules = redirectRules(buildShortLinks([HELLO, other]));
+    expect(rules).toEqual([]);
   });
 });

@@ -102,6 +102,19 @@ link without being told.
   computable by anyone who knows the source URL, as the slug already was — ADR
   0017's "obscurity, not access control" is unchanged, in neither direction.
 
-- Cloudflare Pages caps static redirects at 2,100 rules; one line per article
-  puts that a long way off at 97, and the page fallback keeps working past it
-  for anything the map drops.
+- Cloudflare Pages allows 2,000 *static* redirects plus 100 dynamic ones, a
+  combined 2,100. Every rule here is static — a short id cannot be a
+  placeholder, because only the map knows which slug it belongs to — so 2,000 is
+  the budget and the extra 100 is not ours to spend. One line per article puts
+  that a long way off at 97, the build warns before it is reached, and the page
+  fallback keeps working past it for anything the map drops.
+
+- **The rule carries the trailing slash, and one rule covers both forms.**
+  Cloudflare matches redirect paths literally, so `/s/<id>` and `/s/<id>/` are
+  different rules; the share button copies the latter, so that is the one that
+  must exist. A slash-less request is normalized by Pages with a 308 to the
+  canonical path, which then matches — one extra hop on a URL nothing generates.
+  Registering both forms would halve how many articles fit under the cap to buy
+  that hop back. `shortLinkPath` is the single definition of the path, called by
+  both the share control and the rule generator, because the first version of
+  this spelled it twice and they disagreed.

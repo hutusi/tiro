@@ -18,12 +18,20 @@
  */
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildShortLinks, reportShortLinks } from "../src/lib/short-links.ts";
+import {
+  buildShortLinks,
+  redirectRules,
+  reportShortLinks,
+} from "../src/lib/short-links.ts";
 import { vaultDir } from "../src/lib/vault.ts";
 
-// Cloudflare Pages stops reading a _redirects file past this many rules, so
-// going over would silently drop the tail rather than fail. Well clear at 97.
-const RULE_LIMIT = 2100;
+// Cloudflare Pages allows 2,000 *static* redirects and 100 dynamic ones, for a
+// combined 2,100. Every rule here is static — a short id cannot be expressed as
+// a placeholder, since only the map knows which slug it belongs to — so 2,000 is
+// the budget, and the extra 100 is not ours to spend. Past it the tail is
+// silently ignored rather than rejected, which is why this warns. Well clear at
+// 97 articles.
+const STATIC_RULE_LIMIT = 2000;
 
 const distRedirects = resolve(import.meta.dirname, "../dist/_redirects");
 if (!existsSync(distRedirects)) {
@@ -46,10 +54,7 @@ const slugs = readdirSync(articlesDir, { withFileTypes: true })
 const links = buildShortLinks(slugs);
 reportShortLinks(links);
 
-// Sorted so a rebuild of unchanged content produces an identical file.
-const rules = [...links.bySlug]
-  .sort(([a], [b]) => (a < b ? -1 : 1))
-  .map(([id, slug]) => `/s/${id}  /articles/${slug}/  301`);
+const rules = redirectRules(links);
 
 // Rewrite rather than append, dropping any /s/ rules already there, so running
 // this twice over one build cannot double the map. The hand-written rules from
@@ -62,9 +67,9 @@ while (kept.length > 0 && kept[kept.length - 1]?.trim() === "") kept.pop();
 const ruleCount =
   kept.filter((line) => line.trim() !== "" && !line.trimStart().startsWith("#"))
     .length + rules.length;
-if (ruleCount > RULE_LIMIT) {
+if (ruleCount > STATIC_RULE_LIMIT) {
   console.warn(
-    `short links: ${ruleCount} redirect rules exceeds Cloudflare's ${RULE_LIMIT}; the tail will be ignored at the edge (the /s/ pages still redirect)`,
+    `short links: ${ruleCount} static redirect rules exceeds Cloudflare's ${STATIC_RULE_LIMIT}; the tail will be ignored at the edge (the /s/ pages still redirect, one hop slower)`,
   );
 }
 

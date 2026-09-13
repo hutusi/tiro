@@ -273,7 +273,9 @@ devDependencies — the action must log "using pre-installed wrangler".
     hides an article from anyone browsing, not from anyone looking. The same
     goes for its short link, which is part of the slug it already had.
 - **Short links** (ADR 0019): every article also answers at
-  `/s/<id>`, where `<id>` is the 8-hex suffix of its slug.
+  `/s/<id>/`, where `<id>` is the 8-hex suffix of its slug. Both that form and
+  the slash-less one land on the article; only the form with the slash — the one
+  the share button copies — is a single hop.
   `apps/site/scripts/short-redirects.ts` writes one `_redirects` rule per
   article during the build so Cloudflare serves a real 301, and the prerendered
   `/s/<id>/` page redirects on its own wherever that map is not in play. Nothing
@@ -282,9 +284,10 @@ devDependencies — the action must log "using pre-installed wrangler".
   - The generated map lives only in `dist/`. **Never commit it** — a file
     pairing every id with every slug enumerates the vault, which is what keeps
     unlisted slugs out of `robots.txt` in the first place.
-  - Cloudflare Pages stops reading `_redirects` past 2,100 rules and the build
-    warns when the total crosses it. Past that the aliases still work through
-    the prerendered pages, one redirect slower.
+  - Cloudflare Pages allows **2,000 static** redirect rules (plus 100 dynamic,
+    which these are not — the combined 2,100 is not the number to budget
+    against). The build warns when the total crosses 2,000. Past it the aliases
+    still work through the prerendered pages, one redirect slower.
   - A build that logs `short links: … derive the id` has two articles claiming
     one id; both lose their short link and keep their long URLs. The fix is a
     longer id, not a lookup table — see ADR 0019.

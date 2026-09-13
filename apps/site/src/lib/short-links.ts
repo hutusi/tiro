@@ -69,6 +69,30 @@ export function shortLinkPath(id: string): string {
   return `${SHORT_LINK_PREFIX}/${id}/`;
 }
 
+/**
+ * The Cloudflare `_redirects` rules for these links — one line per article.
+ *
+ * The source path comes from `shortLinkPath`, the same function that builds the
+ * URL the share button copies. That is the whole point of it living here: when
+ * the generator spelled the path itself, it emitted `/s/<id>` while the button
+ * copied `/s/<id>/`, and Cloudflare matches those literally — so every shared
+ * link missed the redirect it exists for and fell through to the 200 fallback
+ * page instead.
+ *
+ * One rule, with the trailing slash, is enough for both forms. Pages normalizes
+ * a slash-less request for a directory with a 308 to the canonical path, which
+ * then matches. Registering both forms would halve how many articles fit under
+ * the static-rule cap to buy back one hop on a URL nothing generates.
+ */
+export function redirectRules(links: ShortLinks): string[] {
+  return (
+    [...links.bySlug]
+      // Sorted so a rebuild of unchanged content produces an identical file.
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([id, slug]) => `${shortLinkPath(id)}  /articles/${slug}/  301`)
+  );
+}
+
 /** This article's short path, or null when it has no id — the caller falls
  * back to the long URL rather than offering a link that does not resolve. */
 export function shortPathForSlug(

@@ -10,7 +10,7 @@ versions follow the `0.x` line while Tiro is a personal system.
 ### Added
 
 - **Short links and a share control.** Every article also answers at
-  `/s/<id>`, which turns a 104-character URL into a 35-character one, and the
+  `/s/<id>/`, which turns a 104-character URL into a 36-character one, and the
   reader's toolbar gained 分享, 复制链接 and a sticky way out to the publisher.
   The id is not assigned — it is the 8-hex hash the slug already ended with,
   read back out, so there is no registry, nothing in the vault changes, and any
