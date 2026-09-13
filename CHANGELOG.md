@@ -7,6 +7,32 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Changed
+
+- **One mark, everywhere.** The favicon, touch icon, social card and the
+  extension's toolbar and store icons were an oxblood "T" monogram while the
+  site header and footer carried the two-bar mark, so Tiro looked like two
+  products depending on where you saw it. The bars win — they are what a reader
+  sees on every page, and what the design's own `favicon.svg` draws. As a tile
+  they are the icon; set beside the wordmark on a shared baseline they are the
+  header, the footer and now the social card, which previously stacked a badge
+  above the wordmark and shared no lockup with the site at all. The design
+  endorsed both marks in the same breath, which is how they drifted without
+  anyone deciding; ADR 0018 decides. The extension's published icon changes with
+  it, so that half waits for the current review to clear.
+
+### Fixed
+
+- **The logo bars sat below the wordmark's baseline** — 2.75px in the header,
+  1px in the footer — so the mark sagged away from the word it belongs to.
+  Centring aligned the bars on the wordmark's *line box*, but Spectral's ascent
+  far exceeds its cap height and "Tiro" has no descenders, so every pixel by
+  which the bars overshoot the capitals was landing below the baseline instead
+  of above it. They now sit on the baseline and overshoot upward, the way an
+  ascender does. Baseline alignment rather than a nudge, because the header is
+  Spectral and the footer is a system sans: their metrics differ enough that any
+  fixed offset would be wrong in one of them.
+
 ### Added
 
 - **The clipper installs from the Chrome Web Store.** Published unlisted, so the
