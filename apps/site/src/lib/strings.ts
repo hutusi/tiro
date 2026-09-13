@@ -32,6 +32,23 @@ export const STRINGS = {
     // Shown on the article's own page only — by definition it appears in no
     // list — so it has to say what "unlisted" means, not just name it.
     unlisted: "未公开 · 仅通过链接访问",
+    /** The share group. `share` is hidden unless the browser has a share
+     * sheet, so on most desktops `copyLink` is the whole feature. */
+    share: "分享",
+    copyLink: "复制链接",
+    copied: "已复制",
+    copyFailed: "复制失败",
+    /** The sticky way out to the publisher. Labelled with the domain, like the
+     * two links to it that already exist in the page — and deliberately *not*
+     * 原文, which is already a button in this toolbar meaning "show the
+     * original-language column". */
+    openSource: "在原站打开",
+  },
+  /** The `/s/<id>` alias pages, which exist only to bounce to an article.
+   * Seen only when the edge redirect did not apply and JavaScript is off. */
+  shortLink: {
+    redirecting: "正在跳转…",
+    open: "直接打开文章",
   },
   list: { empty: "还没有剪藏任何文章" },
   library: {

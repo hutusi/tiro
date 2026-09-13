@@ -36,3 +36,29 @@ describe("isSitemapEligible", () => {
     expect(isSitemapEligible(`${SITE}/notes/${UNLISTED}/`)).toBe(true);
   });
 });
+
+describe("isSitemapEligible, short links", () => {
+  // The aliases redirect; listing them would offer a crawler a second address
+  // for content that already has a canonical one.
+  test("drops every /s/ alias", () => {
+    expect(isSitemapEligible(`${SITE}/s/e8446b12/`)).toBe(false);
+    expect(isSitemapEligible(`${SITE}/s/e8446b12`)).toBe(false);
+  });
+
+  // An unlisted article's short link must not reach the sitemap either — that
+  // would publish in one file what the flag keeps out of the other.
+  test("drops the unlisted article's alias too", () => {
+    expect(isSitemapEligible(`${SITE}/s/8145cda3/`)).toBe(false);
+  });
+
+  test("keeps a page that merely starts with an s", () => {
+    expect(isSitemapEligible(`${SITE}/search/`)).toBe(true);
+    expect(isSitemapEligible(`${SITE}/settings/`)).toBe(true);
+  });
+
+  test("keeps a deeper path under /s/", () => {
+    // Only the alias route itself is a redirect; nothing else lives here, but
+    // the rule should say what it means rather than claim the whole prefix.
+    expect(isSitemapEligible(`${SITE}/s/e8446b12/more/`)).toBe(true);
+  });
+});

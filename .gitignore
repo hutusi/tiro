@@ -1,5 +1,9 @@
 node_modules/
 dist/
+# Local miniflare state from `wrangler pages dev`, used to check _redirects
+# behaviour against a real Cloudflare runtime. Regenerated on demand; the
+# observability store records the requests made against it.
+.wrangler/
 apps/extension/*.zip
 .astro/
 apps/site/public/vault-assets/

@@ -270,7 +270,29 @@ devDependencies — the action must log "using pre-installed wrangler".
     would fail the site build, so it needs the fix regardless.)
   - **Unlisted is not private.** The site is public and the slug is computable
     from the source URL, as are the paths under `/vault-assets/<slug>/`. It
-    hides an article from anyone browsing, not from anyone looking.
+    hides an article from anyone browsing, not from anyone looking. The same
+    goes for its short link, which is part of the slug it already had.
+- **Short links** (ADR 0019): every article also answers at
+  `/s/<id>/`, where `<id>` is the 8-hex suffix of its slug — a name `validate`
+  accepts always ends in one, so the only article without a short link is one
+  that lost it to a collision (below). Both that form and the slash-less one
+  land on the article; only the form with the slash — the one the share button
+  copies — is a single hop. `apps/site/scripts/short-redirects.ts` writes one
+  `_redirects` rule per article *that has an id* during the build so Cloudflare
+  serves a real 301, and the prerendered `/s/<id>/` page redirects on its own
+  wherever that map is not in play. Nothing is stored: the id is recomputed from
+  the directory names on every build, so there is no map to keep in step and
+  nothing to migrate.
+  - The generated map lives only in `dist/`. **Never commit it** — a file
+    pairing every id with every slug enumerates the vault, which is what keeps
+    unlisted slugs out of `robots.txt` in the first place.
+  - Cloudflare Pages allows **2,000 static** redirect rules (plus 100 dynamic,
+    which these are not — the combined 2,100 is not the number to budget
+    against). The build warns when the total crosses 2,000. Past it the aliases
+    still work through the prerendered pages, one redirect slower.
+  - A build that logs `short links: … derive the id` has two articles claiming
+    one id; both lose their short link and keep their long URLs. The fix is a
+    longer id, not a lookup table — see ADR 0019.
 
 ### Domain
 
@@ -358,8 +380,13 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   `tiro.processed_at` survives, and nothing is re-queued — the migration costs
   no LLM calls. Re-clipping the two arXiv articles instead would have meant
   re-translating ~2,100 lines with no `.tiro-zh-cache.json` to resume from.
-- **Site URLs change and there are no redirects.** The moved articles 404 at
-  their old paths; the feed and sitemap regenerate on deploy.
+- **Site URLs change and there are no redirects — short links included.** The
+  moved articles 404 at their old paths; the feed and sitemap regenerate on
+  deploy. A short link is the slug's own hash suffix (ADR 0019), and the hash is
+  taken of the *normalized* URL with `canonicalizeUrl` inside it, so a
+  recanonicalization moves `/s/<id>` exactly as it moves the long path. The
+  alias is shorter, not more durable — do not treat one already shared as a
+  stable address across a rule change.
 - **Don't clip during the window**, for the same reason as a layout migration:
   a new extension against an unmigrated vault duplicates the article at the new
   slug.

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeUrl, slugForUrl, tagSlug } from "../src/slug.ts";
+import {
+  normalizeUrl,
+  shortIdForSlug,
+  slugForUrl,
+  tagSlug,
+} from "../src/slug.ts";
 
 describe("normalizeUrl", () => {
   test("strips fragments, tracking params, and trailing slashes", () => {
@@ -217,5 +222,66 @@ describe("tagSlug", () => {
   test("leaves a tag that already fits untouched", () => {
     expect(tagSlug("ci/cd")).toBe("ci-cd");
     expect(tagSlug("人工智能")).toBe("人工智能");
+  });
+});
+
+describe("shortIdForSlug", () => {
+  test("reads back the hash slugForUrl appended", async () => {
+    const url = "https://example.com/posts/hello-ai";
+    const slug = await slugForUrl(url);
+    expect(shortIdForSlug(slug)).toBe(slug.slice(-8));
+    expect(shortIdForSlug(slug)).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  test("reads the hash-only slug a pathless URL produces", async () => {
+    const slug = await slugForUrl("https://example.cn/文章/标题");
+    expect(slug).toMatch(/^example-cn-[0-9a-f]{8}$/);
+    expect(shortIdForSlug(slug)).toBe(slug.slice(-8));
+  });
+
+  test("reads the `article-<hash>` fallback shape", () => {
+    expect(shortIdForSlug("article-0d21367e")).toBe("0d21367e");
+  });
+
+  // A name that is not derivable must degrade to "no short link" rather than
+  // hand out eight arbitrary characters as though they were a hash.
+  test("returns null for a name carrying no hash suffix", () => {
+    expect(shortIdForSlug("example-com-posts-hello")).toBeNull();
+    expect(shortIdForSlug("")).toBeNull();
+    expect(shortIdForSlug("example-com-posts-0D21367E")).toBeNull();
+    expect(shortIdForSlug("example-com-posts-0d21367")).toBeNull();
+    expect(shortIdForSlug("example-com-posts-0d21367ee")).toBeNull();
+  });
+
+  // The `null` branch above exists for a hand-made directory, not for anything
+  // the system produces: slugForUrl always ends in `-<8 hex>`, and `validate`
+  // recomputes it per article, so a name the vault gate accepts always carries
+  // an id. This pins that, so the docs can say every article gets a short link
+  // without qualifying it for a state that cannot arise.
+  test("every slug slugForUrl produces carries an id", async () => {
+    const urls = [
+      "https://example.com",
+      "https://example.com/posts/hello-ai",
+      "https://example.cn/文章/标题",
+      "https://例え.jp/パス",
+      "https://example.com/a%zz-path",
+      "https://example.com/....",
+      "https://example.com/-/-/-",
+      "https://example.com/?v=1",
+      `https://a.b.c.d.example.com/${"x".repeat(400)}`,
+    ];
+    for (const url of urls) {
+      expect(shortIdForSlug(await slugForUrl(url))).toMatch(/^[0-9a-f]{8}$/);
+    }
+  });
+
+  // Anchored, not a substring search: a hash in the middle is not the id.
+  test("does not match a hash that is not the suffix", () => {
+    expect(shortIdForSlug("example-com-0d21367e-notes")).toBeNull();
+  });
+
+  // The suffix needs its separator; a bare run of hex is a path, not an id.
+  test("requires the separating dash", () => {
+    expect(shortIdForSlug("0d21367e")).toBeNull();
   });
 });

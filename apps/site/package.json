@@ -5,7 +5,7 @@
   "scripts": {
     "assets": "bun run scripts/copy-assets.ts",
     "dev": "bun run assets && astro dev",
-    "build": "bun run assets && astro build && pagefind --site dist",
+    "build": "bun run assets && astro build && bun run scripts/short-redirects.ts && pagefind --site dist",
     "preview": "astro preview",
     "typecheck": "tsc --noEmit",
     "check": "astro check",

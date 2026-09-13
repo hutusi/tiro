@@ -23,6 +23,10 @@ interface Props {
    * purpose: that file is public, so a `Disallow` line there would publish the
    * very list the flag exists to hide. */
   noindex?: boolean;
+  /** Canonical path, when it is not this page's own — the `/s/` aliases name
+   * the article they redirect to, so a scraper that stops at the alias is still
+   * told which URL is the real one. */
+  canonicalPath?: string;
 }
 const {
   title,
@@ -30,6 +34,7 @@ const {
   ogType = "website",
   width = "library",
   noindex = false,
+  canonicalPath,
 } = Astro.props;
 const pageTitle =
   title === undefined ? STRINGS.siteTitle : `${title} · ${STRINGS.siteTitle}`;
@@ -39,7 +44,7 @@ const metaDescription =
   rawDescription.length > 200
     ? `${rawDescription.slice(0, 197)}…`
     : rawDescription;
-const canonical = new URL(Astro.url.pathname, Astro.site);
+const canonical = new URL(canonicalPath ?? Astro.url.pathname, Astro.site);
 const ogImage = new URL("/og.png", Astro.site);
 const path = Astro.url.pathname;
 const nav = [
@@ -94,6 +99,9 @@ const mainClass =
       title={STRINGS.siteTitle}
       href="/rss.xml"
     />
+    <!-- Page-specific head tags. Only the `/s/` aliases use this, for their
+      meta refresh, which has to be in <head> to count. -->
+    <slot name="head" />
     <script define:vars={{ P: PREF_SCRIPT_VARS }}>
       // Runs before first paint: puts every stored preference — paper, reader
       // text size, library view, layout width and reader mode — on <html>, then

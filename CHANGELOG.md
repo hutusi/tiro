@@ -7,6 +7,20 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Short links and a share control.** An article now also answers at
+  `/s/<id>/`, which turns a 104-character URL into a 36-character one, and the
+  reader's toolbar gained 分享, 复制链接 and a sticky way out to the publisher.
+  The id is not assigned — it is the 8-hex hash the slug already ended with,
+  read back out, so there is no registry, nothing in the vault changes, and any
+  component that can compute a slug can compute the link. The long URL stays
+  canonical; the aliases carry `noindex` and stay out of the sitemap. Two
+  articles deriving one id lose it both rather than have one reassigned
+  something a later rebuild could resolve differently. Note the short link is
+  *shorter*, not more durable: a canonicalization change moves it exactly as it
+  moves the long path. ADR 0019.
+
 ### Changed
 
 - **One mark, everywhere.** The favicon, touch icon, social card and the
