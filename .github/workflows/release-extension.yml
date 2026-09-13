@@ -18,7 +18,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
@@ -63,7 +63,7 @@ jobs:
           zip -qr "$RUNNER_TEMP/tiro-clipper-$VERSION.zip" . -x '.DS_Store' '**/.DS_Store'
           unzip -l "$RUNNER_TEMP/tiro-clipper-$VERSION.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tiro-clipper-${{ steps.version.outputs.version }}
           path: ${{ runner.temp }}/tiro-clipper-${{ steps.version.outputs.version }}.zip

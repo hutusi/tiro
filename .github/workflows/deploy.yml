@@ -21,13 +21,13 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       # VAULT_READ_TOKEN (fine-grained PAT, tiro-vault, Contents: read) is
       # only required if the vault repo is private.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: hutusi/tiro-vault
           path: vault
