@@ -51,6 +51,9 @@ const blocks =
       : view.blocks
     : [];
 const hasZhTitle = meta.titleZh !== null;
+// One expression feeds both markers: the in-page one the pane rules read, and
+// the `<html>` one the chrome outside the article reads.
+const paired = view.kind === "paired";
 // Absolute, and against Astro.site rather than the dev origin: what this hands
 // someone has to work away from the machine that copied it. Falls back to the
 // long URL for an article with no short id — offering a link that does not
@@ -90,74 +93,78 @@ const tagLinks = await Promise.all(
   title={frontmatter.title}
   description={frontmatter.summary ?? frontmatter.excerpt}
   ogType="article"
-  width="full"
+  width="reader"
+  paired={paired}
   noindex={unlisted}
 >
   <article
     data-pagefind-body={unlisted ? undefined : true}
     class="reader"
-    data-paired={view.kind === "paired" ? "" : undefined}
+    data-paired={paired ? "" : undefined}
     data-zh-title={hasZhTitle ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
-      <a href="/" class="back">{t.back}</a>
-      {
-        view.kind === "paired" && (
-          <Fragment>
-            <span class="divider" aria-hidden="true" />
-            <div
-              id="view-toggle"
-              class="segmented segmented--md"
-              role="group"
-              aria-label={t.layoutLabel}
-            >
-              <button type="button" data-view="both" aria-pressed="false">
-                {t.sideBySide}
-              </button>
-              <button
-                type="button"
-                data-view="translation"
-                aria-pressed="false"
-                lang="zh-CN"
+      <div class="toolbar-inner measure">
+        <a href="/" class="back">{t.back}</a>
+        {
+          view.kind === "paired" && (
+            <Fragment>
+              <span class="divider" aria-hidden="true" />
+              <div
+                id="view-toggle"
+                class="segmented segmented--md"
+                role="group"
+                aria-label={t.layoutLabel}
               >
-                {t.translation}
-              </button>
-              <button type="button" data-view="original" aria-pressed="false">
-                {t.original}
-              </button>
-            </div>
-          </Fragment>
-        )
-      }
-      <span class="divider" aria-hidden="true"></span>
-      <FontSteps />
-      <div
-        class="share"
-        data-share-url={shareUrl}
-        data-share-title={shareTitle}
-      >
-        <button type="button" class="chip" data-share hidden>{t.share}</button>
-        <button
-          type="button"
-          class="chip"
-          data-copy
-          data-idle={t.copyLink}
-          data-done={t.copied}
-          data-failed={t.copyFailed}
-          aria-live="polite">{t.copyLink}</button
+                <button type="button" data-view="both" aria-pressed="false">
+                  {t.sideBySide}
+                </button>
+                <button
+                  type="button"
+                  data-view="translation"
+                  aria-pressed="false"
+                  lang="zh-CN"
+                >
+                  {t.translation}
+                </button>
+                <button type="button" data-view="original" aria-pressed="false">
+                  {t.original}
+                </button>
+              </div>
+            </Fragment>
+          )
+        }
+        <span class="divider" aria-hidden="true"></span>
+        <FontSteps />
+        <div
+          class="share"
+          data-share-url={shareUrl}
+          data-share-title={shareTitle}
         >
-        <a
-          class="chip source"
-          href={frontmatter.url}
-          target="_blank"
-          rel="noopener"
-          aria-label={`${t.openSource}：${frontmatter.domain}`}
-          >{frontmatter.domain}<span aria-hidden="true">↗</span></a
-        >
+          <button type="button" class="chip" data-share hidden>{t.share}</button
+          >
+          <button
+            type="button"
+            class="chip"
+            data-copy
+            data-idle={t.copyLink}
+            data-done={t.copied}
+            data-failed={t.copyFailed}
+            aria-live="polite">{t.copyLink}</button
+          >
+          <a
+            class="chip source"
+            href={frontmatter.url}
+            target="_blank"
+            rel="noopener"
+            aria-label={`${t.openSource}：${frontmatter.domain}`}
+            >{frontmatter.domain}<span aria-hidden="true">↗</span></a
+          >
+        </div>
       </div>
     </div>
 
-    <header class="head">
+    <header class="head measure">
       <div class="titles">
         <div class="orig">
           <p class="meta">
@@ -244,7 +251,7 @@ const tagLinks = await Promise.all(
 
     {
       view.kind === "paired" && (
-        <div id="reader">
+        <div id="reader" class="measure">
           {rows.map((row) => (
             <div class="reader-row">
               <div
@@ -265,7 +272,7 @@ const tagLinks = await Promise.all(
 
     {
       view.kind === "single" && (
-        <div class="reader-single">
+        <div class="reader-single measure">
           {noTranslationNeeded && (
             <p class="notice" data-pagefind-ignore>
               {t.noTranslation}
@@ -282,7 +289,7 @@ const tagLinks = await Promise.all(
 
     {
       view.kind === "stacked" && (
-        <div class="reader-single space-y-10">
+        <div class="reader-single measure space-y-10">
           <p class="notice notice--warn">{t.misaligned}</p>
           <div class="prose max-w-none" lang={frontmatter.lang}>
             {view.original.map((html) => (
@@ -298,7 +305,7 @@ const tagLinks = await Promise.all(
       )
     }
 
-    <p class="end-note" data-pagefind-ignore>
+    <p class="end-note measure" data-pagefind-ignore>
       {t.clippedAt}
       <time datetime={frontmatter.clipped_at}>{date}</time>
       <span aria-hidden="true">·</span>
@@ -323,32 +330,29 @@ const tagLinks = await Promise.all(
      substitutes those away at build time. */
   .reader {
     --size: var(--reader-size, 19px);
-    --gutter: 16px;
-  }
-  @media (min-width: 40rem) {
-    .reader {
-      --gutter: 24px;
-    }
-  }
-  @media (min-width: 64rem) {
-    .reader {
-      --gutter: 40px;
-    }
   }
 
+  /* Shell and inner, like the site header. The rule and the paper have to span
+     the viewport — stop them at the measure and the page shows through the
+     gutters as it scrolls underneath — while the controls stop where the text
+     does. `data-pagefind-ignore` stays on the shell and still covers both. */
   .toolbar {
     position: sticky;
     top: var(--header-h);
     z-index: 10;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 16px;
-    padding: 10px var(--gutter);
     border-bottom: 1px solid var(--rule);
     background: var(--paper);
     font-family: var(--font-ui);
     font-size: 13px;
+  }
+  /* `padding-block`, never the `padding` shorthand: this rule is scoped, so it
+     outranks `.measure` and the shorthand would wipe out its inline gutter. */
+  .toolbar-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding-block: 10px;
   }
   .back {
     color: var(--ink-mute);
@@ -397,19 +401,6 @@ const tagLinks = await Promise.all(
      a paired view, so it is what stops `原文` from hiding the only Chinese on a
      single-pane article, and `中文` from hiding the English title above an
      English body. Add the guard to any new rule even where it looks redundant. */
-  .head,
-  #reader,
-  .reader-single,
-  .end-note {
-    max-width: var(--w-reader);
-    margin-inline: auto;
-    padding-inline: var(--gutter);
-  }
-  :global(html[data-reader-mode="both"]) .reader[data-paired] .head,
-  :global(html[data-reader-mode="both"]) .reader[data-paired] #reader {
-    max-width: var(--w-reader-wide);
-  }
-
   .head {
     padding-top: 56px;
     padding-bottom: 8px;

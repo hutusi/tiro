@@ -15,9 +15,14 @@ interface Props {
   title?: string;
   description?: string;
   ogType?: "website" | "article";
-  /** `library` (`--w-library`) for lists, `narrow` (680px) for settings-like
-   * pages, `full` for the reader, which lays out its own columns. */
-  width?: "library" | "narrow" | "full";
+  /** `library` (`--w-library`) for lists, `narrow` (`--w-narrow`) for
+   * settings-like pages, `reader` for an article, which lays out its own
+   * columns and sets the page measure from the text it is showing. */
+  width?: "library" | "narrow" | "reader";
+  /** Does this article have two panes to show? The measure switches on it, and
+   * the header sits outside the article where `.reader[data-paired]` is not
+   * visible — so the marker is stamped on `<html>` for the chrome to read. */
+  paired?: boolean;
   /** Keep this page out of every index — crawlers' and the site's own search
    * — set by the reader for an unlisted article. Kept off robots.txt on
    * purpose: that file is public, so a `Disallow` line there would publish the
@@ -33,6 +38,7 @@ const {
   description,
   ogType = "website",
   width = "library",
+  paired = false,
   noindex = false,
   canonicalPath,
 } = Astro.props;
@@ -67,6 +73,7 @@ const nav = [
 // `.measure` supplies the centring and the gutter; this adds the page's own
 // vertical rhythm, and for `narrow` a column narrower than the page it sits in.
 // The utility outranks the components layer, which is what makes that work.
+const isReader = width === "reader";
 const mainClass = [
   "measure pt-12 pb-16",
   width === "narrow" && "max-w-[var(--w-narrow)]",
@@ -74,7 +81,11 @@ const mainClass = [
 ---
 
 <!doctype html>
-<html lang="zh-CN">
+<html
+  lang="zh-CN"
+  data-page={isReader ? "reader" : undefined}
+  data-paired={isReader && paired ? "" : undefined}
+>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -300,7 +311,7 @@ const mainClass = [
       </div>
     </header>
     {
-      width === "full" ? (
+      isReader ? (
         <main class="flex-1">
           <slot />
         </main>
