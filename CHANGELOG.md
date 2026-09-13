@@ -21,6 +21,24 @@ versions follow the `0.x` line while Tiro is a personal system.
   *shorter*, not more durable: a canonicalization change moves it exactly as it
   moves the long path. ADR 0019.
 
+### Fixed
+
+- **One bad asset no longer fails every deploy.** A clip brought in a site's
+  view counter as a content image — thirty bytes of
+  `<svg><!-- View Proxy --></svg>`, with no dimensions to read — and Astro's
+  content layer, which renders each article at load time purely to measure the
+  images it references, failed the build. Not that article's build: every
+  article's, for four hours, silently, because the deploy builds before it
+  uploads and the old site stayed up. The site now reads the vault from the
+  filesystem, which is where it always got its content from anyway: it declares
+  no Astro schema, renders with its own pipeline, and serves assets as plain
+  copies. There was not one `/_astro/` asset path in 102 built article pages,
+  while 119 MB of processed images were being built and uploaded on every
+  deploy — now 1.5 MB. A malformed asset costs one image instead of the whole
+  site, the sitemap's separate vault reader folds into the same one, and a
+  dimensionless SVG in the fixtures keeps it that way. ADR 0020, superseding
+  ADR 0006's loader decision.
+
 ### Changed
 
 - **One mark, everywhere.** The favicon, touch icon, social card and the

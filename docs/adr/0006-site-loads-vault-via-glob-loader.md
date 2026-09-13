@@ -1,6 +1,20 @@
 # ADR 0006: Site loads vault content via Astro glob loader from an external directory
 
-Status: accepted (2026-08)
+Status: accepted (2026-08); the **loader** decision is superseded by ADR 0020
+(2026-09) — the site reads the vault from the filesystem rather than through
+Astro's content layer, because that layer measured images the site never used
+and one unmeasurable asset failed every deploy. The rest of this ADR stands:
+`TIRO_VAULT_DIR`, vault images bypassing Astro's image pipeline as plain copies,
+and the guards against a bad vault base.
+
+One path below is historical and is **not** what runs: the Decision names
+`public/vault-assets/<year>/<slug>/`, whose year segment ADR 0007 removed along
+with the rest of the year partitioning. ADR 0007 names ADR 0002 as the decision
+it supersedes and does not mention this one, so the stale path sat here
+unmarked. It is `public/vault-assets/<slug>/` today. Recorded here rather than
+rewritten below, because a reversed decision gets a note, not a silent edit.
+
+Original status: accepted (2026-08)
 
 ## Context
 

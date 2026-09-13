@@ -231,9 +231,16 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 
 ## Risk register
 
-- **Silently empty Astro collection** when the vault path is wrong
-  (withastro/astro#12795): the site asserts the vault dir exists and fails the
-  build if the articles collection is empty.
+- **Silently empty article list** when the vault path is wrong: the site
+  asserts the vault dir exists and fails the build if the list is empty. The
+  default `fixtures/vault` is found by searching upward rather than by counting
+  `..` — the reader is bundled for the build, where a fixed depth pointed at
+  `apps/fixtures/vault` and only this guard caught it.
+- **A clipped asset that cannot be measured** — a tracking pixel served as a
+  dimensionless SVG, say. It used to fail the whole build, because Astro's
+  content layer measured every image an article referenced. The site reads the
+  vault itself now and serves assets as plain copies, so a bad one costs its own
+  image and nothing else (ADR 0020); a fixture holds the line.
 - **`btoa` throws on non-Latin1** (Chinese titles): the extension encodes
   base64 via a chunked `TextEncoder` helper.
 - **Readability returns `null`** on SPAs/paywalls: fall back to capturing
