@@ -14,10 +14,6 @@
  * Base.astro sets before first paint.
  */
 :root {
-  /* The reader toolbar's sticky offset, while the site header is sticky above
-     it. Removed when the header stops being sticky on an article. */
-  --header-h: 56px;
-
   /* The page gutter, as a token rather than four copies of
      `px-4 sm:px-6 lg:px-10`. In rem because that is what those utilities emit,
      so the two cannot drift apart at a non-default root font size. */

@@ -240,7 +240,22 @@ const mainClass = [
     class="flex min-h-screen flex-col bg-paper text-ink"
     data-pagefind-ignore={noindex ? "all" : undefined}
   >
-    <header class="sticky top-0 z-20 border-b border-rule bg-paper">
+    <!-- Not sticky on an article: the reader's own toolbar takes the top, so
+      one bar of chrome sits above the text instead of two (~97px, and 146px at
+      390px where the toolbar wraps). The nav comes back at the top of the page,
+      and 返回 keeps a way out from anywhere.
+
+      `z-20` moves with `sticky` rather than staying behind. This is a flex item
+      of `body`, and a flex item with a `z-index` other than `auto` builds a
+      stacking context even when it is `position: static` — a static header that
+      kept `z-20` would paint *over* the sticky toolbar on its way past, which
+      is the exact thing this is meant to stop. -->
+    <header
+      class:list={[
+        "border-b border-rule bg-paper",
+        !isReader && "sticky top-0 z-20",
+      ]}
+    >
       <div class="measure flex h-14 items-center gap-4 sm:gap-7">
         <a href="/" class="inline-flex items-baseline gap-2 text-ink">
           <span class="logo-bars" aria-hidden="true"><i></i><i></i></span>

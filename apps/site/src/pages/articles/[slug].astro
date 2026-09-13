@@ -338,7 +338,8 @@ const tagLinks = await Promise.all(
      does. `data-pagefind-ignore` stays on the shell and still covers both. */
   .toolbar {
     position: sticky;
-    top: var(--header-h);
+    /* The site header is not sticky on an article, so this is the top. */
+    top: 0;
     z-index: 10;
     border-bottom: 1px solid var(--rule);
     background: var(--paper);
