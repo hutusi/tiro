@@ -664,3 +664,95 @@ export function checkAlignment(
   });
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * The tag name an inline HTML node opens with, lowercased, or null when it does
+ * not open with one.
+ *
+ * Asking for the name rather than pattern-matching the whole tag is what keeps
+ * the attributes out of it, and two rounds of review went on attributes:
+ * `[^>]*` cannot cross the `>` inside `<br title="a > b">`, and a `\b` after
+ * the name counts `<br-other>` as a `<br>`. Stopping at the first delimiter has
+ * neither problem, because the name is all that is being asked about.
+ *
+ * The leading slash is optional because the HTML parser treats `</br>` as a
+ * `<br>` — a spec quirk, not a typo tolerance — and the site renders clipped
+ * markup through one (rehype-raw). Verified: `first</br>second` comes out of
+ * `apps/site/src/lib/render.ts` as `<p>first<br>second</p>`. A closing tag that
+ * is not `br` still yields its own name, so `</span>` is not a break.
+ */
+const HTML_TAG_NAME = /^<\/?([a-zA-Z][^\s/>]*)/;
+
+/**
+ * The node types whose edges fall *inside* a word, so putting whitespace at
+ * them would split one: `un*bel*ievable` is one word with emphasis in it.
+ *
+ * An allowlist, so anything unrecognised is treated as a block and separated.
+ * Being wrong that way costs a space that collapses; being wrong the other way
+ * cuts a word in half.
+ */
+const INLINE_TYPES = new Set([
+  "text",
+  "inlineCode",
+  "emphasis",
+  "strong",
+  "delete",
+  "link",
+  "linkReference",
+  "break",
+  "html",
+  "image",
+  "imageReference",
+  "footnoteReference",
+]);
+
+function tagName(value: string): string | null {
+  return HTML_TAG_NAME.exec(value.trim())?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * The prose a markdown fragment actually shows — its text with the syntax
+ * removed, for the places that need words rather than source.
+ *
+ * A block's `text` is its exact source, which is right for alignment and wrong
+ * for anything rendered as plain text: a paragraph carrying `**bold**` or
+ * `[a link](url)` would show its punctuation.
+ *
+ * **Image alt text does not count.** The caller asking this question is looking
+ * for a paragraph a reader would recognise as prose, and a paragraph holding
+ * only a picture is not one however well it is described — an article opening
+ * with a hero image would otherwise be summarized by its alt attribute. Link
+ * text does count: a sentence is still a sentence when parts of it are links.
+ */
+export function plainText(markdown: string): string {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as { type?: string; value?: string; children?: unknown[] };
+    if (n.type === "image" || n.type === "imageReference") return;
+    // A rendered line break is whitespace. Without this the words either side
+    // of it are run together — "first<br>second" became "firstsecond".
+    if (
+      n.type === "break" ||
+      (n.type === "html" && tagName(n.value ?? "") === "br")
+    ) {
+      out.push(" ");
+      return;
+    }
+    if (
+      typeof n.value === "string" &&
+      (n.type === "text" || n.type === "inlineCode")
+    ) {
+      out.push(n.value);
+    }
+    // Every block edge is a gap, wherever it sits: two paragraphs are two
+    // sentences, and so are two list items or two table cells. Separating only
+    // the root's children missed all of those — a paragraph inside a
+    // blockquote ran straight into the next one.
+    const isBlock = n.type !== undefined && !INLINE_TYPES.has(n.type);
+    if (isBlock) out.push(" ");
+    if (Array.isArray(n.children)) for (const child of n.children) walk(child);
+    if (isBlock) out.push(" ");
+  };
+  walk(proseParser.parse(markdown) as Root);
+  return out.join("").replace(/\s+/g, " ").trim();
+}

@@ -6,6 +6,7 @@ import {
   joinBlocks,
   mathRanges,
   normalizeBlockMath,
+  plainText,
   splitBlocks,
   verbatimRanges,
 } from "../src/blocks.ts";
@@ -713,5 +714,99 @@ describe("foldedFigureCount", () => {
 
   test("ignores an image inside code", () => {
     expect(foldedFigureCount("```\n![a](x.png)  \nCap.\n```")).toBe(0);
+  });
+});
+
+describe("plainText", () => {
+  test("renders a paragraph's prose without its syntax", () => {
+    expect(
+      plainText("A **bold** claim and a [link](https://example.com)."),
+    ).toBe("A bold claim and a link.");
+    expect(plainText("Run `bun test` first.")).toBe("Run bun test first.");
+  });
+
+  // The caller is looking for a paragraph a reader would recognise as prose,
+  // and a paragraph holding only a picture is not one however well described.
+  test("does not count an image as prose", () => {
+    expect(plainText("![](./assets/x.jpg)")).toBe("");
+    expect(plainText("![A cyberpunk city](./assets/x.jpg)")).toBe("");
+    expect(
+      plainText("[![](./assets/x.jpg)](https://cdn.example.com/y.png)"),
+    ).toBe("");
+  });
+
+  // Link text is prose; a sentence is still a sentence when parts of it link.
+  test("keeps the words around an image", () => {
+    expect(plainText("See ![](./a.jpg) the chart above.")).toBe(
+      "See the chart above.",
+    );
+  });
+
+  // A rendered line break is whitespace. Missing it ran the words either side
+  // together — "first<br>second" came out as "firstsecond".
+  test("treats a rendered line break as a space", () => {
+    expect(plainText("first  \nsecond")).toBe("first second");
+    expect(plainText("first\\\nsecond")).toBe("first second");
+    expect(plainText("first<br>second")).toBe("first second");
+    expect(plainText("first<br/>second")).toBe("first second");
+    expect(plainText("first<BR >second")).toBe("first second");
+  });
+
+  // Four review rounds went on which HTML counts as a break, so the answer is
+  // a table rather than a pattern someone can tighten by eye. The rule is the
+  // tag *name*: attributes are never parsed, which is what keeps
+  // `<br title="a > b">` in and `<br-other>` out.
+  //
+  // The expected column is not taste — it is what the site actually renders.
+  // Each of these was run through `apps/site/src/lib/render.ts` and the answer
+  // here is whether the output contained a `<br>`. That is why `</br>` breaks:
+  // an HTML parser treats a closing `br` as an opening one, and rehype-raw is
+  // one. A test in this package cannot import the site, so the cross-check was
+  // a one-off; re-run it if this rule changes.
+  test.each([
+    ["<br>", true],
+    ["<br/>", true],
+    ["<br />", true],
+    ['<br class="gap">', true],
+    ["<br class=gap>", true],
+    ["<BR CLASS='x'>", true],
+    ['<br title="a > b">', true],
+    ["<br\ndata-x>", true],
+    ["<br-other>", false],
+    ["<brx>", false],
+    ["<span>", false],
+    ["</br>", true],
+    ["</span>", false],
+    ["</br-other>", false],
+    ["<hr>", false],
+  ])("%s separates words: %s", (tag, breaks) => {
+    expect(plainText(`first${tag}second`)).toBe(
+      breaks ? "first second" : "firstsecond",
+    );
+  });
+
+  // The separator goes on the break rather than around every inline node,
+  // because spacing emphasis would split a word that is emphasized inside it.
+  test("does not put a space inside an emphasized word", () => {
+    expect(plainText("un*bel*ievable")).toBe("unbelievable");
+    expect(plainText("first<span>second</span>")).toBe("firstsecond");
+  });
+
+  // Every block edge is a gap, wherever it sits. Separating only the root's
+  // children missed the nested ones: a paragraph inside a blockquote ran
+  // straight into the next, and so did list items and table cells.
+  test.each([
+    ["one\n\ntwo", "one two", "two paragraphs"],
+    ["> first\n>\n> second", "first second", "paragraphs in a blockquote"],
+    ["- a\n- b", "a b", "list items"],
+    ["1. one\n2. two", "one two", "ordered list items"],
+    ["| a | b |\n| --- | --- |\n| c | d |", "a b c d", "table cells"],
+  ])("separates %s", (markdown, expected) => {
+    expect(plainText(markdown)).toBe(expected);
+  });
+
+  test("collapses whitespace and trims", () => {
+    expect(plainText("  one\n  two   three  ")).toBe("one two three");
+    expect(plainText("   ")).toBe("");
   });
 });

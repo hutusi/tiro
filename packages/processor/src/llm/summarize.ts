@@ -1,4 +1,4 @@
-import { splitBlocks } from "@tiro/shared";
+import { plainText, splitBlocks } from "@tiro/shared";
 import { z } from "zod";
 import type { ChatFn, ChatMessage } from "./client.ts";
 import {
@@ -222,12 +222,29 @@ function fallbackCategory(categories: readonly string[]): string {
   return categories[categories.length - 1] ?? "other";
 }
 
-/** First paragraph, trimmed. Falls back to the title because a body with no
- * paragraph block (all code, or a single image) would otherwise produce an
- * empty summary — which the frontmatter schema accepts silently. */
+/**
+ * The first paragraph that actually reads as prose, as prose.
+ *
+ * Two things this must not do, both of which it did. It took the first
+ * `paragraph` block, but a line holding nothing but a linked image is a
+ * paragraph too — so an article opening with a hero image was summarized with
+ * `[![](./assets/….jpg)](https://…)`, which the site prints verbatim into the
+ * page and the `<meta name="description">`. And it used the block's `text`,
+ * which is exact source: a real paragraph carrying `**bold**` or a link would
+ * have shown its punctuation the same way.
+ *
+ * So: look at what each paragraph renders as, skip the ones that render as
+ * nothing, and return the rendering rather than the source. Falls back to the
+ * title when no paragraph qualifies — a body that is all code, or all
+ * pictures — because an empty summary is one the frontmatter schema accepts
+ * silently.
+ */
 function excerptFallback(body: string, title: string): string {
-  const firstParagraph = splitBlocks(body).find((b) => b.type === "paragraph");
-  const text = (firstParagraph?.text ?? "").replace(/\s+/g, " ").trim();
-  if (text === "") return title;
-  return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+  for (const block of splitBlocks(body)) {
+    if (block.type !== "paragraph") continue;
+    const text = plainText(block.text);
+    if (text === "") continue;
+    return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+  }
+  return title;
 }

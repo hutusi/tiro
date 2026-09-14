@@ -23,6 +23,17 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A summary that fell back is prose again.** When the LLM summary fails the
+  processor falls back to the article's first paragraph — but it took the first
+  `paragraph` block, and a line holding nothing but a linked image is a
+  paragraph too. An article opening with a hero image was summarized with
+  `[![](./assets/….jpg)](https://…)`, which the site prints verbatim on the card,
+  in the reader and into `<meta name="description">`. It also used the block's
+  exact source, so a real paragraph carrying `**bold**` or a link would have
+  shown its punctuation the same way. The fallback now skips paragraphs that
+  render as nothing and returns what the paragraph renders as. Two articles in
+  the vault were affected, both marked `summary_failed`.
+
 - **One bad asset no longer fails every deploy.** A clip brought in a site's
   view counter as a content image — thirty bytes of
   `<svg><!-- View Proxy --></svg>`, with no dimensions to read — and Astro's
