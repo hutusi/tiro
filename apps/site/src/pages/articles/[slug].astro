@@ -389,7 +389,8 @@ const tagLinks = await Promise.all(
      the browser has no share sheet the script hides 分享, and the rest fit from
      640px — but CSS cannot know that, and hiding slightly early is better than
      wrapping. */
-  @media (max-width: 43rem) {
+  /* Exclusive: 688px is where they fit, so they must show there, not hide. */
+  @media (width < 43rem) {
     .share {
       display: none;
     }
@@ -409,7 +410,7 @@ const tagLinks = await Promise.all(
      780px and fits from 800px. So the cap applies only in that band; above it
      the domain is shown in full, and below it these controls are hidden
      anyway. The full value stays in `title` and `aria-label` regardless. */
-  @media (max-width: 50rem) {
+  @media (width < 50rem) {
     .share .source-name {
       display: inline-block;
       max-width: 16ch;
