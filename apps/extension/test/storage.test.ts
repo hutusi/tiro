@@ -1,14 +1,21 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
+  acceptDisclosure,
   type ClipHistory,
   DISCLOSURE_VERSION,
   type DisclosureState,
+  isConfigComplete,
   lastClippedAt,
+  loadConfig,
+  loadDisclosure,
   loadLanguage,
+  loadSyncEnabled,
   needsDisclosure,
   pruneClipHistory,
   recordClip,
+  saveConfig,
   saveLanguage,
+  setSyncEnabled,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
 import { type ChromeStorageMock, installChromeStorage } from "./helpers.ts";
@@ -136,5 +143,188 @@ describe("language setting", () => {
     expect(await loadLanguage()).toBe("zh");
     await saveLanguage("auto");
     expect(await loadLanguage()).toBe("auto");
+  });
+});
+
+describe("config", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const config: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "dev",
+    token: "t",
+  };
+
+  test("defaults an unset config, with main as the branch", async () => {
+    expect(await loadConfig()).toEqual({
+      owner: "",
+      repo: "",
+      branch: "main",
+      token: "",
+    });
+  });
+
+  test("round-trips a saved config", async () => {
+    await saveConfig(config);
+    expect(await loadConfig()).toEqual(config);
+  });
+
+  test("fills in fields missing from a partial stored config", async () => {
+    // A config written by an older version must not load as undefined fields.
+    chrome.local.data.tiroConfig = { owner: "o", repo: "r" };
+    expect(await loadConfig()).toEqual({
+      owner: "o",
+      repo: "r",
+      branch: "main",
+      token: "",
+    });
+  });
+
+  test("counts a config complete only with owner, repo and token", async () => {
+    expect(isConfigComplete(config)).toBe(true);
+    // Branch is the one field with a usable default, so it does not gate.
+    expect(isConfigComplete({ ...config, branch: "" })).toBe(true);
+    expect(isConfigComplete({ ...config, owner: "" })).toBe(false);
+    expect(isConfigComplete({ ...config, repo: "" })).toBe(false);
+    expect(isConfigComplete({ ...config, token: "" })).toBe(false);
+  });
+});
+
+describe("disclosure record", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  test("reports never-accepted when nothing is stored", async () => {
+    expect(await loadDisclosure()).toEqual({ version: 0, acceptedAt: "" });
+  });
+
+  test("records an acceptance at the current version", async () => {
+    await acceptDisclosure("2026-09-15T10:00:00.000Z");
+    expect(await loadDisclosure()).toEqual({
+      version: DISCLOSURE_VERSION,
+      acceptedAt: "2026-09-15T10:00:00.000Z",
+    });
+    expect(needsDisclosure(await loadDisclosure())).toBe(false);
+  });
+
+  test("stays in local even with settings sync on", async () => {
+    // Consent to read pages is per install: a fresh machine must be asked,
+    // not handed an acceptance made somewhere else.
+    await setSyncEnabled(true);
+    await acceptDisclosure("2026-09-15T10:00:00.000Z");
+    expect(chrome.sync.data.tiroDisclosure).toBeUndefined();
+    expect(chrome.local.data.tiroDisclosure).toBeDefined();
+  });
+});
+
+describe("settings sync", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const config: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+  const other: TiroExtensionConfig = { ...config, owner: "elsewhere" };
+
+  test("is off until switched on", async () => {
+    expect(await loadSyncEnabled()).toBe(false);
+  });
+
+  test("keeps settings out of sync while off", async () => {
+    await saveConfig(config);
+    await saveLanguage("zh");
+    expect(chrome.sync.data).toEqual({});
+  });
+
+  test("pushes existing local settings up when switched on", async () => {
+    await saveConfig(config);
+    await saveLanguage("zh");
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(config);
+    expect(chrome.sync.data.tiroLanguage).toBe("zh");
+    expect(await loadSyncEnabled()).toBe(true);
+  });
+
+  test("joins settings already in sync instead of clobbering them", async () => {
+    // The headline case: a second machine already holds settings of its own
+    // and sync carries the shared ones. Flipping the toggle must adopt what
+    // sync has rather than push this machine's copy over it. The local value
+    // has to differ for that to be observable at all — seeding only sync
+    // passes whether or not the guard is there.
+    await saveConfig(config);
+    chrome.sync.data.tiroConfig = other;
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(other);
+    expect(await loadConfig()).toEqual(other);
+  });
+
+  test("reads sync in preference to a stale local mirror", async () => {
+    await saveConfig(config);
+    await setSyncEnabled(true);
+    chrome.sync.data.tiroConfig = other;
+    expect(await loadConfig()).toEqual(other);
+  });
+
+  test("falls back to local when sync holds nothing yet", async () => {
+    // The window after the toggle goes on and before Chrome pushes anything.
+    await saveConfig(config);
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await loadConfig()).toEqual(config);
+  });
+
+  test("mirrors every write to local while on", async () => {
+    await setSyncEnabled(true);
+    await saveConfig(config);
+    await saveLanguage("en");
+    expect(chrome.local.data.tiroConfig).toEqual(config);
+    expect(chrome.local.data.tiroLanguage).toBe("en");
+  });
+
+  test("keeps clip history out of sync", async () => {
+    // One key, up to 500 entries: sync would reject it over the 8 KB
+    // per-item cap long before the cap in storage.ts was reached.
+    await setSyncEnabled(true);
+    await recordClip(
+      config,
+      "example-com-post-12345678",
+      "2026-09-15T00:00:00.000Z",
+    );
+    expect(chrome.sync.data.tiroClipHistory).toBeUndefined();
+    expect(chrome.local.data.tiroClipHistory).toBeDefined();
+  });
+
+  test("copies settings down and clears sync when switched off", async () => {
+    await setSyncEnabled(true);
+    chrome.sync.data.tiroConfig = other;
+    chrome.sync.data.tiroLanguage = "zh";
+
+    await setSyncEnabled(false);
+
+    // Clearing the keys is the point of disabling: it takes the token off
+    // Google's servers rather than just stopping new writes.
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+    expect(chrome.sync.data.tiroLanguage).toBeUndefined();
+    expect(chrome.sync.data.tiroSyncEnabled).toBe(false);
+    // And nothing is lost doing it.
+    expect(await loadConfig()).toEqual(other);
+    expect(await loadLanguage()).toBe("zh");
+  });
+
+  test("leaves settings readable when switched off with sync empty", async () => {
+    await saveConfig(config);
+    await setSyncEnabled(true);
+    await setSyncEnabled(false);
+    expect(await loadConfig()).toEqual(config);
   });
 });
