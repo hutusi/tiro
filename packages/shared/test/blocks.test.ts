@@ -752,17 +752,27 @@ describe("plainText", () => {
     expect(plainText("first<BR >second")).toBe("first second");
   });
 
-  // A publisher's own markup rarely ships a bare tag; the attributes come
-  // through the clip with it.
-  test("matches a <br> that carries attributes", () => {
-    expect(plainText('first<br class="gap">second')).toBe("first second");
-    expect(plainText("first<br class=gap>second")).toBe("first second");
-    expect(plainText("first<BR CLASS='x'>second")).toBe("first second");
-    expect(plainText("first<br\ndata-x>second")).toBe("first second");
-  });
-
-  test("does not match a tag that merely starts with br", () => {
-    expect(plainText("first<brx>second")).toBe("firstsecond");
+  // Three review rounds went on which HTML counts as a break, so the answer
+  // is a table rather than a pattern someone can tighten by eye. The rule is
+  // the tag *name*: attributes are never parsed, which is what keeps
+  // `<br title="a > b">` in and `<br-other>` out.
+  test.each([
+    ["<br>", true],
+    ["<br/>", true],
+    ["<br />", true],
+    ['<br class="gap">', true],
+    ["<br class=gap>", true],
+    ["<BR CLASS='x'>", true],
+    ['<br title="a > b">', true],
+    ["<br\ndata-x>", true],
+    ["<br-other>", false],
+    ["<brx>", false],
+    ["<span>", false],
+    ["</br>", false],
+  ])("%s separates words: %s", (tag, breaks) => {
+    expect(plainText(`first${tag}second`)).toBe(
+      breaks ? "first second" : "firstsecond",
+    );
   });
 
   // The separator goes on the break rather than around every inline node,

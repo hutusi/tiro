@@ -665,10 +665,21 @@ export function checkAlignment(
   return { ok: errors.length === 0, errors };
 }
 
-/** An inline `<br>`, in any of the spellings a clipped page carries: bare,
- * self-closing, and with attributes, which a publisher's own markup often has
- * (`<br class="gap">`). `\b` keeps it from matching `<brx>`. */
-const BR_HTML = /^<br\b[^>]*>$/i;
+/**
+ * The tag name an inline HTML node opens with, lowercased, or null when it does
+ * not open with one.
+ *
+ * Asking for the name rather than pattern-matching the whole tag is what keeps
+ * the attributes out of it, and two rounds of review went on attributes:
+ * `[^>]*` cannot cross the `>` inside `<br title="a > b">`, and a `\b` after
+ * the name counts `<br-other>` as a `<br>`. Stopping at the first delimiter has
+ * neither problem, because the name is all that is being asked about.
+ */
+const HTML_TAG_NAME = /^<([a-zA-Z][^\s/>]*)/;
+
+function tagName(value: string): string | null {
+  return HTML_TAG_NAME.exec(value.trim())?.[1]?.toLowerCase() ?? null;
+}
 
 /**
  * The prose a markdown fragment actually shows — its text with the syntax
@@ -695,7 +706,7 @@ export function plainText(markdown: string): string {
     // because a space around emphasis would split `un*bel*ievable`.
     if (
       n.type === "break" ||
-      (n.type === "html" && BR_HTML.test((n.value ?? "").trim()))
+      (n.type === "html" && tagName(n.value ?? "") === "br")
     ) {
       out.push(" ");
       return;
