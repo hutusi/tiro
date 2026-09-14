@@ -742,6 +742,27 @@ describe("plainText", () => {
     );
   });
 
+  // A rendered line break is whitespace. Missing it ran the words either side
+  // together — "first<br>second" came out as "firstsecond".
+  test("treats a rendered line break as a space", () => {
+    expect(plainText("first  \nsecond")).toBe("first second");
+    expect(plainText("first\\\nsecond")).toBe("first second");
+    expect(plainText("first<br>second")).toBe("first second");
+    expect(plainText("first<br/>second")).toBe("first second");
+    expect(plainText("first<BR >second")).toBe("first second");
+  });
+
+  // The separator goes on the break rather than around every inline node,
+  // because spacing emphasis would split a word that is emphasized inside it.
+  test("does not put a space inside an emphasized word", () => {
+    expect(plainText("un*bel*ievable")).toBe("unbelievable");
+    expect(plainText("first<span>second</span>")).toBe("firstsecond");
+  });
+
+  test("separates blocks, which are not one word either", () => {
+    expect(plainText("one\n\ntwo")).toBe("one two");
+  });
+
   test("collapses whitespace and trims", () => {
     expect(plainText("  one\n  two   three  ")).toBe("one two three");
     expect(plainText("   ")).toBe("");

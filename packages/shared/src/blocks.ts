@@ -679,11 +679,25 @@ export function checkAlignment(
  * with a hero image would otherwise be summarized by its alt attribute. Link
  * text does count: a sentence is still a sentence when parts of it are links.
  */
+/** An inline `<br>`, in any of the spellings a clipped page might carry. */
+const BR_HTML = /^<br\s*\/?>$/i;
+
 export function plainText(markdown: string): string {
   const out: string[] = [];
   const walk = (node: unknown): void => {
     const n = node as { type?: string; value?: string; children?: unknown[] };
     if (n.type === "image" || n.type === "imageReference") return;
+    // A rendered line break is whitespace. Without this the words either side
+    // of it are run together — "first<br>second" became "firstsecond" — and the
+    // separator has to be added here rather than around every inline node,
+    // because a space around emphasis would split `un*bel*ievable`.
+    if (
+      n.type === "break" ||
+      (n.type === "html" && BR_HTML.test((n.value ?? "").trim()))
+    ) {
+      out.push(" ");
+      return;
+    }
     if (
       typeof n.value === "string" &&
       (n.type === "text" || n.type === "inlineCode")
@@ -692,6 +706,13 @@ export function plainText(markdown: string): string {
     }
     if (Array.isArray(n.children)) for (const child of n.children) walk(child);
   };
-  walk(proseParser.parse(markdown) as Root);
+  const root = proseParser.parse(markdown) as Root;
+  // Blocks are separated for the same reason: two paragraphs are two sentences,
+  // not one word. Callers pass a single block today, which is why this never
+  // showed.
+  root.children.forEach((child, index) => {
+    if (index > 0) out.push(" ");
+    walk(child);
+  });
   return out.join("").replace(/\s+/g, " ").trim();
 }
