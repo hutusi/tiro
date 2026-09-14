@@ -2,8 +2,8 @@
 
 Status: accepted (2026-09); the reader's *sticky toolbar under a sticky header*
 is superseded by ADR 0021 (2026-09), which makes the site header scroll away on
-an article so one bar of chrome sits above the text instead of two, and aligns
-every band of the page to one measure. Everything else here stands: the palette,
+an article so one bar of chrome sits above the text instead of two. Everything
+else here stands: the palette,
 the type pairing, the reader's grid rows, the two reading measures and which of
 them is on the Settings dial.
 

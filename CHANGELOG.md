@@ -41,25 +41,20 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
-- **One measure for the whole page.** The header's inner bar was the only
-  full-bleed element on the site — `main` and the footer already centred
-  themselves — so the footer lined up with the content and the header did not.
-  At 1920px the article text started at x=293 while the toolbar's 返回 sat at
-  x=40, and on Settings the gap was 592px. Every band now takes its left edge
-  from one token: the header, `main`, the footer, and on an article the reader's
-  toolbar and text, which follow the measure of what is being shown — 800px in
-  中文/原文, the wide measure in 左右对照. The header is no longer a full-width bar
-  anywhere; on the home page the logo moves from x=40 to x=472. On an article it
-  also stops being sticky and the toolbar takes the top, so one bar of chrome
-  sits above the text instead of two (~97px, and 146px at 390px where the
-  toolbar wraps). The view and font controls stay on the article's left edge
-  rather than moving to the middle: once the toolbar shares the text's measure
-  they already sit above the text they act on. Below 688px — where those
-  controls start wrapping — the share buttons drop out entirely: a phone's
-  browser already carries a share control, and the source link is in the title
-  block and the end-note besides, so the page was paying a whole row of sticky
-  toolbar to repeat what is a tap away. ADR 0021, superseding ADR 0014's
-  sticky-toolbar clause.
+- **One sticky bar on an article, not two.** The site header and the reader's
+  toolbar both stuck to the top — about 97px of chrome above the text, and 146px
+  at 390px where the toolbar wraps. On an article the header now scrolls away
+  and the toolbar takes the top; the nav returns at the top of the page and 返回
+  is the way out in between. Below 688px the share buttons drop out too: a
+  phone's browser already carries a share control, and the source link is in the
+  title block and the end-note, so the page was paying a whole row to repeat
+  what is a tap away. The view and font controls stay on the left rather than
+  moving to the middle — in 左右对照 the page centre is the gutter between the two
+  text columns. The chrome deliberately keeps a fixed distance from the viewport
+  edges rather than following the content column: aligning it was built and
+  reverted, because a page's measure is not constant and a header that moved
+  when the reading mode changed read as instability rather than design. ADR
+  0021, superseding ADR 0014's sticky-toolbar clause.
 
 - **One mark, everywhere.** The favicon, touch icon, social card and the
   extension's toolbar and store icons were an oxblood "T" monogram while the

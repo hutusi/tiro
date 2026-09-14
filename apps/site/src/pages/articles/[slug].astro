@@ -104,66 +104,63 @@ const tagLinks = await Promise.all(
     data-zh-title={hasZhTitle ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
-      <div class="toolbar-inner measure">
-        <a href="/" class="back">{t.back}</a>
-        {
-          view.kind === "paired" && (
-            <Fragment>
-              <span class="divider" aria-hidden="true" />
-              <div
-                id="view-toggle"
-                class="segmented segmented--md"
-                role="group"
-                aria-label={t.layoutLabel}
+      <a href="/" class="back">{t.back}</a>
+      {
+        view.kind === "paired" && (
+          <Fragment>
+            <span class="divider" aria-hidden="true" />
+            <div
+              id="view-toggle"
+              class="segmented segmented--md"
+              role="group"
+              aria-label={t.layoutLabel}
+            >
+              <button type="button" data-view="both" aria-pressed="false">
+                {t.sideBySide}
+              </button>
+              <button
+                type="button"
+                data-view="translation"
+                aria-pressed="false"
+                lang="zh-CN"
               >
-                <button type="button" data-view="both" aria-pressed="false">
-                  {t.sideBySide}
-                </button>
-                <button
-                  type="button"
-                  data-view="translation"
-                  aria-pressed="false"
-                  lang="zh-CN"
-                >
-                  {t.translation}
-                </button>
-                <button type="button" data-view="original" aria-pressed="false">
-                  {t.original}
-                </button>
-              </div>
-            </Fragment>
-          )
-        }
-        <span class="divider" aria-hidden="true"></span>
-        <FontSteps />
-        <div
-          class="share"
-          data-share-url={shareUrl}
-          data-share-title={shareTitle}
+                {t.translation}
+              </button>
+              <button type="button" data-view="original" aria-pressed="false">
+                {t.original}
+              </button>
+            </div>
+          </Fragment>
+        )
+      }
+      <span class="divider" aria-hidden="true"></span>
+      <FontSteps />
+      <div
+        class="share"
+        data-share-url={shareUrl}
+        data-share-title={shareTitle}
+      >
+        <button type="button" class="chip" data-share hidden>{t.share}</button>
+        <button
+          type="button"
+          class="chip"
+          data-copy
+          data-idle={t.copyLink}
+          data-done={t.copied}
+          data-failed={t.copyFailed}
+          aria-live="polite">{t.copyLink}</button
         >
-          <button type="button" class="chip" data-share hidden>{t.share}</button
-          >
-          <button
-            type="button"
-            class="chip"
-            data-copy
-            data-idle={t.copyLink}
-            data-done={t.copied}
-            data-failed={t.copyFailed}
-            aria-live="polite">{t.copyLink}</button
-          >
-          <a
-            class="chip source"
-            href={frontmatter.url}
-            target="_blank"
-            rel="noopener"
-            aria-label={`${t.openSource}：${frontmatter.domain}`}
-            title={frontmatter.domain}
-            ><span class="source-name">{frontmatter.domain}</span><span
-              aria-hidden="true">↗</span
-            ></a
-          >
-        </div>
+        <a
+          class="chip source"
+          href={frontmatter.url}
+          target="_blank"
+          rel="noopener"
+          aria-label={`${t.openSource}：${frontmatter.domain}`}
+          title={frontmatter.domain}
+          ><span class="source-name">{frontmatter.domain}</span><span
+            aria-hidden="true">↗</span
+          ></a
+        >
       </div>
     </div>
 
@@ -335,28 +332,22 @@ const tagLinks = await Promise.all(
     --size: var(--reader-size, 19px);
   }
 
-  /* Shell and inner, like the site header. The rule and the paper have to span
-     the viewport — stop them at the measure and the page shows through the
-     gutters as it scrolls underneath — while the controls stop where the text
-     does. `data-pagefind-ignore` stays on the shell and still covers both. */
+  /* Chrome, so it spans the viewport at a fixed gutter rather than following
+     the text: it must not move when the reading mode changes the measure. */
   .toolbar {
     position: sticky;
     /* The site header is not sticky on an article, so this is the top. */
     top: 0;
     z-index: 10;
-    border-bottom: 1px solid var(--rule);
-    background: var(--paper);
-    font-family: var(--font-ui);
-    font-size: 13px;
-  }
-  /* `padding-block`, never the `padding` shorthand: this rule is scoped, so it
-     outranks `.measure` and the shorthand would wipe out its inline gutter. */
-  .toolbar-inner {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 10px 16px;
-    padding-block: 10px;
+    padding: 10px var(--gutter);
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+    font-family: var(--font-ui);
+    font-size: 13px;
   }
   .back {
     color: var(--ink-mute);
@@ -405,19 +396,22 @@ const tagLinks = await Promise.all(
   .share .source {
     color: var(--ink-mute);
   }
-  /* The toolbar is 720px of content at the single-column measure and its
-     controls need nearly all of it, so a long domain pushed the share group
-     onto a second row — 28 of the vault's 102 articles are over 17 characters,
-     which is too many to call an edge case. 16ch is the widest cap that keeps
-     one row for the longest domain in the vault. Short domains, which are most
-     of them, are untouched; the full value stays in `title` and `aria-label`. */
-  .share .source-name {
-    display: inline-block;
-    max-width: 16ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: bottom;
+  /* Between the width where the share controls appear and the width where the
+     bar has room to spare, a long domain pushes them onto a second row — 28 of
+     the vault's 102 articles have one over 17 characters, too many to call an
+     edge case. Measured: uncapped, the longest in the vault wraps the bar up to
+     780px and fits from 800px. So the cap applies only in that band; above it
+     the domain is shown in full, and below it these controls are hidden
+     anyway. The full value stays in `title` and `aria-label` regardless. */
+  @media (max-width: 50rem) {
+    .share .source-name {
+      display: inline-block;
+      max-width: 16ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: bottom;
+    }
   }
   .share .source:hover {
     color: var(--ink);
