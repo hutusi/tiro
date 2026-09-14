@@ -225,6 +225,50 @@ describe("summarize", () => {
     expect(result.summaryOrig).toBeUndefined();
   });
 
+  // The shape that shipped a broken summary: an article opening with a linked
+  // hero image. That paragraph renders as nothing, so it is not the summary.
+  test("the fallback skips a paragraph that is only a picture", async () => {
+    const { chat } = scripted(["nope", "still nope", "nope again"]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      body: [
+        "[![](./assets/921bcc8d8398.jpg)](https://cdn.example.com/hero.png)",
+        "",
+        "This is the first sentence a reader actually sees.",
+      ].join("\n"),
+    });
+    expect(result.failed).toBe(true);
+    expect(result.summary).toBe(
+      "This is the first sentence a reader actually sees.",
+    );
+  });
+
+  // `block.text` is exact source, but the site prints a summary as plain text
+  // and into `<meta name="description">` — so the syntax must not survive.
+  test("the fallback returns prose, not markdown source", async () => {
+    const { chat } = scripted(["nope", "still nope", "nope again"]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      body: "A **bold** claim with a [link](https://example.com) and `code`.",
+    });
+    expect(result.summary).toBe("A bold claim with a link and code.");
+  });
+
+  // A body with no prose at all still has to produce something: an empty
+  // summary is one the frontmatter schema accepts silently.
+  test("the fallback uses the title when no paragraph reads as prose", async () => {
+    const { chat } = scripted(["nope", "still nope", "nope again"]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      title: "Only Pictures",
+      body: "![](./assets/a.jpg)\n\n![](./assets/b.jpg)",
+    });
+    expect(result.summary).toBe("Only Pictures");
+  });
+
   test("the excerpt fallback carries no pair", async () => {
     const { chat } = scripted(["nope", "still nope", "nope again"]);
     const result = await summarize({ ...baseOptions, chat, bilingual: true });

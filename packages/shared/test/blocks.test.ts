@@ -6,6 +6,7 @@ import {
   joinBlocks,
   mathRanges,
   normalizeBlockMath,
+  plainText,
   splitBlocks,
   verbatimRanges,
 } from "../src/blocks.ts";
@@ -713,5 +714,36 @@ describe("foldedFigureCount", () => {
 
   test("ignores an image inside code", () => {
     expect(foldedFigureCount("```\n![a](x.png)  \nCap.\n```")).toBe(0);
+  });
+});
+
+describe("plainText", () => {
+  test("renders a paragraph's prose without its syntax", () => {
+    expect(
+      plainText("A **bold** claim and a [link](https://example.com)."),
+    ).toBe("A bold claim and a link.");
+    expect(plainText("Run `bun test` first.")).toBe("Run bun test first.");
+  });
+
+  // The caller is looking for a paragraph a reader would recognise as prose,
+  // and a paragraph holding only a picture is not one however well described.
+  test("does not count an image as prose", () => {
+    expect(plainText("![](./assets/x.jpg)")).toBe("");
+    expect(plainText("![A cyberpunk city](./assets/x.jpg)")).toBe("");
+    expect(
+      plainText("[![](./assets/x.jpg)](https://cdn.example.com/y.png)"),
+    ).toBe("");
+  });
+
+  // Link text is prose; a sentence is still a sentence when parts of it link.
+  test("keeps the words around an image", () => {
+    expect(plainText("See ![](./a.jpg) the chart above.")).toBe(
+      "See the chart above.",
+    );
+  });
+
+  test("collapses whitespace and trims", () => {
+    expect(plainText("  one\n  two   three  ")).toBe("one two three");
+    expect(plainText("   ")).toBe("");
   });
 });

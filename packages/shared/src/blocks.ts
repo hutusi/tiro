@@ -664,3 +664,34 @@ export function checkAlignment(
   });
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * The prose a markdown fragment actually shows — its text with the syntax
+ * removed, for the places that need words rather than source.
+ *
+ * A block's `text` is its exact source, which is right for alignment and wrong
+ * for anything rendered as plain text: a paragraph carrying `**bold**` or
+ * `[a link](url)` would show its punctuation.
+ *
+ * **Image alt text does not count.** The caller asking this question is looking
+ * for a paragraph a reader would recognise as prose, and a paragraph holding
+ * only a picture is not one however well it is described — an article opening
+ * with a hero image would otherwise be summarized by its alt attribute. Link
+ * text does count: a sentence is still a sentence when parts of it are links.
+ */
+export function plainText(markdown: string): string {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as { type?: string; value?: string; children?: unknown[] };
+    if (n.type === "image" || n.type === "imageReference") return;
+    if (
+      typeof n.value === "string" &&
+      (n.type === "text" || n.type === "inlineCode")
+    ) {
+      out.push(n.value);
+    }
+    if (Array.isArray(n.children)) for (const child of n.children) walk(child);
+  };
+  walk(proseParser.parse(markdown) as Root);
+  return out.join("").replace(/\s+/g, " ").trim();
+}
