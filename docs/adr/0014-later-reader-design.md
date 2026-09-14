@@ -1,8 +1,15 @@
 # ADR 0014: The site follows the "Later Reader" design
 
-Status: accepted (2026-09). Visual and information-architecture decision for
-`apps/site`; the content contract (ADR 0002), the reader's block alignment
-(ADR 0003) and the render pipeline (ADR 0009) are unchanged.
+Status: accepted (2026-09); the reader's *sticky toolbar under a sticky header*
+is superseded by ADR 0021 (2026-09), which makes the site header scroll away on
+an article so one bar of chrome sits above the text instead of two. Everything
+else here stands: the palette,
+the type pairing, the reader's grid rows, the two reading measures and which of
+them is on the Settings dial.
+
+Visual and information-architecture decision for `apps/site`; the content
+contract (ADR 0002), the reader's block alignment (ADR 0003) and the render
+pipeline (ADR 0009) are unchanged.
 
 ## Context
 

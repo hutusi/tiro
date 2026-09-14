@@ -41,6 +41,21 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **One sticky bar on an article, not two.** The site header and the reader's
+  toolbar both stuck to the top — about 97px of chrome above the text, and 146px
+  at 390px where the toolbar wraps. On an article the header now scrolls away
+  and the toolbar takes the top; the nav returns at the top of the page and 返回
+  is the way out in between. Below 688px the share buttons drop out too: a
+  phone's browser already carries a share control, and the source link is in the
+  title block and the end-note, so the page was paying a whole row to repeat
+  what is a tap away. The view and font controls stay on the left rather than
+  moving to the middle — in 左右对照 the page centre is the gutter between the two
+  text columns. The chrome deliberately keeps a fixed distance from the viewport
+  edges rather than following the content column: aligning it was built and
+  reverted, because a page's measure is not constant and a header that moved
+  when the reading mode changed read as instability rather than design. ADR
+  0021, superseding ADR 0014's sticky-toolbar clause.
+
 - **One mark, everywhere.** The favicon, touch icon, social card and the
   extension's toolbar and store icons were an oxblood "T" monogram while the
   site header and footer carried the two-bar mark, so Tiro looked like two

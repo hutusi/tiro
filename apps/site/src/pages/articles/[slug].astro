@@ -51,6 +51,11 @@ const blocks =
       : view.blocks
     : [];
 const hasZhTitle = meta.titleZh !== null;
+// One expression feeds both markers: the in-page one the pane rules read, and
+// the `<html>` one that switches `--w-page`, the content measure, which is a
+// page-level token and so lives at the root. The chrome reads neither — it
+// keeps a fixed gutter (ADR 0021).
+const paired = view.kind === "paired";
 // Absolute, and against Astro.site rather than the dev origin: what this hands
 // someone has to work away from the machine that copied it. Falls back to the
 // long URL for an article with no short id — offering a link that does not
@@ -90,13 +95,14 @@ const tagLinks = await Promise.all(
   title={frontmatter.title}
   description={frontmatter.summary ?? frontmatter.excerpt}
   ogType="article"
-  width="full"
+  width="reader"
+  paired={paired}
   noindex={unlisted}
 >
   <article
     data-pagefind-body={unlisted ? undefined : true}
     class="reader"
-    data-paired={view.kind === "paired" ? "" : undefined}
+    data-paired={paired ? "" : undefined}
     data-zh-title={hasZhTitle ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
@@ -152,12 +158,15 @@ const tagLinks = await Promise.all(
           target="_blank"
           rel="noopener"
           aria-label={`${t.openSource}：${frontmatter.domain}`}
-          >{frontmatter.domain}<span aria-hidden="true">↗</span></a
+          title={frontmatter.domain}
+          ><span class="source-name">{frontmatter.domain}</span><span
+            aria-hidden="true">↗</span
+          ></a
         >
       </div>
     </div>
 
-    <header class="head">
+    <header class="head measure">
       <div class="titles">
         <div class="orig">
           <p class="meta">
@@ -244,7 +253,7 @@ const tagLinks = await Promise.all(
 
     {
       view.kind === "paired" && (
-        <div id="reader">
+        <div id="reader" class="measure">
           {rows.map((row) => (
             <div class="reader-row">
               <div
@@ -265,7 +274,7 @@ const tagLinks = await Promise.all(
 
     {
       view.kind === "single" && (
-        <div class="reader-single">
+        <div class="reader-single measure">
           {noTranslationNeeded && (
             <p class="notice" data-pagefind-ignore>
               {t.noTranslation}
@@ -282,7 +291,7 @@ const tagLinks = await Promise.all(
 
     {
       view.kind === "stacked" && (
-        <div class="reader-single space-y-10">
+        <div class="reader-single measure space-y-10">
           <p class="notice notice--warn">{t.misaligned}</p>
           <div class="prose max-w-none" lang={frontmatter.lang}>
             {view.original.map((html) => (
@@ -298,7 +307,7 @@ const tagLinks = await Promise.all(
       )
     }
 
-    <p class="end-note" data-pagefind-ignore>
+    <p class="end-note measure" data-pagefind-ignore>
       {t.clippedAt}
       <time datetime={frontmatter.clipped_at}>{date}</time>
       <span aria-hidden="true">·</span>
@@ -323,22 +332,14 @@ const tagLinks = await Promise.all(
      substitutes those away at build time. */
   .reader {
     --size: var(--reader-size, 19px);
-    --gutter: 16px;
-  }
-  @media (min-width: 40rem) {
-    .reader {
-      --gutter: 24px;
-    }
-  }
-  @media (min-width: 64rem) {
-    .reader {
-      --gutter: 40px;
-    }
   }
 
+  /* Chrome, so it spans the viewport at a fixed gutter rather than following
+     the text: it must not move when the reading mode changes the measure. */
   .toolbar {
     position: sticky;
-    top: var(--header-h);
+    /* The site header is not sticky on an article, so this is the top. */
+    top: 0;
     z-index: 10;
     display: flex;
     flex-wrap: wrap;
@@ -371,6 +372,29 @@ const tagLinks = await Promise.all(
     gap: 8px;
     margin-left: auto;
   }
+  /* A phone's browser already carries a share control in its own chrome, and
+     the source link is in the title block and the end-note besides — so on a
+     small screen the page is repeating what is a tap away and paying a whole
+     row of sticky toolbar for it. Hidden, the bar goes from two rows to one:
+     90px to 51px, on the screens with the least room.
+     What is genuinely lost is the short link, which is the one thing these
+     buttons carry that the browser's share cannot: it sends whatever is in the
+     address bar, which is the long URL. Accepted — on a phone you reach for
+     the browser's share anyway.
+     The breakpoint is measured rather than picked: 688px is where these
+     controls stop wrapping. It tracks their combined width, so re-measure if
+     a label changes. Hiding them at the `40rem` step instead would leave
+     640-688px wrapping for no benefit.
+     688 is the worst case, which is the one a media query has to take: where
+     the browser has no share sheet the script hides 分享, and the rest fit from
+     640px — but CSS cannot know that, and hiding slightly early is better than
+     wrapping. */
+  /* Exclusive: 688px is where they fit, so they must show there, not hide. */
+  @media (width < 43rem) {
+    .share {
+      display: none;
+    }
+  }
   /* `.chip` is `display: inline-flex`, which beats the `hidden` attribute — the
      share button would show on every desktop without this. */
   .share .chip[hidden] {
@@ -378,6 +402,23 @@ const tagLinks = await Promise.all(
   }
   .share .source {
     color: var(--ink-mute);
+  }
+  /* Between the width where the share controls appear and the width where the
+     bar has room to spare, a long domain pushes them onto a second row — 28 of
+     the vault's 102 articles have one over 17 characters, too many to call an
+     edge case. Measured: uncapped, the longest in the vault wraps the bar up to
+     780px and fits from 800px. So the cap applies only in that band; above it
+     the domain is shown in full, and below it these controls are hidden
+     anyway. The full value stays in `title` and `aria-label` regardless. */
+  @media (width < 50rem) {
+    .share .source-name {
+      display: inline-block;
+      max-width: 16ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: bottom;
+    }
   }
   .share .source:hover {
     color: var(--ink);
@@ -397,19 +438,6 @@ const tagLinks = await Promise.all(
      a paired view, so it is what stops `原文` from hiding the only Chinese on a
      single-pane article, and `中文` from hiding the English title above an
      English body. Add the guard to any new rule even where it looks redundant. */
-  .head,
-  #reader,
-  .reader-single,
-  .end-note {
-    max-width: var(--w-reader);
-    margin-inline: auto;
-    padding-inline: var(--gutter);
-  }
-  :global(html[data-reader-mode="both"]) .reader[data-paired] .head,
-  :global(html[data-reader-mode="both"]) .reader[data-paired] #reader {
-    max-width: var(--w-reader-wide);
-  }
-
   .head {
     padding-top: 56px;
     padding-bottom: 8px;

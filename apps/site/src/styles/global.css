@@ -14,7 +14,10 @@
  * Base.astro sets before first paint.
  */
 :root {
-  --header-h: 56px;
+  /* The page gutter, as a token rather than four copies of
+     `px-4 sm:px-6 lg:px-10`. In rem because that is what those utilities emit,
+     so the two cannot drift apart at a non-default root font size. */
+  --gutter: 1rem;
 
   --paper: #f4efe4;
   --field: #f9f5ec; /* cards, inputs — a shade lighter than the paper */
@@ -47,6 +50,33 @@
   --w-library: 1040px;
   --w-reader: 800px;
   --w-reader-wide: 1240px;
+  /* The settings form's column. Narrower than the page it sits in, the way
+     `privacy.astro` and `404.astro` already narrow themselves inside a
+     library-width main — not a page measure of its own. */
+  --w-narrow: 680px;
+
+  /* The measure of a page's *content* column — `main` on a list or settings
+     page, and on an article the title block, body and end-note. Deliberately
+     not the chrome: the header bar and the reader's toolbar span the viewport
+     at a fixed gutter and the footer is pinned to --w-library, so that none of
+     them moves between pages or when the reading mode changes (ADR 0021, which
+     records the version where they did follow it, and why that was reverted).
+     A page-level token, so it lives at the root and any band reads it without
+     knowing where it sits in the tree. The library width everywhere except the
+     reader, below. */
+  --w-page: var(--w-library);
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --gutter: 1.5rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --gutter: 2.5rem;
+  }
 }
 
 [data-width="compact"] {
@@ -57,6 +87,22 @@
 [data-width="wide"] {
   --w-library: 1200px;
   --w-reader-wide: 1400px;
+}
+
+/* An article's content runs at the measure of the text it is showing: one
+   column in 中文/原文, two in 左右对照. The chrome does not follow it — see
+   --w-page above. `data-page` and
+   `data-paired` are server-rendered onto `html` and `data-reader-mode` is set
+   by the pre-paint script, so this is settled before the first frame in every
+   combination. With JavaScript off there is no mode attribute and this falls to
+   the single-column measure — which is also the layout the pane rules fall back
+   to, since they all require mode="both". */
+html[data-page="reader"] {
+  --w-page: var(--w-reader);
+}
+
+html[data-page="reader"][data-paired][data-reader-mode="both"] {
+  --w-page: var(--w-reader-wide);
 }
 
 [data-paper="white"] {
@@ -160,6 +206,29 @@
  * these (Tailwind's utilities layer comes last), so a page can nudge them.
  */
 @layer components {
+  /*
+   * One band of a page's content: centred at the page measure, with the page
+   * gutter either side. Worn by `main` on a list or settings page, and by the
+   * article's title block, body and end-note.
+   *
+   * Not by the chrome. The header bar and the reader's toolbar span the
+   * viewport at a fixed gutter and the footer is pinned to --w-library, so they
+   * hold still while the content measure changes under them (ADR 0021).
+   *
+   * Two ways to break it silently, both from something outranking this layer.
+   * Utilities win, which is deliberate — `max-w-[var(--w-narrow)]` is how the
+   * settings page narrows its column — but a stray `px-*` left on the same
+   * element replaces the gutter. Astro's scoped styles win too (they are
+   * unlayered and carry an attribute selector), so a scoped rule on a
+   * `.measure` element must set `padding-block`, never the `padding` shorthand.
+   */
+  .measure {
+    width: 100%;
+    max-width: var(--w-page);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
   /*
    * Baseline, not center. Centering aligns the bars on the wordmark's *line
    * box*, but Spectral's ascent (~0.80em) far exceeds its cap height (~0.71em)
