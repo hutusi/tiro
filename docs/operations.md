@@ -469,19 +469,34 @@ Two decisions worth not relitigating:
   the disclosure promises nothing is sent before the Clip click. The state is
   therefore blind to clips made on other machines; the clip flow itself still
   checks GitHub and reports "Updated existing clip." Clearing the record
-  (remove the key, or reinstall) only costs the already-clipped statuses.
+  (remove the key, or reinstall) only costs the already-clipped statuses. It
+  stays in `chrome.storage.local` even with settings sync on — see the cap
+  below.
 - **UI language follows the browser, overridable in Settings.** Chrome's
   `_locales` system cannot honor a per-extension override, so the extension
   ships its own en/zh message tables (`apps/extension/src/i18n.ts`). The
   choice lives under its own `tiroLanguage` key (same wipe-on-Save rationale
-  as `tiroDisclosure`) and defaults to `auto` — the browser's UI language.
-- **The PAT stays in `chrome.storage.local`**, in plaintext. `storage.session`
-  is cleared on every browser restart, which would mean re-pasting the token
-  daily; and any key the extension could use to encrypt it is reachable by
-  anything that has already compromised the profile. The real control is the
-  token itself: fine-grained, one repository, Contents RW, one per machine,
+  as `tiroDisclosure`) and defaults to `auto` — the browser's UI language. It
+  travels with settings sync when that is on; `tiroDisclosure` does not.
+- **The PAT is stored in plaintext, in `chrome.storage.local` by default.**
+  `storage.session` is cleared on every browser restart, which would mean
+  re-pasting the token daily; and any key the extension could use to encrypt it
+  is reachable by anything that has already compromised the profile. The real
+  control is the token itself: fine-grained, one repository, Contents RW,
   revocable in seconds. That trade is disclosed on the privacy page rather than
   hidden.
+- **Settings sync is opt-in and off by default** (ADR 0022). Switching it on in
+  the options page moves `tiroConfig` and `tiroLanguage` into
+  `chrome.storage.sync`, so a machine signed into the same Chrome profile
+  configures itself — the `tiroSyncEnabled` flag lives in the synced area too,
+  which is what makes the second machine zero-setup rather than one checkbox.
+  Writes go to `local` as well as `sync`, always, so `local` is a warm mirror
+  and switching sync back off copies down before clearing the synced keys. That
+  clearing is the point of switching it off: it takes the token back off
+  Google's servers. Two keys never sync — `tiroClipHistory` because one key of
+  up to 500 entries (~35-50 KB) exceeds sync's 8,192-byte per-item cap, and
+  `tiroDisclosure` because consent to read pages belongs to an install, not an
+  account.
 
 ### Installing on another computer
 
@@ -510,14 +525,21 @@ every `ext-v*` tag publishes a zip.
 second write races the first over the same path. Remove the unpacked copy before
 installing from the store.
 
-Two things follow from how the extension stores its config
-(`chrome.storage.local`, see `apps/extension/src/storage.ts`):
+Two things follow from how the extension stores its config (see
+`apps/extension/src/storage.ts`):
 
-- **Settings do not sync between machines.** Each install is configured by
-  hand. This is deliberate — `chrome.storage.sync` would upload the PAT to
-  Google.
-- **Mint a separate fine-grained PAT per machine** (`tiro-vault`, Contents:
-  Read and write) so a lost laptop can be revoked without breaking the other.
+- **Settings do not sync between machines unless you turn sync on.** By default
+  each install is configured by hand. Ticking **Sync settings across my
+  devices** in the options page puts the owner, repository, branch, token and
+  language in `chrome.storage.sync`, and any machine on the same Chrome profile
+  picks them up with nothing typed. The cost is stated plainly in ADR 0022: the
+  token goes to Google's servers and onto every machine on the profile, and one
+  shared token means one revocation breaks all of them. Untick it to copy the
+  settings back down and clear them from sync.
+- **With sync off, mint a separate fine-grained PAT per machine** (`tiro-vault`,
+  Contents: Read and write) so a lost laptop can be revoked without breaking the
+  other. This is the reason to leave sync off; turning it on trades it away
+  knowingly.
 
 An unpacked extension's ID is derived from its folder path, so it differs per
 machine; a store install carries the one permanent ID everywhere. Nothing here

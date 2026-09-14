@@ -7,6 +7,21 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in settings sync for the extension.** Ticking "Sync settings across my
+  devices" on the options page moves the GitHub owner, repository, branch,
+  token and language preference into `chrome.storage.sync`, so a machine signed
+  into the same Chrome profile configures itself with nothing typed. Off by
+  default, and deliberately so: turning it on puts the token on Google's servers
+  and on every device on the profile, and ends the per-machine token revocation
+  the runbook otherwise recommends — a trade for the account's owner to make,
+  not a default to inherit (ADR 0022). Settings are mirrored to local storage
+  either way, so unticking copies them back down before clearing the synced
+  keys. The clip record stays local (one key of up to 500 entries would exceed
+  sync's 8 KB per-item cap) and so does the disclosure acceptance (consent to
+  read pages belongs to an install, so each machine still asks once).
+
 ## [0.7.0] - 2026-09-14
 
 ### Added
