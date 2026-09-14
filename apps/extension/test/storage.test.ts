@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import {
   type ClipHistory,
   DISCLOSURE_VERSION,
@@ -11,6 +11,7 @@ import {
   saveLanguage,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
+import { type ChromeStorageMock, installChromeStorage } from "./helpers.ts";
 
 const accepted = (version: number): DisclosureState => ({
   version,
@@ -57,19 +58,10 @@ describe("pruneClipHistory", () => {
 });
 
 describe("clip history", () => {
-  // The real chrome.storage.local is only present inside the extension; the
-  // helpers need nothing beyond get/set of whole keys.
-  const store: Record<string, unknown> = {};
-  (globalThis as { chrome?: unknown }).chrome = {
-    storage: {
-      local: {
-        get: async (key: string) => ({ [key]: store[key] }),
-        set: async (items: Record<string, unknown>) => {
-          Object.assign(store, items);
-        },
-      },
-    },
-  };
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
 
   const vault: TiroExtensionConfig = {
     owner: "o",
@@ -108,12 +100,20 @@ describe("clip history", () => {
   });
 
   test("re-recording the same slug updates rather than duplicates", async () => {
+    // Both writes belong to this test: leaning on the one in the test above
+    // made the assertion depend on execution order, and on a reset store it
+    // would have quietly degraded into "one write leaves one entry".
+    await recordClip(
+      vault,
+      "example-com-post-12345678",
+      "2026-08-27T00:00:00.000Z",
+    );
     await recordClip(
       vault,
       "example-com-post-12345678",
       "2026-08-28T00:00:00.000Z",
     );
-    const history = store.tiroClipHistory as ClipHistory;
+    const history = chrome.local.data.tiroClipHistory as ClipHistory;
     expect(history["o/r#main::example-com-post-12345678"]).toBe(
       "2026-08-28T00:00:00.000Z",
     );
@@ -122,7 +122,11 @@ describe("clip history", () => {
 });
 
 describe("language setting", () => {
-  // Reuses the chrome.storage.local mock installed by the block above.
+  // Installed for the side effect only; these tests read through the loaders.
+  beforeEach(() => {
+    installChromeStorage();
+  });
+
   test("defaults to auto when nothing is stored", async () => {
     expect(await loadLanguage()).toBe("auto");
   });
