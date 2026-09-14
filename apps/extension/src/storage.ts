@@ -141,8 +141,14 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * 2: the disclosure names arxiv.org, which the extension may now fetch a
  * paper's full text from. A new outbound destination is a practice change
  * whichever way the optional permission is answered, so the rule above applies
- * even though Chrome prompts for the permission separately. */
-export const DISCLOSURE_VERSION = 2;
+ * even though Chrome prompts for the permission separately.
+ *
+ * 3: settings sync (ADR 0022) can put the PAT in `chrome.storage.sync`, from
+ * where Chrome replicates it to the user's other devices. By the same rule as
+ * 2 that is a new destination — a stronger case than 2, since what travels is
+ * a credential rather than a request, and it applies even though the option is
+ * off by default and asked for separately. */
+export const DISCLOSURE_VERSION = 3;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */

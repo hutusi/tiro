@@ -33,13 +33,16 @@ describe("messages", () => {
    * missed the Chinese. The UI language here is Chinese, so that was the copy
    * the owner actually saw.
    *
-   * Every host the extension may contact belongs in the disclosure, in both
-   * languages. Add the next one here.
+   * Every place the data may end up belongs in the disclosure, in both
+   * languages. Add the next one here. Chrome is in the list because settings
+   * sync hands the token to it to replicate — not a host the extension calls,
+   * but a destination all the same, and the one most easily left out of the
+   * Chinese copy since neither string names it in translation.
    */
-  test("both disclosures name every host the extension may contact", () => {
+  test("both disclosures name every destination the data may reach", () => {
     for (const locale of ["en", "zh"] as const) {
       const disclosure = `${messages(locale).disclosureBody1} ${messages(locale).disclosureBody2}`;
-      for (const host of ["arxiv.org", "GitHub"]) {
+      for (const host of ["arxiv.org", "GitHub", "Chrome"]) {
         expect(disclosure).toContain(host);
       }
     }

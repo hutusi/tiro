@@ -66,7 +66,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper it can fetch the HTML full text from arxiv.org instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -94,7 +94,7 @@ const en = {
   labelBranch: "Branch",
   labelToken: "Fine-grained personal access token",
   tokenHint:
-    "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine.",
+    "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine, or in chrome.storage.sync if you turn on settings sync.",
   labelLanguage: "Language",
   langAuto: "Auto (browser language)",
   langEn: "English",
@@ -163,7 +163,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文，在你授权后，它会改为从 arxiv.org 抓取该论文的 HTML 全文。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -187,7 +187,7 @@ const zh: Messages = {
   labelBranch: "分支",
   labelToken: "细粒度个人访问令牌（PAT）",
   tokenHint:
-    "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中。",
+    "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中；若开启设置同步，则改为保存在 chrome.storage.sync 中。",
   labelLanguage: "语言",
   langAuto: "自动（跟随浏览器）",
   langEn: "English",

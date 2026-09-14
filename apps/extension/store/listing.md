@@ -116,8 +116,9 @@ repository — a declaration that reads narrower than the code is a rejection.
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 2, having been bumped when the disclosure
-gained the optional arxiv.org fetch.
+this disclosure ever changes; it is at 3, having been bumped when the disclosure
+gained the optional arxiv.org fetch and again when it gained opt-in settings
+sync.
 
 Required certifications, all true of this extension:
 
