@@ -752,6 +752,19 @@ describe("plainText", () => {
     expect(plainText("first<BR >second")).toBe("first second");
   });
 
+  // A publisher's own markup rarely ships a bare tag; the attributes come
+  // through the clip with it.
+  test("matches a <br> that carries attributes", () => {
+    expect(plainText('first<br class="gap">second')).toBe("first second");
+    expect(plainText("first<br class=gap>second")).toBe("first second");
+    expect(plainText("first<BR CLASS='x'>second")).toBe("first second");
+    expect(plainText("first<br\ndata-x>second")).toBe("first second");
+  });
+
+  test("does not match a tag that merely starts with br", () => {
+    expect(plainText("first<brx>second")).toBe("firstsecond");
+  });
+
   // The separator goes on the break rather than around every inline node,
   // because spacing emphasis would split a word that is emphasized inside it.
   test("does not put a space inside an emphasized word", () => {

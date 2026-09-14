@@ -665,6 +665,11 @@ export function checkAlignment(
   return { ok: errors.length === 0, errors };
 }
 
+/** An inline `<br>`, in any of the spellings a clipped page carries: bare,
+ * self-closing, and with attributes, which a publisher's own markup often has
+ * (`<br class="gap">`). `\b` keeps it from matching `<brx>`. */
+const BR_HTML = /^<br\b[^>]*>$/i;
+
 /**
  * The prose a markdown fragment actually shows — its text with the syntax
  * removed, for the places that need words rather than source.
@@ -679,9 +684,6 @@ export function checkAlignment(
  * with a hero image would otherwise be summarized by its alt attribute. Link
  * text does count: a sentence is still a sentence when parts of it are links.
  */
-/** An inline `<br>`, in any of the spellings a clipped page might carry. */
-const BR_HTML = /^<br\s*\/?>$/i;
-
 export function plainText(markdown: string): string {
   const out: string[] = [];
   const walk = (node: unknown): void => {
