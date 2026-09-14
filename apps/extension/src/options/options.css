@@ -31,6 +31,25 @@ body {
 .row {
   margin-top: 22px;
 }
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 18px;
+}
+/* The shared input rule sizes text fields — full width, padding, a border.
+ * A checkbox wants none of that, and outranks it on class specificity. */
+.check input {
+  width: auto;
+  flex: none;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.check span {
+  font-size: 13px;
+  font-weight: 500;
+}
 #result {
   margin: 12px 0 0;
   min-height: 18px;
@@ -42,4 +61,7 @@ body {
 }
 #result.error {
   color: var(--accent);
+}
+#result.warn {
+  color: var(--warn);
 }

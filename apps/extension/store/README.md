@@ -59,7 +59,7 @@ trap 'pkill -f "http.server 4322"' EXIT
 until curl -sf -o /dev/null http://127.0.0.1:4322/src/options/options.html; do sleep 0.2; done
 
 "$CHROME" --headless --disable-gpu --hide-scrollbars \
-  --force-device-scale-factor=2 --window-size=560,678 \
+  --force-device-scale-factor=2 --window-size=560,792 \
   --screenshot="apps/extension/store/options-ui.png" \
   "http://127.0.0.1:4322/src/options/options.html?preview"
 
@@ -82,7 +82,7 @@ Confirm the sizes afterwards — the store rejects anything off by a pixel:
 ```sh
 file apps/extension/store/*.png
 # expect 1280x800 (screenshot) and 440x280 (promo tile) — the store uploads.
-# options-ui.png is 1120x1356: the 2x intermediate capture the screenshot
+# options-ui.png is 1120x1584: the 2x intermediate capture the screenshot
 # composition embeds, never uploaded itself.
 ```
 
@@ -91,9 +91,16 @@ Notes that will save you a confused half hour:
 - `--window-size` is the crop, not a scale, and the right height is a
   measurement, not a constant. Too small silently shaves the card's bottom
   corner off rather than scaling the card down, so **round up**: the card is
-  581.4px tall, and 48 + 581.4 + 48 = 677.4 rounds to the **678** used above.
+  695.9px tall, and 48 + 695.9 + 48 = 791.9 rounds to the **792** used above.
   Card heights are fractional — do not round the parts before adding them, or
-  you get 677 and lose a pixel of the card.
+  you get 791 and lose a pixel of the card.
+
+  The composition constrains the shot on **both** axes
+  (`max-width:600px;max-height:720px`) rather than on width alone. A flat
+  width was what made this bite: when the options page grew a sync row, 600px
+  wide became 849px tall inside an 800px frame, and `overflow:hidden` cropped
+  it top and bottom without complaint. Constrained both ways, a taller page
+  scales the shot down instead of trimming it.
 
   **Re-measure whenever the options page changes height.** In the served dev
   build:

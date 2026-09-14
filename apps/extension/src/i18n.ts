@@ -96,6 +96,13 @@ const en = {
   tokenHint:
     "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine, or in chrome.storage.sync if you turn on settings sync.",
   labelLanguage: "Language",
+  labelSync: "Sync settings across my devices",
+  syncHint:
+    "Stores these settings, token included, in your Chrome profile, so another computer signed into it needs no setup. Chrome copies them through Google's servers. Off unless you turn it on.",
+  syncOn: "Settings sync is on.",
+  syncOff: "Settings sync is off — these settings stay on this computer.",
+  syncedElsewhere:
+    "These settings changed on another device. Reopen this page to load them.",
   langAuto: "Auto (browser language)",
   langEn: "English",
   langZh: "中文",
@@ -189,6 +196,12 @@ const zh: Messages = {
   tokenHint:
     "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中；若开启设置同步，则改为保存在 chrome.storage.sync 中。",
   labelLanguage: "语言",
+  labelSync: "在我的设备间同步设置",
+  syncHint:
+    "把这些设置（含令牌）保存到你的 Chrome 账户中，登录同一账户的另一台电脑便无需再次配置。同步由 Chrome 经 Google 的服务器完成。默认关闭，只有你亲自开启才会生效。",
+  syncOn: "设置同步已开启。",
+  syncOff: "设置同步已关闭——这些设置只保存在本机。",
+  syncedElsewhere: "这些设置已在其他设备上更改。重新打开本页即可载入。",
   langAuto: "自动（跟随浏览器）",
   langEn: "English",
   langZh: "中文",
