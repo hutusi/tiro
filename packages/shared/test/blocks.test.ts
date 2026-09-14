@@ -752,10 +752,17 @@ describe("plainText", () => {
     expect(plainText("first<BR >second")).toBe("first second");
   });
 
-  // Three review rounds went on which HTML counts as a break, so the answer
-  // is a table rather than a pattern someone can tighten by eye. The rule is
-  // the tag *name*: attributes are never parsed, which is what keeps
+  // Four review rounds went on which HTML counts as a break, so the answer is
+  // a table rather than a pattern someone can tighten by eye. The rule is the
+  // tag *name*: attributes are never parsed, which is what keeps
   // `<br title="a > b">` in and `<br-other>` out.
+  //
+  // The expected column is not taste — it is what the site actually renders.
+  // Each of these was run through `apps/site/src/lib/render.ts` and the answer
+  // here is whether the output contained a `<br>`. That is why `</br>` breaks:
+  // an HTML parser treats a closing `br` as an opening one, and rehype-raw is
+  // one. A test in this package cannot import the site, so the cross-check was
+  // a one-off; re-run it if this rule changes.
   test.each([
     ["<br>", true],
     ["<br/>", true],
@@ -768,7 +775,10 @@ describe("plainText", () => {
     ["<br-other>", false],
     ["<brx>", false],
     ["<span>", false],
-    ["</br>", false],
+    ["</br>", true],
+    ["</span>", false],
+    ["</br-other>", false],
+    ["<hr>", false],
   ])("%s separates words: %s", (tag, breaks) => {
     expect(plainText(`first${tag}second`)).toBe(
       breaks ? "first second" : "firstsecond",

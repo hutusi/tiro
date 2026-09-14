@@ -674,8 +674,14 @@ export function checkAlignment(
  * `[^>]*` cannot cross the `>` inside `<br title="a > b">`, and a `\b` after
  * the name counts `<br-other>` as a `<br>`. Stopping at the first delimiter has
  * neither problem, because the name is all that is being asked about.
+ *
+ * The leading slash is optional because the HTML parser treats `</br>` as a
+ * `<br>` — a spec quirk, not a typo tolerance — and the site renders clipped
+ * markup through one (rehype-raw). Verified: `first</br>second` comes out of
+ * `apps/site/src/lib/render.ts` as `<p>first<br>second</p>`. A closing tag that
+ * is not `br` still yields its own name, so `</span>` is not a break.
  */
-const HTML_TAG_NAME = /^<([a-zA-Z][^\s/>]*)/;
+const HTML_TAG_NAME = /^<\/?([a-zA-Z][^\s/>]*)/;
 
 function tagName(value: string): string | null {
   return HTML_TAG_NAME.exec(value.trim())?.[1]?.toLowerCase() ?? null;
