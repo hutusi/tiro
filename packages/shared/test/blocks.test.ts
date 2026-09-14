@@ -792,8 +792,17 @@ describe("plainText", () => {
     expect(plainText("first<span>second</span>")).toBe("firstsecond");
   });
 
-  test("separates blocks, which are not one word either", () => {
-    expect(plainText("one\n\ntwo")).toBe("one two");
+  // Every block edge is a gap, wherever it sits. Separating only the root's
+  // children missed the nested ones: a paragraph inside a blockquote ran
+  // straight into the next, and so did list items and table cells.
+  test.each([
+    ["one\n\ntwo", "one two", "two paragraphs"],
+    ["> first\n>\n> second", "first second", "paragraphs in a blockquote"],
+    ["- a\n- b", "a b", "list items"],
+    ["1. one\n2. two", "one two", "ordered list items"],
+    ["| a | b |\n| --- | --- |\n| c | d |", "a b c d", "table cells"],
+  ])("separates %s", (markdown, expected) => {
+    expect(plainText(markdown)).toBe(expected);
   });
 
   test("collapses whitespace and trims", () => {

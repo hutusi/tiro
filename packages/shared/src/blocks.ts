@@ -683,6 +683,29 @@ export function checkAlignment(
  */
 const HTML_TAG_NAME = /^<\/?([a-zA-Z][^\s/>]*)/;
 
+/**
+ * The node types whose edges fall *inside* a word, so putting whitespace at
+ * them would split one: `un*bel*ievable` is one word with emphasis in it.
+ *
+ * An allowlist, so anything unrecognised is treated as a block and separated.
+ * Being wrong that way costs a space that collapses; being wrong the other way
+ * cuts a word in half.
+ */
+const INLINE_TYPES = new Set([
+  "text",
+  "inlineCode",
+  "emphasis",
+  "strong",
+  "delete",
+  "link",
+  "linkReference",
+  "break",
+  "html",
+  "image",
+  "imageReference",
+  "footnoteReference",
+]);
+
 function tagName(value: string): string | null {
   return HTML_TAG_NAME.exec(value.trim())?.[1]?.toLowerCase() ?? null;
 }
@@ -707,9 +730,7 @@ export function plainText(markdown: string): string {
     const n = node as { type?: string; value?: string; children?: unknown[] };
     if (n.type === "image" || n.type === "imageReference") return;
     // A rendered line break is whitespace. Without this the words either side
-    // of it are run together — "first<br>second" became "firstsecond" — and the
-    // separator has to be added here rather than around every inline node,
-    // because a space around emphasis would split `un*bel*ievable`.
+    // of it are run together — "first<br>second" became "firstsecond".
     if (
       n.type === "break" ||
       (n.type === "html" && tagName(n.value ?? "") === "br")
@@ -723,15 +744,15 @@ export function plainText(markdown: string): string {
     ) {
       out.push(n.value);
     }
+    // Every block edge is a gap, wherever it sits: two paragraphs are two
+    // sentences, and so are two list items or two table cells. Separating only
+    // the root's children missed all of those — a paragraph inside a
+    // blockquote ran straight into the next one.
+    const isBlock = n.type !== undefined && !INLINE_TYPES.has(n.type);
+    if (isBlock) out.push(" ");
     if (Array.isArray(n.children)) for (const child of n.children) walk(child);
+    if (isBlock) out.push(" ");
   };
-  const root = proseParser.parse(markdown) as Root;
-  // Blocks are separated for the same reason: two paragraphs are two sentences,
-  // not one word. Callers pass a single block today, which is why this never
-  // showed.
-  root.children.forEach((child, index) => {
-    if (index > 0) out.push(" ");
-    walk(child);
-  });
+  walk(proseParser.parse(markdown) as Root);
   return out.join("").replace(/\s+/g, " ").trim();
 }
