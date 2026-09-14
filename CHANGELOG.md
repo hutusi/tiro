@@ -54,7 +54,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   sits above the text instead of two (~97px, and 146px at 390px where the
   toolbar wraps). The view and font controls stay on the article's left edge
   rather than moving to the middle: once the toolbar shares the text's measure
-  they already sit above the text they act on. ADR 0021, superseding ADR 0014's
+  they already sit above the text they act on. Below 688px — where those
+  controls start wrapping — the share buttons drop out entirely: a phone's
+  browser already carries a share control, and the source link is in the title
+  block and the end-note besides, so the page was paying a whole row of sticky
+  toolbar to repeat what is a tap away. ADR 0021, superseding ADR 0014's
   sticky-toolbar clause.
 
 - **One mark, everywhere.** The favicon, touch icon, social card and the

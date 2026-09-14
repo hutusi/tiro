@@ -82,6 +82,19 @@ edge independently, so they disagreed.
   article in 中文 592, at 1920 and the standard width). These are full document
   loads, so nothing animates: it is a differently centred page, not a jump.
 
+- **The share controls are hidden below 688px.** A phone's browser carries a
+  share control in its own chrome and the source link is in the title block and
+  the end-note, so the page was repeating what is a tap away and paying a whole
+  row of sticky toolbar for it — 90px rather than 51px, on the screens with
+  least room. What is genuinely lost is the short link, the one thing those
+  buttons carry that the browser's share cannot: it sends whatever is in the
+  address bar, which is the long URL. Accepted, because on a phone you reach
+  for the browser's share anyway. The breakpoint is measured, not picked — it
+  is where the controls stop wrapping — so it tracks their combined width and
+  wants re-measuring if a label changes. Hiding only some of them was checked
+  first and saves nothing: the first row already fills the bar, so any
+  surviving chip wraps regardless.
+
 - **A long domain no longer fits** beside the other controls at the
   single-column measure — 28 of the vault's 102 articles have one over 17
   characters — so the domain chip is capped at 16ch and ellipsizes, with the

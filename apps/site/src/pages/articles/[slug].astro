@@ -379,6 +379,24 @@ const tagLinks = await Promise.all(
     gap: 8px;
     margin-left: auto;
   }
+  /* A phone's browser already carries a share control in its own chrome, and
+     the source link is in the title block and the end-note besides — so on a
+     small screen the page is repeating what is a tap away and paying a whole
+     row of sticky toolbar for it. Hidden, the bar goes from two rows to one:
+     90px to 51px, on the screens with the least room.
+     What is genuinely lost is the short link, which is the one thing these
+     buttons carry that the browser's share cannot: it sends whatever is in the
+     address bar, which is the long URL. Accepted — on a phone you reach for
+     the browser's share anyway.
+     The breakpoint is measured rather than picked: 688px is where these
+     controls stop wrapping. It tracks their combined width, so re-measure if
+     a label changes. Hiding them at the `40rem` step instead would leave
+     640-688px wrapping for no benefit. */
+  @media (max-width: 43rem) {
+    .share {
+      display: none;
+    }
+  }
   /* `.chip` is `display: inline-flex`, which beats the `hidden` attribute — the
      share button would show on every desktop without this. */
   .share .chip[hidden] {
