@@ -17,11 +17,14 @@ interface Props {
   ogType?: "website" | "article";
   /** `library` (`--w-library`) for lists, `narrow` (`--w-narrow`) for
    * settings-like pages, `reader` for an article, which lays out its own
-   * columns and sets the page measure from the text it is showing. */
+   * columns and sets the content measure from the text it is showing. It also
+   * drops the header's `sticky`, so the article's toolbar is the only bar
+   * above the text (ADR 0021). */
   width?: "library" | "narrow" | "reader";
-  /** Does this article have two panes to show? The measure switches on it, and
-   * the header sits outside the article where `.reader[data-paired]` is not
-   * visible — so the marker is stamped on `<html>` for the chrome to read. */
+  /** Does this article have two panes to show? `--w-page` switches on it, and
+   * that token lives at the root because it is page-level — so the marker is
+   * stamped on `<html>` beside it. The in-page `.reader[data-paired]` stays
+   * too: the pane rules read that one. */
   paired?: boolean;
   /** Keep this page out of every index — crawlers' and the site's own search
    * — set by the reader for an unlisted article. Kept off robots.txt on

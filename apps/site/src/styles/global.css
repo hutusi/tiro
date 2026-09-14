@@ -55,10 +55,15 @@
      library-width main — not a page measure of its own. */
   --w-narrow: 680px;
 
-  /* What every horizontal band of the page measures: the header bar, `main`,
-     the footer, and on an article the reader's toolbar and text. One token is
-     the whole reason their left edges agree. The library width everywhere
-     except the reader, below. */
+  /* The measure of a page's *content* column — `main` on a list or settings
+     page, and on an article the title block, body and end-note. Deliberately
+     not the chrome: the header bar and the reader's toolbar span the viewport
+     at a fixed gutter and the footer is pinned to --w-library, so that none of
+     them moves between pages or when the reading mode changes (ADR 0021, which
+     records the version where they did follow it, and why that was reverted).
+     A page-level token, so it lives at the root and any band reads it without
+     knowing where it sits in the tree. The library width everywhere except the
+     reader, below. */
   --w-page: var(--w-library);
 }
 
@@ -84,8 +89,9 @@
   --w-reader-wide: 1400px;
 }
 
-/* An article runs at the measure of the text it is showing, and its chrome
-   follows: one column in 中文/原文, two in 左右对照. `data-page` and
+/* An article's content runs at the measure of the text it is showing: one
+   column in 中文/原文, two in 左右对照. The chrome does not follow it — see
+   --w-page above. `data-page` and
    `data-paired` are server-rendered onto `html` and `data-reader-mode` is set
    by the pre-paint script, so this is settled before the first frame in every
    combination. With JavaScript off there is no mode attribute and this falls to
@@ -201,15 +207,13 @@ html[data-page="reader"][data-paired][data-reader-mode="both"] {
  */
 @layer components {
   /*
-   * One horizontal band of the page: centred at the page measure, with the
-   * page gutter either side. The header bar, `main`, the footer and the
-   * reader's toolbar all wear this, which is the whole reason their left edges
-   * agree.
+   * One band of a page's content: centred at the page measure, with the page
+   * gutter either side. Worn by `main` on a list or settings page, and by the
+   * article's title block, body and end-note.
    *
-   * Full-bleed backgrounds and rules belong on the element *outside* this one —
-   * the `header`, the toolbar's shell — which is why both of those are two
-   * elements rather than one. A rule that stopped at the measure would leave
-   * the page showing through the gutters as it scrolled underneath.
+   * Not by the chrome. The header bar and the reader's toolbar span the
+   * viewport at a fixed gutter and the footer is pinned to --w-library, so they
+   * hold still while the content measure changes under them (ADR 0021).
    *
    * Two ways to break it silently, both from something outranking this layer.
    * Utilities win, which is deliberate — `max-w-[var(--w-narrow)]` is how the

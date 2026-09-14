@@ -382,7 +382,11 @@ const tagLinks = await Promise.all(
      The breakpoint is measured rather than picked: 688px is where these
      controls stop wrapping. It tracks their combined width, so re-measure if
      a label changes. Hiding them at the `40rem` step instead would leave
-     640-688px wrapping for no benefit. */
+     640-688px wrapping for no benefit.
+     688 is the worst case, which is the one a media query has to take: where
+     the browser has no share sheet the script hides 分享, and the rest fit from
+     640px — but CSS cannot know that, and hiding slightly early is better than
+     wrapping. */
   @media (max-width: 43rem) {
     .share {
       display: none;
