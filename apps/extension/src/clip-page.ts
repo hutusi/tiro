@@ -1,4 +1,5 @@
 import { Readability } from "@mozilla/readability";
+import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
   foldFiguresIn,
   hasLatexmlFullText,
@@ -8,6 +9,10 @@ import {
 } from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipPayload } from "./messages.ts";
+import {
+  normalizeSourceMarkdown,
+  plainTextMarkdownSource,
+} from "./plain-markdown.ts";
 
 /**
  * Turn a page into the article Tiro stores. The whole clip, in one place.
@@ -25,6 +30,10 @@ import type { ClipPayload } from "./messages.ts";
  * returns the payload rather than sending it: the extension's messaging is the
  * one part of a clip that cannot run outside a page.
  *
+ * One document shape leaves before any of that order runs: a markdown file
+ * Chrome is showing as text is already the thing being converted *to*, and
+ * goes to `clipMarkdownFile` below.
+ *
  * Mutates `doc`. Readability consumes what it parses, so callers with a live
  * page must pass a clone.
  */
@@ -33,6 +42,13 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
   // this looks for.
   const pdfViewer = isPdfViewerDocument(doc);
+  // Asked for the same reason, and answered first: this document is not a page
+  // that happens to contain markdown, it *is* a markdown file, and every step
+  // below would spend its effort converting something that needs no conversion.
+  // `prepareForClipping` in particular would synthesize a `<code>` inside the
+  // viewer's `<pre>` and hand Turndown one fence around the whole document.
+  const source = plainTextMarkdownSource(doc, url);
+  if (source !== null) return clipMarkdownFile(source, url);
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
   prepareForClipping(doc);
@@ -110,4 +126,80 @@ export function isPdfViewerDocument(doc: Document): boolean {
   if (children.length !== 1 || children[0] !== embed) return false;
   const text = (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
   return text.length < 200;
+}
+
+/**
+ * Clip a markdown file from its bytes, skipping the HTML pipeline entirely.
+ *
+ * The other entry point, and the one thing `clipPage` delegates rather than
+ * does: the same file reaches Tiro either as the `<pre>` of a tab on
+ * `raw.githubusercontent.com` or as text fetched for a `github.com` blob page,
+ * and those must produce the same article.
+ *
+ * `baseUrl` is where the bytes live and `url` is where the article is filed —
+ * different for a blob, on purpose. A repo-relative image resolved against the
+ * blob page would point at an HTML page; against the raw URL it points at the
+ * image.
+ *
+ * `readabilityFailed` is false because Readability was never asked, and what
+ * the flag warns a reader about — a raw body whose relative URLs were never
+ * absolutized — is precisely what this path does absolutize. `hasMath` stays
+ * unset: the flag promises that every literal `$` in prose was escaped, and
+ * that promise is kept by a Turndown escape hook this path does not run, so
+ * claiming it would turn "$5 to $10" into a formula. `$$…$$` still renders,
+ * for every article, flag or no flag.
+ */
+export function clipMarkdownFile(
+  text: string,
+  url: string,
+  baseUrl: string = url,
+): ClipPayload {
+  const source = normalizeSourceMarkdown(text, baseUrl);
+  return {
+    url,
+    title: source.title ?? fallbackTitle(url),
+    excerpt: source.excerpt,
+    // A file names no byline. Readability's heuristic scrapes one out of
+    // rendered prose, and there is no rendered prose here to be wrong about.
+    author: "",
+    markdown: source.markdown,
+    readabilityFailed: false,
+    hasMath: false,
+    pdfViewer: false,
+    latexmlFullText: false,
+  };
+}
+
+/**
+ * What to call a file that names no title of its own.
+ *
+ * Anything but the hostname, which is what the clipper fell back to and what
+ * put `raw.githubusercontent.com` on an article in the vault. A repository's
+ * README is the repository as far as a title goes; every other file is worth
+ * naming.
+ */
+function fallbackTitle(url: string): string {
+  const stem = fileStem(url);
+  const doc = parseGitHubMarkdownUrl(url);
+  if (doc === null) return stem;
+  const repo = `${doc.owner}/${doc.repo}`;
+  return /^readme$/i.test(stem) ? repo : `${repo}: ${stem}`;
+}
+
+function fileStem(url: string): string {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return "";
+  }
+  const segments = pathname.split("/").filter((part) => part !== "");
+  const name = segments[segments.length - 1] ?? "";
+  let decoded = name;
+  try {
+    decoded = decodeURIComponent(name);
+  } catch {
+    // A malformed escape is not worth losing the title over.
+  }
+  return decoded.replace(/\.[^.]*$/, "");
 }
