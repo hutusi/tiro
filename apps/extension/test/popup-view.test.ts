@@ -308,3 +308,52 @@ describe("links", () => {
     ).toBe("https://github.com/o/r/blob/feat/x/a/index.md");
   });
 });
+
+describe("popupView, a document that cannot be reached", () => {
+  const RAW = "https://raw.githubusercontent.com/o/r/main/docs/GUIDE.md";
+
+  /**
+   * The screen the refusal produces. Blocked rather than ready, because the
+   * body on screen is GitHub's rendering of the file and committing it would
+   * replace the file's own clip — and the offer stays, because a denial can be
+   * reconsidered and a failure retried.
+   */
+  test("blocks, keeps the preview, and re-offers the fetch", () => {
+    const v = popupView(
+      state({
+        source: "github",
+        phase: "blocked",
+        problem: { text: m.fetchSources.github.instead(RAW), error: true },
+        note: m.fetchSources.github.denied,
+        gated: true,
+        fetchOffered: true,
+      }),
+      m,
+    );
+    expect(v.label).toBe(m.labelCannotClip);
+    expect(v.labelTone).toBe("error");
+    expect(v.message).toContain(RAW);
+    expect(v.clip.enabled).toBe(false);
+    expect(v.sourceFetch.visible).toBe(true);
+    expect(v.sourceFetch.label).toBe(m.fetchSources.github.button);
+    // The card stays: it names which file is being refused, and carries the
+    // cause while the message line carries the remedy.
+    expect(v.preview).not.toBeNull();
+    expect(v.preview?.note).toBe(m.fetchSources.github.denied);
+  });
+
+  // A page Tiro refuses is usually one whose file is already in the vault,
+  // which is exactly when the reader wants the link to it.
+  test("still links to the clip the page already has", () => {
+    const v = popupView(
+      state({
+        phase: "blocked",
+        problem: { text: m.cannotClipPdf, error: true },
+        clippedOn: "Sep 2, 2026",
+        links,
+      }),
+      m,
+    );
+    expect(v.links).toEqual({ ...links, hint: true });
+  });
+});

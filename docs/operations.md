@@ -408,8 +408,8 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   in it), then open `src/popup/popup.html?state=<name>` — `ready`, `already`,
   `clipping`, `saved`, `updated`, `failed`, `unconfigured`, `pdf`,
   `arxiv-offer`, `arxiv-fetching`, `arxiv-abstract`, `github-offer`,
-  `github-fetching`, `reading`, `ready-zh`, `ready-raw`; add `&lang=zh` for the
-  Chinese table. The list lives in
+  `github-fetching`, `github-refused`, `reading`, `ready-zh`, `ready-raw`; add
+  `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging.
 - **What the popup shows** (ADR 0015): a short label beside the wordmark —
@@ -441,7 +441,11 @@ popup skips the call rather than making it on open.
 - Not granted: nothing is fetched. The tab is previewed as usual and a fetch
   button appears beside it, labelled for the publisher.
 - Revoking one (`chrome://extensions` → Details → Site access) returns the
-  extension to clipping whatever the tab shows.
+  extension to clipping whatever the tab shows — **except on a GitHub blob
+  page**, where it does not, because the tab shows GitHub's rendering of the
+  file and that would be committed under the file's own slug. There the popup
+  refuses and names the raw URL to open instead, which clips with no permission
+  at all (ADR 0023, clause 7).
 
 Neither is needed to clip a `.md` served as plain text — `raw.githubusercontent.com`
 itself, GitLab, Codeberg, anywhere. The tab already holds the file and

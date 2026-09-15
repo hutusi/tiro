@@ -95,6 +95,19 @@ GitHub gets what arXiv has: an optional host permission for
 and `tiro.source_url` recording the bytes. Nothing is fetched when the reader is
 already on the raw URL — the tab holds the file and `activeTab` covers it.
 
+**And if the fetch cannot happen, nothing is clipped here at all.** Saying
+"fetched, never clipped" without that sentence left the fallback in place, and
+review found it: a denied permission or a failed request settled the gate and
+enabled Clip on the rendering — the exact overwrite the clause forbids. The
+failure is not theoretical or merely lesser. A GitHub rate-limit interstitial
+clips as a 142-character article with `readability_failed` unset, and would land
+under the file's own slug. So "does the tab's body stand in for the document"
+becomes a property of the publisher rather than an assumption of the flow:
+arXiv says yes, because an abstract page is a real article at the paper's
+canonical URL; GitHub says no, and names the raw URL to open instead. The offer
+stays on screen afterwards, because a denial can be reconsidered and a failure
+retried, and refusing is only fair beside a way through.
+
 **8. Destinations are absolutized against the raw URL, then re-canonicalized —
 in attributes as well as in nodes.** Against the blob page an image resolves to
 another HTML page; against the raw URL it resolves to the image. Passing each
@@ -164,6 +177,13 @@ frontmatter one, and `source_url` already exists (ADR 0013).
   worked around; the fix, if it is ever wanted, belongs in the site's renderer.
 - **A branch literally named `refs` would misparse the legacy raw form.** Git is
   broken by such a name in other ways; noted rather than defended against.
+- **A markdown file in a private repository cannot be clipped from its blob
+  page at all.** `raw.githubusercontent.com` 404s for it without a signed URL,
+  the extension's fetch carries no cookies, and the vault PAT is scoped to the
+  vault. Before the refusal above, such a page clipped as GitHub's rendering.
+  Recorded as aligned rather than merely accepted: this site is fully public
+  (invariant 5's premise), so a private repository's README is content that
+  should not be published from here regardless.
 - **The popup's fetch flow is now written once.** Both publisher rules create
   the same trap, so the arbitration — prefer the body that *is* the document,
   and gate the button until that is settled — moved to `clip-candidate.ts`, and

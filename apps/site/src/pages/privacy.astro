@@ -115,7 +115,8 @@ const updated = "2026-09-15";
         渲染出的页面—— 因为文件与其页面在 Tiro
         中是同一篇文章，剪藏渲染结果会覆盖掉文件本身。
         若你已经在原始文件地址上，则不需要该权限，也不会发出任何请求。
-        不授权则仍只剪藏你当前看到的页面；同样可以随时撤销。
+        不授权则不会剪藏该页面——此处不会退回到剪藏渲染结果，因为那会覆盖掉文件本身；
+        扩展会提示你改为打开原始文件地址并剪藏，该地址无需任何权限。你可以随时撤销该权限。
       </li>
       <li>
         点击「剪藏」后，扩展用你自己的令牌把这些内容提交到你自己的仓库：正文的
@@ -267,8 +268,10 @@ const updated = "2026-09-15";
         it in the tab — because the file and its page are one article in Tiro, and
         clipping the rendering would replace the file with it. It is not needed when
         you are already on the raw file's address, where no request is made at all.
-        Decline and the extension keeps clipping the page you are looking at; you
-        can revoke it at any time.
+        Decline and this page is not clipped: the extension does not fall back to
+        the rendering here, because that would replace the file's own article with
+        it. It points you at the raw file's address instead, which needs no permission.
+        You can revoke it at any time.
       </li>
       <li>
         When you click Clip, it commits to your own repository, with your own

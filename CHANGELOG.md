@@ -30,7 +30,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   it — so the popup fetches the bytes instead, under a new optional host
   permission for `raw.githubusercontent.com` asked for from the Clip flow's own
   gesture, exactly as arXiv already worked. Nothing is fetched when you are
-  already on the raw URL. The one affected article in the vault must be
+  already on the raw URL — and if the fetch is declined or fails, the page is
+  not clipped at all rather than clipped as the rendering: the popup names the
+  raw URL to open instead, which needs no permission. The one affected article in the vault must be
   re-clipped, and moves to a new slug; `sweep --recanonicalize` performs the
   rename offline first.
 

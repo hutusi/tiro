@@ -89,6 +89,9 @@ body {
   font-size: 13px;
   line-height: 1.5;
   color: var(--ink-soft);
+  /* A refusal names the raw URL to open instead, and the popup is 340px wide.
+     Same reason #article-title carries this. */
+  overflow-wrap: anywhere;
 }
 #open-hint {
   margin-top: 8px;

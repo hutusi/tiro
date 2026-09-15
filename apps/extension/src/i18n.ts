@@ -69,6 +69,11 @@ const en = {
       /** The fetch worked and returned something that is not the document. */
       partial:
         "arXiv has no HTML full text for this paper; clipping its abstract page.",
+      /** Null where the tab's own body is a fair article under this slug: an
+       * abstract page is the paper's canonical URL, so a fetch that cannot
+       * happen costs a fuller body rather than the article. The behaviour is
+       * `degradesToTab` in `fetch-source.ts`; this is only its sentence. */
+      instead: null,
     },
     github: {
       offer:
@@ -76,14 +81,18 @@ const en = {
       button: "Fetch the markdown file",
       fetching: "Fetching the file from raw.githubusercontent.com…",
       denied:
-        "Without access to raw.githubusercontent.com, Tiro can only clip the page you are on.",
-      failed: (detail: string) =>
-        `Could not fetch the file (${detail}); clipping this page instead.`,
+        "Without access to raw.githubusercontent.com, Tiro cannot read the file itself.",
+      failed: (detail: string) => `Could not fetch the file (${detail}).`,
       notice:
         "Fetched from raw.githubusercontent.com to build this preview. Nothing is sent to your vault until you clip.",
       /** Null because there is no partial answer: the file arrives or it does
        * not. */
       partial: null,
+      /** Shown *instead of* enabling Clip. GitHub's rendering of a file is
+       * filed under the file's own slug, so committing it would replace the
+       * file's clip rather than add one (ADR 0023, clause 7). */
+      instead: (rawUrl: string) =>
+        `Clipping this page would replace the file's own clip with GitHub's rendering of it. Open ${rawUrl} and clip that instead.`,
     },
   },
   noticePreview:
@@ -198,6 +207,7 @@ const zh: Messages = {
       notice:
         "已从 arxiv.org 抓取全文以生成预览。剪藏前不会向你的仓库发送任何内容。",
       partial: "该论文没有 HTML 全文，改为剪藏摘要页。",
+      instead: null,
     },
     github: {
       offer: "这是 GitHub 上的 Markdown 文件，Tiro 可以改为抓取文件本身。",
@@ -209,6 +219,8 @@ const zh: Messages = {
       notice:
         "已从 raw.githubusercontent.com 抓取文件以生成预览。剪藏前不会向你的仓库发送任何内容。",
       partial: null,
+      instead: (rawUrl: string) =>
+        `剪藏此页面会用 GitHub 的渲染结果覆盖该文件自身的剪藏。请打开 ${rawUrl} 并剪藏该页面。`,
     },
   },
   noticePreview: "预览在你的浏览器中生成，剪藏前不会向你的仓库发送任何内容。",

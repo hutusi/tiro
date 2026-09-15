@@ -4,33 +4,27 @@ import "@fontsource/spectral/latin-600.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "../ui/tokens.css";
 import "./popup.css";
-import {
-  githubRawUrl,
-  parseArxivUrl,
-  parseGitHubMarkdownUrl,
-  readingMinutes,
-  slugForUrl,
-} from "@tiro/shared";
-import { ARXIV_ORIGIN, clipArxivPaper } from "../arxiv.ts";
+import { readingMinutes, slugForUrl } from "@tiro/shared";
 import { buildClipFile, tabSourceUrl } from "../clip.ts";
 import {
   type ClipCandidate,
   clipReady,
+  clipRefused,
+  type FetchPolicy,
   isSourceBody,
+  NO_FETCH,
   prefersCandidate,
 } from "../clip-candidate.ts";
 import { describeClipError } from "../errors.ts";
+import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
-import { clipGitHubDoc, RAW_ORIGIN } from "../github-doc.ts";
 import {
-  type FetchSourceKind,
   formatClipDate,
   getLocale,
   type Locale,
   type Messages,
   messages,
 } from "../i18n.ts";
-import type { ClipPayload } from "../messages.ts";
 import { type ClipResultMessage, isClipResult } from "../messages.ts";
 import {
   acceptDisclosure,
@@ -147,51 +141,6 @@ function localize(locale: Locale, m: Messages): void {
   el.options.textContent = m.settingsLink;
 }
 
-/**
- * A document this tab's URL addresses that Tiro would rather read from its
- * publisher than from the page in front of it.
- *
- * The two rules exist for one reason (ADR 0013, clause 5): collapsing several
- * URLs onto one identity means a clip *replaces* an article rather than adding
- * one, so the lesser body — an abstract page, GitHub's rendering of a file —
- * must never be the one committed. Everything that differs between them is
- * behind this object, so the flow below is written once.
- */
-interface FetchableSource {
-  kind: FetchSourceKind;
-  /** The optional host permission to ask for. */
-  origin: string;
-  /** Fetch and clip. Throws on failure; the caller falls back to the tab. */
-  clip: () => Promise<{ payload: ClipPayload; sourceUrl?: string }>;
-}
-
-function fetchableSource(tabUrl: string): FetchableSource | null {
-  const paper = parseArxivUrl(tabUrl);
-  if (paper !== null) {
-    return {
-      kind: "arxiv",
-      origin: ARXIV_ORIGIN,
-      clip: () =>
-        clipArxivPaper(paper, {
-          fetch: (input, init) => fetch(input, init),
-          parse: (html) => new DOMParser().parseFromString(html, "text/html"),
-        }),
-    };
-  }
-  const doc = parseGitHubMarkdownUrl(tabUrl);
-  if (doc === null) return null;
-  // Already on the bytes. The tab holds the file, `activeTab` covers reading
-  // it, and asking for a host permission to fetch what is on screen would be
-  // absurd — so a raw URL takes the ordinary path and `clipPage` does the rest.
-  if (new URL(tabUrl).origin === new URL(githubRawUrl(doc)).origin) return null;
-  return {
-    kind: "github",
-    origin: RAW_ORIGIN,
-    clip: () =>
-      clipGitHubDoc(doc, { fetch: (input, init) => fetch(input, init) }),
-  };
-}
-
 async function main(): Promise<void> {
   if (__DEV_FIXTURES__) {
     // A development build paints a canned state on request and stops there
@@ -276,18 +225,41 @@ async function main(): Promise<void> {
   /** Local record: where a previous clip of this page landed. */
   let previousLinks: PopupLinks | null = null;
 
+  function fetchPolicy(): FetchPolicy {
+    return source === null
+      ? NO_FETCH
+      : { available: true, degradesToTab: source.degradesToTab };
+  }
+
   /** Everything known, as the view model wants it. */
   function render(): void {
+    const policy = fetchPolicy();
     const gated =
-      result !== null &&
-      !clipReady(best, source !== null, fetchResolved, tabResolved);
+      result !== null && !clipReady(best, policy, fetchResolved, tabResolved);
+    // Derived here rather than latched by whoever noticed, because the block
+    // would not survive being latched: `settleFetch` ends in `showPayload`,
+    // which sets `phase = "ready"` and clears `problem`, and so does every
+    // late body after it. `render` is the only place the DOM is written once
+    // the popup is running, so one expression covers every path — and reopens
+    // on its own when a retry finally produces the document.
+    //
+    // Never over a commit: a body already on its way to the vault cannot be
+    // refused, and repainting a finished clip as blocked would lose what
+    // happened.
+    const refusal = committing
+      ? null
+      : source === null || source.degradesToTab
+        ? null
+        : clipRefused(best, policy, fetchResolved)
+          ? source.instead
+          : null;
     // The page is still read when unconfigured — the preview is harmless and
     // shows what Settings would unlock — but the phase stays blocked on the
     // Settings instruction however far the extraction gets.
     const setupBlocked =
       !configured && (phase === "reading" || phase === "ready");
     const state: PopupState = {
-      phase: setupBlocked ? "blocked" : phase,
+      phase: setupBlocked || refusal !== null ? "blocked" : phase,
       configured,
       preview:
         result === null || result.pdfViewer
@@ -301,7 +273,13 @@ async function main(): Promise<void> {
               readabilityFailed: result.readabilityFailed,
               fromFetch: best?.fromFetch === true,
             },
-      problem: setupBlocked ? { text: m.settingsFirst, error: true } : problem,
+      // Settings keep priority: a refusal the reader cannot act on until the
+      // vault is configured is the wrong thing to put in front of them.
+      problem: setupBlocked
+        ? { text: m.settingsFirst, error: true }
+        : refusal === null
+          ? problem
+          : { text: refusal, error: true },
       clippedOn: clippedAt === null ? null : formatClipDate(locale, clippedAt),
       updated: saved?.updated ?? false,
       source: source?.kind ?? null,
@@ -467,7 +445,7 @@ async function main(): Promise<void> {
       if (!granted) {
         // Declining is an answer. The tab's own content is now the best body
         // available, so Clip stops waiting for one that is not coming.
-        await settleOnTab(text.denied);
+        await settleFetch(known, text.denied);
         return;
       }
     }
@@ -493,27 +471,59 @@ async function main(): Promise<void> {
       // arrived.
       if (fetchedPartial) await extract();
     } catch (error) {
-      await settleOnTab(text.failed(String(error)));
+      await settleFetch(known, text.failed(String(error)));
     }
   }
 
   /**
-   * Fall back to whatever the tab holds, and stop gating Clip on a full text
-   * that is not going to arrive.
+   * The fetch is over, one way or another.
+   *
+   * Where the publisher degrades, this falls back to whatever the tab holds and
+   * stops gating Clip on a body that is not coming. Where it does not, the
+   * refusal `render` derives takes over instead — and the offer comes back,
+   * because a denial can be reconsidered and a failure retried, and refusing to
+   * clip is only fair beside a way to undo it. Not re-offered for a publisher
+   * that degrades: there the gate has just opened, and the button would flicker
+   * on its way out.
    *
    * Re-renders rather than only extracting, because in the not-granted path the
    * tab was already previewed and its clip result has been and gone — nothing
    * would otherwise re-evaluate the gate.
    */
-  async function settleOnTab(note: string): Promise<void> {
+  async function settleFetch(
+    known: FetchableSource,
+    note: string,
+  ): Promise<void> {
     fetchResolved = true;
     fetching = false;
     standingNote = note;
+    if (!known.degradesToTab) {
+      fetchOffered = true;
+      armFetch(known);
+    }
     if (result === null) {
       await extract();
       return;
     }
     showPayload(result);
+  }
+
+  /**
+   * Arm the fetch button for one press.
+   *
+   * `{ once: true }` rather than a standing listener: `fetchDocument` is
+   * awaited across a permission prompt while the button is still on screen, and
+   * a standing listener would admit a second `permissions.request` behind the
+   * first. Re-arming is explicit, and at most one listener exists at a time.
+   */
+  function armFetch(known: FetchableSource): void {
+    el.sourceFetch.addEventListener(
+      "click",
+      () => {
+        void fetchDocument(known, true);
+      },
+      { once: true },
+    );
   }
 
   // Best-effort state from the local clip record. Slug derivation and the
@@ -534,7 +544,7 @@ async function main(): Promise<void> {
     } catch {
       clippedAt = null;
     }
-    source = fetchableSource(tabUrl);
+    source = fetchableSource(tabUrl, m);
     if (source === null) {
       await extract();
       return;
@@ -550,13 +560,7 @@ async function main(): Promise<void> {
     // Not granted: nothing is fetched. The tab is previewed as usual and the
     // offer sits beside it, so the permission is asked for by an explicit act.
     fetchOffered = true;
-    el.sourceFetch.addEventListener(
-      "click",
-      () => {
-        void fetchDocument(known, true);
-      },
-      { once: true },
-    );
+    armFetch(known);
     await extract();
   }
 
@@ -668,14 +672,5 @@ async function main(): Promise<void> {
 
   await prepare();
 }
-
-/**
- * The URL a tab clip was read from, for `tiro.source_url` — but only on a page
- * whose identity gets rewritten, and only ever without its query or fragment.
- *
- * Passing the raw address through would republish a tracking param that
- * `buildClipFile` strips from `url` on purpose, so the query goes even though
- * arXiv's own (`?context=cs`) is harmless.
- */
 
 void main();

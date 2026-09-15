@@ -129,5 +129,23 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       phase: "reading",
       fetching: true,
     },
+    // The dead end: the fetch answered and the file did not arrive, so the
+    // rendering on screen is not something to commit. The offer comes back so
+    // the denial can be reconsidered or the failure retried.
+    "github-refused": {
+      ...base,
+      source: "github",
+      phase: "blocked",
+      preview: { ...preview, title: "Simple Made Easy", host: "github.com" },
+      problem: {
+        text: m.fetchSources.github.instead(
+          "https://raw.githubusercontent.com/matthiasn/talk-transcripts/master/Hickey_Rich/SimpleMadeEasy.md",
+        ),
+        error: true,
+      },
+      note: m.fetchSources.github.denied,
+      gated: true,
+      fetchOffered: true,
+    },
   };
 }

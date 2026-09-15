@@ -58,17 +58,43 @@ export function prefersCandidate(
 }
 
 /**
+ * What a publisher's rule promises about this tab.
+ *
+ * `degradesToTab` is the half that is not about waiting. Where the tab's own
+ * body is a fair article under the shared slug, a fetch that cannot happen
+ * costs a fuller body and nothing else — an arXiv abstract page is the paper's
+ * canonical URL, and clipping it is a real article. Where it is not, no amount
+ * of waiting makes it one: GitHub's blob page is a rendering of the file, filed
+ * under the file's own slug, so committing it replaces the file's clip rather
+ * than adding one.
+ *
+ * The flag and the identity rule are driven by the same parser, which is what
+ * makes the gate airtight: `available` is false for a github.com URL exactly
+ * when `canonicalizeUrl` declines to collapse it, and a clip that collapses
+ * onto nothing overwrites nothing.
+ */
+export interface FetchPolicy {
+  /** This URL has a better source to offer at all. */
+  available: boolean;
+  /** If the fetch does not deliver, is the tab's own body still worth
+   * committing under this slug? */
+  degradesToTab: boolean;
+}
+
+/** An ordinary page: no better source, so nothing to wait for and nothing to
+ * refuse. */
+export const NO_FETCH: FetchPolicy = { available: false, degradesToTab: true };
+
+/**
  * Would clipping this body file a lesser one under the document's slug?
  *
- * `fetchAvailable` says this URL has a better source to offer at all — it is a
- * paper, or a markdown file on GitHub. Nothing is owed when the body in hand is
- * already the document.
+ * Nothing is owed when the body in hand is already the document.
  */
 export function needsFetch(
   candidate: ClipCandidate,
-  fetchAvailable: boolean,
+  policy: FetchPolicy,
 ): boolean {
-  return fetchAvailable && !candidate.isSource;
+  return policy.available && !candidate.isSource;
 }
 
 /**
@@ -77,17 +103,43 @@ export function needsFetch(
  * "Had their turn" has to include failing. A tab that cannot be read must still
  * resolve, or a document whose page will not load would gate the button
  * forever — which is exactly a PDF tab, where script injection is least
- * dependable.
+ * dependable. But that argument only reaches as far as bodies worth
+ * committing: where the tab's is not one, settling is not an answer.
  */
 export function clipReady(
   best: ClipCandidate | null,
-  fetchAvailable: boolean,
+  policy: FetchPolicy,
   fetchResolved: boolean,
   tabResolved: boolean,
 ): boolean {
   if (best === null) return false;
-  if (!needsFetch(best, fetchAvailable)) return true;
+  if (!needsFetch(best, policy)) return true;
+  if (!policy.degradesToTab) return false;
   return fetchResolved && tabResolved;
+}
+
+/**
+ * Has this tab run out of ways to produce its document?
+ *
+ * The third state. "Not ready" alone cannot tell waiting from refused, and the
+ * popup has to say which — one is a spinner, the other is a dead end with a
+ * way around it.
+ *
+ * Deliberately blind to `tabResolved`: once the fetch has answered without the
+ * document, nothing the tab can still say changes the answer, because a tab
+ * body that *were* the document would set `isSource` and falsify the last line
+ * on its own. `best` may be null — a fetch that failed before the tab reported
+ * is already out of ways, and the answer must not flicker when the rendering
+ * finally arrives.
+ */
+export function clipRefused(
+  best: ClipCandidate | null,
+  policy: FetchPolicy,
+  fetchResolved: boolean,
+): boolean {
+  if (!policy.available || policy.degradesToTab) return false;
+  if (!fetchResolved) return false;
+  return best === null || !best.isSource;
 }
 
 /** Whether a payload is the document itself — the one question each publisher

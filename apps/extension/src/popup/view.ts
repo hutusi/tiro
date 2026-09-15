@@ -162,6 +162,14 @@ export function popupView(s: PopupState, m: Messages): PopupView {
         labelTone: error ? "error" : "neutral",
         message: s.problem?.text ?? null,
         messageTone: error ? "error" : "neutral",
+        // A page this cannot clip may still *have* a clip, and that is exactly
+        // when the reader wants it: a blob page Tiro refuses is usually one
+        // whose file is already in the vault. The `ready` branch has always
+        // offered these; blocking should not take them away.
+        links:
+          s.clippedOn !== null && s.links !== null
+            ? { ...s.links, hint: true }
+            : null,
       };
     }
     case "reading":
