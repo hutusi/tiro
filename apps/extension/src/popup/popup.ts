@@ -12,7 +12,7 @@ import {
   slugForUrl,
 } from "@tiro/shared";
 import { ARXIV_ORIGIN, clipArxivPaper } from "../arxiv.ts";
-import { buildClipFile } from "../clip.ts";
+import { buildClipFile, tabSourceUrl } from "../clip.ts";
 import {
   type ClipCandidate,
   clipReady,
@@ -677,16 +677,5 @@ async function main(): Promise<void> {
  * `buildClipFile` strips from `url` on purpose, so the query goes even though
  * arXiv's own (`?context=cs`) is harmless.
  */
-function tabSourceUrl(rawUrl: string): string | undefined {
-  if (parseArxivUrl(rawUrl) === null) return undefined;
-  try {
-    const url = new URL(rawUrl);
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return undefined;
-  }
-}
 
 void main();
