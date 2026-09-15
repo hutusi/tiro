@@ -54,6 +54,27 @@ async function syncEnabledForRead(): Promise<boolean> {
   }
 }
 
+/** Every mutation of the synced keys runs one at a time.
+ *
+ * Freezing the form is not enough, because it only stops work that has not
+ * started. A Save already in flight reads the flag and then writes; a toggle
+ * landing between those two steps makes the Save store its config in the wrong
+ * place while the toggle copies up a config the Save has not written yet. Both
+ * report success, and the older synced token wins the next read.
+ *
+ * Nothing queued may await something else queued, or the chain deadlocks —
+ * `writeSynced` reads the flag (a read, unqueued) and `setSyncEnabled` calls
+ * neither, so the chain stays flat. */
+let mutations: Promise<unknown> = Promise.resolve();
+
+function serialize<T>(op: () => Promise<T>): Promise<T> {
+  // Both arms run `op`: a previous mutation's failure is its caller's problem
+  // and must not cancel the next one.
+  const next = mutations.then(op, op);
+  mutations = next.catch(() => undefined);
+  return next;
+}
+
 /** Reads one synced key, preferring `sync` when enabled but falling back to
  * `local` when it holds nothing yet — the window after the toggle goes on and
  * before Chrome has pushed anything down.
@@ -71,16 +92,23 @@ async function syncEnabledForRead(): Promise<boolean> {
  * clip that was otherwise fine. Writing only on a difference keeps opening the
  * popup from churning storage for nothing. */
 async function readSynced(key: string): Promise<unknown> {
-  if (!(await syncEnabledForRead())) {
-    return (await chrome.storage.local.get(key))[key];
-  }
-  const stored = await chrome.storage.sync.get(key);
   const local = (await chrome.storage.local.get(key))[key];
+  if (!(await syncEnabledForRead())) return local;
+  let stored: Record<string, unknown>;
+  try {
+    stored = await chrome.storage.sync.get(key);
+  } catch {
+    // The same tolerance the flag read gets, and for the same reason: a read
+    // that cannot reach `sync` must still answer from the mirror, because the
+    // popup has no way to clip without a config. Guarding only the flag left
+    // this one failure able to reject the whole read.
+    return local;
+  }
   if (!(key in stored)) return local;
   const value = stored[key];
   if (JSON.stringify(local) !== JSON.stringify(value)) {
     try {
-      await chrome.storage.local.set({ [key]: value });
+      await serialize(() => chrome.storage.local.set({ [key]: value }));
     } catch {
       // Cold mirror; the value read is still good.
     }
@@ -93,11 +121,13 @@ async function readSynced(key: string): Promise<unknown> {
  * Settles the flag before writing anything, so a flag that cannot be read
  * fails the whole save rather than quietly demoting it to local-only. */
 async function writeSynced(key: string, value: unknown): Promise<void> {
-  const enabled = await loadSyncEnabled();
-  await chrome.storage.local.set({ [key]: value });
-  if (enabled) {
-    await chrome.storage.sync.set({ [key]: value });
-  }
+  await serialize(async () => {
+    const enabled = await loadSyncEnabled();
+    await chrome.storage.local.set({ [key]: value });
+    if (enabled) {
+      await chrome.storage.sync.set({ [key]: value });
+    }
+  });
 }
 
 /** Turns settings sync on or off, moving the synced keys across.
@@ -112,26 +142,28 @@ async function writeSynced(key: string, value: unknown): Promise<void> {
  * actually takes the token off Google's servers, so it is the point of the
  * operation rather than tidying after it. */
 export async function setSyncEnabled(enabled: boolean): Promise<void> {
-  if (enabled) {
-    const [local, sync] = await Promise.all([
-      chrome.storage.local.get(SYNCED_KEYS),
-      chrome.storage.sync.get(SYNCED_KEYS),
-    ]);
-    const push: Record<string, unknown> = {};
-    for (const key of SYNCED_KEYS) {
-      if (!(key in sync) && key in local) push[key] = local[key];
+  await serialize(async () => {
+    if (enabled) {
+      const [local, sync] = await Promise.all([
+        chrome.storage.local.get(SYNCED_KEYS),
+        chrome.storage.sync.get(SYNCED_KEYS),
+      ]);
+      const push: Record<string, unknown> = {};
+      for (const key of SYNCED_KEYS) {
+        if (!(key in sync) && key in local) push[key] = local[key];
+      }
+      await chrome.storage.sync.set({ ...push, [SYNC_KEY]: true });
+      return;
     }
-    await chrome.storage.sync.set({ ...push, [SYNC_KEY]: true });
-    return;
-  }
-  const sync = await chrome.storage.sync.get(SYNCED_KEYS);
-  const keep: Record<string, unknown> = {};
-  for (const key of SYNCED_KEYS) {
-    if (key in sync) keep[key] = sync[key];
-  }
-  if (Object.keys(keep).length > 0) await chrome.storage.local.set(keep);
-  await chrome.storage.sync.remove(SYNCED_KEYS);
-  await chrome.storage.sync.set({ [SYNC_KEY]: false });
+    const sync = await chrome.storage.sync.get(SYNCED_KEYS);
+    const keep: Record<string, unknown> = {};
+    for (const key of SYNCED_KEYS) {
+      if (key in sync) keep[key] = sync[key];
+    }
+    if (Object.keys(keep).length > 0) await chrome.storage.local.set(keep);
+    await chrome.storage.sync.remove(SYNCED_KEYS);
+    await chrome.storage.sync.set({ [SYNC_KEY]: false });
+  });
 }
 
 export async function loadConfig(): Promise<TiroExtensionConfig> {

@@ -415,3 +415,84 @@ describe("settings sync — a flag that cannot be read", () => {
     expect(await loadConfig()).toEqual(config);
   });
 });
+
+describe("settings sync — mutations do not interleave", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const older: TiroExtensionConfig = {
+    owner: "old",
+    repo: "old-vault",
+    branch: "main",
+    token: "old_token",
+  };
+  const newer: TiroExtensionConfig = {
+    owner: "new",
+    repo: "new-vault",
+    branch: "main",
+    token: "new_token",
+  };
+
+  test("a toggle landing inside a save cannot resurrect the older token", async () => {
+    // Sync off, an older config already stored. The save of `newer` reads the
+    // flag first; the toggle lands in that gap. Unserialised, the save writes
+    // locally only (it saw "off") while the toggle copies `older` up to sync
+    // and turns sync on — so the next read hands back the token the user just
+    // replaced. Both operations report success.
+    await saveConfig(older);
+
+    let releaseFlagRead: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      releaseFlagRead = resolve;
+    });
+    const realGet = chrome.sync.get;
+    let stalled = false;
+    chrome.sync.get = async (keys) => {
+      if (!stalled) {
+        stalled = true;
+        await blocked;
+      }
+      return realGet(keys);
+    };
+
+    const saving = saveConfig(newer);
+    const toggling = setSyncEnabled(true);
+    releaseFlagRead();
+    await Promise.all([saving, toggling]);
+    chrome.sync.get = realGet;
+
+    expect(await loadConfig()).toEqual(newer);
+    expect(chrome.sync.data.tiroConfig).toEqual(newer);
+  });
+});
+
+describe("settings sync — a read answers whatever sync does", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const config: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+
+  test("a failed data read still answers from the mirror", async () => {
+    // The flag read succeeds and only the data read fails, which guarding the
+    // flag alone did not cover: loadConfig rejected outright, leaving the
+    // popup with no config and no way to clip despite a good local copy.
+    await saveConfig(config);
+    chrome.sync.data.tiroSyncEnabled = true;
+    const realGet = chrome.sync.get;
+    chrome.sync.get = async (keys) => {
+      const wanted = typeof keys === "string" ? [keys] : (keys ?? []);
+      if (wanted.includes("tiroConfig")) throw new Error("sync unavailable");
+      return realGet(keys);
+    };
+    expect(await loadConfig()).toEqual(config);
+  });
+});
