@@ -4,6 +4,7 @@ import {
   foldedFigureCount,
   imageOffsets,
   joinBlocks,
+  markdownLinks,
   mathRanges,
   normalizeBlockMath,
   plainText,
@@ -808,5 +809,81 @@ describe("plainText", () => {
   test("collapses whitespace and trims", () => {
     expect(plainText("  one\n  two   three  ")).toBe("one two three");
     expect(plainText("   ")).toBe("");
+  });
+});
+
+describe("markdownLinks", () => {
+  /** The node text and the tail text, which is what a caller actually edits. */
+  const spans = (text: string): string[] =>
+    markdownLinks(text).map((link) => {
+      const tail =
+        link.tail === null ? "-" : text.slice(link.tail.start, link.tail.end);
+      return `${link.type} ${text.slice(link.start, link.end)} | ${tail}`;
+    });
+
+  test("reports an inline link and its destination group", () => {
+    expect(spans('[text](page.md "t")')).toEqual([
+      'link [text](page.md "t") | (page.md "t")',
+    ]);
+    expect(spans("![alt](img/a.png)")).toEqual([
+      "image ![alt](img/a.png) | (img/a.png)",
+    ]);
+  });
+
+  // The reason the walk does not stop at a match, and the reason tails are
+  // safe to edit in any order: the outer tail begins past the inner node.
+  test("reports an image nested inside a link, and both tails", () => {
+    expect(spans("[![alt](img.png)](page.md)")).toEqual([
+      "link [![alt](img.png)](page.md) | (page.md)",
+      "image ![alt](img.png) | (img.png)",
+    ]);
+  });
+
+  // All three reference forms end at the same place, so one replacement rule
+  // retargets every one of them.
+  test("a reference's tail is whatever follows its label, including nothing", () => {
+    const text =
+      "[full][id] [collapsed][] [shortcut]\n\n[id]: /a\n[collapsed]: /b\n[shortcut]: /c";
+    expect(spans(text).filter((s) => s.startsWith("linkReference"))).toEqual([
+      "linkReference [full][id] | [id]",
+      "linkReference [collapsed][] | []",
+      "linkReference [shortcut] | ",
+    ]);
+  });
+
+  test("a definition is reported whole, with no tail to rewrite", () => {
+    const links = markdownLinks("[x][id]\n\n[id]: https://example.org/s");
+    const definition = links.find((link) => link.type === "definition");
+    expect(definition?.url).toBe("https://example.org/s");
+    expect(definition?.identifier).toBe("id");
+    expect(definition?.tail).toBeNull();
+  });
+
+  // A link with no label has no tail, and a caller that assumed one would
+  // write its destination into the middle of the URL.
+  test("an autolink and a linkified bare URL have no tail", () => {
+    expect(spans("<https://example.com> and www.example.com")).toEqual([
+      "link <https://example.com> | -",
+      "link www.example.com | -",
+    ]);
+  });
+
+  // The label grammar is why this asks the parser. Each of these closes the
+  // label somewhere a `]` scan would not.
+  test.each([
+    ["[a `]` b](c.md)", "a code span holding the closing bracket"],
+    ["[esc\\] ape](d.md)", "an escaped bracket"],
+    ["[nested [brackets] here](e.md)", "balanced nested brackets"],
+  ])("finds the real end of the label: %s", (text) => {
+    expect(spans(text)).toEqual([
+      `link ${text} | ${text.slice(text.lastIndexOf("("))}`,
+    ]);
+  });
+
+  // Nothing inside code is a link, and the parser already knows it — which is
+  // why callers need no separate verbatim guard.
+  test("finds nothing inside a fence or a code span", () => {
+    expect(markdownLinks("```\n[x](y.md)\n```\n")).toEqual([]);
+    expect(markdownLinks("`[x](y.md)`")).toEqual([]);
   });
 });

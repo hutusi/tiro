@@ -133,6 +133,159 @@ const VERBATIM_NODE_TYPES: ReadonlySet<string> = new Set([
   "html",
 ]);
 
+export interface MarkdownLink {
+  type: "link" | "image" | "linkReference" | "imageReference" | "definition";
+  /** Source range of the whole node. */
+  start: number;
+  end: number;
+  /**
+   * Source range of everything after the label: the `(…)` of an inline link,
+   * the `[…]` of a reference, or the empty span at the end of a shortcut
+   * reference. Replacing exactly this range retargets a link without touching
+   * a byte of the text it sits on — which is the point, because that text can
+   * be another node.
+   *
+   * Null when there is no label to be after: an autolink, a bare URL GFM
+   * linkified, or a definition.
+   */
+  tail: { start: number; end: number } | null;
+  /** The destination, for the forms that carry one. Empty on a reference,
+   * whose destination lives on its definition. */
+  url: string;
+  title: string | null;
+  /** Normalized identifier, for the reference forms and definitions. */
+  identifier: string | null;
+}
+
+const LINK_NODE_TYPES: ReadonlySet<string> = new Set([
+  "link",
+  "image",
+  "linkReference",
+  "imageReference",
+  "definition",
+]);
+
+/**
+ * Every link, image, reference and definition in `text`, with the source
+ * ranges a rewrite needs.
+ *
+ * The companion to `verbatimRanges` above: that one says what a rewrite must
+ * not touch, and this one says what it may. Both ask the parser, for the same
+ * reason. Recognising a link by line shape means re-implementing the label
+ * grammar, and every omission either rewrites something that was never a link
+ * or silently declines to rewrite one that was — a destination may hold
+ * balanced parentheses, a label may hold brackets, a code span inside a label
+ * may hold an unbalanced one, and `<https://…>` is a link with no label at all.
+ *
+ * Read with the same parser the site uses for an article that has not declared
+ * `has_math`, so a `$$…$$` the reader will see as a formula is a formula here
+ * too, and a link inside one is left where it is.
+ *
+ * Nodes nest — `[![alt](img.png)](page.md)` is an image inside a link — so the
+ * walk does not stop at a match. Their tails never overlap, because a tail
+ * begins after the label that contains every child.
+ */
+export function markdownLinks(text: string): MarkdownLink[] {
+  const found: MarkdownLink[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      url?: string;
+      title?: string | null;
+      identifier?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    const start = n.position?.start.offset;
+    const end = n.position?.end.offset;
+    if (
+      n.type !== undefined &&
+      LINK_NODE_TYPES.has(n.type) &&
+      start !== undefined &&
+      end !== undefined
+    ) {
+      found.push({
+        type: n.type as MarkdownLink["type"],
+        start,
+        end,
+        // A definition's label is its identifier, not content it sits on, and
+        // nothing rewrites one in place — it is dropped whole or left alone.
+        tail: n.type === "definition" ? null : labelTail(text, start, end),
+        url: n.url ?? "",
+        title: n.title ?? null,
+        identifier: n.identifier ?? null,
+      });
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(dollarSafeParser.parse(text) as Root);
+  return found;
+}
+
+function labelTail(
+  text: string,
+  start: number,
+  end: number,
+): { start: number; end: number } | null {
+  // `![` opens the image forms and `[` the rest. Anything else is an autolink
+  // or a bare URL GFM linkified: a link with no label, and so no tail.
+  const open = text[start] === "!" ? start + 1 : start;
+  if (text[open] !== "[") return null;
+  const close = matchingBracket(text, open, end);
+  return close === null ? null : { start: close + 1, end };
+}
+
+/** Offset of the `]` that closes the label opened at `open`. */
+function matchingBracket(
+  text: string,
+  open: number,
+  end: number,
+): number | null {
+  let depth = 0;
+  let i = open;
+  while (i < end) {
+    const ch = text[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      i = skipCodeSpan(text, i, end);
+      continue;
+    }
+    if (ch === "[") depth += 1;
+    else if (ch === "]") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+    i += 1;
+  }
+  return null;
+}
+
+/**
+ * Past the code span opened at `i` — or past its opening run alone when
+ * nothing closes it, because an unmatched backtick run is literal text and
+ * letting it swallow the rest of the node would lose every link after it.
+ */
+function skipCodeSpan(text: string, i: number, end: number): number {
+  let open = i;
+  while (open < end && text[open] === "`") open += 1;
+  const width = open - i;
+  let j = open;
+  while (j < end) {
+    if (text[j] !== "`") {
+      j += 1;
+      continue;
+    }
+    let close = j;
+    while (close < end && text[close] === "`") close += 1;
+    if (close - j === width) return close;
+    j = close;
+  }
+  return open;
+}
+
 /**
  * True when `text` is a single paragraph holding nothing but images.
  *
