@@ -8,10 +8,246 @@ export interface TiroExtensionConfig {
 }
 
 const KEY = "tiroConfig";
+const LANGUAGE_KEY = "tiroLanguage";
+
+/** Kept in `sync` rather than `local` so the opt-in itself travels: a new
+ * machine signed into the same Chrome profile finds the flag already true and
+ * reads the settings beside it, which is the whole point — a per-device flag
+ * would still make every machine a manual step, just a shorter one. */
+const SYNC_KEY = "tiroSyncEnabled";
+
+/** The only keys that ever reach `chrome.storage.sync`.
+ *
+ * `tiroClipHistory` is excluded on a hard constraint, not a preference: it is
+ * one key holding up to 500 entries (~35-50 KB), and sync caps a single item
+ * at 8,192 bytes, so writing it there would throw on a well-used vault. It is
+ * a per-device hint anyway (see below). `tiroDisclosure` is excluded by
+ * choice: consent to read pages is per install, and syncing it would let a
+ * fresh install skip the disclosure before it first reads anything. */
+const SYNCED_KEYS = [KEY, LANGUAGE_KEY];
+
+/** Whether the user has opted settings into Chrome sync. Off unless they say
+ * otherwise: turning it on uploads the PAT to Google's servers and pushes it
+ * to every machine on the profile, which is the user's call to make and not a
+ * default to inherit (ADR 0022).
+ *
+ * Throws if the answer cannot be read. Only the read path may paper over that
+ * (see `syncEnabledForRead`); anything that writes, or that reports the state
+ * to the user, has to know it asked successfully. */
+export async function loadSyncEnabled(): Promise<boolean> {
+  const stored = await chrome.storage.sync.get(SYNC_KEY);
+  return stored[SYNC_KEY] === true;
+}
+
+/** The same question, answered "off" when it cannot be asked at all.
+ *
+ * Reads may do this because `local` is kept current (see `readSynced`), so
+ * falling back to it still finds settings, where throwing would leave the
+ * popup with no config and no way to clip. A *write* must never take the same
+ * shortcut: it would store the config locally, report success, and leave the
+ * synced copy to win again the moment the read recovered. */
+async function syncEnabledForRead(): Promise<boolean> {
+  try {
+    return await loadSyncEnabled();
+  } catch {
+    return false;
+  }
+}
+
+/** Mutations of the synced keys run one at a time **within this page**.
+ *
+ * Freezing the form is not enough, because it only stops work that has not
+ * started. A Save already in flight reads the flag and then writes; a toggle
+ * landing between those two steps makes the Save store its config in the wrong
+ * place while the toggle copies up a config the Save has not written yet. Both
+ * report success, and the older synced token wins the next read.
+ *
+ * **This chain is per JS realm, not per profile.** Each options tab and the
+ * service worker get their own module instance, so two options tabs acting at
+ * the same instant are not serialised against each other. That is accepted
+ * rather than fixed (ADR 0022): the options page is the only writer of these
+ * keys, and `chrome.runtime.openOptionsPage` focuses an open one instead of
+ * opening a second, so the arrangement takes deliberate effort to create.
+ * Closing it properly means routing every mutation through the worker, which
+ * is a messaging layer and a new way for a save to fail on a path that today
+ * cannot.
+ *
+ * Nothing queued may await something else queued, or the chain deadlocks —
+ * `writeSynced` reads the flag (a read, unqueued) and `setSyncEnabled` calls
+ * neither, so the chain stays flat. */
+let mutations: Promise<unknown> = Promise.resolve();
+
+function serialize<T>(op: () => Promise<T>): Promise<T> {
+  // Both arms run `op`: a previous mutation's failure is its caller's problem
+  // and must not cancel the next one.
+  const next = mutations.then(op, op);
+  mutations = next.catch(() => undefined);
+  return next;
+}
+
+/** Reads one synced key, preferring `sync` when enabled but falling back to
+ * `local` when it holds nothing yet — the window after the toggle goes on and
+ * before Chrome has pushed anything down.
+ *
+ * Records what it reads from `sync` into `local`. The write on a read path is
+ * the point of this function rather than an accident: a machine configured
+ * entirely by sync never calls a writer, so it would hold no copy of its own,
+ * and disabling sync from another machine — which withdraws the synced keys
+ * everywhere — would leave it with nothing but defaults. Mirroring on read is
+ * what makes ADR 0022's "no machine is left without settings" true for the
+ * machine the feature exists to serve.
+ *
+ * Best-effort, and deliberately so: a machine whose `local` cannot be written
+ * has worse problems than a cold mirror, and failing the read would stop a
+ * clip that was otherwise fine. Writing only on a difference keeps opening the
+ * popup from churning storage for nothing. */
+async function readSynced(key: string): Promise<unknown> {
+  if (!(await syncEnabledForRead())) {
+    return (await chrome.storage.local.get(key))[key];
+  }
+  // The read, the comparison and the mirror write are one queued unit, not a
+  // bare write at the end. Queuing only the write let a save land in between:
+  // the read captured v1, the save stored v2, and the mirror write then put v1
+  // back over it. That self-corrects while sync is on — the next read fetches
+  // v2 again — but it is exactly the copy a later disable falls back to.
+  return serialize(async () => {
+    const local = (await chrome.storage.local.get(key))[key];
+    let stored: Record<string, unknown>;
+    try {
+      stored = await chrome.storage.sync.get(key);
+    } catch {
+      // The same tolerance the flag read gets, and for the same reason: a read
+      // that cannot reach `sync` must still answer from the mirror, because the
+      // popup has no way to clip without a config. Guarding only the flag left
+      // this one failure able to reject the whole read.
+      return local;
+    }
+    if (!(key in stored)) return local;
+    const value = stored[key];
+    if (JSON.stringify(local) !== JSON.stringify(value)) {
+      try {
+        await chrome.storage.local.set({ [key]: value });
+      } catch {
+        // Cold mirror; the value read is still good.
+      }
+    }
+    return value;
+  });
+}
+
+/** Writes one synced key to `local`, and to `sync` too when enabled.
+ *
+ * Settles the flag before writing anything, so a flag that cannot be read
+ * fails the whole save rather than quietly demoting it to local-only. */
+async function writeSynced(key: string, value: unknown): Promise<void> {
+  await serialize(async () => {
+    const enabled = await loadSyncEnabled();
+    await chrome.storage.local.set({ [key]: value });
+    if (!enabled) return;
+    await chrome.storage.sync.set({ [key]: value });
+    // Another machine may have switched sync off between the flag read and
+    // this write, and Chrome takes seconds to propagate that — long enough for
+    // a save here to put the token back after someone deliberately removed it.
+    // Checking again cannot close the race (their disable may still be in
+    // flight), but it does mean this machine never knowingly leaves a token in
+    // sync after seeing the flag go false. ADR 0022 records what is left.
+    if (!(await loadSyncEnabled())) {
+      await chrome.storage.sync.remove(key);
+    }
+  });
+}
+
+/** Turns settings sync on or off, moving the synced keys across.
+ *
+ * Enabling does not overwrite a value `sync` already holds. That is what makes
+ * the headline case work: on a second machine `sync` already carries the
+ * settings, so flipping the toggle joins them rather than clobbering them with
+ * the empty form the user is looking at. Only keys `sync` lacks are pushed up.
+ *
+ * Disabling copies `sync` down before removing anything, so no device is left
+ * without settings, then clears the keys from `sync` — that removal is what
+ * actually takes the token off Google's servers, so it is the point of the
+ * operation rather than tidying after it. */
+export async function setSyncEnabled(enabled: boolean): Promise<void> {
+  await serialize(async () => {
+    if (enabled) {
+      const [local, sync] = await Promise.all([
+        chrome.storage.local.get(SYNCED_KEYS),
+        chrome.storage.sync.get(SYNCED_KEYS),
+      ]);
+      const push: Record<string, unknown> = {};
+      for (const key of SYNCED_KEYS) {
+        if (!(key in sync) && key in local) push[key] = local[key];
+      }
+      await chrome.storage.sync.set({ ...push, [SYNC_KEY]: true });
+      return;
+    }
+    const sync = await chrome.storage.sync.get(SYNCED_KEYS);
+    const keep: Record<string, unknown> = {};
+    for (const key of SYNCED_KEYS) {
+      if (key in sync) keep[key] = sync[key];
+    }
+    if (Object.keys(keep).length > 0) await chrome.storage.local.set(keep);
+    await chrome.storage.sync.remove(SYNCED_KEYS);
+    await chrome.storage.sync.set({ [SYNC_KEY]: false });
+  });
+}
+
+/** Copies synced values into the local mirror as Chrome delivers them, so the
+ * mirror tracks changes instead of lagging behind this machine's last read.
+ *
+ * Without it the fallback is only ever the last value this machine happened to
+ * observe: if it read v1, another machine saved v2 and then switched sync off,
+ * this one would fall back to v1 — settings that are not merely old but wrong,
+ * and wrong quietly, since a stale repository clips to the wrong destination
+ * without complaint.
+ *
+ * **A removal must never be mirrored.** Switching sync off elsewhere arrives
+ * here as the synced keys disappearing; copying that through would erase the
+ * very copy this exists to preserve, turning the guard into the failure it was
+ * written to prevent. Only a change carrying a real `newValue` is taken.
+ *
+ * Mirroring on read stays as well: a worker that has not run since sync was
+ * enabled has seen no changes to mirror, and the two cover each other. */
+export async function mirrorSyncedChange(changes: {
+  [key: string]: chrome.storage.StorageChange;
+}): Promise<void> {
+  const updates: Record<string, unknown> = {};
+  for (const key of SYNCED_KEYS) {
+    const change = changes[key];
+    if (change && change.newValue !== undefined) updates[key] = change.newValue;
+  }
+  if (Object.keys(updates).length === 0) return;
+  await serialize(() => chrome.storage.local.set(updates));
+}
+
+/** Clears synced settings that outlived the switch being turned off.
+ *
+ * Disabling removes the keys on the machine that does it, but a save in flight
+ * elsewhere can land afterwards and put them back. Whichever machine sees the
+ * switch go off then takes them out again, so "sync is off" converges on "no
+ * token in sync" rather than depending on which write happened to be last.
+ *
+ * **Only an explicit `false` counts.** Chrome does not promise to deliver the
+ * keys and the flag in one batch, so during an *enable* a machine can receive
+ * `tiroConfig` while its flag still reads the old value. Treating "flag is not
+ * true" as a disable would delete the settings the enable just published and
+ * break the case this whole feature exists for. A change carrying
+ * `newValue === false` is unambiguous; nothing else is. */
+export async function reconcileDisabledSync(changes: {
+  [key: string]: chrome.storage.StorageChange;
+}): Promise<void> {
+  if (changes[SYNC_KEY]?.newValue !== false) return;
+  await serialize(async () => {
+    const stored = await chrome.storage.sync.get(SYNCED_KEYS);
+    const lingering = SYNCED_KEYS.filter((key) => key in stored);
+    if (lingering.length > 0) await chrome.storage.sync.remove(lingering);
+  });
+}
 
 export async function loadConfig(): Promise<TiroExtensionConfig> {
-  const stored = await chrome.storage.local.get(KEY);
-  const config = (stored[KEY] ?? {}) as Partial<TiroExtensionConfig>;
+  const config = ((await readSynced(KEY)) ??
+    {}) as Partial<TiroExtensionConfig>;
   return {
     owner: config.owner ?? "",
     repo: config.repo ?? "",
@@ -21,28 +257,24 @@ export async function loadConfig(): Promise<TiroExtensionConfig> {
 }
 
 export async function saveConfig(config: TiroExtensionConfig): Promise<void> {
-  await chrome.storage.local.set({ [KEY]: config });
+  await writeSynced(KEY, config);
 }
 
 export function isConfigComplete(config: TiroExtensionConfig): boolean {
   return config.owner !== "" && config.repo !== "" && config.token !== "";
 }
 
-/** Kept under its own key for the same reason as the disclosure below: the
- * options page saves a freshly built config object, which would silently drop
- * a language preference nested inside it. */
-const LANGUAGE_KEY = "tiroLanguage";
-
+/** Kept under its own key, not nested in the config object: the options page
+ * saves a freshly built config, which would silently drop a language
+ * preference nested inside it. */
 export async function loadLanguage(): Promise<LanguageSetting> {
-  const stored = await chrome.storage.local.get(LANGUAGE_KEY);
-  const value = stored[LANGUAGE_KEY];
+  const value = await readSynced(LANGUAGE_KEY);
   return value === "en" || value === "zh" ? value : "auto";
 }
 
 export async function saveLanguage(setting: LanguageSetting): Promise<void> {
-  await chrome.storage.local.set({ [LANGUAGE_KEY]: setting });
+  await writeSynced(LANGUAGE_KEY, setting);
 }
-
 /** Bump when the disclosure changes what it says about data handling: the Web
  * Store requires re-disclosing practice changes after install, and a bump is
  * what re-prompts an existing user.
@@ -50,8 +282,14 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * 2: the disclosure names arxiv.org, which the extension may now fetch a
  * paper's full text from. A new outbound destination is a practice change
  * whichever way the optional permission is answered, so the rule above applies
- * even though Chrome prompts for the permission separately. */
-export const DISCLOSURE_VERSION = 2;
+ * even though Chrome prompts for the permission separately.
+ *
+ * 3: settings sync (ADR 0022) can put the PAT in `chrome.storage.sync`, from
+ * where Chrome replicates it to the user's other devices. By the same rule as
+ * 2 that is a new destination — a stronger case than 2, since what travels is
+ * a credential rather than a request, and it applies even though the option is
+ * off by default and asked for separately. */
+export const DISCLOSURE_VERSION = 3;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */
@@ -61,7 +299,12 @@ export interface DisclosureState {
 
 /** Kept under its own key rather than inside the config object: the options
  * page saves a freshly built config (see options.ts `currentConfig`), which
- * would silently wipe an acceptance nested there and re-prompt on every save. */
+ * would silently wipe an acceptance nested there and re-prompt on every save.
+ *
+ * Read and written straight to `local`, never synced: consent to read pages
+ * belongs to an install, and carrying it across would let a fresh one skip the
+ * disclosure before it first reads a page. One click per machine is a cheaper
+ * price than that (ADR 0022). */
 const DISCLOSURE_KEY = "tiroDisclosure";
 
 export async function loadDisclosure(): Promise<DisclosureState> {
@@ -82,12 +325,16 @@ export function needsDisclosure(state: DisclosureState): boolean {
   return state.version < DISCLOSURE_VERSION;
 }
 
-/** Local record of successful clips (slug → ISO timestamp), so the popup can
+/** Record of successful clips (slug → ISO timestamp), so the popup can
  * hint "already clipped" on open without asking GitHub — the disclosure
  * promises nothing is sent before the Clip click, and a popup-open probe
  * would break that promise. Blind to clips made on other machines, which is
  * acceptable for a hint: the clip flow still checks GitHub authoritatively
- * and a re-clip safely overwrites either way. */
+ * and a re-clip safely overwrites either way.
+ *
+ * Stays in `local` even with settings sync on, and not as a preference: this
+ * is one key holding up to HISTORY_CAP entries, which sync would reject over
+ * its 8,192-byte per-item cap long before the cap here was reached. */
 export type ClipHistory = Record<string, string>;
 
 const HISTORY_KEY = "tiroClipHistory";

@@ -25,7 +25,12 @@
   li:before{content:"";position:absolute;left:0;top:7px;width:16px;height:16px;border-radius:50%;
             background:#8f2f2f;box-shadow:inset 0 0 0 4px #f4efe4}
   .shot{flex:1;display:flex;justify-content:center}
-  .shot img{width:600px;border-radius:14px;
+  /* Height is the binding dimension now that the options card has grown a
+     sync row: at a flat width:600px the shot renders 849px tall inside an
+     800px frame and overflow:hidden crops it, top and bottom, silently.
+     Constrain both and let whichever runs out first win, so the next change
+     to the page's height scales the shot instead of trimming it. */
+  .shot img{max-width:600px;max-height:720px;width:auto;height:auto;border-radius:14px;
             box-shadow:0 24px 60px rgba(30,27,22,.16),0 4px 12px rgba(30,27,22,.08)}
 </style>
 <div class="copy">

@@ -65,7 +65,7 @@ across machines, not for an audience.
 | --- | --- |
 | `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. It is bundled with the extension; nothing is fetched or evaluated at runtime. |
-| `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup. All local to the machine. |
+| `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup. Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
 | `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. |
 | `https://arxiv.org/*` (optional) | Fetches a paper's HTML full text (`arxiv.org/html/<id>`) when the user clips an arXiv page. Tiro treats a paper's abstract, PDF and HTML addresses as one article, so it reads the full text rather than whichever of the three the tab happens to show — the PDF address in particular has no readable text at all. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it, and revoking it returns the extension to clipping the current tab — except at a paper's PDF address, which holds no readable text for it to clip. |
 
@@ -80,20 +80,27 @@ repository — a declaration that reads narrower than the code is a rejection.
 
 - **Personally identifiable information**: **Yes** — a GitHub username, typed by
   the user on the options page. Google's definition of PII enumerates
-  "username". It is stored locally and sent to `api.github.com` only as part of
-  the repository path it identifies.
+  "username". It is stored locally — and also in `chrome.storage.sync`, and so
+  replicated by Chrome, if the user turns on settings sync — and sent to
+  `api.github.com` only as part of the repository path it identifies.
 - **Health / financial / payment information**: No
 - **Authentication information**: **Yes** — a GitHub personal access token the
   user creates and enters themselves. Stored in `chrome.storage.local` on their
   machine, sent only to `api.github.com`, as the `Authorization` header of the
   GitHub API requests the extension makes — the connection test on the options
-  page and the commit itself. Never sent anywhere else, and never to the
-  developer.
+  page and the commit itself. The extension sends it nowhere else, and never to
+  the developer. If the user opts into settings sync on the options page, a copy is
+  stored in `chrome.storage.sync` as well, and so is replicated by Chrome to
+  the devices signed into their Google account; the option is off by default,
+  the options page says what it does before they tick it, and unticking it
+  clears the token from sync storage. This is transfer by the browser's own
+  sync, not by the extension, which still sends the token nowhere but GitHub.
 - **Web history**: **Yes** — the URL of a page the user chooses to clip is
   stored in the article's frontmatter, encoded in its directory name, and
   committed to the user's repository. A slug derived from that URL is also kept
   locally (with a timestamp, at most 500 entries) so the popup can show an
-  "already clipped" status; that record never leaves the device. The same
+  "already clipped" status; that record never leaves the device, and is excluded
+  from settings sync. The same
   declaration covers the optional arxiv.org fetch: requesting
   `arxiv.org/html/<id>` tells that site which paper is being read, whether or
   not the user goes on to clip it. Google's definition covers "the domains or
@@ -109,8 +116,9 @@ repository — a declaration that reads narrower than the code is a rejection.
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 2, having been bumped when the disclosure
-gained the optional arxiv.org fetch.
+this disclosure ever changes; it is at 3, having been bumped when the disclosure
+gained the optional arxiv.org fetch and again when it gained opt-in settings
+sync.
 
 Required certifications, all true of this extension:
 

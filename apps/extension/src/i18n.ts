@@ -66,7 +66,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper it can fetch the HTML full text from arxiv.org instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -94,8 +94,17 @@ const en = {
   labelBranch: "Branch",
   labelToken: "Fine-grained personal access token",
   tokenHint:
-    "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine.",
+    "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine, and also in chrome.storage.sync if you turn on settings sync.",
   labelLanguage: "Language",
+  labelSync: "Sync settings across my devices",
+  syncHint:
+    "Stores these settings, token included, in your Chrome profile, so another computer signed into it needs no setup. Chrome copies them through Google's servers. Off unless you turn it on.",
+  syncOn: "Settings sync is on.",
+  syncOff: "Settings sync is off — these settings stay on this computer.",
+  syncedElsewhere:
+    "These settings changed on another device. Reopen this page to load them.",
+  syncKeptEdits:
+    "Your unsaved changes are still here — press Save to store them.",
   langAuto: "Auto (browser language)",
   langEn: "English",
   langZh: "中文",
@@ -163,7 +172,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文，在你授权后，它会改为从 arxiv.org 抓取该论文的 HTML 全文。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -187,8 +196,15 @@ const zh: Messages = {
   labelBranch: "分支",
   labelToken: "细粒度个人访问令牌（PAT）",
   tokenHint:
-    "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中。",
+    "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中；若开启设置同步，则同时保存在 chrome.storage.sync 中。",
   labelLanguage: "语言",
+  labelSync: "在我的设备间同步设置",
+  syncHint:
+    "把这些设置（含令牌）保存到你的 Chrome 账户中，登录同一账户的另一台电脑便无需再次配置。同步由 Chrome 经 Google 的服务器完成。默认关闭，只有你亲自开启才会生效。",
+  syncOn: "设置同步已开启。",
+  syncOff: "设置同步已关闭——这些设置只保存在本机。",
+  syncedElsewhere: "这些设置已在其他设备上更改。重新打开本页即可载入。",
+  syncKeptEdits: "你未保存的修改仍保留在表单中——点击「保存」即可存下。",
   langAuto: "自动（跟随浏览器）",
   langEn: "English",
   langZh: "中文",

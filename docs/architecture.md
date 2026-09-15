@@ -223,7 +223,7 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 
 | Where | Secret / token | Purpose |
 | --- | --- | --- |
-| Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip commits |
+| Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
 | tiro-vault Actions | `TIRO_LLM_API_KEY` | LLM calls |
 | tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch |
 | tiro Actions | `VAULT_READ_TOKEN` (tiro-vault, Contents R; only if vault is private) | deploy checkout |
