@@ -213,9 +213,8 @@ const zh: Messages = {
       offer: "这是 GitHub 上的 Markdown 文件，Tiro 可以改为抓取文件本身。",
       button: "抓取 Markdown 文件",
       fetching: "正在从 raw.githubusercontent.com 抓取文件…",
-      denied: "未获得 raw.githubusercontent.com 访问权限，只能剪藏当前页面。",
-      failed: (detail: string) =>
-        `无法抓取文件（${detail}），改为剪藏当前页面。`,
+      denied: "未获得 raw.githubusercontent.com 访问权限，无法读取文件本身。",
+      failed: (detail: string) => `无法抓取文件（${detail}）。`,
       notice:
         "已从 raw.githubusercontent.com 抓取文件以生成预览。剪藏前不会向你的仓库发送任何内容。",
       partial: null,

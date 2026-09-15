@@ -53,6 +53,35 @@ describe("messages", () => {
     }
   });
 
+  /**
+   * Key parity does not reach meaning, and this is the second time a Chinese
+   * string lagged its English counterpart — the first was the disclosure
+   * above. An edit matched the English `denied`, missed the Chinese, and the
+   * popup went on telling a Chinese reader it would clip the page it had just
+   * refused to clip.
+   *
+   * The invariant, stated where both locales have to satisfy it: a publisher
+   * that offers a way out instead of falling back (`instead !== null`) must not
+   * have copy promising the fallback, and one that *does* fall back must say
+   * so. Whether a publisher degrades lives in `fetch-source.ts`; this is the
+   * half a translator can break.
+   */
+  test.each(["en", "zh"] as const)(
+    "%s copy agrees with whether the publisher falls back",
+    (locale) => {
+      const fallback = locale === "en" ? "the page you are on" : "当前页面";
+      const { arxiv, github } = messages(locale).fetchSources;
+      // arXiv degrades: an abstract page is a fair article, and the copy says
+      // the tab is what will be clipped.
+      expect(arxiv.instead).toBeNull();
+      expect(arxiv.denied).toContain(fallback);
+      // GitHub refuses: a rendering of the file is not the file.
+      expect(github.instead).not.toBeNull();
+      expect(github.denied).not.toContain(fallback);
+      expect(github.failed("x")).not.toContain(fallback);
+    },
+  );
+
   test("the tables expose the same keys", () => {
     // The Messages type enforces this at compile time; the runtime check
     // guards against a key sneaking in through a cast.
