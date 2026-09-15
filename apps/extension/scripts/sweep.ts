@@ -47,7 +47,10 @@
  *    The one case where the gap was closed rather than accepted is
  *    `text/plain`: the document Chrome builds for it is fully determined by the
  *    bytes, so `plainTextShell` builds the same one (see it for why the
- *    alternative is a permanent phantom diff).
+ *    alternative is a permanent phantom diff). Note also that every mode reads
+ *    `tiro.source_url` rather than the article's own URL — see `sourceUrl`,
+ *    because those differ for every publisher rule and fetching the wrong one
+ *    reports a regression against a document nobody clipped.
  * 2. **A `--baseline` run resolves dependencies from the working tree.** The
  *    worktree holds source, not `node_modules`, so both sides import today's
  *    Readability and Turndown. That is what you want when judging your own
@@ -87,6 +90,25 @@ import {
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 import type { ClipPayload } from "../src/messages.ts";
+
+/**
+ * Where an article's body was read from, which is not always where it is filed.
+ *
+ * Since ADR 0013 a publisher rule may file an article under a URL the body
+ * never came from: an arXiv paper lives at `/abs/` and is read from `/html/`, a
+ * GitHub markdown file lives at its blob page and is read from the raw bytes.
+ * `tiro.source_url` records the difference, and a sweep that fetched the
+ * identity URL replayed a *different document* through the clipper and called
+ * the difference a regression.
+ *
+ * It was already wrong before this branch — the one arXiv article carrying a
+ * source URL reported a phantom `-2 images` on `main` — and would have become
+ * silently wrong for every GitHub markdown file the moment the migration
+ * renamed one, which is to say exactly when the tool was needed.
+ */
+function sourceUrl(article: Article): string {
+  return article.frontmatter.tiro.source_url ?? article.url;
+}
 
 interface Article {
   slug: string;
@@ -579,8 +601,9 @@ async function fillLanguages(
     let indexText: string;
     let zhText: string | null;
     try {
-      const html = await fetchPage(article.url, args.pages, article.slug);
-      const fresh = (await clipHtml(html, article.url, clipPage)).markdown;
+      const url = sourceUrl(article);
+      const html = await fetchPage(url, args.pages, article.slug);
+      const fresh = (await clipHtml(html, url, clipPage)).markdown;
       indexText = await readFile(indexPath, "utf-8");
       zhText = existsSync(zhPath) ? await readFile(zhPath, "utf-8") : null;
       result = backfill(indexText, zhText, fresh);
@@ -740,8 +763,9 @@ async function recanonicalizeAll(
     let fresh: ClipPayload | null = null;
     let note = "";
     try {
-      const html = await fetchPage(article.url, args.pages, article.slug);
-      fresh = await clipHtml(html, article.url, clipPage);
+      const url = sourceUrl(article);
+      const html = await fetchPage(url, args.pages, article.slug);
+      fresh = await clipHtml(html, url, clipPage);
     } catch (error) {
       note = ` (metadata left alone: ${error instanceof Error ? error.message : String(error)})`;
     }
@@ -906,12 +930,13 @@ async function main() {
     let after: string;
     let before: string;
     try {
-      const html = await fetchPage(article.url, args.pages, article.slug);
-      after = (await clipHtml(html, article.url, clipPage)).markdown;
+      const url = sourceUrl(article);
+      const html = await fetchPage(url, args.pages, article.slug);
+      after = (await clipHtml(html, url, clipPage)).markdown;
       before =
         baselineClip === null
           ? article.body
-          : (await clipHtml(html, article.url, baselineClip)).markdown;
+          : (await clipHtml(html, url, baselineClip)).markdown;
     } catch (error) {
       // Neither a page that will not load nor one that will not clip is a
       // finding about the corpus, and neither may stop the rest being reported.
