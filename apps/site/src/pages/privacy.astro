@@ -5,7 +5,7 @@
 // read English.
 import Base from "../layouts/Base.astro";
 
-const updated = "2026-09-06";
+const updated = "2026-09-15";
 ---
 
 <Base title="隐私政策">
@@ -47,16 +47,21 @@ const updated = "2026-09-06";
         其他设备，也不会上传到除 GitHub 以外的任何服务器。
       </li>
       <li>
-        如果你在设置页勾选了「在我的设备间同步设置」，上述内容（含个人访问令牌）会改为
-        保存在 <code>chrome.storage.sync</code> 中。这意味着它们会经由 Google 的服务器
-        同步到你登录同一 Chrome 账户的每一台设备上。该选项默认关闭，只有你亲自开启才会
-        生效；取消勾选会把设置复制回本机，并从同步存储中清除。
+        如果你在设置页勾选了「在我的设备间同步设置」，上述内容（含个人访问令牌）以及你的
+        语言选择会同时写入 <code>chrome.storage.sync</code>。这意味着它们会经由
+        Google 的服务器同步到你登录同一 Chrome
+        账户的每一台设备上。与此同时，每台设备的
+        <code>chrome.storage.local</code> 中也会保留一份副本，因此关闭同步不会让任何一台
+        设备失去设置。该选项默认关闭，只有你亲自开启才会生效；取消勾选会从同步存储中清除
+        这些内容，本机副本则予以保留。
       </li>
       <li>
         以及一条记录：你在哪一刻同意了首次弹出的数据说明。这条记录只存在本机，
         不参与同步——每台设备都会各自询问一次。
       </li>
-      <li>你的界面语言选择（自动 / English / 中文）。</li>
+      <li>
+        你的界面语言选择（自动 / English / 中文）。它同样受上述同步选项影响。
+      </li>
       <li>
         还有一份本机的剪藏记录：每次成功剪藏后，记下该页面地址对应的标识
         （slug）和时间，用于下次打开弹窗时提示「已剪藏过」。这份记录始终只存在
@@ -164,17 +169,22 @@ const updated = "2026-09-06";
       </li>
       <li>
         If you tick <em>Sync settings across my devices</em> on the options page,
-        those values — the access token included — are stored in
-        <code>chrome.storage.sync</code> instead. That means they travel through Google's
-        servers to every device signed into the same Chrome profile. The option is
-        off unless you turn it on yourself; unticking it copies the settings back
-        to the machine and clears them from sync storage.
+        those values — the access token included — and your language choice are also
+        written to <code>chrome.storage.sync</code>. That means they travel
+        through Google's servers to every device signed into the same Chrome
+        profile. A copy stays in <code>chrome.storage.local</code> on each machine
+        as well, so that switching sync off never leaves a machine without its settings.
+        The option is off unless you turn it on yourself; unticking it clears the
+        settings from sync storage, keeping the local copy.
       </li>
       <li>
         A record of when you accepted the first-run disclosure. This one stays
         on the machine and is never synced — each device asks once.
       </li>
-      <li>Your UI language choice (auto / English / 中文).</li>
+      <li>
+        Your UI language choice (auto / English / 中文). This is covered by the
+        sync option above.
+      </li>
       <li>
         A local record of your clips: after each successful clip, the identifier
         (slug) derived from the page's address and the time, used to show an

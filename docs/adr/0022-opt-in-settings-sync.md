@@ -51,12 +51,24 @@ every new machine a manual step, just a shorter one. Putting `tiroSyncEnabled`
 in the synced area is what makes a second machine genuinely zero-setup: Chrome
 pulls the flag down along with the settings beside it.
 
-**Writes go to `local` always, and to `sync` as well when enabled.** `local` is
-therefore a warm mirror at all times. This is what makes turning sync *off*
-safe on every device at once — disabling copies `sync` down, then clears the
-synced keys, and no machine is left without settings. Clearing them is the
-point of disabling rather than tidying after it: it is what takes the token
-back off Google's servers.
+**`local` is kept current on both reads and writes.** Writes go to `local`
+always, and to `sync` as well when enabled; reads record what they take from
+`sync` into `local`. This is what makes turning sync *off* safe on every device
+at once — disabling copies `sync` down on the machine that does it, clears the
+synced keys, and every other machine falls back to a copy it already holds.
+Clearing them is the point of disabling rather than tidying after it: it is
+what takes the token back off Google's servers.
+
+Mirroring on *read* is the part that is easy to leave out, and leaving it out
+strands the machine this feature exists for. A second computer configured
+entirely from the synced copy never calls a writer, so a write-only mirror
+leaves it holding nothing; withdrawing the synced keys then drops it back to
+defaults. The alternative — an `onChanged` listener in the service worker,
+mirroring eagerly — would also cover a machine that has never read since sync
+was enabled, but `background.ts` is a deliberate no-op stub (ADR 0005), and
+waking the worker on every sync change to serve a machine that has never opened
+the popup is not worth the moving part. That residual gap is accepted: such a
+machine never used the settings either.
 
 Enabling never overwrites a value `sync` already holds. On a second machine,
 sync already carries the settings and the form on screen is empty or stale;
@@ -93,6 +105,8 @@ about — nothing is typed.
 - A user who enables sync and later loses a machine must revoke a token every
   other machine is also using. That is the trade, taken knowingly.
 - Reading the flag answers "off" if the read fails, rather than throwing:
-  writes are mirrored to `local` unconditionally, so falling back to `local`
-  always finds current settings, whereas throwing would leave the popup with no
-  config at all.
+  `local` is kept current, so falling back to it still finds settings, whereas
+  throwing would leave the popup with no config and no way to clip. **Only the
+  read path may do this.** A write that took the same shortcut would store the
+  config locally, report success, and let the older synced copy win again the
+  moment the read recovered, so writes read the flag strictly and fail loudly.

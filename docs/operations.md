@@ -491,10 +491,11 @@ Two decisions worth not relitigating:
   `chrome.storage.sync`, so a machine signed into the same Chrome profile
   configures itself — the `tiroSyncEnabled` flag lives in the synced area too,
   which is what makes the second machine zero-setup rather than one checkbox.
-  Writes go to `local` as well as `sync`, always, so `local` is a warm mirror
-  and switching sync back off copies down before clearing the synced keys. That
-  clearing is the point of switching it off: it takes the token back off
-  Google's servers. Two keys never sync — `tiroClipHistory` because one key of
+  `local` is kept current on both reads and writes — writes go to both, and a
+  read records what it took from `sync` — so switching sync back off leaves
+  every machine with a copy it already holds, not just the one that switched
+  it. That clearing is the point of switching it off: it takes the token back
+  off Google's servers. Two keys never sync — `tiroClipHistory` because one key of
   up to 500 entries (~35-50 KB) exceeds sync's 8,192-byte per-item cap, and
   `tiroDisclosure` because consent to read pages belongs to an install, not an
   account.
