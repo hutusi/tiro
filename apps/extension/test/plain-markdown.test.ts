@@ -184,6 +184,44 @@ describe("absolutizeMarkdownUrls", () => {
     );
   });
 
+  /**
+   * Splitting a srcset on every comma treated a data URL's base64 payload as a
+   * relative path and absolutized it, destroying the image rather than failing
+   * to fix it. The payload has to come back byte-for-byte.
+   */
+  test("leaves a data URL in a srcset untouched while fixing its neighbour", () => {
+    expect(
+      absolutizeMarkdownUrls(
+        '<source srcset="data:image/png;base64,AAAA 1x, logo.png 2x">',
+        RAW,
+      ),
+    ).toBe(
+      '<source srcset="data:image/png;base64,AAAA 1x, https://raw.githubusercontent.com/o/r/refs/heads/main/docs/logo.png 2x">',
+    );
+  });
+
+  test("resolves an unquoted attribute, and only the real one", () => {
+    expect(absolutizeMarkdownUrls("<img src=logo.png>", RAW)).toBe(
+      "<img src=https://raw.githubusercontent.com/o/r/refs/heads/main/docs/logo.png>",
+    );
+    expect(
+      absolutizeMarkdownUrls('<img alt="src=x.png" src="y.png">', RAW),
+    ).toBe(
+      '<img alt="src=x.png" src="https://raw.githubusercontent.com/o/r/refs/heads/main/docs/y.png">',
+    );
+  });
+
+  test("does not resolve a tag inside an HTML comment", () => {
+    expect(
+      absolutizeMarkdownUrls(
+        '<!-- <img src="a.png"> --><img src="b.png">',
+        RAW,
+      ),
+    ).toBe(
+      '<!-- <img src="a.png"> --><img src="https://raw.githubusercontent.com/o/r/refs/heads/main/docs/b.png">',
+    );
+  });
+
   test("resolves inline HTML in the middle of a paragraph", () => {
     expect(absolutizeMarkdownUrls('Logo: <img src="l.png"> here.', RAW)).toBe(
       'Logo: <img src="https://raw.githubusercontent.com/o/r/refs/heads/main/docs/l.png"> here.',
@@ -256,6 +294,22 @@ describe("inlineReferenceLinks", () => {
     expect(inlineReferenceLinks("Prose.\n\n[unused]: https://e.test/x\n")).toBe(
       "Prose.\n\n",
     );
+  });
+
+  /**
+   * A definition may only go when every reference to it was rewritten.
+   * Dropping them unconditionally left a reference naming a target that no
+   * longer existed — the image simply disappeared. Refusing to convert has to
+   * mean refusing to touch either half.
+   */
+  test("keeps a definition whose reference could not be rewritten", () => {
+    const markdown = `${String.raw`![[x](y.png)][a\]b]`}\n\n${String.raw`[a\]b]: /img.png`}\n`;
+    expect(inlineReferenceLinks(markdown)).toBe(markdown);
+  });
+
+  test("still converts a reference whose identifier carries an escape", () => {
+    const markdown = `${String.raw`![x][a\]b]`}\n\n${String.raw`[a\]b]: /img.png`}\n`;
+    expect(inlineReferenceLinks(markdown).trim()).toBe("![x](/img.png)");
   });
 
   test("leaves a document with no definitions byte-identical", () => {

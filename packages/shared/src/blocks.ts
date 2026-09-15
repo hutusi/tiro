@@ -287,10 +287,16 @@ function lastChildEnd(node: LinkNode): number | undefined {
  * not keep.
  *
  * The slice is the node without its `!`, so the label is byte-identical and at
- * a known offset. A reference form needs its definition to resolve at all, and
- * the identifier is normalized, so one is synthesized — which is also the one
- * case that can fail, when the identifier does not survive being written back
- * as a label (`![x][a\]b]`). It returns null there, and the node is left alone.
+ * a known offset. A reference form needs its definition to resolve at all, so
+ * one is synthesized from the identifier — **verbatim**, because mdast
+ * normalizes case and whitespace but keeps escapes, so `a\]b` written back as
+ * `[a\]b]` normalizes to itself while re-escaping it would not.
+ *
+ * Only a node spanning the whole slice is accepted. Without that check the
+ * walk took the first link-shaped node it found, which for a label that
+ * *contains* a link is the inner one — and `![[x](y.png)][id]` had its
+ * destination rewritten at the inner link's bracket, leaving malformed
+ * markdown. A node shorter than the slice is a child, never the re-read node.
  */
 function reparsedLabelClose(
   text: string,
@@ -301,19 +307,26 @@ function reparsedLabelClose(
   const slice = text.slice(open, end);
   const identifier = node.identifier;
   const source =
-    identifier === undefined
-      ? slice
-      : `${slice}\n\n[${identifier.replace(/[\\[\]]/g, "\\$&")}]: /x`;
-  let close: number | undefined;
+    identifier === undefined ? slice : `${slice}\n\n[${identifier}]: /x`;
+  let close: number | null | undefined;
   const walk = (candidate: unknown): void => {
     const n = candidate as LinkNode;
-    if (close === undefined && n.type !== undefined && LINK_TYPES.has(n.type)) {
-      close = lastChildEnd(n);
+    if (
+      close === undefined &&
+      n.type !== undefined &&
+      LINK_TYPES.has(n.type) &&
+      n.position?.start.offset === 0 &&
+      n.position?.end.offset === slice.length
+    ) {
+      // Found the re-read node itself. Whatever it says is the answer — an
+      // empty label reports nothing rather than sending the walk deeper into
+      // children that are not this node's.
+      close = lastChildEnd(n) ?? null;
     }
     for (const child of n.children ?? []) walk(child);
   };
   walk(dollarSafeParser.parse(source) as Root);
-  return close === undefined ? null : open + close;
+  return close === undefined || close === null ? null : open + close;
 }
 
 /** The forms that keep their label as children — what an image is re-read as. */

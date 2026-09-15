@@ -9,6 +9,7 @@ import {
   splitBlocks,
 } from "@tiro/shared";
 import { truncateExcerpt } from "./dom-prepare.ts";
+import { srcsetUrlRanges, urlAttributeRanges } from "./html-urls.ts";
 
 /**
  * Clipping a markdown file that a server handed over as text.
@@ -139,13 +140,18 @@ function yamlTitle(block: string): string | null {
 
 /**
  * Rewrite every reference-style link and image as an inline one, and drop the
- * definitions.
+ * definitions that are no longer pointed at.
  *
- * Every definition goes, not only the ones used: remark reports a reference
- * node only when a definition matched it (an unmatched one is literal text by
- * CommonMark), so a definition still standing afterwards is one nothing
- * pointed at, and it would render as an empty block the translation would then
- * have to match.
+ * A definition goes only when *every* reference to it was rewritten. Dropping
+ * them unconditionally was a bug of the same shape as the one `markdownLinks`
+ * guards against: a reference the parser could not resolve kept its syntax and
+ * lost its target, so the image or link it named simply disappeared. Refusing
+ * to convert has to mean refusing to touch either half.
+ *
+ * A definition nothing points at is still dropped — remark reports a reference
+ * node only where a definition matched, so one with no reference is one nothing
+ * needs, and it would render as an empty block the translation would have to
+ * match.
  */
 export function inlineReferenceLinks(markdown: string): string {
   const links = markdownLinks(markdown);
@@ -159,9 +165,23 @@ export function inlineReferenceLinks(markdown: string): string {
   }
   if (targets.size === 0) return markdown;
 
+  // Identifiers with a reference this cannot rewrite. Their definitions stay,
+  // or the reference would be left naming a target that no longer exists.
+  const unconverted = new Set<string>();
+  for (const link of links) {
+    if (link.type !== "linkReference" && link.type !== "imageReference") {
+      continue;
+    }
+    if (link.identifier === null) continue;
+    if (link.tail === null) unconverted.add(link.identifier);
+  }
+
   const edits: Edit[] = [];
   for (const link of links) {
     if (link.type === "definition") {
+      if (link.identifier !== null && unconverted.has(link.identifier)) {
+        continue;
+      }
       edits.push({
         start: link.start,
         // Take the line's terminator too, so a block of definitions leaves no
@@ -214,55 +234,41 @@ export function absolutizeMarkdownUrls(
   return applyEdits(markdown, edits);
 }
 
-/** Attributes that address something, in the tags the site's sanitizer keeps
- * them on: `img[src]`, `a[href]`, `source[srcset]`. */
-const URL_ATTRIBUTE = /\b(src|href|srcset)\s*=\s*("([^"]*)"|'([^']*)')/gi;
-
 /**
  * Resolve the references that live in attributes rather than in nodes.
  *
- * A README's first line is routinely
- * `<p align="center"><img src="logo.png"></p>`, and markdown carries that
- * through as raw HTML. The reference is exactly as relative as a markdown
- * destination and breaks the same way — worse, quietly: all three attributes
- * survive the site's sanitize allowlist, so they reach the public page and
- * 404, while the processor's mirroring matches absolute URLs only and never
- * touches them.
+ * A relative one is not merely unmirrored once the file is in the vault: all
+ * three attributes survive the site's sanitize allowlist, so they reach the
+ * public page and 404, while the processor's mirroring matches absolute URLs
+ * only and never localizes them.
  *
- * The regex only has to find an attribute inside a span the parser already
- * said is HTML; anything it misses (an unquoted value) is left alone, which is
- * the same outcome as before this existed.
+ * Every URL is edited in place at the range `html-urls.ts` reports, so a value
+ * with nothing to resolve keeps every byte — including a `srcset` whose
+ * spacing an earlier version re-joined for no reason.
  */
 function htmlAttributeEdits(markdown: string, baseUrl: string): Edit[] {
   const edits: Edit[] = [];
   for (const range of htmlRanges(markdown)) {
     const html = markdown.slice(range.start, range.end);
-    for (const match of html.matchAll(URL_ATTRIBUTE)) {
-      const [whole, name = "", quoted = ""] = match;
-      const value = quoted.slice(1, -1);
-      const rewritten =
-        name.toLowerCase() === "srcset"
-          ? absolutizeSrcset(value, baseUrl)
-          : (absolutize(value, baseUrl) ?? value);
-      if (rewritten === value) continue;
-      const at = range.start + (match.index ?? 0) + whole.indexOf(quoted) + 1;
-      edits.push({ start: at, end: at + value.length, text: rewritten });
+    for (const attribute of urlAttributeRanges(html)) {
+      const value = html.slice(attribute.start, attribute.end);
+      const at = range.start + attribute.start;
+      const urls =
+        attribute.name === "srcset"
+          ? srcsetUrlRanges(value)
+          : [{ start: 0, end: value.length }];
+      for (const url of urls) {
+        const absolute = absolutize(value.slice(url.start, url.end), baseUrl);
+        if (absolute === null) continue;
+        edits.push({
+          start: at + url.start,
+          end: at + url.end,
+          text: absolute,
+        });
+      }
     }
   }
   return edits;
-}
-
-/** A `srcset` is comma-separated candidates, each a URL and an optional
- * descriptor. Same shape as the one `arxiv.ts` applies to a DOM. */
-function absolutizeSrcset(value: string, baseUrl: string): string {
-  return value
-    .split(",")
-    .map((candidate) => {
-      const [url, ...descriptor] = candidate.trim().split(/\s+/);
-      if (url === undefined || url === "") return candidate.trim();
-      return [absolutize(url, baseUrl) ?? url, ...descriptor].join(" ");
-    })
-    .join(", ");
 }
 
 /** Anything with a scheme — `https:`, but also `mailto:` and `data:`. */

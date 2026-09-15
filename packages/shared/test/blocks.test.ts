@@ -912,20 +912,29 @@ describe("markdownLinks", () => {
   });
 
   /**
-   * The one shape the parser cannot be asked about: a reference whose
-   * identifier does not survive being written back as a label. It reports no
-   * tail, which every caller already reads as "leave this node alone".
-   *
-   * That asymmetry is the design rather than a hole in it. A rewrite silently
-   * not made costs a link its resolution; a rewrite silently made wrong
-   * corrupts the document it was in.
+   * A label that *contains* a link is the shape the re-read cannot be trusted
+   * on: the walk used to take the first link-shaped node it found, which here
+   * is the inner one, and rewriting at its bracket left malformed markdown.
+   * Only a node spanning the whole re-read slice is the node itself.
    */
-  test("reports no tail rather than a guess it cannot verify", () => {
-    const image = markdownLinks("![x][a\\]b]\n\n[a\\]b]: /a").find(
+  test("reports no tail for a label the re-read cannot claim whole", () => {
+    const text = `${String.raw`![[x](y.png)][a\]b]`}\n\n${String.raw`[a\]b]: /a`}`;
+    const image = markdownLinks(text).find(
       (link) => link.type === "imageReference",
     );
     expect(image).toBeDefined();
     expect(image?.tail).toBeNull();
+  });
+
+  // Nothing is guessed, and nothing answerable is refused either: mdast keeps
+  // a label's escapes, so writing the identifier back verbatim matches where
+  // re-escaping it did not.
+  test("resolves a reference whose identifier carries an escape", () => {
+    const text = `${String.raw`![x][a\]b]`}\n\n${String.raw`[a\]b]: /a`}`;
+    expect(spans(text)).toEqual([
+      String.raw`imageReference ![x][a\]b] | [a\]b]`,
+      String.raw`definition [a\]b]: /a | -`,
+    ]);
   });
 
   // Nothing inside code is a link, and the parser already knows it — which is

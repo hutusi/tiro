@@ -125,16 +125,41 @@ element preserves whitespace but does not escape markup, so a literal
 `<img src=…>` inside one is an image rather than source, and HTML shown *as*
 source is entity-escaped and holds no attribute to match.
 
-**8a. A boundary the parser cannot confirm is not guessed.** Finding where a
-link's label ends looked like a small scan — skip escapes, skip code spans —
-and is not: the grammar also admits an unescaped `]` inside an autolink, an
-HTML comment and any inline attribute, and the list cannot be closed by hand,
-because even "skip from `<` to `>`" is wrong where a bare `<` is literal text.
-`markdownLinks` therefore takes the boundary from the parser's own node
-positions and reports *nothing* for the one shape it cannot ask about — a
-reference whose identifier does not survive being written back as a label. A
-rewrite silently not made costs a link its resolution; a rewrite silently made
-wrong corrupts the document it was in, and only the second is unrecoverable.
+Those attributes are found by walking the HTML, not by matching it. A pattern
+could not see `<img src=logo.png>`, and teaching it unquoted values would have
+made it worse rather than better — `src=` also occurs *inside* attributes, so
+`<img alt="src=x.png" src="y.png">` would have had its alt text rewritten.
+`srcset` needs its own reading for the same reason: a candidate's URL is a run
+of non-whitespace and only a trailing comma ends one, so splitting on every
+comma tore `data:image/png;base64,AAAA 1x` in half and absolutized the payload.
+Every URL is edited at its own range, so a value with nothing to resolve keeps
+every byte — which is the whole promise of this path.
+
+**8a. A boundary the parser cannot confirm is not guessed, and a refusal is
+whole.** Finding where a link's label ends looked like a small scan — skip
+escapes, skip code spans — and is not: the grammar also admits an unescaped `]`
+inside an autolink, an HTML comment and any inline attribute, and the list
+cannot be closed by hand, because even "skip from `<` to `>`" is wrong where a
+bare `<` is literal text. `markdownLinks` therefore takes the boundary from the
+parser's own node positions.
+
+Stating that was not the same as achieving it, which a second review round
+showed twice over. The image forms keep no children, so they are re-read as the
+link they are shaped like — and the walk took the *first* link-shaped node it
+found, which for a label that itself contains a link is the inner one:
+`![[x](y.png)][id]` had its destination written at the inner bracket and came
+out malformed. Only a node spanning the whole re-read slice is the node. And a
+reference that could not be rewritten still had its definition deleted with all
+the others, so the reference survived naming a target that no longer existed.
+Refusing to convert has to mean refusing to touch either half.
+
+The asymmetry that makes those the right answers: a rewrite silently not made
+costs a link its resolution, a rewrite silently made wrong corrupts the document
+it was in, and only the second is unrecoverable. The corollary is that abstaining
+should be *rare*, not comfortable — the one case originally written off here as
+unanswerable, a reference whose identifier carries an escape, turned out to be
+answerable as soon as the synthesized definition stopped re-escaping an
+identifier mdast had already left escaped.
 
 **9. Reference-style links are inlined at clip time and their definitions
 dropped.** The site renders each top-level block through its own processor
