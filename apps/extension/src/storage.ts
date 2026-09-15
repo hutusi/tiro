@@ -102,28 +102,37 @@ function serialize<T>(op: () => Promise<T>): Promise<T> {
  * clip that was otherwise fine. Writing only on a difference keeps opening the
  * popup from churning storage for nothing. */
 async function readSynced(key: string): Promise<unknown> {
-  const local = (await chrome.storage.local.get(key))[key];
-  if (!(await syncEnabledForRead())) return local;
-  let stored: Record<string, unknown>;
-  try {
-    stored = await chrome.storage.sync.get(key);
-  } catch {
-    // The same tolerance the flag read gets, and for the same reason: a read
-    // that cannot reach `sync` must still answer from the mirror, because the
-    // popup has no way to clip without a config. Guarding only the flag left
-    // this one failure able to reject the whole read.
-    return local;
+  if (!(await syncEnabledForRead())) {
+    return (await chrome.storage.local.get(key))[key];
   }
-  if (!(key in stored)) return local;
-  const value = stored[key];
-  if (JSON.stringify(local) !== JSON.stringify(value)) {
+  // The read, the comparison and the mirror write are one queued unit, not a
+  // bare write at the end. Queuing only the write let a save land in between:
+  // the read captured v1, the save stored v2, and the mirror write then put v1
+  // back over it. That self-corrects while sync is on — the next read fetches
+  // v2 again — but it is exactly the copy a later disable falls back to.
+  return serialize(async () => {
+    const local = (await chrome.storage.local.get(key))[key];
+    let stored: Record<string, unknown>;
     try {
-      await serialize(() => chrome.storage.local.set({ [key]: value }));
+      stored = await chrome.storage.sync.get(key);
     } catch {
-      // Cold mirror; the value read is still good.
+      // The same tolerance the flag read gets, and for the same reason: a read
+      // that cannot reach `sync` must still answer from the mirror, because the
+      // popup has no way to clip without a config. Guarding only the flag left
+      // this one failure able to reject the whole read.
+      return local;
     }
-  }
-  return value;
+    if (!(key in stored)) return local;
+    const value = stored[key];
+    if (JSON.stringify(local) !== JSON.stringify(value)) {
+      try {
+        await chrome.storage.local.set({ [key]: value });
+      } catch {
+        // Cold mirror; the value read is still good.
+      }
+    }
+    return value;
+  });
 }
 
 /** Writes one synced key to `local`, and to `sync` too when enabled.
@@ -134,8 +143,16 @@ async function writeSynced(key: string, value: unknown): Promise<void> {
   await serialize(async () => {
     const enabled = await loadSyncEnabled();
     await chrome.storage.local.set({ [key]: value });
-    if (enabled) {
-      await chrome.storage.sync.set({ [key]: value });
+    if (!enabled) return;
+    await chrome.storage.sync.set({ [key]: value });
+    // Another machine may have switched sync off between the flag read and
+    // this write, and Chrome takes seconds to propagate that — long enough for
+    // a save here to put the token back after someone deliberately removed it.
+    // Checking again cannot close the race (their disable may still be in
+    // flight), but it does mean this machine never knowingly leaves a token in
+    // sync after seeing the flag go false. ADR 0022 records what is left.
+    if (!(await loadSyncEnabled())) {
+      await chrome.storage.sync.remove(key);
     }
   });
 }
@@ -202,6 +219,30 @@ export async function mirrorSyncedChange(changes: {
   }
   if (Object.keys(updates).length === 0) return;
   await serialize(() => chrome.storage.local.set(updates));
+}
+
+/** Clears synced settings that outlived the switch being turned off.
+ *
+ * Disabling removes the keys on the machine that does it, but a save in flight
+ * elsewhere can land afterwards and put them back. Whichever machine sees the
+ * switch go off then takes them out again, so "sync is off" converges on "no
+ * token in sync" rather than depending on which write happened to be last.
+ *
+ * **Only an explicit `false` counts.** Chrome does not promise to deliver the
+ * keys and the flag in one batch, so during an *enable* a machine can receive
+ * `tiroConfig` while its flag still reads the old value. Treating "flag is not
+ * true" as a disable would delete the settings the enable just published and
+ * break the case this whole feature exists for. A change carrying
+ * `newValue === false` is unambiguous; nothing else is. */
+export async function reconcileDisabledSync(changes: {
+  [key: string]: chrome.storage.StorageChange;
+}): Promise<void> {
+  if (changes[SYNC_KEY]?.newValue !== false) return;
+  await serialize(async () => {
+    const stored = await chrome.storage.sync.get(SYNCED_KEYS);
+    const lingering = SYNCED_KEYS.filter((key) => key in stored);
+    if (lingering.length > 0) await chrome.storage.sync.remove(lingering);
+  });
 }
 
 export async function loadConfig(): Promise<TiroExtensionConfig> {

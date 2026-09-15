@@ -13,6 +13,7 @@ import {
   mirrorSyncedChange,
   needsDisclosure,
   pruneClipHistory,
+  reconcileDisabledSync,
   recordClip,
   saveConfig,
   saveLanguage,
@@ -325,6 +326,12 @@ describe("settings sync", () => {
   test("leaves settings readable when switched off with sync empty", async () => {
     await saveConfig(config);
     await setSyncEnabled(true);
+    // Enabling pushes the config up, so without this the disable below is
+    // handed a populated sync area and the case the name promises — nothing
+    // in sync to copy down — goes untested.
+    delete chrome.sync.data.tiroConfig;
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+
     await setSyncEnabled(false);
     expect(await loadConfig()).toEqual(config);
   });
@@ -567,5 +574,122 @@ describe("mirroring synced changes as they arrive", () => {
     await mirrorSyncedChange({ tiroConfig: { oldValue: v2 } });
 
     expect(await loadConfig()).toEqual(v2);
+  });
+});
+
+describe("settings sync — a read cannot undo a save it overlapped", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const v1: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "v1",
+  };
+  const v2: TiroExtensionConfig = { ...v1, token: "v2" };
+
+  test("a mirror write cannot put back a value the save replaced", async () => {
+    // The read takes v1 from sync, a save stores v2 while it is in flight, and
+    // the mirror write must not then restore v1 over it. Queuing only the
+    // write left that gap: harmless while sync is on, since the next read
+    // fetches v2 again, but v1 is the copy a later disable falls back to.
+    chrome.sync.data.tiroSyncEnabled = true;
+    chrome.sync.data.tiroConfig = v1;
+
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const realGet = chrome.sync.get;
+    let stalled = false;
+    chrome.sync.get = async (keys) => {
+      const wanted = typeof keys === "string" ? [keys] : (keys ?? []);
+      if (!stalled && wanted.includes("tiroConfig")) {
+        stalled = true;
+        // Snapshot v1 *before* stalling, and hand that back afterwards. A
+        // stall that defers the fetch itself reads the post-save value, so the
+        // stale snapshot this is about never exists and the test passes
+        // against the very shape it was written to catch.
+        const captured = await realGet(keys);
+        await blocked;
+        return captured;
+      }
+      return realGet(keys);
+    };
+
+    const reading = loadConfig();
+    const saving = saveConfig(v2);
+    release();
+    await Promise.all([reading, saving]);
+    chrome.sync.get = realGet;
+
+    expect(chrome.local.data.tiroConfig).toEqual(v2);
+  });
+});
+
+describe("settings sync — a disable elsewhere wins over a late write", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const config: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+
+  test("a save that loses to a disable takes its own write back", async () => {
+    // Chrome takes seconds to propagate a disable, which is long enough for a
+    // save here to put the token back after someone deliberately removed it.
+    chrome.sync.data.tiroSyncEnabled = true;
+    let reads = 0;
+    const realGet = chrome.sync.get;
+    chrome.sync.get = async (keys) => {
+      const wanted = typeof keys === "string" ? [keys] : (keys ?? []);
+      // The disable lands between the flag read and the write.
+      if (wanted.includes("tiroSyncEnabled") && ++reads === 1) {
+        const out = await realGet(keys);
+        chrome.sync.data.tiroSyncEnabled = false;
+        return out;
+      }
+      return realGet(keys);
+    };
+
+    await saveConfig(config);
+    chrome.sync.get = realGet;
+
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+    // The save still counts locally; only its copy in sync is withdrawn.
+    expect(chrome.local.data.tiroConfig).toEqual(config);
+  });
+
+  test("clears settings that outlived the switch going off", async () => {
+    chrome.sync.data.tiroSyncEnabled = false;
+    chrome.sync.data.tiroConfig = config;
+    chrome.sync.data.tiroLanguage = "zh";
+
+    await reconcileDisabledSync({ tiroSyncEnabled: { newValue: false } });
+
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+    expect(chrome.sync.data.tiroLanguage).toBeUndefined();
+  });
+
+  test("does not mistake an enable for a disable", async () => {
+    // Chrome does not promise the keys and the flag arrive together, so during
+    // an enable a machine can see the config while its flag still reads the
+    // old value. Treating anything but an explicit false as "off" would delete
+    // the settings the enable just published.
+    chrome.sync.data.tiroConfig = config;
+
+    await reconcileDisabledSync({ tiroConfig: { newValue: config } });
+    expect(chrome.sync.data.tiroConfig).toEqual(config);
+
+    await reconcileDisabledSync({ tiroSyncEnabled: { newValue: true } });
+    expect(chrome.sync.data.tiroConfig).toEqual(config);
   });
 });
