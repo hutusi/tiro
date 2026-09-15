@@ -35,8 +35,11 @@ const updated = "2026-09-15";
       之后，扩展会在生成预览时向该站点请求论文的 HTML 全文；在你授权访问
       <code>raw.githubusercontent.com</code> 之后，它会在 GitHub 的 Markdown 文件页面上向该站点请求文件本身。这类请求会让对方知道你正在看哪一篇论文、
       哪一个文件——那属于「与某个网址的交互」，也就是本扩展在应用商店中 声明的浏览记录一类；它同时会像任何网络请求一样带上常规的网络元数据（例如你的
-      IP 地址和浏览器信息）。它不会附带你的令牌、仓库名，也不会附带任何已剪藏的内容，
-      更不涉及你打开过的其他页面。它只在对应的页面上发生，且只在你授权之后。 未授权则不会发出该请求。
+      IP 地址和浏览器信息）。GitHub 的原始文件地址本身就包含仓库信息，因此该请求会让
+      raw.githubusercontent.com 知道你在读哪个人的哪个仓库、哪一个文件——那是文件所在的仓库，
+      而不是你配置的目标仓库，尽管两者可能恰好相同。这两类请求都不会附带你的令牌、你配置的仓库，
+      也不会附带任何已剪藏的内容，更不涉及你打开过的其他页面。它只在对应的页面上发生，
+      且只在你授权之后。未授权则不会发出该请求。
     </p>
 
     <h3>扩展存储什么</h3>
@@ -173,8 +176,12 @@ const updated = "2026-09-15";
       request tells the site which paper or file you are looking at — an
       interaction with a URL, which is the web history this extension declares
       in the store — and carries the ordinary network metadata any request does,
-      such as your IP address. It carries no token, no repository name, no
-      clipped content, and nothing about any other page you have open. Each
+      such as your IP address. A raw GitHub URL names the repository it is
+      reading from, so that request does tell raw.githubusercontent.com whose
+      repository and which file you are looking at — that is the file's own
+      repository, not the one you clip into, though of course they could be the
+      same. Neither request carries your token, the repository you configured,
+      any clipped content, or anything about another page you have open. Each
       happens only on the page it is for, and only after you grant it; decline,
       and the request is never made.
     </p>
