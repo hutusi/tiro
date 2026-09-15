@@ -603,29 +603,40 @@ describe("settings sync — a read cannot undo a save it overlapped", () => {
     const blocked = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let entered: () => void = () => {};
+    const captured = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     const realGet = chrome.sync.get;
     let stalled = false;
+    let capturedToken: unknown;
     chrome.sync.get = async (keys) => {
       const wanted = typeof keys === "string" ? [keys] : (keys ?? []);
       if (!stalled && wanted.includes("tiroConfig")) {
         stalled = true;
-        // Snapshot v1 *before* stalling, and hand that back afterwards. A
-        // stall that defers the fetch itself reads the post-save value, so the
-        // stale snapshot this is about never exists and the test passes
-        // against the very shape it was written to catch.
-        const captured = await realGet(keys);
+        // Snapshot v1 *before* stalling, and hand that back afterwards: a
+        // stall that defers the fetch itself reads the post-save value.
+        const snapshot = await realGet(keys);
+        capturedToken = (snapshot.tiroConfig as TiroExtensionConfig)?.token;
+        entered();
         await blocked;
-        return captured;
+        return snapshot;
       }
       return realGet(keys);
     };
 
     const reading = loadConfig();
+    // Start the save only once the read has v1 in hand. Without this gate the
+    // save wins the queue — it reaches serialize() synchronously while the
+    // read has three awaits to clear first — so the snapshot is already v2 and
+    // the stale value this test is about never exists.
+    await captured;
     const saving = saveConfig(v2);
     release();
     await Promise.all([reading, saving]);
     chrome.sync.get = realGet;
 
+    expect(capturedToken).toBe("v1");
     expect(chrome.local.data.tiroConfig).toEqual(v2);
   });
 });
