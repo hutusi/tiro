@@ -1,6 +1,7 @@
 import {
   canonicalizeUrl,
   frontmatterLength,
+  htmlRanges,
   isImageOnlyParagraph,
   isMarkdownUrl,
   markdownLinks,
@@ -209,7 +210,59 @@ export function absolutizeMarkdownUrls(
       text: destination(absolute, link.title),
     });
   }
+  edits.push(...htmlAttributeEdits(markdown, baseUrl));
   return applyEdits(markdown, edits);
+}
+
+/** Attributes that address something, in the tags the site's sanitizer keeps
+ * them on: `img[src]`, `a[href]`, `source[srcset]`. */
+const URL_ATTRIBUTE = /\b(src|href|srcset)\s*=\s*("([^"]*)"|'([^']*)')/gi;
+
+/**
+ * Resolve the references that live in attributes rather than in nodes.
+ *
+ * A README's first line is routinely
+ * `<p align="center"><img src="logo.png"></p>`, and markdown carries that
+ * through as raw HTML. The reference is exactly as relative as a markdown
+ * destination and breaks the same way — worse, quietly: all three attributes
+ * survive the site's sanitize allowlist, so they reach the public page and
+ * 404, while the processor's mirroring matches absolute URLs only and never
+ * touches them.
+ *
+ * The regex only has to find an attribute inside a span the parser already
+ * said is HTML; anything it misses (an unquoted value) is left alone, which is
+ * the same outcome as before this existed.
+ */
+function htmlAttributeEdits(markdown: string, baseUrl: string): Edit[] {
+  const edits: Edit[] = [];
+  for (const range of htmlRanges(markdown)) {
+    const html = markdown.slice(range.start, range.end);
+    for (const match of html.matchAll(URL_ATTRIBUTE)) {
+      const [whole, name = "", quoted = ""] = match;
+      const value = quoted.slice(1, -1);
+      const rewritten =
+        name.toLowerCase() === "srcset"
+          ? absolutizeSrcset(value, baseUrl)
+          : (absolutize(value, baseUrl) ?? value);
+      if (rewritten === value) continue;
+      const at = range.start + (match.index ?? 0) + whole.indexOf(quoted) + 1;
+      edits.push({ start: at, end: at + value.length, text: rewritten });
+    }
+  }
+  return edits;
+}
+
+/** A `srcset` is comma-separated candidates, each a URL and an optional
+ * descriptor. Same shape as the one `arxiv.ts` applies to a DOM. */
+function absolutizeSrcset(value: string, baseUrl: string): string {
+  return value
+    .split(",")
+    .map((candidate) => {
+      const [url, ...descriptor] = candidate.trim().split(/\s+/);
+      if (url === undefined || url === "") return candidate.trim();
+      return [absolutize(url, baseUrl) ?? url, ...descriptor].join(" ");
+    })
+    .join(", ");
 }
 
 /** Anything with a scheme — `https:`, but also `mailto:` and `data:`. */

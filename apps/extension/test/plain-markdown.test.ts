@@ -134,6 +134,77 @@ describe("absolutizeMarkdownUrls", () => {
     );
   });
 
+  /**
+   * The corruption this replaced. The label's `]` sits inside an HTML
+   * attribute, so the scan that used to find the label's end closed it there
+   * and wrote the destination into the middle of the tag.
+   */
+  test("does not close a label at a bracket inside inline HTML", () => {
+    expect(
+      absolutizeMarkdownUrls('[<span data-x="]">x</span>](a.md)', RAW),
+    ).toBe(
+      '[<span data-x="]">x</span>](https://github.com/o/r/blob/main/docs/a.md)',
+    );
+  });
+
+  test("leaves a link it has nothing to resolve byte-identical", () => {
+    const markdown = '[<span data-x="]">x</span>](https://example.test/a)';
+    expect(absolutizeMarkdownUrls(markdown, RAW)).toBe(markdown);
+  });
+
+  // The commonest README opening there is. All three attributes survive the
+  // site's sanitize allowlist, so a relative one reaches the public page and
+  // 404s — and the processor mirrors absolute URLs only, so it is never
+  // localized either.
+  test("resolves the references that live in HTML attributes", () => {
+    expect(
+      absolutizeMarkdownUrls(
+        '<p align="center"><img src="logo.png" width="100"></p>',
+        RAW,
+      ),
+    ).toBe(
+      '<p align="center"><img src="https://raw.githubusercontent.com/o/r/refs/heads/main/docs/logo.png" width="100"></p>',
+    );
+  });
+
+  test("resolves an href in HTML on to the page it is presented on", () => {
+    expect(absolutizeMarkdownUrls('<a href="OTHER.md">x</a>', RAW)).toBe(
+      '<a href="https://github.com/o/r/blob/main/docs/OTHER.md">x</a>',
+    );
+  });
+
+  test("resolves every candidate of a srcset, keeping its descriptors", () => {
+    expect(
+      absolutizeMarkdownUrls(
+        '<source srcset="dark.png 2x, wide.png 800w">',
+        RAW,
+      ),
+    ).toBe(
+      '<source srcset="https://raw.githubusercontent.com/o/r/refs/heads/main/docs/dark.png 2x, https://raw.githubusercontent.com/o/r/refs/heads/main/docs/wide.png 800w">',
+    );
+  });
+
+  test("resolves inline HTML in the middle of a paragraph", () => {
+    expect(absolutizeMarkdownUrls('Logo: <img src="l.png"> here.', RAW)).toBe(
+      'Logo: <img src="https://raw.githubusercontent.com/o/r/refs/heads/main/docs/l.png"> here.',
+    );
+  });
+
+  // A fence is a code node, never an html one, so a page showing HTML as
+  // source needs no guard of its own.
+  test("does not touch an attribute inside a fence", () => {
+    const markdown = '```html\n<img src="a.png">\n```';
+    expect(absolutizeMarkdownUrls(markdown, RAW)).toBe(markdown);
+  });
+
+  test.each([
+    '<img src="https://cdn.test/x.png">',
+    '<a href="#section">x</a>',
+    '<a href="mailto:x@example.test">x</a>',
+  ])("leaves %s alone", (markdown) => {
+    expect(absolutizeMarkdownUrls(markdown, RAW)).toBe(markdown);
+  });
+
   test("escapes a destination that would otherwise close early", () => {
     expect(absolutizeMarkdownUrls("[a](Foo_(bar).png)", RAW)).toBe(
       "[a](https://raw.githubusercontent.com/o/r/refs/heads/main/docs/Foo_\\(bar\\).png)",

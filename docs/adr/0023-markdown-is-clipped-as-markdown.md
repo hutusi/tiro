@@ -95,11 +95,33 @@ GitHub gets what arXiv has: an optional host permission for
 and `tiro.source_url` recording the bytes. Nothing is fetched when the reader is
 already on the raw URL — the tab holds the file and `activeTab` covers it.
 
-**8. Destinations are absolutized against the raw URL, then re-canonicalized.**
-Against the blob page an image resolves to another HTML page; against the raw
-URL it resolves to the image. Passing each result back through `canonicalizeUrl`
-then turns a link to a sibling `.md` into its blob page, at no cost, because the
-rule that decides this article's own identity answers the same question.
+**8. Destinations are absolutized against the raw URL, then re-canonicalized —
+in attributes as well as in nodes.** Against the blob page an image resolves to
+another HTML page; against the raw URL it resolves to the image. Passing each
+result back through `canonicalizeUrl` then turns a link to a sibling `.md` into
+its blob page, at no cost, because the rule that decides this article's own
+identity answers the same question.
+
+"Destinations" has to mean the ones in raw HTML too, and saying so cost a
+review round. A README's first line is routinely
+`<p align="center"><img src="logo.png"></p>`; `img[src]`, `a[href]` and
+`source[srcset]` all survive the site's sanitize allowlist, so a relative one
+reaches the public page and 404s, and the processor's mirroring matches
+absolute URLs only and never localizes it. No `<pre>` guard is needed: that
+element preserves whitespace but does not escape markup, so a literal
+`<img src=…>` inside one is an image rather than source, and HTML shown *as*
+source is entity-escaped and holds no attribute to match.
+
+**8a. A boundary the parser cannot confirm is not guessed.** Finding where a
+link's label ends looked like a small scan — skip escapes, skip code spans —
+and is not: the grammar also admits an unescaped `]` inside an autolink, an
+HTML comment and any inline attribute, and the list cannot be closed by hand,
+because even "skip from `<` to `>`" is wrong where a bare `<` is literal text.
+`markdownLinks` therefore takes the boundary from the parser's own node
+positions and reports *nothing* for the one shape it cannot ask about — a
+reference whose identifier does not survive being written back as a label. A
+rewrite silently not made costs a link its resolution; a rewrite silently made
+wrong corrupts the document it was in, and only the second is unrecoverable.
 
 **9. Reference-style links are inlined at clip time and their definitions
 dropped.** The site renders each top-level block through its own processor

@@ -188,14 +188,7 @@ const LINK_NODE_TYPES: ReadonlySet<string> = new Set([
 export function markdownLinks(text: string): MarkdownLink[] {
   const found: MarkdownLink[] = [];
   const walk = (node: unknown): void => {
-    const n = node as {
-      type?: string;
-      url?: string;
-      title?: string | null;
-      identifier?: string;
-      children?: unknown[];
-      position?: { start: { offset?: number }; end: { offset?: number } };
-    };
+    const n = node as LinkNode;
     const start = n.position?.start.offset;
     const end = n.position?.end.offset;
     if (
@@ -210,7 +203,7 @@ export function markdownLinks(text: string): MarkdownLink[] {
         end,
         // A definition's label is its identifier, not content it sits on, and
         // nothing rewrites one in place — it is dropped whole or left alone.
-        tail: n.type === "definition" ? null : labelTail(text, start, end),
+        tail: n.type === "definition" ? null : labelTail(text, n, start, end),
         url: n.url ?? "",
         title: n.title ?? null,
         identifier: n.identifier ?? null,
@@ -222,8 +215,35 @@ export function markdownLinks(text: string): MarkdownLink[] {
   return found;
 }
 
+interface LinkNode {
+  type?: string;
+  url?: string;
+  title?: string | null;
+  identifier?: string;
+  alt?: string;
+  children?: unknown[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+}
+
+/**
+ * Where the label ends, asked of the parser rather than scanned for.
+ *
+ * Scanning was the original approach and it was wrong in a way that could not
+ * be patched: the label grammar admits an unescaped `]` inside a code span, an
+ * autolink, an HTML comment and any inline HTML attribute, and enumerating
+ * those is re-implementing the spec. `[<span data-x="]">x</span>](a.md)` closed
+ * the label inside the attribute and every rewrite after it landed mid-tag.
+ * Nor can the list be closed by hand — `[a < b > ] c](d.md)` shows that even
+ * "skip from `<` to `>`" is wrong, because a bare `<` in a label is text.
+ *
+ * Every shape the parser answers directly, it answers exactly; the rest return
+ * null, which callers already read as "leave this node alone". That asymmetry
+ * is the point. A rewrite silently not made loses a link's resolution; a
+ * rewrite silently made wrong corrupts the document it was in.
+ */
 function labelTail(
   text: string,
+  node: LinkNode,
   start: number,
   end: number,
 ): { start: number; end: number } | null {
@@ -231,59 +251,102 @@ function labelTail(
   // or a bare URL GFM linkified: a link with no label, and so no tail.
   const open = text[start] === "!" ? start + 1 : start;
   if (text[open] !== "[") return null;
-  const close = matchingBracket(text, open, end);
-  return close === null ? null : { start: close + 1, end };
+  const close = labelClose(text, node, open, end);
+  return close === null || text[close] !== "]"
+    ? null
+    : { start: close + 1, end };
 }
 
-/** Offset of the `]` that closes the label opened at `open`. */
-function matchingBracket(
+function labelClose(
   text: string,
+  node: LinkNode,
   open: number,
   end: number,
 ): number | null {
-  let depth = 0;
-  let i = open;
-  while (i < end) {
-    const ch = text[i];
-    if (ch === "\\") {
-      i += 2;
-      continue;
-    }
-    if (ch === "`") {
-      i = skipCodeSpan(text, i, end);
-      continue;
-    }
-    if (ch === "[") depth += 1;
-    else if (ch === "]") {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-    i += 1;
-  }
-  return null;
+  // `link` and `linkReference` keep their label as children, and the last one
+  // ends exactly where the `]` is — through code spans, comments and tags
+  // alike, because the parser resolved them on the way in.
+  const inner = lastChildEnd(node);
+  if (inner !== undefined) return inner;
+  // An empty label has no child to ask about, and the `]` is the next byte.
+  if (text[open + 1] === "]") return open + 1;
+  // The image forms keep no children — `alt` is flattened text, and its length
+  // is the rendered one rather than the source's. Re-reading the node as the
+  // link it is shaped like restores the children, at the same offsets.
+  return reparsedLabelClose(text, node, open, end);
+}
+
+function lastChildEnd(node: LinkNode): number | undefined {
+  const children = node.children ?? [];
+  const last = children[children.length - 1] as LinkNode | undefined;
+  return last?.position?.end.offset;
 }
 
 /**
- * Past the code span opened at `i` — or past its opening run alone when
- * nothing closes it, because an unmatched backtick run is literal text and
- * letting it swallow the rest of the node would lose every link after it.
+ * Read an image as the link it is shaped like, to borrow the children it does
+ * not keep.
+ *
+ * The slice is the node without its `!`, so the label is byte-identical and at
+ * a known offset. A reference form needs its definition to resolve at all, and
+ * the identifier is normalized, so one is synthesized — which is also the one
+ * case that can fail, when the identifier does not survive being written back
+ * as a label (`![x][a\]b]`). It returns null there, and the node is left alone.
  */
-function skipCodeSpan(text: string, i: number, end: number): number {
-  let open = i;
-  while (open < end && text[open] === "`") open += 1;
-  const width = open - i;
-  let j = open;
-  while (j < end) {
-    if (text[j] !== "`") {
-      j += 1;
-      continue;
+function reparsedLabelClose(
+  text: string,
+  node: LinkNode,
+  open: number,
+  end: number,
+): number | null {
+  const slice = text.slice(open, end);
+  const identifier = node.identifier;
+  const source =
+    identifier === undefined
+      ? slice
+      : `${slice}\n\n[${identifier.replace(/[\\[\]]/g, "\\$&")}]: /x`;
+  let close: number | undefined;
+  const walk = (candidate: unknown): void => {
+    const n = candidate as LinkNode;
+    if (close === undefined && n.type !== undefined && LINK_TYPES.has(n.type)) {
+      close = lastChildEnd(n);
     }
-    let close = j;
-    while (close < end && text[close] === "`") close += 1;
-    if (close - j === width) return close;
-    j = close;
-  }
-  return open;
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(dollarSafeParser.parse(source) as Root);
+  return close === undefined ? null : open + close;
+}
+
+/** The forms that keep their label as children — what an image is re-read as. */
+const LINK_TYPES: ReadonlySet<string> = new Set(["link", "linkReference"]);
+
+/**
+ * Source ranges of the raw HTML in `text`.
+ *
+ * Clipped and hand-written markdown both carry HTML the converter could not
+ * express, and a README's first line is routinely
+ * `<p align="center"><img src="logo.png"></p>`. Those references are as
+ * relative as a markdown one and break the same way, but they are attributes
+ * rather than nodes, so `markdownLinks` cannot see them and the caller needs
+ * the span to work inside.
+ *
+ * Reported whole, without excluding `<pre>`: that element preserves whitespace
+ * but does not escape markup, so a literal `<img src=…>` inside one is an
+ * image rather than source. HTML shown *as* source is entity-escaped and holds
+ * no attribute to match, and a fenced block is a `code` node this never sees.
+ */
+export function htmlRanges(text: string): { start: number; end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as LinkNode;
+    if (n.type === "html") {
+      const start = n.position?.start.offset;
+      const end = n.position?.end.offset;
+      if (start !== undefined && end !== undefined) found.push({ start, end });
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(dollarSafeParser.parse(text) as Root);
+  return found;
 }
 
 /**

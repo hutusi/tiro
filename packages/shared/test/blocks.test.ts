@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   checkAlignment,
   foldedFigureCount,
+  htmlRanges,
   imageOffsets,
   joinBlocks,
   markdownLinks,
@@ -868,16 +869,63 @@ describe("markdownLinks", () => {
     ]);
   });
 
-  // The label grammar is why this asks the parser. Each of these closes the
-  // label somewhere a `]` scan would not.
+  /**
+   * The label grammar is why this asks the parser, and these are the cases a
+   * hand-written scan gets wrong. The first three it can be taught; the inline
+   * HTML, the comment and the autolink are where enumerating stops working,
+   * because the `]` sits inside a token the scanner would have to parse to
+   * recognise. The scan this replaced closed the label inside the attribute
+   * and rewrote the destination into the middle of the tag.
+   */
   test.each([
     ["[a `]` b](c.md)", "a code span holding the closing bracket"],
     ["[esc\\] ape](d.md)", "an escaped bracket"],
     ["[nested [brackets] here](e.md)", "balanced nested brackets"],
+    ['[<span data-x="]">x</span>](e.md)', "a bracket inside an HTML attribute"],
+    ["[a <!-- ] --> b](f.md)", "a bracket inside an HTML comment"],
   ])("finds the real end of the label: %s", (text) => {
     expect(spans(text)).toEqual([
       `link ${text} | ${text.slice(text.lastIndexOf("("))}`,
     ]);
+  });
+
+  // An autolink may hold a bracket too, and it is a link in its own right —
+  // so the outer label has to close past it while the inner one still reports
+  // the no-tail it must, being a link with no label at all.
+  test("finds the label's end past an autolink that holds a bracket", () => {
+    expect(spans("[<https://x.test/a]b>](g.md)")).toEqual([
+      "link [<https://x.test/a]b>](g.md) | (g.md)",
+      "link <https://x.test/a]b> | -",
+    ]);
+  });
+
+  // The image forms keep no children to ask about — `alt` is flattened text —
+  // so they are re-read as the links they are shaped like. Same cases, same
+  // answers.
+  test.each([
+    '![<span data-x="]">a</span>](x.png)',
+    "![a `]` b](x.png)",
+    "![nested [brackets] here](x.png)",
+    "![](x.png)",
+  ])("finds the end of an image's label: %s", (text) => {
+    expect(spans(text)).toEqual([`image ${text} | (x.png)`]);
+  });
+
+  /**
+   * The one shape the parser cannot be asked about: a reference whose
+   * identifier does not survive being written back as a label. It reports no
+   * tail, which every caller already reads as "leave this node alone".
+   *
+   * That asymmetry is the design rather than a hole in it. A rewrite silently
+   * not made costs a link its resolution; a rewrite silently made wrong
+   * corrupts the document it was in.
+   */
+  test("reports no tail rather than a guess it cannot verify", () => {
+    const image = markdownLinks("![x][a\\]b]\n\n[a\\]b]: /a").find(
+      (link) => link.type === "imageReference",
+    );
+    expect(image).toBeDefined();
+    expect(image?.tail).toBeNull();
   });
 
   // Nothing inside code is a link, and the parser already knows it — which is
@@ -885,5 +933,44 @@ describe("markdownLinks", () => {
   test("finds nothing inside a fence or a code span", () => {
     expect(markdownLinks("```\n[x](y.md)\n```\n")).toEqual([]);
     expect(markdownLinks("`[x](y.md)`")).toEqual([]);
+  });
+});
+
+describe("htmlRanges", () => {
+  const spans = (text: string): string[] =>
+    htmlRanges(text).map((range) => text.slice(range.start, range.end));
+
+  // The commonest README opening there is, and every one of its references is
+  // as relative as a markdown destination would be.
+  test("reports a block of raw HTML whole", () => {
+    const text = '<p align="center"><img src="logo.png" width="100"></p>';
+    expect(spans(text)).toEqual([text]);
+  });
+
+  test("reports inline HTML inside a paragraph", () => {
+    expect(spans('Text with <img src="a.png"> inside.')).toEqual([
+      '<img src="a.png">',
+    ]);
+  });
+
+  test("reports each run of a block markdown interrupts", () => {
+    const text =
+      '<details>\n<summary>More</summary>\n\nSee <a href="O.md">this</a>.\n\n</details>';
+    expect(spans(text)).toEqual([
+      "<details>\n<summary>More</summary>",
+      '<a href="O.md">',
+      "</a>",
+      "</details>",
+    ]);
+  });
+
+  // A fence is a `code` node, not an `html` one — so the caller needs no guard
+  // of its own against rewriting something a page is displaying as source.
+  test("reports nothing inside a fence", () => {
+    expect(htmlRanges('```html\n<img src="a.png">\n```')).toEqual([]);
+  });
+
+  test("reports nothing in prose that merely mentions a tag", () => {
+    expect(htmlRanges("Use the `<img>` element.")).toEqual([]);
   });
 });

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   clipReady,
   isSourceBody,
-  needsFetch,
   prefersCandidate,
 } from "../src/clip-candidate.ts";
 import type { ClipPayload } from "../src/messages.ts";
