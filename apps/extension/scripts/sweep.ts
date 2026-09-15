@@ -44,6 +44,10 @@
  *    gatesnotes articles in the corpus do exactly that — and lazy-loaded images
  *    resolve in a browser and not here. Only a headless browser fixes this, and
  *    that is a different tool. `--min-chars` flags the shells it can detect.
+ *    The one case where the gap was closed rather than accepted is
+ *    `text/plain`: the document Chrome builds for it is fully determined by the
+ *    bytes, so `plainTextShell` builds the same one (see it for why the
+ *    alternative is a permanent phantom diff).
  * 2. **A `--baseline` run resolves dependencies from the working tree.** The
  *    worktree holds source, not `node_modules`, so both sides import today's
  *    Readability and Turndown. That is what you want when judging your own
@@ -176,10 +180,28 @@ async function fetchPage(url: string, pages: string, slug: string) {
     },
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const html = await response.text();
+  const body = await response.text();
+  const type = response.headers.get("content-type") ?? "";
+  const html = type.startsWith("text/plain") ? plainTextShell(body) : body;
   await mkdir(pages, { recursive: true });
   await writeFile(path, html);
   return html;
+}
+
+/**
+ * What Chrome builds for a `text/plain` response: the bytes in one `<pre>`.
+ *
+ * Cached in that form because the cache is meant to hold what a browser would
+ * have shown, and this is the one response type where the bytes and the
+ * document differ. Without it a markdown file replays as markdown *parsed as
+ * HTML* — which is neither what the clipper sees nor anything at all, since
+ * `# Heading` is not a tag — and the clipper's markdown branch, which keys on
+ * exactly this shape, would never fire. The sweep would then report a phantom
+ * diff on every markdown article in the corpus, forever.
+ */
+export function plainTextShell(text: string): string {
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return `<html><head></head><body><pre>${escaped}</pre></body></html>`;
 }
 
 type Clip = (doc: Document, url: string) => { markdown: string };
