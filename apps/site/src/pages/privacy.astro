@@ -18,14 +18,13 @@ const updated = "2026-09-15";
     <p>
       Tiro 由两部分组成：Chrome 扩展 <strong>Tiro Clipper</strong>，以及本站点。
       两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
-      所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库；你的令牌也只会
-      发往 GitHub。
+      所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库；扩展本身也不会把你的令牌发往
+      GitHub 以外的任何地方。
       两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；令牌则出现在扩展
       发出的每个 GitHub API 请求的授权头里，也就是那次上传，以及你在设置页点击
       「测试连接」的时候。此外还有两方可能参与，且都只在你自己选择之后：一是
-      arxiv.org，它会知道你在看哪一篇论文；二是
-      Google——若你开启设置同步，你的设置
-      与令牌会经由其服务器同步到你的其他设备。下文分别说明。
+      arxiv.org，它会知道你在看哪一篇论文；二是 Google——若你开启设置同步，Chrome
+      会经由其服务器把你的设置与令牌同步到你的其他设备。后者是浏览器所做的传输，而非扩展所为；这是「谁在传」的区别，并不改变令牌最终会到达哪里。下文分别说明。
     </p>
 
     <p>
@@ -54,8 +53,8 @@ const updated = "2026-09-15";
         语言选择会同时写入 <code>chrome.storage.sync</code>。这意味着它们会经由
         Google 的服务器同步到你登录同一 Chrome
         账户的每一台设备上。与此同时，每台设备的
-        <code>chrome.storage.local</code> 中也会保留一份副本，因此关闭同步不会让任何一台
-        设备失去设置。该选项默认关闭，只有你亲自开启才会生效；取消勾选会从同步存储中清除
+        <code>chrome.storage.local</code> 中也会保留一份副本，因此关闭同步后，每台设备仍会保有它见过的最近一份设置。但那未必是最新的一份：若某台设备在设置最后一次变更时处于关闭或离线状态，它保留的就是较旧的副本；而自你开启同步以来从未打开过
+        Tiro 的设备则没有任何副本，只会显示空白表单。该选项默认关闭，只有你亲自开启才会生效；取消勾选会从同步存储中清除
         这些内容，本机副本则予以保留。
       </li>
       <li>
@@ -138,14 +137,17 @@ const updated = "2026-09-15";
       Tiro is two things: the <strong>Tiro Clipper</strong> Chrome extension and this
       site. Neither sets tracking cookies, runs analytics or ads, and nothing is sold.
       Everything the extension clips goes to exactly one third party — GitHub — into
-      the repository you name, and your token is sent nowhere but GitHub. The timing
-      differs between the two: what you clip is uploaded only when you press Clip,
-      while the token travels in the <code>Authorization</code> header of every GitHub
-      API request the extension makes — that upload, and the "Test connection" button
-      on the options page. Two other parties can be involved, both only if you choose
-      it: arxiv.org, which learns which paper you are looking at, and — if you turn
-      on settings sync — Google, whose servers carry your settings and token to your
-      other devices. The sections below say exactly what each involves.
+      the repository you name, and the extension itself sends your token nowhere but
+      GitHub. The timing differs between the two: what you clip is uploaded only when
+      you press Clip, while the token travels in the <code>Authorization</code> header
+      of every GitHub API request the extension makes — that upload, and the "Test
+      connection" button on the options page. Two other parties can be involved, both
+      only if you choose it: arxiv.org, which learns which paper you are looking at,
+      and — if you turn on settings sync — Google, through whose servers Chrome then
+      carries your settings and token to your other devices. That last one is a transfer
+      the browser makes rather than the extension — a distinction about who is doing
+      it, not about where the token ends up. The sections below say exactly what each
+      involves.
     </p>
 
     <p>
@@ -177,10 +179,13 @@ const updated = "2026-09-15";
         those values — the access token included — and your language choice are also
         written to <code>chrome.storage.sync</code>. That means they travel
         through Google's servers to every device signed into the same Chrome
-        profile. A copy stays in <code>chrome.storage.local</code> on each machine
-        as well, so that switching sync off never leaves a machine without its settings.
-        The option is off unless you turn it on yourself; unticking it clears the
-        settings from sync storage, keeping the local copy.
+        profile. A copy also stays in <code>chrome.storage.local</code> on each machine,
+        so switching sync off leaves every machine holding the most recent settings
+        it has seen. That is not always the newest ones: a machine that was closed
+        or offline when the settings last changed keeps the older copy it has, and
+        a machine that has not opened Tiro since you turned sync on has no copy at
+        all and shows an empty form. The option is off unless you turn it on yourself;
+        unticking it clears the settings from sync storage, keeping the local copy.
       </li>
       <li>
         A record of when you accepted the first-run disclosure. This one stays
