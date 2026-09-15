@@ -183,7 +183,9 @@ async function loadArticles(vault: string): Promise<Article[]> {
  *
  * The cache is what makes the sweep usable: a run costs one request per article
  * the first time and none afterwards, so comparing two clipper versions
- * compares the clipper rather than whatever the sites served that minute.
+ * compares the clipper rather than whatever the sites served that minute. Each
+ * entry records the URL it came from, because the slug it is filed under no
+ * longer determines that.
  *
  * The deadline is not optional. Without it one server that accepts a connection
  * and then stops talking hangs the whole corpus indefinitely, and the run has
@@ -191,7 +193,18 @@ async function loadArticles(vault: string): Promise<Article[]> {
  */
 async function fetchPage(url: string, pages: string, slug: string) {
   const path = join(pages, `${slug}.html`);
-  if (existsSync(path)) return readFile(path, "utf-8");
+  // Keyed by slug, but only valid for the URL it was fetched from. Those came
+  // apart the moment modes started reading `tiro.source_url`: an entry cached
+  // from a blob page would be served for a request for the raw file, and the
+  // clipper would be handed GitHub's rendering where it expected the file —
+  // reporting a regression against a document nobody clipped. An entry with no
+  // record of its URL predates this and is refetched, which also settles the
+  // stale ones already on disk.
+  const stamp = `${path}.url`;
+  if (existsSync(path) && existsSync(stamp)) {
+    if ((await readFile(stamp, "utf-8")) === url)
+      return readFile(path, "utf-8");
+  }
   const response = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
     headers: {
@@ -207,6 +220,7 @@ async function fetchPage(url: string, pages: string, slug: string) {
   const html = type.startsWith("text/plain") ? plainTextShell(body) : body;
   await mkdir(pages, { recursive: true });
   await writeFile(path, html);
+  await writeFile(stamp, url);
   return html;
 }
 
