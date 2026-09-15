@@ -103,6 +103,8 @@ const en = {
   syncOff: "Settings sync is off — these settings stay on this computer.",
   syncedElsewhere:
     "These settings changed on another device. Reopen this page to load them.",
+  syncKeptEdits:
+    "Your unsaved changes are still here — press Save to store them.",
   langAuto: "Auto (browser language)",
   langEn: "English",
   langZh: "中文",
@@ -202,6 +204,7 @@ const zh: Messages = {
   syncOn: "设置同步已开启。",
   syncOff: "设置同步已关闭——这些设置只保存在本机。",
   syncedElsewhere: "这些设置已在其他设备上更改。重新打开本页即可载入。",
+  syncKeptEdits: "你未保存的修改仍保留在表单中——点击「保存」即可存下。",
   langAuto: "自动（跟随浏览器）",
   langEn: "English",
   langZh: "中文",

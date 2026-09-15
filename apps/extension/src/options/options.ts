@@ -18,6 +18,7 @@ import {
   saveConfig,
   saveLanguage,
   setSyncEnabled,
+  type TiroExtensionConfig,
 } from "../storage.ts";
 
 const input = {
@@ -43,9 +44,34 @@ const saveButton = document.getElementById("save") as HTMLButtonElement;
 const testButton = document.getElementById("test") as HTMLButtonElement;
 const result = document.getElementById("result") as HTMLParagraphElement;
 
+/** Every control the form freezes together. At module scope because the sync
+ * toggle needs the same treatment `init()` already gives the initial load: the
+ * transition is several storage round-trips wide, and a Save landing inside it
+ * can re-upload the config after the synced keys were removed and before the
+ * flag flips — leaving the token in sync with sync reported off. */
+const controls: { disabled: boolean }[] = [
+  ...Object.values(input),
+  languageSelect,
+  syncCheckbox,
+  saveButton,
+  testButton,
+];
+
+function setControlsEnabled(enabled: boolean): void {
+  for (const control of controls) control.disabled = !enabled;
+}
+
 // Replaced in init() before any user interaction can reach a handler.
 let m = messages("en");
 let savedLanguage: LanguageSetting = "auto";
+/** The config as last painted from storage, so an edit can be told from a
+ * value that merely came back from a read. */
+let lastLoaded: TiroExtensionConfig = {
+  owner: "",
+  repo: "",
+  branch: "main",
+  token: "",
+};
 
 function currentConfig() {
   return {
@@ -101,18 +127,36 @@ function describeConnection(r: ConnectionTestResult): string {
   }
 }
 
-/** Paints the stored settings into the form. Used on load and after the sync
- * toggle, which can change what "stored" means: switching sync on adopts
- * whatever the synced area already holds, so the form has to be repainted or
- * it would keep showing values that are no longer the ones in use. */
-async function fillForm(): Promise<void> {
+/** Paints the stored config into the form, and records what it painted so a
+ * later edit can be told apart from a value that came out of storage. Used on
+ * load and after the sync toggle, which can change what "stored" means:
+ * switching sync on adopts whatever the synced area already holds. */
+async function fillConfig(): Promise<void> {
   const config = await loadConfig();
+  lastLoaded = config;
   input.owner.value = config.owner;
   input.repo.value = config.repo;
   input.branch.value = config.branch;
   input.token.value = config.token;
+}
+
+async function fillLanguage(): Promise<void> {
   savedLanguage = await loadLanguage();
   languageSelect.value = savedLanguage;
+}
+
+/** Whether the form holds edits that have not been saved.
+ *
+ * The language select is never dirty — it writes on change — so this asks
+ * about the config fields only. */
+function formIsDirty(): boolean {
+  const now = currentConfig();
+  return (
+    now.owner !== lastLoaded.owner ||
+    now.repo !== lastLoaded.repo ||
+    now.branch !== lastLoaded.branch ||
+    now.token !== lastLoaded.token
+  );
 }
 
 /** Says so when the settings in storage no longer match the ones on screen.
@@ -120,10 +164,22 @@ async function fillForm(): Promise<void> {
  * Compares against the form rather than tracking whether this page caused the
  * write: after a save of our own the two already agree, so a self-inflicted
  * notice is impossible without any bookkeeping. Deliberately does not repaint
- * — the user may be mid-edit, and losing typed input to another device's write
- * would be worse than showing a stale field. */
+ * the config — the user may be mid-edit, and losing typed input to another
+ * device's write would be worse than showing a stale field.
+ *
+ * The tickbox is the exception, because it reports stored state rather than
+ * anything typed. Left alone it would keep claiming the token stays on this
+ * machine while Save quietly uploaded it — the flag roams, so `saveConfig`
+ * reads the new one whatever the box shows. It follows the flag, and the
+ * notice says why it moved. */
 async function announceRemoteChange(): Promise<void> {
-  const [config, language] = await Promise.all([loadConfig(), loadLanguage()]);
+  const [enabled, config, language] = await Promise.all([
+    loadSyncEnabled(),
+    loadConfig(),
+    loadLanguage(),
+  ]);
+  const flagMoved = syncCheckbox.checked !== enabled;
+  syncCheckbox.checked = enabled;
   const onScreen = currentConfig();
   const differs =
     onScreen.owner !== config.owner ||
@@ -131,7 +187,7 @@ async function announceRemoteChange(): Promise<void> {
     onScreen.branch !== config.branch ||
     onScreen.token !== config.token ||
     language !== savedLanguage;
-  if (differs) show(m.syncedElsewhere, "warn");
+  if (differs || flagMoved) show(m.syncedElsewhere, "warn");
 }
 
 async function init(): Promise<void> {
@@ -149,17 +205,11 @@ async function init(): Promise<void> {
   // both directions — a typed value or language pick clobbered by the late
   // load, or Save persisting a still-empty config — so the form stays inert
   // until the awaits settle.
-  const controls = [
-    ...Object.values(input),
-    languageSelect,
-    syncCheckbox,
-    saveButton,
-    testButton,
-  ];
-  for (const control of controls) control.disabled = true;
+  setControlsEnabled(false);
   try {
     syncCheckbox.checked = await loadSyncEnabled();
-    await fillForm();
+    await fillConfig();
+    await fillLanguage();
     const locale = await getLocale();
     m = messages(locale);
     applyText(locale);
@@ -171,11 +221,13 @@ async function init(): Promise<void> {
     show(m.couldNotLoad(String(error)), "error");
     return;
   }
-  for (const control of controls) control.disabled = false;
+  setControlsEnabled(true);
   // Registered here rather than at module scope: the ?preview path above
   // returns before this, and that build has no chrome to add a listener to.
   chrome.storage.onChanged.addListener((_changes, areaName) => {
-    if (areaName === "sync") void announceRemoteChange();
+    // A failure here is a missed notice, not something to shout about — the
+    // next interaction surfaces anything that really is broken.
+    if (areaName === "sync") void announceRemoteChange().catch(() => {});
   });
 }
 
@@ -186,6 +238,10 @@ syncCheckbox.addEventListener("change", () => {
   // repaint as an unhandled rejection with the status line still showing the
   // previous message.
   void (async () => {
+    // Frozen for the whole transition: setSyncEnabled is several storage
+    // round-trips, and a Save landing between the remove and the flag flip
+    // would put the token back into sync after sync was switched off.
+    setControlsEnabled(false);
     try {
       await setSyncEnabled(enabled);
     } catch (error) {
@@ -193,20 +249,29 @@ syncCheckbox.addEventListener("change", () => {
       // about where the token is: put it back.
       syncCheckbox.checked = !enabled;
       show(m.couldNotSave(String(error)), "error");
+      setControlsEnabled(true);
       return;
     }
     try {
       // Switching on can adopt settings already in sync, language included,
-      // so the form and the UI copy both have to follow.
-      await fillForm();
+      // so the form and the UI copy both have to follow — except over unsaved
+      // edits. The natural first run is "type the credentials, tick sync,
+      // press Save", and at tick time nothing is stored yet, so repainting
+      // unconditionally wiped every field the user had just filled in.
+      const keptEdits = formIsDirty();
+      if (!keptEdits) await fillConfig();
+      await fillLanguage();
       const locale = await getLocale();
       m = messages(locale);
       applyText(locale);
-      show(enabled ? m.syncOn : m.syncOff, "ok");
+      const state = enabled ? m.syncOn : m.syncOff;
+      show(keptEdits ? `${state} ${m.syncKeptEdits}` : state, "ok");
     } catch (error) {
       // The switch did take effect and only the repaint failed. Reverting the
       // tickbox would be the lie here, so leave it and say what happened.
       show(m.couldNotLoad(String(error)), "error");
+    } finally {
+      setControlsEnabled(true);
     }
   })();
 });
