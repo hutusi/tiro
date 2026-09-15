@@ -407,9 +407,9 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   apps/extension build:dev`, serve `dist/` over HTTP (`python3 -m http.server`
   in it), then open `src/popup/popup.html?state=<name>` — `ready`, `already`,
   `clipping`, `saved`, `updated`, `failed`, `unconfigured`, `pdf`,
-  `arxiv-offer`, `arxiv-fetching`, `arxiv-abstract`, `github-offer`,
-  `github-fetching`, `github-refused`, `github-retrying`, `reading`,
-  `ready-zh`, `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
+  `arxiv-offer`, `arxiv-fetching`, `arxiv-pdf-fetching`, `arxiv-abstract`,
+  `github-offer`, `github-fetching`, `github-refused`, `github-retrying`,
+  `reading`, `ready-zh`, `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging.
 - **What the popup shows** (ADR 0015): a short label beside the wordmark —

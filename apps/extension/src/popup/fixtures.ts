@@ -95,6 +95,17 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       gated: true,
       fetchOffered: true,
     },
+    // The tab is Chrome's PDF viewer and the fetch is already running. The
+    // verdict is about the tab, and the fetch is the only thing that can clear
+    // it — so this must not sit on the offer to do what is in progress.
+    "arxiv-pdf-fetching": {
+      ...base,
+      source: "arxiv",
+      phase: "blocked",
+      preview: null,
+      problem: { text: m.fetchSources.arxiv.offer, error: false },
+      fetching: true,
+    },
     "arxiv-fetching": {
       ...base,
       source: "arxiv",
