@@ -357,3 +357,70 @@ describe("popupView, a document that cannot be reached", () => {
     expect(v.links).toEqual({ ...links, hint: true });
   });
 });
+
+describe("popupView while a fetch is in flight", () => {
+  /**
+   * Pressing Fetch before the tab reported used to hide the fetch: the tab's
+   * body arrives, settles the phase to `ready` on its way in, and the ready
+   * screen never looks at `fetching` — so the caption vanished, the button was
+   * already spent, and Clip stayed gated with nothing on screen saying why.
+   */
+  test("a body arriving mid-fetch does not hide the fetch", () => {
+    const v = popupView(
+      state({ source: "github", phase: "ready", fetching: true, gated: true }),
+      m,
+    );
+    expect(v.label).toBe(m.labelReading);
+    expect(v.message).toBe(m.fetchSources.github.fetching);
+    expect(v.preview).not.toBeNull();
+  });
+
+  // A settled screen is not something an in-flight fetch should repaint.
+  test.each(["blocked", "clipping", "saved", "failed"] as const)(
+    "does not repaint a %s screen as reading",
+    (phase) => {
+      const v = popupView(
+        state({
+          source: "github",
+          phase,
+          fetching: true,
+          problem: { text: m.cannotClip, error: true },
+        }),
+        m,
+      );
+      expect(v.message).not.toBe(m.fetchSources.github.fetching);
+    },
+  );
+
+  // The fetch is over; the popup has stopped reading.
+  test("stops reading once the fetch resolves", () => {
+    const v = popupView(
+      state({ source: "arxiv", phase: "ready", fetching: false }),
+      m,
+    );
+    expect(v.label).toBe(m.labelReady);
+    expect(v.clip.enabled).toBe(true);
+  });
+
+  /**
+   * The state `settleFetch` has to produce after a declined arXiv fetch: the
+   * attempt is over, the tab's body is a fair article, and Clip must be
+   * usable. Left in `reading` — which is what `fetchDocument` set when the
+   * attempt began — the button stayed disabled with nothing left to re-enable
+   * it, because the tab had already reported.
+   */
+  test("a declined arXiv fetch leaves a usable Clip", () => {
+    const v = popupView(
+      state({
+        source: "arxiv",
+        phase: "ready",
+        fetching: false,
+        gated: false,
+        note: m.fetchSources.arxiv.denied,
+      }),
+      m,
+    );
+    expect(v.clip.enabled).toBe(true);
+    expect(v.preview?.note).toBe(m.fetchSources.arxiv.denied);
+  });
+});

@@ -555,7 +555,19 @@ async function main(): Promise<void> {
       block(note);
       return;
     }
-    if (result === null) await extract();
+    if (result === null) {
+      // No body yet: `extract` owns the phase from here, and when its latch is
+      // already spent the phase it left — blocked on "cannot read", or the
+      // refusal `render` derives — is the right one to keep.
+      await extract();
+    } else {
+      // The attempt is over and a body is on screen, so the popup has stopped
+      // reading. `fetchDocument` set that phase when the attempt began and
+      // nothing else will take it back: the tab has already reported, so no
+      // later body is coming to settle it. Leaving it is what disabled Clip
+      // for good after a declined arXiv fetch.
+      phase = "ready";
+    }
     // Always, and never through `showPayload`: `extract` paints nothing once
     // its latch is spent, so a second failed fetch on a tab that cannot be
     // injected left the popup on "Fetching…" with no button and no timer left

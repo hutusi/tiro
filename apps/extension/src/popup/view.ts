@@ -124,6 +124,17 @@ export function popupView(s: PopupState, m: Messages): PopupView {
               ? source.notice
               : m.noticePreview,
         };
+  /**
+   * An in-flight fetch is what the popup is *doing*, whatever phase was last
+   * assigned. Derived here rather than assigned there because a body arriving
+   * mid-fetch settles the phase on its way in — so pressing Fetch before the
+   * tab reported hid the fetch behind a screen offering to start one, with no
+   * button and a gated Clip until the request came back.
+   *
+   * Only `ready` is overridden: a settled screen — blocked, clipping, saved,
+   * failed — is not something an in-flight fetch should repaint.
+   */
+  const phase: Phase = s.fetching && s.phase === "ready" ? "reading" : s.phase;
   const reclip = s.clippedOn !== null;
   const clipLabel = reclip ? m.reclipButton : m.clipButton;
   const clipDisabled = {
@@ -153,7 +164,7 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     links: null,
   };
 
-  switch (s.phase) {
+  switch (phase) {
     case "blocked": {
       const error = s.problem?.error === true;
       return {
