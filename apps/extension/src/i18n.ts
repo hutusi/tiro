@@ -94,7 +94,7 @@ const en = {
   labelBranch: "Branch",
   labelToken: "Fine-grained personal access token",
   tokenHint:
-    "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine, or in chrome.storage.sync if you turn on settings sync.",
+    "Scope the token to the vault repository only, with Contents: Read and write. It is stored in chrome.storage.local on this machine, and also in chrome.storage.sync if you turn on settings sync.",
   labelLanguage: "Language",
   labelSync: "Sync settings across my devices",
   syncHint:
@@ -196,7 +196,7 @@ const zh: Messages = {
   labelBranch: "分支",
   labelToken: "细粒度个人访问令牌（PAT）",
   tokenHint:
-    "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中；若开启设置同步，则改为保存在 chrome.storage.sync 中。",
+    "令牌只需授权该仓库，权限为 Contents: Read and write。令牌保存在本机的 chrome.storage.local 中；若开启设置同步，则同时保存在 chrome.storage.sync 中。",
   labelLanguage: "语言",
   labelSync: "在我的设备间同步设置",
   syncHint:

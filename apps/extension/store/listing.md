@@ -89,8 +89,8 @@ repository — a declaration that reads narrower than the code is a rejection.
   machine, sent only to `api.github.com`, as the `Authorization` header of the
   GitHub API requests the extension makes — the connection test on the options
   page and the commit itself. Never sent anywhere else, and never to the
-  developer. If the user opts into settings sync on the options page, it is
-  stored in `chrome.storage.sync` instead, and so is replicated by Chrome to
+  developer. If the user opts into settings sync on the options page, a copy is
+  stored in `chrome.storage.sync` as well, and so is replicated by Chrome to
   the devices signed into their Google account; the option is off by default,
   the options page says what it does before they tick it, and unticking it
   clears the token from sync storage. This is transfer by the browser's own

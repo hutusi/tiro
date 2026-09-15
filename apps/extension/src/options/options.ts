@@ -297,8 +297,15 @@ languageSelect.addEventListener("change", () => {
 });
 
 saveButton.addEventListener("click", () => {
-  void saveConfig(currentConfig()).then(
-    () => show(m.saved, "ok"),
+  const config = currentConfig();
+  void saveConfig(config).then(
+    () => {
+      // The baseline moves with the save. Left behind, the form counted as
+      // dirty from the first save onwards, so every later toggle called
+      // already-stored values unsaved and refused to repaint them.
+      lastLoaded = config;
+      show(m.saved, "ok");
+    },
     (error: unknown) => show(m.couldNotSave(String(error)), "error"),
   );
 });
