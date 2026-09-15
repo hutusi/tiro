@@ -208,7 +208,14 @@ export function parseGitHubMarkdownUrl(rawUrl: string): GitHubDocRef | null {
   // repository, not a file in it.
   if (tail.length < 2) return null;
   if (!isMarkdownFile(tail[tail.length - 1] ?? "")) return null;
-  return { owner, repo, tail };
+  // GitHub resolves an owner and a repository case-insensitively, and both
+  // hosts serve the lowercased spelling — checked against a mixed-case
+  // repository on each. Normalizing here rather than in the builders gives
+  // every consumer one spelling, `githubRawUrl` included; left alone,
+  // `Owner/Repo` and `owner/repo` hash to two articles for one file, which is
+  // the exact duplication this module exists to prevent. The *path* keeps its
+  // case: GitHub serves files case-sensitively.
+  return { owner: owner.toLowerCase(), repo: repo.toLowerCase(), tail };
 }
 
 function fileRouteTail(rest: string[]): string[] | null {

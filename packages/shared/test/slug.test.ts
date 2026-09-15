@@ -173,6 +173,8 @@ describe("GitHub identity", () => {
       "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md?plain=1",
       "https://github.com/matthiasn/talk-transcripts/raw/master/Hickey_Rich/SimpleMadeEasy.md",
       "https://www.github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md#L10",
+      // GitHub resolves an owner and repository case-insensitively.
+      "https://github.com/MatthiasN/Talk-Transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md",
     ];
     const slugs = new Set(await Promise.all(forms.map(slugForUrl)));
     expect([...slugs]).toEqual([

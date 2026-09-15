@@ -221,6 +221,31 @@ describe("parseGitHubMarkdownUrl", () => {
     expect(new Set([at("main"), at("v2.0"), at("a1b2c3d")]).size).toBe(3);
   });
 
+  /**
+   * GitHub resolves an owner and repository case-insensitively, so these are
+   * one file. Left as written they hashed to two articles whose directory
+   * names differ only in the suffix — the duplication this module exists to
+   * prevent, in its least visible form.
+   */
+  test("an owner and repository are one however they are spelled", () => {
+    expect(
+      canonicalizeUrl("https://github.com/Hutusi/Tiro/blob/main/README.md"),
+    ).toBe("https://github.com/hutusi/tiro/blob/main/README.md");
+    expect(
+      canonicalizeUrl(
+        "https://raw.githubusercontent.com/Hutusi/Tiro/main/README.md",
+      ),
+    ).toBe("https://github.com/hutusi/tiro/blob/main/README.md");
+  });
+
+  // The path is not GitHub's to fold: it serves files case-sensitively, and
+  // two files may differ only in case.
+  test("leaves the path's case alone", () => {
+    expect(
+      canonicalizeUrl("https://github.com/o/r/blob/Main/Docs/README.md"),
+    ).toBe("https://github.com/o/r/blob/Main/Docs/README.md");
+  });
+
   test("keeps path segments exactly as the URL encoded them", () => {
     expect(
       parseGitHubMarkdownUrl(
