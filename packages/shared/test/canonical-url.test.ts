@@ -3,7 +3,10 @@ import {
   arxivAbsUrl,
   arxivHtmlUrl,
   canonicalizeUrl,
+  githubBlobUrl,
+  githubRawUrl,
   parseArxivUrl,
+  parseGitHubMarkdownUrl,
 } from "../src/canonical-url.ts";
 
 describe("parseArxivUrl", () => {
@@ -140,12 +143,134 @@ describe("canonicalizeUrl", () => {
     ).toBe("https://arxiv.org/abs/2404.19756");
   });
 
+  test("collapses every GitHub markdown form onto the blob URL", () => {
+    expect(
+      canonicalizeUrl(
+        "https://raw.githubusercontent.com/o/r/refs/heads/main/docs/README.md",
+      ),
+    ).toBe("https://github.com/o/r/blob/main/docs/README.md");
+    expect(
+      canonicalizeUrl(
+        "https://github.com/o/r/blob/main/docs/README.md?plain=1",
+      ),
+    ).toBe("https://github.com/o/r/blob/main/docs/README.md");
+  });
+
   test("returns anything else byte-identical", () => {
     const untouched = [
       "https://example.com/posts/hello?page=2",
       "https://arxiv.org/list/cs.AI/recent",
       "https://blog.arxiv.org/2024/04/30/kan/",
+      "https://github.com/hutusi/tiro",
+      "https://github.com/hutusi/tiro/blob/main/apps/extension/src/clip.ts",
     ];
     for (const url of untouched) expect(canonicalizeUrl(url)).toBe(url);
+  });
+});
+
+describe("parseGitHubMarkdownUrl", () => {
+  const TAIL = ["master", "Hickey_Rich", "SimpleMadeEasy.md"];
+
+  // One file, however you arrived at it: the bytes, the page it is presented
+  // on, and every way a ref can be spelled in front of the path.
+  const sameFile = [
+    "https://raw.githubusercontent.com/matthiasn/talk-transcripts/refs/heads/master/Hickey_Rich/SimpleMadeEasy.md",
+    "https://raw.githubusercontent.com/matthiasn/talk-transcripts/master/Hickey_Rich/SimpleMadeEasy.md",
+    "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md",
+    "https://github.com/matthiasn/talk-transcripts/blob/refs/heads/master/Hickey_Rich/SimpleMadeEasy.md",
+    "https://github.com/matthiasn/talk-transcripts/raw/master/Hickey_Rich/SimpleMadeEasy.md",
+    "https://www.github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md",
+    "http://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md",
+    "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md?plain=1",
+    "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md#L10",
+    "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md/",
+  ];
+  for (const url of sameFile) {
+    test(`reads one file out of ${url}`, () => {
+      expect(parseGitHubMarkdownUrl(url)?.tail).toEqual(TAIL);
+    });
+  }
+
+  test("a tag prefix is stripped the same way a branch prefix is", () => {
+    expect(
+      parseGitHubMarkdownUrl(
+        "https://raw.githubusercontent.com/o/r/refs/tags/v1.0/README.md",
+      )?.tail,
+    ).toEqual(["v1.0", "README.md"]);
+  });
+
+  // The reason the tail is never split. Both forms put the same segments after
+  // their own prefix, so both land on the same article without anyone having
+  // to decide where `feature/x` ends.
+  test("a ref containing a slash stays consistent across forms", () => {
+    const raw = parseGitHubMarkdownUrl(
+      "https://raw.githubusercontent.com/o/r/refs/heads/feature/x/README.md",
+    );
+    const blob = parseGitHubMarkdownUrl(
+      "https://github.com/o/r/blob/feature/x/README.md",
+    );
+    expect(raw?.tail).toEqual(["feature", "x", "README.md"]);
+    expect(blob?.tail).toEqual(raw?.tail);
+  });
+
+  // A ref is a pin, not a variant — unlike an arXiv version, which the
+  // publisher declares subordinate to the paper. Two refs are two documents.
+  test("a different ref is a different file", () => {
+    const at = (ref: string): string =>
+      canonicalizeUrl(`https://github.com/o/r/blob/${ref}/README.md`);
+    expect(new Set([at("main"), at("v2.0"), at("a1b2c3d")]).size).toBe(3);
+  });
+
+  test("keeps path segments exactly as the URL encoded them", () => {
+    expect(
+      parseGitHubMarkdownUrl(
+        "https://github.com/o/r/blob/main/a%20b/R%C3%A9adme.md",
+      )?.tail,
+    ).toEqual(["main", "a%20b", "R%C3%A9adme.md"]);
+  });
+
+  // The grammar is the safety. Rewriting any of these would file unrelated
+  // pages — or a file the clipper cannot read — under one article.
+  const notDocs = [
+    "https://github.com/matthiasn/talk-transcripts",
+    "https://github.com/o/r/tree/master/Hickey_Rich",
+    "https://github.com/o/r/blob/main/setup.py",
+    "https://github.com/o/r/blob/main/README.mdx",
+    "https://github.com/o/r/blob/main/README.md.txt",
+    "https://github.com/o/r/blob/main",
+    "https://github.com/o/r/issues/12",
+    "https://github.com/o/r/releases/tag/v1.0",
+    "https://github.com/o/r/commit/a1b2c3d",
+    "https://github.com/",
+    "https://gist.github.com/o/5d9c6f1e2b.md",
+    "https://raw.githubusercontent.com/o/r",
+    "https://raw.githubusercontent.com/o/r/main",
+    "https://raw.githubusercontent.com/o/r/main/script.sh",
+    "https://example.com/o/r/blob/main/README.md",
+    "ftp://github.com/o/r/blob/main/README.md",
+    "not a url at all",
+  ];
+  for (const url of notDocs) {
+    test(`declines ${url}`, () => {
+      expect(parseGitHubMarkdownUrl(url)).toBeNull();
+    });
+  }
+});
+
+describe("githubBlobUrl / githubRawUrl", () => {
+  const doc = { owner: "o", repo: "r", tail: ["main", "docs", "README.md"] };
+
+  test("the blob URL is the identity: the page, not the bytes", () => {
+    expect(githubBlobUrl(doc)).toBe(
+      "https://github.com/o/r/blob/main/docs/README.md",
+    );
+  });
+
+  // What the clipper reads, and the base a repo-relative image resolves
+  // against — the blob URL as a base would point an image at an HTML page.
+  test("the raw URL is where the bytes are", () => {
+    expect(githubRawUrl(doc)).toBe(
+      "https://raw.githubusercontent.com/o/r/main/docs/README.md",
+    );
   });
 });

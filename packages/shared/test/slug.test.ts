@@ -162,6 +162,60 @@ describe("arXiv identity", () => {
   });
 });
 
+describe("GitHub identity", () => {
+  // The user-visible promise: the raw bytes and the page that presents them
+  // are one article, however the ref was spelled on the way in.
+  test("every URL form of one file produces one slug", async () => {
+    const forms = [
+      "https://raw.githubusercontent.com/matthiasn/talk-transcripts/refs/heads/master/Hickey_Rich/SimpleMadeEasy.md",
+      "https://raw.githubusercontent.com/matthiasn/talk-transcripts/master/Hickey_Rich/SimpleMadeEasy.md",
+      "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md",
+      "https://github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md?plain=1",
+      "https://github.com/matthiasn/talk-transcripts/raw/master/Hickey_Rich/SimpleMadeEasy.md",
+      "https://www.github.com/matthiasn/talk-transcripts/blob/master/Hickey_Rich/SimpleMadeEasy.md#L10",
+    ];
+    const slugs = new Set(await Promise.all(forms.map(slugForUrl)));
+    expect([...slugs]).toEqual([
+      "github-com-matthiasn-talk-transcripts-blob-master-hickey-ric-db26414f",
+    ]);
+  });
+
+  // The one article in the vault this rule moves, pinned for the same reason
+  // the arXiv slugs above are: it names a rename that has to happen exactly
+  // once, and `sweep --recanonicalize` reads the answer from here.
+  test("pins the slug the vault migration moves to", async () => {
+    expect(
+      await slugForUrl(
+        "https://raw.githubusercontent.com/matthiasn/talk-transcripts/refs/heads/master/Hickey_Rich/SimpleMadeEasy.md",
+      ),
+    ).toBe(
+      "github-com-matthiasn-talk-transcripts-blob-master-hickey-ric-db26414f",
+    );
+  });
+
+  // A ref is a pin, not a variant: two refs must stay two articles, or a clip
+  // of a tagged version would overwrite the clip of main.
+  test("a different ref keeps a different slug", async () => {
+    const main = await slugForUrl("https://github.com/o/r/blob/main/README.md");
+    const tag = await slugForUrl("https://github.com/o/r/blob/v2.0/README.md");
+    expect(main).not.toBe(tag);
+  });
+
+  // The blast radius. Canonicalization must not reach a GitHub URL that is not
+  // a markdown file, nor any other host's `/blob/` route.
+  test("leaves other GitHub URLs and other hosts alone", async () => {
+    expect(await slugForUrl("https://github.com/hutusi/tiro")).toMatch(
+      /^github-com-hutusi-tiro-[0-9a-f]{8}$/,
+    );
+    expect(
+      await slugForUrl("https://github.com/o/r/blob/main/setup.py"),
+    ).toMatch(/^github-com-o-r-blob-main-setup-py-[0-9a-f]{8}$/);
+    expect(
+      await slugForUrl("https://example.com/o/r/blob/main/README.md"),
+    ).toMatch(/^example-com-o-r-blob-main-readme-md-[0-9a-f]{8}$/);
+  });
+});
+
 describe("tagSlug", () => {
   test("replaces characters that would break the route", () => {
     expect(tagSlug("ci/cd")).toBe("ci-cd");

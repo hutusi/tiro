@@ -17,6 +17,12 @@
  * rest matches an arXiv identifier exactly. `/list/cs.AI/recent` and
  * `/a/liu_z_1` are arXiv URLs that are not papers, and they pass through
  * untouched.
+ *
+ * GitHub is the second rule, and it earns the exception the same way: one file
+ * is served at `raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>` and
+ * presented at `github.com/<owner>/<repo>/blob/<ref>/<path>`, and `<ref>` may
+ * be spelled either `main` or `refs/heads/main`. That is the publisher's own
+ * addressing, not an inference from resemblance.
  */
 
 /** Hosts that serve the same arXiv corpus. `ar5iv` is the LaTeXML renderer
@@ -122,14 +128,148 @@ export function arxivHtmlUrl(paper: ArxivRef): string {
   return `https://arxiv.org/html/${paper.id}${version}`;
 }
 
+/** Hosts that present a repository's files as pages. */
+const GITHUB_HOSTS = new Set(["github.com", "www.github.com"]);
+
+/** The host that serves a repository's file *bytes*. Kept apart from the
+ * hosts above because its paths have no route segment at all — the ref follows
+ * the repository directly. */
+const GITHUB_RAW_HOSTS = new Set(["raw.githubusercontent.com"]);
+
+/** Third path segment of a github.com route that addresses one file's
+ * contents. Every other route — `tree` for a directory, and issues, pulls,
+ * releases, commits — is left alone. */
+const GITHUB_FILE_ROUTES = new Set(["blob", "raw"]);
+
+/** Ways a ref may be spelled in front of itself. Stripping these is what makes
+ * `refs/heads/main` and `main` one article rather than two. */
+const GITHUB_REF_PREFIXES: readonly (readonly string[])[] = [
+  ["refs", "heads"],
+  ["refs", "tags"],
+];
+
+/** Extensions this rule claims. `.mdx` is deliberately absent: it is JSX, and
+ * clipping it as markdown would store something that never rendered. */
+const MARKDOWN_EXTENSIONS = [".md", ".markdown", ".mdown", ".mkd"];
+
+/** GitHub's grammar for an owner or repository name. */
+const GITHUB_NAME = /^[A-Za-z0-9._-]+$/;
+
+export interface GitHubDocRef {
+  owner: string;
+  repo: string;
+  /**
+   * `<ref>/<path…>`, carried whole and never split.
+   *
+   * A branch name may contain slashes, so nothing offline can say where the
+   * ref ends and the path begins: `o/r/feature/x/README.md` is both `feature`
+   * + `x/README.md` and `feature/x` + `README.md`, and only the repository
+   * knows which. The rule never has to know. Every URL form of one file puts
+   * the *same* tail behind a different prefix, so rewriting the prefix alone
+   * collapses them all — without a guess that could merge two files.
+   */
+  tail: string[];
+}
+
+/**
+ * Read a GitHub markdown file reference out of any of its URL forms, or `null`
+ * if the URL is not one.
+ *
+ * The markdown gate is not squeamishness about other files — it is ADR 0013's
+ * fifth clause. Identity and content acquisition move together: claiming that
+ * two URLs are one article is only safe where the clipper can actually read
+ * the file behind them, and a `.py` blob page today yields GitHub's virtualized
+ * code viewer, which holds only the lines currently scrolled into view.
+ */
+export function parseGitHubMarkdownUrl(rawUrl: string): GitHubDocRef | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase();
+  const servesBytes = GITHUB_RAW_HOSTS.has(host);
+  if (!servesBytes && !GITHUB_HOSTS.has(host)) return null;
+
+  const segments = url.pathname.split("/").filter((part) => part !== "");
+  const [owner, repo, ...rest] = segments;
+  if (owner === undefined || repo === undefined) return null;
+  if (!isGitHubName(owner) || !isGitHubName(repo)) return null;
+
+  const routed = servesBytes ? rest : fileRouteTail(rest);
+  if (routed === null) return null;
+  // Applied to both hosts: `github.com/o/r/blob/refs/heads/main/F.md` resolves
+  // too, and leaving it unstripped here would file it apart from the same
+  // file's every other form.
+  const tail = stripRefPrefix(routed);
+  // A ref and at least one path segment. Anything shorter addresses the
+  // repository, not a file in it.
+  if (tail.length < 2) return null;
+  if (!isMarkdownFile(tail[tail.length - 1] ?? "")) return null;
+  return { owner, repo, tail };
+}
+
+function fileRouteTail(rest: string[]): string[] | null {
+  const [route, ...tail] = rest;
+  if (route === undefined || !GITHUB_FILE_ROUTES.has(route.toLowerCase())) {
+    return null;
+  }
+  return tail;
+}
+
+function stripRefPrefix(segments: string[]): string[] {
+  for (const prefix of GITHUB_REF_PREFIXES) {
+    if (prefix.every((part, i) => segments[i]?.toLowerCase() === part)) {
+      return segments.slice(prefix.length);
+    }
+  }
+  return segments;
+}
+
+function isGitHubName(segment: string): boolean {
+  // `GITHUB_NAME` admits a dot, so the dot segments have to go separately —
+  // a URL cannot carry them literally, but it can carry them encoded.
+  if (segment === "." || segment === "..") return false;
+  return GITHUB_NAME.test(segment);
+}
+
+function isMarkdownFile(segment: string): boolean {
+  const name = segment.toLowerCase();
+  return MARKDOWN_EXTENSIONS.some((extension) => name.endsWith(extension));
+}
+
+/**
+ * The file's identity: the page GitHub presents it on.
+ *
+ * The blob page rather than the raw bytes because that is what "read the
+ * original" should open — rendered, with the repository around it. Rebuilt
+ * from parts, so a `?plain=1` that `normalizeUrl`'s tracking blocklist has no
+ * reason to know about does not fork the identity.
+ */
+export function githubBlobUrl(doc: GitHubDocRef): string {
+  return `https://github.com/${doc.owner}/${doc.repo}/blob/${doc.tail.join("/")}`;
+}
+
+/** Where the file's bytes live — what the clipper reads, and the base that
+ * makes a repo-relative image in it resolve to an image. */
+export function githubRawUrl(doc: GitHubDocRef): string {
+  return `https://raw.githubusercontent.com/${doc.owner}/${doc.repo}/${doc.tail.join("/")}`;
+}
+
 /**
  * Rewrite a URL to its publisher-canonical form, or return it unchanged.
  *
- * arXiv is the only rule today. A second publisher goes here rather than into
- * `normalizeUrl`, so the generic normalizer stays host-agnostic and the list of
- * places identity can be decided stays at one.
+ * Two rules today, arXiv and GitHub. A third publisher goes here rather than
+ * into `normalizeUrl`, so the generic normalizer stays host-agnostic and the
+ * list of places identity can be decided stays at one. The rules cannot
+ * collide: each is gated on its own hosts before it looks at anything else.
  */
 export function canonicalizeUrl(rawUrl: string): string {
   const paper = parseArxivUrl(rawUrl);
-  return paper === null ? rawUrl : arxivAbsUrl(paper);
+  if (paper !== null) return arxivAbsUrl(paper);
+  const doc = parseGitHubMarkdownUrl(rawUrl);
+  if (doc !== null) return githubBlobUrl(doc);
+  return rawUrl;
 }
