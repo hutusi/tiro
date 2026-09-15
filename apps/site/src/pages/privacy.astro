@@ -18,11 +18,14 @@ const updated = "2026-09-15";
     <p>
       Tiro 由两部分组成：Chrome 扩展 <strong>Tiro Clipper</strong>，以及本站点。
       两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
-      你的令牌和所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库。
+      所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库；你的令牌也只会
+      发往 GitHub。
       两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；令牌则出现在扩展
       发出的每个 GitHub API 请求的授权头里，也就是那次上传，以及你在设置页点击
-      「测试连接」的时候。此外还有一个站点会被访问，且仅在你授权之后：arxiv.org。
-      它会知道你在看哪一篇论文，下一段说明。
+      「测试连接」的时候。此外还有两方可能参与，且都只在你自己选择之后：一是
+      arxiv.org，它会知道你在看哪一篇论文；二是
+      Google——若你开启设置同步，你的设置
+      与令牌会经由其服务器同步到你的其他设备。下文分别说明。
     </p>
 
     <p>
@@ -134,13 +137,15 @@ const updated = "2026-09-15";
     <p>
       Tiro is two things: the <strong>Tiro Clipper</strong> Chrome extension and this
       site. Neither sets tracking cookies, runs analytics or ads, and nothing is sold.
-      Your token and everything the extension clips go to exactly one third party
-      — GitHub — into the repository you name. The timing differs between the two:
-      what you clip is uploaded only when you press Clip, while the token travels
-      in the <code>Authorization</code> header of every GitHub API request the extension
-      makes — that upload, and the "Test connection" button on the options page. One
-      other site is contacted, and only if you allow it: arxiv.org, which learns which
-      paper you are looking at. The next paragraph says exactly what that involves.
+      Everything the extension clips goes to exactly one third party — GitHub — into
+      the repository you name, and your token is sent nowhere but GitHub. The timing
+      differs between the two: what you clip is uploaded only when you press Clip,
+      while the token travels in the <code>Authorization</code> header of every GitHub
+      API request the extension makes — that upload, and the "Test connection" button
+      on the options page. Two other parties can be involved, both only if you choose
+      it: arxiv.org, which learns which paper you are looking at, and — if you turn
+      on settings sync — Google, whose servers carry your settings and token to your
+      other devices. The sections below say exactly what each involves.
     </p>
 
     <p>

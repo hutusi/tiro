@@ -80,16 +80,16 @@ repository — a declaration that reads narrower than the code is a rejection.
 
 - **Personally identifiable information**: **Yes** — a GitHub username, typed by
   the user on the options page. Google's definition of PII enumerates
-  "username". It is stored locally — or in `chrome.storage.sync` if the user
-  turns on settings sync — and sent to `api.github.com` only as part of the
-  repository path it identifies.
+  "username". It is stored locally — and also in `chrome.storage.sync`, and so
+  replicated by Chrome, if the user turns on settings sync — and sent to
+  `api.github.com` only as part of the repository path it identifies.
 - **Health / financial / payment information**: No
 - **Authentication information**: **Yes** — a GitHub personal access token the
   user creates and enters themselves. Stored in `chrome.storage.local` on their
   machine, sent only to `api.github.com`, as the `Authorization` header of the
   GitHub API requests the extension makes — the connection test on the options
-  page and the commit itself. Never sent anywhere else, and never to the
-  developer. If the user opts into settings sync on the options page, a copy is
+  page and the commit itself. The extension sends it nowhere else, and never to
+  the developer. If the user opts into settings sync on the options page, a copy is
   stored in `chrome.storage.sync` as well, and so is replicated by Chrome to
   the devices signed into their Google account; the option is off by default,
   the options page says what it does before they tick it, and unticking it
