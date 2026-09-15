@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import { backfill, countMarkdown, plainTextShell } from "../scripts/sweep.ts";
+import {
+  backfill,
+  countMarkdown,
+  isPlainText,
+  plainTextShell,
+} from "../scripts/sweep.ts";
 import { clipPage } from "../src/clip-page.ts";
 
 describe("countMarkdown", () => {
@@ -339,5 +344,35 @@ describe("plainTextShell", () => {
       "a &amp; b &lt;pre>&lt;/pre> &lt;script>x&lt;/script>",
     );
     expect(shell.match(/<pre>/g)).toHaveLength(1);
+  });
+});
+
+describe("isPlainText", () => {
+  // Media types are case-insensitive and carry parameters, so the header is
+  // not the type. Reading one as the other caches a markdown file as its own
+  // bytes and replays it as HTML — the phantom diff plainTextShell prevents.
+  test.each([
+    "text/plain",
+    "text/plain; charset=utf-8",
+    "TEXT/PLAIN; charset=UTF-8",
+    "Text/Plain",
+    " text/plain ",
+  ])("reads %s as plain text", (header) => {
+    expect(isPlainText(header)).toBe(true);
+  });
+
+  test.each([
+    "text/html",
+    "text/html; charset=utf-8",
+    "application/json",
+    // Not plain text, and a prefix test would have said it was.
+    "text/plainly",
+    "",
+  ])("does not read %s as plain text", (header) => {
+    expect(isPlainText(header)).toBe(false);
+  });
+
+  test("a response with no content-type is not plain text", () => {
+    expect(isPlainText(null)).toBe(false);
   });
 });

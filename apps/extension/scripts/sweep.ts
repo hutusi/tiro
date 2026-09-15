@@ -216,12 +216,28 @@ async function fetchPage(url: string, pages: string, slug: string) {
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const body = await response.text();
-  const type = response.headers.get("content-type") ?? "";
-  const html = type.startsWith("text/plain") ? plainTextShell(body) : body;
+  const html = isPlainText(response.headers.get("content-type"))
+    ? plainTextShell(body)
+    : body;
   await mkdir(pages, { recursive: true });
   await writeFile(path, html);
   await writeFile(stamp, url);
   return html;
+}
+
+/**
+ * Whether a response is plain text, by its media type rather than by the header
+ * it arrived in.
+ *
+ * Media types are case-insensitive and carry parameters, so the header is not
+ * the type: `TEXT/PLAIN; charset=utf-8` is the same type as `text/plain`, and a
+ * prefix test reads it as something else — which here means caching a markdown
+ * file as its own bytes and replaying it as HTML, the phantom diff
+ * `plainTextShell` exists to prevent. The other direction matters less but
+ * costs nothing: `text/plainly` is not plain text either.
+ */
+export function isPlainText(header: string | null): boolean {
+  return (header ?? "").split(";")[0]?.trim().toLowerCase() === "text/plain";
 }
 
 /**
