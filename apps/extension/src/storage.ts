@@ -166,6 +166,34 @@ export async function setSyncEnabled(enabled: boolean): Promise<void> {
   });
 }
 
+/** Copies synced values into the local mirror as Chrome delivers them, so the
+ * mirror tracks changes instead of lagging behind this machine's last read.
+ *
+ * Without it the fallback is only ever the last value this machine happened to
+ * observe: if it read v1, another machine saved v2 and then switched sync off,
+ * this one would fall back to v1 — settings that are not merely old but wrong,
+ * and wrong quietly, since a stale repository clips to the wrong destination
+ * without complaint.
+ *
+ * **A removal must never be mirrored.** Switching sync off elsewhere arrives
+ * here as the synced keys disappearing; copying that through would erase the
+ * very copy this exists to preserve, turning the guard into the failure it was
+ * written to prevent. Only a change carrying a real `newValue` is taken.
+ *
+ * Mirroring on read stays as well: a worker that has not run since sync was
+ * enabled has seen no changes to mirror, and the two cover each other. */
+export async function mirrorSyncedChange(changes: {
+  [key: string]: chrome.storage.StorageChange;
+}): Promise<void> {
+  const updates: Record<string, unknown> = {};
+  for (const key of SYNCED_KEYS) {
+    const change = changes[key];
+    if (change && change.newValue !== undefined) updates[key] = change.newValue;
+  }
+  if (Object.keys(updates).length === 0) return;
+  await serialize(() => chrome.storage.local.set(updates));
+}
+
 export async function loadConfig(): Promise<TiroExtensionConfig> {
   const config = ((await readSynced(KEY)) ??
     {}) as Partial<TiroExtensionConfig>;

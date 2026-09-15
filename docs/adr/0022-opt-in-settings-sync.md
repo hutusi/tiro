@@ -51,24 +51,39 @@ every new machine a manual step, just a shorter one. Putting `tiroSyncEnabled`
 in the synced area is what makes a second machine genuinely zero-setup: Chrome
 pulls the flag down along with the settings beside it.
 
-**`local` is kept current on both reads and writes.** Writes go to `local`
-always, and to `sync` as well when enabled; reads record what they take from
-`sync` into `local`. This is what makes turning sync *off* safe on every device
-at once — disabling copies `sync` down on the machine that does it, clears the
-synced keys, and every other machine falls back to a copy it already holds.
-Clearing them is the point of disabling rather than tidying after it: it is
-what takes the token back off Google's servers.
+**`local` is kept current three ways, and it takes all three.** Writes go to
+`local` always, and to `sync` as well when enabled. Reads record what they take
+from `sync`. And the service worker mirrors synced changes as Chrome delivers
+them. This is what makes turning sync *off* safe on every device at once —
+disabling copies `sync` down on the machine that does it, clears the synced
+keys, and every other machine falls back to a copy of its own. Clearing them is
+the point of disabling rather than tidying after it: it is what takes the token
+back off Google's servers.
 
-Mirroring on *read* is the part that is easy to leave out, and leaving it out
-strands the machine this feature exists for. A second computer configured
-entirely from the synced copy never calls a writer, so a write-only mirror
-leaves it holding nothing; withdrawing the synced keys then drops it back to
-defaults. The alternative — an `onChanged` listener in the service worker,
-mirroring eagerly — would also cover a machine that has never read since sync
-was enabled, but `background.ts` is a deliberate no-op stub (ADR 0005), and
-waking the worker on every sync change to serve a machine that has never opened
-the popup is not worth the moving part. That residual gap is accepted: such a
-machine never used the settings either.
+Writes alone are not enough, and the omission strands exactly the machine this
+feature exists for: a second computer configured entirely from the synced copy
+never calls a writer, so a write-only mirror leaves it holding nothing, and
+withdrawing the synced keys drops it to defaults.
+
+Reads alone are not enough either, and the failure is quieter. A mirror
+refreshed only when *this* machine reads is only ever as new as its last read:
+if it read v1, another machine saved v2 and then switched sync off, it falls
+back to v1 — settings that are not merely old but wrong, and wrong without
+complaint, since a stale repository clips to the wrong destination and only a
+stale token announces itself. So `background.ts`, until now an empty module,
+registers a `chrome.storage.onChanged` listener. ADR 0005 governs how the
+worker is built, not what it may do, and that file's own comment always
+described it as the home for work of this kind.
+
+**A removal must never be mirrored.** Switching sync off elsewhere reaches every
+other machine as the synced keys disappearing. Copying that through would erase
+the copy the machine is about to need — the guard becoming the failure it was
+written to prevent — so only a change carrying a real `newValue` is taken.
+
+What remains is narrow and worth stating exactly, because the earlier version of
+this record claimed more than the code did: a machine is left with defaults only
+if its worker has seen no change *and* it has never read since sync was enabled.
+Such a machine never used the settings either.
 
 Enabling never overwrites a value `sync` already holds. On a second machine,
 sync already carries the settings and the form on screen is empty or stale;

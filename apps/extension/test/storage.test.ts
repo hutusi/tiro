@@ -10,6 +10,7 @@ import {
   loadDisclosure,
   loadLanguage,
   loadSyncEnabled,
+  mirrorSyncedChange,
   needsDisclosure,
   pruneClipHistory,
   recordClip,
@@ -494,5 +495,77 @@ describe("settings sync — a read answers whatever sync does", () => {
       return realGet(keys);
     };
     expect(await loadConfig()).toEqual(config);
+  });
+});
+
+describe("mirroring synced changes as they arrive", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const v1: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "v1",
+  };
+  const v2: TiroExtensionConfig = { ...v1, token: "v2" };
+
+  test("takes a new value without waiting for this machine to read", async () => {
+    chrome.local.data.tiroConfig = v1;
+    await mirrorSyncedChange({ tiroConfig: { newValue: v2 } });
+    expect(chrome.local.data.tiroConfig).toEqual(v2);
+  });
+
+  test("ignores a removal, which is how a remote disable arrives", async () => {
+    // The whole point, and the way this guard turns into the bug it prevents
+    // if it is written carelessly: switching sync off elsewhere reaches every
+    // other machine as the synced keys disappearing. Mirroring that through
+    // would erase the copy the machine is about to need.
+    chrome.local.data.tiroConfig = v1;
+    chrome.local.data.tiroLanguage = "zh";
+    await mirrorSyncedChange({
+      tiroConfig: { oldValue: v1 },
+      tiroLanguage: { oldValue: "zh" },
+    });
+    expect(chrome.local.data.tiroConfig).toEqual(v1);
+    expect(chrome.local.data.tiroLanguage).toBe("zh");
+  });
+
+  test("mirrors the language alongside the config", async () => {
+    await mirrorSyncedChange({ tiroLanguage: { newValue: "zh" } });
+    expect(chrome.local.data.tiroLanguage).toBe("zh");
+  });
+
+  test("copies nothing but the synced keys", async () => {
+    // The flag belongs to sync alone, and the clip record and the disclosure
+    // never travel at all; a mirror that took everything would put them in
+    // local from a source that should not be able to set them.
+    await mirrorSyncedChange({
+      tiroSyncEnabled: { newValue: true },
+      tiroClipHistory: { newValue: { a: "2026-09-15T00:00:00.000Z" } },
+      tiroDisclosure: { newValue: { version: 3, acceptedAt: "x" } },
+    });
+    expect(chrome.local.data).toEqual({});
+  });
+
+  test("survives a remote disable end to end", async () => {
+    // The sequence the service worker exists for: this machine reads v1,
+    // another saves v2, then switches sync off. Before the worker mirrored,
+    // this machine fell back to v1 — not merely stale but wrong, and quiet
+    // about it.
+    chrome.sync.data.tiroSyncEnabled = true;
+    chrome.sync.data.tiroConfig = v1;
+    expect(await loadConfig()).toEqual(v1);
+
+    chrome.sync.data.tiroConfig = v2;
+    await mirrorSyncedChange({ tiroConfig: { newValue: v2 } });
+
+    delete chrome.sync.data.tiroConfig;
+    chrome.sync.data.tiroSyncEnabled = false;
+    await mirrorSyncedChange({ tiroConfig: { oldValue: v2 } });
+
+    expect(await loadConfig()).toEqual(v2);
   });
 });
