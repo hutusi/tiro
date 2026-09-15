@@ -54,13 +54,23 @@ async function syncEnabledForRead(): Promise<boolean> {
   }
 }
 
-/** Every mutation of the synced keys runs one at a time.
+/** Mutations of the synced keys run one at a time **within this page**.
  *
  * Freezing the form is not enough, because it only stops work that has not
  * started. A Save already in flight reads the flag and then writes; a toggle
  * landing between those two steps makes the Save store its config in the wrong
  * place while the toggle copies up a config the Save has not written yet. Both
  * report success, and the older synced token wins the next read.
+ *
+ * **This chain is per JS realm, not per profile.** Each options tab and the
+ * service worker get their own module instance, so two options tabs acting at
+ * the same instant are not serialised against each other. That is accepted
+ * rather than fixed (ADR 0022): the options page is the only writer of these
+ * keys, and `chrome.runtime.openOptionsPage` focuses an open one instead of
+ * opening a second, so the arrangement takes deliberate effort to create.
+ * Closing it properly means routing every mutation through the worker, which
+ * is a messaging layer and a new way for a save to fail on a path that today
+ * cannot.
  *
  * Nothing queued may await something else queued, or the chain deadlocks —
  * `writeSynced` reads the flag (a read, unqueued) and `setSyncEnabled` calls

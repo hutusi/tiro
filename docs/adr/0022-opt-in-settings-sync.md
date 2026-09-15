@@ -80,10 +80,34 @@ other machine as the synced keys disappearing. Copying that through would erase
 the copy the machine is about to need — the guard becoming the failure it was
 written to prevent — so only a change carrying a real `newValue` is taken.
 
-What remains is narrow and worth stating exactly, because the earlier version of
-this record claimed more than the code did: a machine is left with defaults only
-if its worker has seen no change *and* it has never read since sync was enabled.
-Such a machine never used the settings either.
+### What this does not guarantee
+
+Stated exactly, because earlier versions of this record twice claimed more than
+the code delivered.
+
+**A machine can be left with defaults** if its worker has seen no change *and*
+it has never read since sync was enabled. Such a machine never used the
+settings either.
+
+**A machine can be left with a value older than the last one written.** Chrome
+synchronises state, not an event log, and does not replay intermediate values.
+If a machine is closed or offline while another saves v2 and then switches sync
+off, it reconnects to the final state — the keys gone — having never been told
+about v2, and falls back to the last value it saw. The mirror's promise is
+therefore "the newest value this machine has observed", not "the newest value
+written anywhere", and no amount of mirroring can make it the latter.
+
+**Mutations are serialised per page, not per profile.** The queue in
+`storage.ts` is module state, so each options tab and the worker hold their
+own. A save issued in one options tab at the same instant as a sync toggle in
+another can still finish with the newer config local and the older config in
+sync, whereupon the next read restores the older one. This is accepted rather
+than fixed: the options page is the only writer of these keys, and
+`chrome.runtime.openOptionsPage` focuses an open options page instead of
+opening a second, so two of them at once takes deliberate effort. The fix, if
+the trade ever stops being worth it, is to make the worker the single authority
+and route mutations to it — a messaging layer, and a new way for a save to fail
+on a path that currently cannot.
 
 Enabling never overwrites a value `sync` already holds. On a second machine,
 sync already carries the settings and the form on screen is empty or stale;
