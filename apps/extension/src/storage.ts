@@ -288,8 +288,13 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * where Chrome replicates it to the user's other devices. By the same rule as
  * 2 that is a new destination — a stronger case than 2, since what travels is
  * a credential rather than a request, and it applies even though the option is
- * off by default and asked for separately. */
-export const DISCLOSURE_VERSION = 3;
+ * off by default and asked for separately.
+ *
+ * 4: the disclosure names raw.githubusercontent.com, which the extension may
+ * now fetch a markdown file from (ADR 0023). Exactly the case 2 was, and
+ * bumped for the same reason: a second outbound destination is a practice
+ * change whichever way its optional permission is answered. */
+export const DISCLOSURE_VERSION = 4;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */

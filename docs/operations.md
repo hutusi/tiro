@@ -407,8 +407,9 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   apps/extension build:dev`, serve `dist/` over HTTP (`python3 -m http.server`
   in it), then open `src/popup/popup.html?state=<name>` — `ready`, `already`,
   `clipping`, `saved`, `updated`, `failed`, `unconfigured`, `pdf`,
-  `arxiv-offer`, `arxiv-fetching`, `arxiv-abstract`, `reading`, `ready-zh`,
-  `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
+  `arxiv-offer`, `arxiv-fetching`, `arxiv-pdf-fetching`, `arxiv-abstract`,
+  `github-offer`, `github-fetching`, `github-refused`, `github-retrying`,
+  `reading`, `ready-zh`, `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging.
 - **What the popup shows** (ADR 0015): a short label beside the wordmark —
@@ -422,19 +423,34 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
 
-### The arXiv permission
+### The publisher-fetch permissions
 
-`https://arxiv.org/*` is an **optional** host permission, not one held at
-install (`optional_host_permissions` in `manifest.json`). The popup asks for it
-the first time you clip an arXiv paper, from the Clip flow's own user gesture —
+Two **optional** host permissions, neither held at install
+(`optional_host_permissions` in `manifest.json`):
+
+| Origin | Asked for when | Fetches |
+| --- | --- | --- |
+| `https://arxiv.org/*` | first clip of an arXiv paper | `arxiv.org/html/<id>`, falling back to `/abs/` |
+| `https://raw.githubusercontent.com/*` | first clip of a `github.com` blob page for a `.md` file | the file's bytes (ADR 0023) |
+
+Both are asked for from the Clip flow's own user gesture —
 `chrome.permissions.request` refuses without one, which is why an already-granted
 popup skips the call rather than making it on open.
 
-- Granted: an arXiv page behaves like any other — preview on open, one click.
-- Not granted: nothing is fetched. The tab is previewed as usual and a
-  "Fetch HTML full text" button appears beside it.
-- Revoking it (`chrome://extensions` → Details → Site access) returns the
-  extension to clipping whatever the tab shows.
+- Granted: the page behaves like any other — preview on open, one click.
+- Not granted: nothing is fetched. The tab is previewed as usual and a fetch
+  button appears beside it, labelled for the publisher.
+- Revoking one (`chrome://extensions` → Details → Site access) returns the
+  extension to clipping whatever the tab shows — **except on a GitHub blob
+  page**, where it does not, because the tab shows GitHub's rendering of the
+  file and that would be committed under the file's own slug. There the popup
+  refuses and names the raw URL to open instead, which clips with no permission
+  at all (ADR 0023, clause 7).
+
+Neither is needed to clip a `.md` served as plain text — `raw.githubusercontent.com`
+itself, GitLab, Codeberg, anywhere. The tab already holds the file and
+`activeTab` covers reading it; the clipper recognizes the document by shape and
+carries the markdown through verbatim.
 
 Being optional is what keeps an update from being disabled pending re-approval;
 a required host permission would add an install-time warning and force one.
@@ -452,10 +468,11 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **3**: 2 added the optional arxiv.org fetch, and 3
+  policy also requires. It is at **4**: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
-  for Chrome to replicate. Both are new destinations, and a new destination is
-  a practice change whichever way the separate opt-in is answered. Both language
+  for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
+  fetch. Each is a new destination, and a new destination is a practice change
+  whichever way the separate opt-in is answered. Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
   English copy and silently missed the Chinese one that this extension actually

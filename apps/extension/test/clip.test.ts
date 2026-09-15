@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseArticle, slugForUrl } from "@tiro/shared";
-import { buildClipFile } from "../src/clip.ts";
+import { buildClipFile, tabSourceUrl } from "../src/clip.ts";
 
 const input = {
   url: "https://example.com/posts/hello-ai?utm_source=x",
@@ -138,4 +138,50 @@ test("omits source_url when it agrees with the article's own URL", async () => {
     clipperVersion: "0.11.2",
   });
   expect(file.content).not.toContain("source_url");
+});
+
+describe("tabSourceUrl", () => {
+  /**
+   * The gap this closes. Keyed on arXiv alone, a tab on the raw bytes was
+   * filed under the blob page — which the article would then have named as the
+   * URL its body came from, when the body came from somewhere the reader could
+   * still see in the address bar.
+   */
+  test("records the raw URL a GitHub file was read from", () => {
+    expect(
+      tabSourceUrl(
+        "https://raw.githubusercontent.com/o/r/refs/heads/main/docs/GUIDE.md",
+      ),
+    ).toBe(
+      "https://raw.githubusercontent.com/o/r/refs/heads/main/docs/GUIDE.md",
+    );
+  });
+
+  test("records the arXiv page a paper was read from", () => {
+    expect(tabSourceUrl("https://arxiv.org/html/2404.19756v1#S3")).toBe(
+      "https://arxiv.org/html/2404.19756v1",
+    );
+  });
+
+  // Nothing moved it, so the body and the article share a URL and a second
+  // field naming the same thing would only be noise.
+  test.each([
+    "https://example.com/posts/hello?utm_source=x",
+    "https://example.com/posts/hello/",
+    "https://arxiv.org/abs/2404.19756",
+    "https://github.com/o/r/blob/main/docs/GUIDE.md",
+    "https://github.com/o/r/blob/main/setup.py",
+    "not a url",
+  ])("records nothing for %s", (url) => {
+    expect(tabSourceUrl(url)).toBeUndefined();
+  });
+
+  // A reading position is not a source.
+  test("drops the query and fragment", () => {
+    expect(
+      tabSourceUrl(
+        "https://raw.githubusercontent.com/o/r/main/a.md?token=x#L4",
+      ),
+    ).toBe("https://raw.githubusercontent.com/o/r/main/a.md");
+  });
 });

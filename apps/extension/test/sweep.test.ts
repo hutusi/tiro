@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { backfill, countMarkdown } from "../scripts/sweep.ts";
+import { Window } from "happy-dom";
+import {
+  backfill,
+  countMarkdown,
+  isPlainText,
+  plainTextShell,
+} from "../scripts/sweep.ts";
+import { clipPage } from "../src/clip-page.ts";
 
 describe("countMarkdown", () => {
   test("counts images and the subset that carry a folded caption", () => {
@@ -307,5 +314,65 @@ describe("backfill", () => {
     expect(result?.index).toBe(
       article(body).replace("```\nlet", "```rust\nlet"),
     );
+  });
+});
+
+describe("plainTextShell", () => {
+  /**
+   * The blind spot this closes. The sweep replays cached *bytes* through the
+   * real clipper, and for one response type the bytes are not the document:
+   * Chrome shows `text/plain` as a single `<pre>`, which is what the markdown
+   * branch keys on. Replayed raw, a markdown file parses as HTML — `# Heading`
+   * is not a tag — and the sweep reports a diff against a pipeline nobody runs.
+   */
+  test("replays through the clipper the way the extension sees it", () => {
+    const window = new Window();
+    const doc = window.document as unknown as Document;
+    doc.documentElement.innerHTML = plainTextShell("# Guide\n\nProse.")
+      .replace(/^[\s\S]*?<html[^>]*>/i, "")
+      .replace(/<\/html>[\s\S]*$/i, "");
+    const payload = clipPage(doc, "https://raw.example.test/docs/GUIDE.md");
+    expect(payload.markdown).toBe("# Guide\n\nProse.");
+    expect(payload.markdownSource).toBe(true);
+  });
+
+  // Markup in the file is content, not markup: escaping is what keeps an
+  // inline `<div>` in a README from becoming part of the shell.
+  test("escapes the file rather than letting it close the pre", () => {
+    const shell = plainTextShell("a & b <pre></pre> <script>x</script>");
+    expect(shell).toContain(
+      "a &amp; b &lt;pre>&lt;/pre> &lt;script>x&lt;/script>",
+    );
+    expect(shell.match(/<pre>/g)).toHaveLength(1);
+  });
+});
+
+describe("isPlainText", () => {
+  // Media types are case-insensitive and carry parameters, so the header is
+  // not the type. Reading one as the other caches a markdown file as its own
+  // bytes and replays it as HTML — the phantom diff plainTextShell prevents.
+  test.each([
+    "text/plain",
+    "text/plain; charset=utf-8",
+    "TEXT/PLAIN; charset=UTF-8",
+    "Text/Plain",
+    " text/plain ",
+  ])("reads %s as plain text", (header) => {
+    expect(isPlainText(header)).toBe(true);
+  });
+
+  test.each([
+    "text/html",
+    "text/html; charset=utf-8",
+    "application/json",
+    // Not plain text, and a prefix test would have said it was.
+    "text/plainly",
+    "",
+  ])("does not read %s as plain text", (header) => {
+    expect(isPlainText(header)).toBe(false);
+  });
+
+  test("a response with no content-type is not plain text", () => {
+    expect(isPlainText(null)).toBe(false);
   });
 });

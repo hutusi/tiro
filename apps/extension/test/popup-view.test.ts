@@ -32,6 +32,7 @@ function state(overrides: Partial<PopupState> = {}): PopupState {
     configured: true,
     preview,
     problem: null,
+    source: null,
     clippedOn: null,
     updated: false,
     gated: false,
@@ -74,9 +75,11 @@ describe("popupView", () => {
         .preview?.warning,
     ).toBe(m.warningReadability);
     expect(
-      popupView(state({ preview: { ...preview, fromFetch: true } }), m).preview
-        ?.notice,
-    ).toBe(m.arxivNotice);
+      popupView(
+        state({ source: "arxiv", preview: { ...preview, fromFetch: true } }),
+        m,
+      ).preview?.notice,
+    ).toBe(m.fetchSources.arxiv.notice);
   });
 
   test("already clipped: dated label, Re-clip, both links — hint kept", () => {
@@ -106,10 +109,13 @@ describe("popupView", () => {
   });
 
   test("reading with a body on screen keeps the preview and drops the skeleton", () => {
-    const v = popupView(state({ phase: "reading", fetching: true }), m);
+    const v = popupView(
+      state({ source: "arxiv", phase: "reading", fetching: true }),
+      m,
+    );
     expect(v.loading).toBeNull();
     expect(v.preview).not.toBeNull();
-    expect(v.message).toBe(m.arxivFetching);
+    expect(v.message).toBe(m.fetchSources.arxiv.fetching);
   });
 
   test("clipping: Saving… with the progress caption, preview stays, Clip disabled", () => {
@@ -184,9 +190,10 @@ describe("popupView", () => {
   test("an arXiv PDF is blocked but not an error: the fetch is offered", () => {
     const v = popupView(
       state({
+        source: "arxiv",
         phase: "blocked",
         preview: null,
-        problem: { text: m.arxivOffer, error: false },
+        problem: { text: m.fetchSources.arxiv.offer, error: false },
         gated: true,
         fetchOffered: true,
       }),
@@ -194,16 +201,48 @@ describe("popupView", () => {
     );
     expect(v.label).toBe("");
     expect(v.labelTone).toBe("neutral");
-    expect(v.message).toBe(m.arxivOffer);
-    expect(v.arxivFetch).toBe(true);
+    expect(v.message).toBe(m.fetchSources.arxiv.offer);
+    expect(v.sourceFetch.visible).toBe(true);
   });
 
   test("arXiv gated: tab previewed, fetch offered, Clip waits", () => {
-    const v = popupView(state({ gated: true, fetchOffered: true }), m);
+    const v = popupView(
+      state({ source: "arxiv", gated: true, fetchOffered: true }),
+      m,
+    );
     expect(v.label).toBe("");
-    expect(v.message).toBe(m.arxivOffer);
-    expect(v.arxivFetch).toBe(true);
+    expect(v.message).toBe(m.fetchSources.arxiv.offer);
+    expect(v.sourceFetch.visible).toBe(true);
     expect(v.clip.enabled).toBe(false);
+  });
+
+  // The same flow, the other publisher. Everything that differs is a string,
+  // which is what moving them behind `source` was for.
+  test("GitHub gated: the offer names the file, not a paper", () => {
+    const v = popupView(
+      state({ source: "github", gated: true, fetchOffered: true }),
+      m,
+    );
+    expect(v.message).toBe(m.fetchSources.github.offer);
+    expect(v.sourceFetch.visible).toBe(true);
+    expect(v.sourceFetch.label).toBe(m.fetchSources.github.button);
+    expect(v.clip.enabled).toBe(false);
+  });
+
+  test("a fetched GitHub body says where it came from", () => {
+    const v = popupView(
+      state({ source: "github", preview: { ...preview, fromFetch: true } }),
+      m,
+    );
+    expect(v.preview?.notice).toBe(m.fetchSources.github.notice);
+  });
+
+  // An ordinary page reaches none of the fetch strings, and the button it
+  // would sit on has no label to show.
+  test("a page with no publisher rule shows no fetch button", () => {
+    const v = popupView(state({ gated: true, fetchOffered: true }), m);
+    expect(v.sourceFetch.label).toBe("");
+    expect(v.message).toBeNull();
   });
 
   test("the fetch is not offered until Settings are complete", () => {
@@ -217,19 +256,19 @@ describe("popupView", () => {
       }),
       m,
     );
-    expect(v.arxivFetch).toBe(false);
+    expect(v.sourceFetch.visible).toBe(false);
     expect(v.message).toBe(m.settingsFirst);
   });
 
   test("the fetch offer disappears once the gate is open", () => {
     const v = popupView(state({ gated: false, fetchOffered: true }), m);
-    expect(v.arxivFetch).toBe(false);
+    expect(v.sourceFetch.visible).toBe(false);
     expect(v.clip.enabled).toBe(true);
   });
 
   test("a standing note rides with the preview", () => {
-    const v = popupView(state({ note: m.arxivDenied }), m);
-    expect(v.preview?.note).toBe(m.arxivDenied);
+    const v = popupView(state({ note: m.fetchSources.arxiv.denied }), m);
+    expect(v.preview?.note).toBe(m.fetchSources.arxiv.denied);
   });
 
   test("Chinese table formats the meta line in its own units", () => {
@@ -267,5 +306,164 @@ describe("links", () => {
     expect(
       vaultFileUrl({ owner: "o", repo: "r", branch: "feat/x" }, "a/index.md"),
     ).toBe("https://github.com/o/r/blob/feat/x/a/index.md");
+  });
+});
+
+describe("popupView, a document that cannot be reached", () => {
+  const RAW = "https://raw.githubusercontent.com/o/r/main/docs/GUIDE.md";
+
+  /**
+   * The screen the refusal produces. Blocked rather than ready, because the
+   * body on screen is GitHub's rendering of the file and committing it would
+   * replace the file's own clip — and the offer stays, because a denial can be
+   * reconsidered and a failure retried.
+   */
+  test("blocks, keeps the preview, and re-offers the fetch", () => {
+    const v = popupView(
+      state({
+        source: "github",
+        phase: "blocked",
+        problem: { text: m.fetchSources.github.instead(RAW), error: true },
+        note: m.fetchSources.github.denied,
+        gated: true,
+        fetchOffered: true,
+      }),
+      m,
+    );
+    expect(v.label).toBe(m.labelCannotClip);
+    expect(v.labelTone).toBe("error");
+    expect(v.message).toContain(RAW);
+    expect(v.clip.enabled).toBe(false);
+    expect(v.sourceFetch.visible).toBe(true);
+    expect(v.sourceFetch.label).toBe(m.fetchSources.github.button);
+    // The card stays: it names which file is being refused, and carries the
+    // cause while the message line carries the remedy.
+    expect(v.preview).not.toBeNull();
+    expect(v.preview?.note).toBe(m.fetchSources.github.denied);
+  });
+
+  // A page Tiro refuses is usually one whose file is already in the vault,
+  // which is exactly when the reader wants the link to it.
+  test("still links to the clip the page already has", () => {
+    const v = popupView(
+      state({
+        phase: "blocked",
+        problem: { text: m.cannotClipPdf, error: true },
+        clippedOn: "Sep 2, 2026",
+        links,
+      }),
+      m,
+    );
+    expect(v.links).toEqual({ ...links, hint: true });
+  });
+});
+
+describe("popupView while a fetch is in flight", () => {
+  /**
+   * Pressing Fetch before the tab reported used to hide the fetch: the tab's
+   * body arrives, settles the phase to `ready` on its way in, and the ready
+   * screen never looks at `fetching` — so the caption vanished, the button was
+   * already spent, and Clip stayed gated with nothing on screen saying why.
+   */
+  test("a body arriving mid-fetch does not hide the fetch", () => {
+    const v = popupView(
+      state({ source: "github", phase: "ready", fetching: true, gated: true }),
+      m,
+    );
+    expect(v.label).toBe(m.labelReading);
+    expect(v.message).toBe(m.fetchSources.github.fetching);
+    expect(v.preview).not.toBeNull();
+  });
+
+  /**
+   * The half that was missed the first time. A *tab* verdict — this is a PDF,
+   * this could not be read, this never answered — is not settled while the
+   * fetch that would replace it is still running, and that fetch is the only
+   * thing that can clear the screen. Blocking on it left the popup offering to
+   * fetch what it was already fetching, with no button and no progress.
+   */
+  test("a PDF verdict arriving mid-fetch does not hide the fetch", () => {
+    const v = popupView(
+      state({
+        source: "arxiv",
+        phase: "blocked",
+        preview: null,
+        problem: { text: m.fetchSources.arxiv.offer, error: false },
+        fetching: true,
+      }),
+      m,
+    );
+    expect(v.label).toBe(m.labelReading);
+    // No card to sit under, so the caption carries it — and does not claim the
+    // page is being extracted, which is not what is happening.
+    expect(v.loading).toBe(m.fetchSources.arxiv.fetching);
+    expect(v.message).toBeNull();
+  });
+
+  // The one block a fetch cannot clear: there is nowhere to clip to yet, so
+  // the setup instruction stays in front of it.
+  test("does not repaint the setup instruction as reading", () => {
+    const v = popupView(
+      state({
+        source: "arxiv",
+        configured: false,
+        phase: "blocked",
+        problem: { text: m.settingsFirst, error: true },
+        fetching: true,
+      }),
+      m,
+    );
+    expect(v.label).toBe(m.labelSetUp);
+    expect(v.message).toBe(m.settingsFirst);
+  });
+
+  // A commit cannot overlap a fetch — Clip only opens once one has resolved,
+  // and no retry is offered after that — but these stay settled regardless.
+  test.each(["clipping", "saved", "failed"] as const)(
+    "does not repaint a %s screen as reading",
+    (phase) => {
+      const v = popupView(
+        state({
+          source: "github",
+          phase,
+          fetching: true,
+          problem: { text: m.cannotClip, error: true },
+        }),
+        m,
+      );
+      expect(v.message).not.toBe(m.fetchSources.github.fetching);
+    },
+  );
+
+  // The fetch is over; the popup has stopped reading.
+  test("stops reading once the fetch resolves", () => {
+    const v = popupView(
+      state({ source: "arxiv", phase: "ready", fetching: false }),
+      m,
+    );
+    expect(v.label).toBe(m.labelReady);
+    expect(v.clip.enabled).toBe(true);
+  });
+
+  /**
+   * The state `settleFetch` has to produce after a declined arXiv fetch: the
+   * attempt is over, the tab's body is a fair article, and Clip must be
+   * usable. Left in `reading` — which is what `fetchDocument` set when the
+   * attempt began — the button stayed disabled with nothing left to re-enable
+   * it, because the tab had already reported.
+   */
+  test("a declined arXiv fetch leaves a usable Clip", () => {
+    const v = popupView(
+      state({
+        source: "arxiv",
+        phase: "ready",
+        fetching: false,
+        gated: false,
+        note: m.fetchSources.arxiv.denied,
+      }),
+      m,
+    );
+    expect(v.clip.enabled).toBe(true);
+    expect(v.preview?.note).toBe(m.fetchSources.arxiv.denied);
   });
 });

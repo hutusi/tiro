@@ -34,18 +34,45 @@ flowchart LR
    and commits a single `index.md` into the vault via the GitHub Contents API.
    Images stay hotlinked (absolute URLs) at this stage.
 
-   An arXiv paper is the one page not read from the tab. Because `/abs/`,
-   `/pdf/` and `/html/` are one article (ADR 0013), clipping the abstract page
-   would otherwise overwrite a full-text clip with less — so the popup fetches
-   `arxiv.org/html/<id>` itself, under an optional host permission requested
-   from the Clip button's own user gesture, and falls back to the abstract page
-   when arXiv has no usable HTML (a `\includepdf` submission renders as a stub
-   arXiv still serves with HTTP 200). A fetched document is given a `<base>` and
-   has its `src`/`href` attributes rewritten before extraction: Readability
-   absolutizes against `doc.baseURI`, which for a `DOMParser` document is the
-   popup's URL, and the processor downloads only `https?://` URLs — so without
-   it every figure would vanish without an error anywhere. A PDF served to the
-   tab itself is refused outright rather than committed as an empty article.
+   Two kinds of page are not read from the tab at all, for one reason: their
+   publisher's URL forms are a single identity (ADR 0013), so a clip does not
+   *add* an article but replaces one — and the body in the tab is the lesser of
+   the two. Both are fetched under an optional host permission requested from
+   the Clip button's own user gesture, and record `tiro.source_url`. The popup
+   holds them behind one `FetchableSource` descriptor, and the rule for choosing
+   between a fetched body and the tab's lives in `clip-candidate.ts`: prefer the
+   body that *is* the document, and gate the Clip button until that is settled.
+
+   - **An arXiv paper.** The popup fetches `arxiv.org/html/<id>`, falling back
+     to the abstract page when arXiv has no usable HTML (a `\includepdf`
+     submission renders as a stub arXiv still serves with HTTP 200). A fetched
+     document is given a `<base>` and has its `src`/`href` attributes rewritten
+     before extraction: Readability absolutizes against `doc.baseURI`, which for
+     a `DOMParser` document is the popup's URL, and the processor downloads only
+     `https?://` URLs — so without it every figure would vanish without an error
+     anywhere.
+   - **A markdown file on GitHub.** A `github.com/<owner>/<repo>/blob/…/*.md`
+     page is a *rendering* of the file, and its "Code" tab is worse — the source
+     sits in a virtualized container holding only the lines scrolled into view.
+     The popup fetches the bytes from `raw.githubusercontent.com` instead
+     (ADR 0023). Nothing is fetched when the reader is already on the raw URL:
+     the tab holds the file and `activeTab` covers reading it.
+
+   A PDF served to the tab itself is refused outright rather than committed as
+   an empty article.
+
+   A markdown file is the one document the pipeline below does not touch. Chrome
+   renders `text/plain` as a shell whose body is one `<pre>`, which the clipper
+   used to convert into a single fence around the whole document — untranslatable
+   by contract, titled after the hostname, and with every repo-relative image
+   left pointing at the site's own origin. The file is already markdown, so
+   `clipPage` branches before any of the repair below: the body is carried
+   verbatim, relative destinations are resolved against the URL the bytes came
+   from, reference-style links are inlined so each top-level block still renders
+   standalone, and the title comes from the file's own frontmatter or its first
+   heading (ADR 0023). Detection is structural — the body is exactly one `<pre>`
+   holding all of the document's text — so GitLab, Codeberg and any static `.md`
+   are covered without a hostname.
 
    The repair pass (`apps/extension/src/dom-prepare.ts`) runs on a clone
    *before* Readability, which prunes low-text subtrees it cannot be asked to
@@ -147,12 +174,22 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   overwrites the same article and reprocesses it.
 - **A publisher may define its own identity** (ADR 0013). `canonicalizeUrl`
   runs last in `normalizeUrl` and rewrites a URL to the form its publisher
-  declares canonical — today only arXiv, whose `/abs/`, `/pdf/` and `/html/`
-  forms and `v1`/`v2` suffixes all name one paper, and whose abstract page
-  says so in its own `rel="canonical"`. The rewrite fires only on a known host,
-  a known paper route and an exact identifier match, so `/list/cs.AI/recent`
-  stays an ordinary page. `tiro.source_url` records the URL the body was read
-  from when that is not the article's own — for arXiv, the versioned HTML page.
+  declares canonical. Two rules today:
+  - **arXiv**, whose `/abs/`, `/pdf/` and `/html/` forms and `v1`/`v2` suffixes
+    all name one paper, and whose abstract page says so in its own
+    `rel="canonical"`. The rewrite fires only on a known host, a known paper
+    route and an exact identifier match, so `/list/cs.AI/recent` stays an
+    ordinary page.
+  - **GitHub markdown** (ADR 0023), where the raw bytes and the blob page are
+    one file and `refs/heads/main` and `main` are one ref. The rewrite carries
+    `<ref>/<path>` as an opaque tail and only replaces the prefix, because a
+    branch name may contain slashes and nothing offline can say where the ref
+    ends. A different ref stays a different article — a tag or SHA is a pin,
+    not a variant — and the rule is gated on markdown, because identity is only
+    safe to claim where the clipper can read the file.
+
+  `tiro.source_url` records the URL the body was read from when that is not the
+  article's own — for arXiv the versioned HTML page, for GitHub the raw file.
   Changing a rule renames existing articles: `validate` detects it,
   `sweep --recanonicalize` repairs it.
 - **Short links are derived, not assigned** (ADR 0019). `/s/<id>` redirects to

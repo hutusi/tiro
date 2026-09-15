@@ -16,8 +16,9 @@
       <h2 id="disclosure-title">Before Tiro reads this page</h2>
       <p id="disclosure-body-1">
         To show you a preview, Tiro reads the open page in your browser — its
-        article text, title, and address. For an arXiv paper it can fetch the
-        HTML full text from arxiv.org instead, once you allow it.
+        article text, title, and address. For an arXiv paper, or a markdown
+        file on GitHub, it can fetch the document itself — from arxiv.org or
+        raw.githubusercontent.com — instead, once you allow it.
       </p>
       <p id="disclosure-body-2">
         None of it is sent to your vault until you press “Clip to vault”, which
@@ -84,7 +85,7 @@
     </div>
 
     <div class="actions">
-      <button id="arxiv-fetch" type="button" class="btn btn-secondary" hidden>
+      <button id="source-fetch" type="button" class="btn btn-secondary" hidden>
         Fetch HTML full text
       </button>
       <button id="clip" type="button" class="btn btn-primary" disabled>

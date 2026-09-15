@@ -13,6 +13,7 @@ const valid: ClipResultMessage = {
     hasMath: false,
     pdfViewer: false,
     latexmlFullText: false,
+    markdownSource: false,
   },
 };
 

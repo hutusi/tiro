@@ -44,6 +44,13 @@
  *    gatesnotes articles in the corpus do exactly that — and lazy-loaded images
  *    resolve in a browser and not here. Only a headless browser fixes this, and
  *    that is a different tool. `--min-chars` flags the shells it can detect.
+ *    The one case where the gap was closed rather than accepted is
+ *    `text/plain`: the document Chrome builds for it is fully determined by the
+ *    bytes, so `plainTextShell` builds the same one (see it for why the
+ *    alternative is a permanent phantom diff). Note also that every mode reads
+ *    `tiro.source_url` rather than the article's own URL — see `sourceUrl`,
+ *    because those differ for every publisher rule and fetching the wrong one
+ *    reports a regression against a document nobody clipped.
  * 2. **A `--baseline` run resolves dependencies from the working tree.** The
  *    worktree holds source, not `node_modules`, so both sides import today's
  *    Readability and Turndown. That is what you want when judging your own
@@ -83,6 +90,25 @@ import {
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 import type { ClipPayload } from "../src/messages.ts";
+
+/**
+ * Where an article's body was read from, which is not always where it is filed.
+ *
+ * Since ADR 0013 a publisher rule may file an article under a URL the body
+ * never came from: an arXiv paper lives at `/abs/` and is read from `/html/`, a
+ * GitHub markdown file lives at its blob page and is read from the raw bytes.
+ * `tiro.source_url` records the difference, and a sweep that fetched the
+ * identity URL replayed a *different document* through the clipper and called
+ * the difference a regression.
+ *
+ * It was already wrong before this branch — the one arXiv article carrying a
+ * source URL reported a phantom `-2 images` on `main` — and would have become
+ * silently wrong for every GitHub markdown file the moment the migration
+ * renamed one, which is to say exactly when the tool was needed.
+ */
+function sourceUrl(article: Article): string {
+  return article.frontmatter.tiro.source_url ?? article.url;
+}
 
 interface Article {
   slug: string;
@@ -157,7 +183,9 @@ async function loadArticles(vault: string): Promise<Article[]> {
  *
  * The cache is what makes the sweep usable: a run costs one request per article
  * the first time and none afterwards, so comparing two clipper versions
- * compares the clipper rather than whatever the sites served that minute.
+ * compares the clipper rather than whatever the sites served that minute. Each
+ * entry records the URL it came from, because the slug it is filed under no
+ * longer determines that.
  *
  * The deadline is not optional. Without it one server that accepts a connection
  * and then stops talking hangs the whole corpus indefinitely, and the run has
@@ -165,7 +193,18 @@ async function loadArticles(vault: string): Promise<Article[]> {
  */
 async function fetchPage(url: string, pages: string, slug: string) {
   const path = join(pages, `${slug}.html`);
-  if (existsSync(path)) return readFile(path, "utf-8");
+  // Keyed by slug, but only valid for the URL it was fetched from. Those came
+  // apart the moment modes started reading `tiro.source_url`: an entry cached
+  // from a blob page would be served for a request for the raw file, and the
+  // clipper would be handed GitHub's rendering where it expected the file —
+  // reporting a regression against a document nobody clipped. An entry with no
+  // record of its URL predates this and is refetched, which also settles the
+  // stale ones already on disk.
+  const stamp = `${path}.url`;
+  if (existsSync(path) && existsSync(stamp)) {
+    if ((await readFile(stamp, "utf-8")) === url)
+      return readFile(path, "utf-8");
+  }
   const response = await fetch(url, {
     signal: AbortSignal.timeout(30_000),
     headers: {
@@ -176,10 +215,45 @@ async function fetchPage(url: string, pages: string, slug: string) {
     },
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const html = await response.text();
+  const body = await response.text();
+  const html = isPlainText(response.headers.get("content-type"))
+    ? plainTextShell(body)
+    : body;
   await mkdir(pages, { recursive: true });
   await writeFile(path, html);
+  await writeFile(stamp, url);
   return html;
+}
+
+/**
+ * Whether a response is plain text, by its media type rather than by the header
+ * it arrived in.
+ *
+ * Media types are case-insensitive and carry parameters, so the header is not
+ * the type: `TEXT/PLAIN; charset=utf-8` is the same type as `text/plain`, and a
+ * prefix test reads it as something else — which here means caching a markdown
+ * file as its own bytes and replaying it as HTML, the phantom diff
+ * `plainTextShell` exists to prevent. The other direction matters less but
+ * costs nothing: `text/plainly` is not plain text either.
+ */
+export function isPlainText(header: string | null): boolean {
+  return (header ?? "").split(";")[0]?.trim().toLowerCase() === "text/plain";
+}
+
+/**
+ * What Chrome builds for a `text/plain` response: the bytes in one `<pre>`.
+ *
+ * Cached in that form because the cache is meant to hold what a browser would
+ * have shown, and this is the one response type where the bytes and the
+ * document differ. Without it a markdown file replays as markdown *parsed as
+ * HTML* — which is neither what the clipper sees nor anything at all, since
+ * `# Heading` is not a tag — and the clipper's markdown branch, which keys on
+ * exactly this shape, would never fire. The sweep would then report a phantom
+ * diff on every markdown article in the corpus, forever.
+ */
+export function plainTextShell(text: string): string {
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return `<html><head></head><body><pre>${escaped}</pre></body></html>`;
 }
 
 type Clip = (doc: Document, url: string) => { markdown: string };
@@ -557,8 +631,9 @@ async function fillLanguages(
     let indexText: string;
     let zhText: string | null;
     try {
-      const html = await fetchPage(article.url, args.pages, article.slug);
-      const fresh = (await clipHtml(html, article.url, clipPage)).markdown;
+      const url = sourceUrl(article);
+      const html = await fetchPage(url, args.pages, article.slug);
+      const fresh = (await clipHtml(html, url, clipPage)).markdown;
       indexText = await readFile(indexPath, "utf-8");
       zhText = existsSync(zhPath) ? await readFile(zhPath, "utf-8") : null;
       result = backfill(indexText, zhText, fresh);
@@ -718,8 +793,9 @@ async function recanonicalizeAll(
     let fresh: ClipPayload | null = null;
     let note = "";
     try {
-      const html = await fetchPage(article.url, args.pages, article.slug);
-      fresh = await clipHtml(html, article.url, clipPage);
+      const url = sourceUrl(article);
+      const html = await fetchPage(url, args.pages, article.slug);
+      fresh = await clipHtml(html, url, clipPage);
     } catch (error) {
       note = ` (metadata left alone: ${error instanceof Error ? error.message : String(error)})`;
     }
@@ -884,12 +960,13 @@ async function main() {
     let after: string;
     let before: string;
     try {
-      const html = await fetchPage(article.url, args.pages, article.slug);
-      after = (await clipHtml(html, article.url, clipPage)).markdown;
+      const url = sourceUrl(article);
+      const html = await fetchPage(url, args.pages, article.slug);
+      after = (await clipHtml(html, url, clipPage)).markdown;
       before =
         baselineClip === null
           ? article.body
-          : (await clipHtml(html, article.url, baselineClip)).markdown;
+          : (await clipHtml(html, url, baselineClip)).markdown;
     } catch (error) {
       // Neither a page that will not load nor one that will not clip is a
       // finding about the corpus, and neither may stop the rest being reported.

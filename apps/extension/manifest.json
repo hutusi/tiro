@@ -35,5 +35,8 @@
   },
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://api.github.com/*"],
-  "optional_host_permissions": ["https://arxiv.org/*"]
+  "optional_host_permissions": [
+    "https://arxiv.org/*",
+    "https://raw.githubusercontent.com/*"
+  ]
 }
