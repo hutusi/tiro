@@ -375,8 +375,51 @@ describe("popupView while a fetch is in flight", () => {
     expect(v.preview).not.toBeNull();
   });
 
-  // A settled screen is not something an in-flight fetch should repaint.
-  test.each(["blocked", "clipping", "saved", "failed"] as const)(
+  /**
+   * The half that was missed the first time. A *tab* verdict — this is a PDF,
+   * this could not be read, this never answered — is not settled while the
+   * fetch that would replace it is still running, and that fetch is the only
+   * thing that can clear the screen. Blocking on it left the popup offering to
+   * fetch what it was already fetching, with no button and no progress.
+   */
+  test("a PDF verdict arriving mid-fetch does not hide the fetch", () => {
+    const v = popupView(
+      state({
+        source: "arxiv",
+        phase: "blocked",
+        preview: null,
+        problem: { text: m.fetchSources.arxiv.offer, error: false },
+        fetching: true,
+      }),
+      m,
+    );
+    expect(v.label).toBe(m.labelReading);
+    // No card to sit under, so the caption carries it — and does not claim the
+    // page is being extracted, which is not what is happening.
+    expect(v.loading).toBe(m.fetchSources.arxiv.fetching);
+    expect(v.message).toBeNull();
+  });
+
+  // The one block a fetch cannot clear: there is nowhere to clip to yet, so
+  // the setup instruction stays in front of it.
+  test("does not repaint the setup instruction as reading", () => {
+    const v = popupView(
+      state({
+        source: "arxiv",
+        configured: false,
+        phase: "blocked",
+        problem: { text: m.settingsFirst, error: true },
+        fetching: true,
+      }),
+      m,
+    );
+    expect(v.label).toBe(m.labelSetUp);
+    expect(v.message).toBe(m.settingsFirst);
+  });
+
+  // A commit cannot overlap a fetch — Clip only opens once one has resolved,
+  // and no retry is offered after that — but these stay settled regardless.
+  test.each(["clipping", "saved", "failed"] as const)(
     "does not repaint a %s screen as reading",
     (phase) => {
       const v = popupView(

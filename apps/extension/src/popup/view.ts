@@ -100,6 +100,9 @@ export interface PopupView {
   links: (PopupLinks & { hint: boolean }) | null;
 }
 
+/** Phases an in-flight fetch may repaint. See the derivation below. */
+const FETCH_OVERRIDES: ReadonlySet<Phase> = new Set(["ready", "blocked"]);
+
 export function popupView(s: PopupState, m: Messages): PopupView {
   // Null on an ordinary page, where none of these strings are reachable: every
   // one of them is behind `s.source !== null` by way of `gated`, `fetching` or
@@ -128,13 +131,25 @@ export function popupView(s: PopupState, m: Messages): PopupView {
    * An in-flight fetch is what the popup is *doing*, whatever phase was last
    * assigned. Derived here rather than assigned there because a body arriving
    * mid-fetch settles the phase on its way in — so pressing Fetch before the
-   * tab reported hid the fetch behind a screen offering to start one, with no
-   * button and a gated Clip until the request came back.
+   * tab reported hid the fetch behind whatever verdict that body carried, with
+   * no button, no progress, and a gated Clip until the request came back.
    *
-   * Only `ready` is overridden: a settled screen — blocked, clipping, saved,
-   * failed — is not something an in-flight fetch should repaint.
+   * `blocked` belongs in that set, and leaving it out is what left the bug half
+   * fixed: a *tab* verdict — this is a PDF, this could not be read, this never
+   * answered — is not settled while the fetch that would replace it is still
+   * running. That fetch is the only thing that can clear such a screen.
+   *
+   * `s.configured` keeps the setup instruction in front of everything, since it
+   * is the one block a fetch cannot clear. The refusal cannot collide here at
+   * all: it needs a resolved attempt, and a fetch in flight has just replaced
+   * the attempt with a fresh one. `clipping`, `saved` and `failed` are left
+   * alone because a commit and a fetch cannot overlap — Clip only opens once a
+   * fetch has resolved, and no retry is offered after that.
    */
-  const phase: Phase = s.fetching && s.phase === "ready" ? "reading" : s.phase;
+  const phase: Phase =
+    s.fetching && s.configured && FETCH_OVERRIDES.has(s.phase)
+      ? "reading"
+      : s.phase;
   const reclip = s.clippedOn !== null;
   const clipLabel = reclip ? m.reclipButton : m.clipButton;
   const clipDisabled = {
@@ -183,13 +198,19 @@ export function popupView(s: PopupState, m: Messages): PopupView {
             : null,
       };
     }
-    case "reading":
+    case "reading": {
+      // A fetch says so once: in the message where a card is on screen for it
+      // to sit under, and in the skeleton's caption where there is none —
+      // because the caption there otherwise claims the page is being
+      // extracted, which during a fetch is not what is happening.
+      const fetched = s.fetching ? (source?.fetching ?? null) : null;
       return {
         ...base,
         label: m.labelReading,
-        message: s.fetching ? (source?.fetching ?? null) : null,
-        loading: preview === null ? m.loadingExtract : null,
+        message: preview === null ? null : fetched,
+        loading: preview === null ? (fetched ?? m.loadingExtract) : null,
       };
+    }
     case "ready": {
       const clippedOn = s.clippedOn;
       return {
