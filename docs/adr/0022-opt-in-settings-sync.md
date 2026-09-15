@@ -97,6 +97,19 @@ about v2, and falls back to the last value it saw. The mirror's promise is
 therefore "the newest value this machine has observed", not "the newest value
 written anywhere", and no amount of mirroring can make it the latter.
 
+**A write racing a disable on another machine can briefly restore the token.**
+Chrome takes seconds to propagate a disable, so a save here can read a stale
+`true`, write, and undo a removal the user asked for. Two things narrow it: a
+save re-reads the flag after writing and withdraws its own copy if the flag has
+gone false, and whichever machine observes the switch go off clears synced
+settings that outlived it. Neither closes it — the other machine's disable may
+still be in flight when both checks run — and closing it properly needs a
+versioned tombstone or equivalent profile-wide protocol, which
+`chrome.storage.sync` gives no compare-and-set to build on. What holds is
+weaker and worth stating as such: no machine knowingly leaves a token in sync
+after seeing the flag go false, and any machine that later sees the disable
+removes what is there.
+
 **Mutations are serialised per page, not per profile.** The queue in
 `storage.ts` is module state, so each options tab and the worker hold their
 own. A save issued in one options tab at the same instant as a sync toggle in

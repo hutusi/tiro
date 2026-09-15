@@ -491,13 +491,18 @@ Two decisions worth not relitigating:
   `chrome.storage.sync`, so a machine signed into the same Chrome profile
   configures itself — the `tiroSyncEnabled` flag lives in the synced area too,
   which is what makes the second machine zero-setup rather than one checkbox.
-  `local` is kept current three ways — writes go to both areas, a read records
-  what it took from `sync`, and the service worker mirrors synced changes as
-  Chrome delivers them — so switching sync back off leaves every machine with a
-  current copy, not just the one that switched it. That clearing is the point
-  of switching it off: it takes the token back off Google's servers. A machine
-  falls back to defaults only if its worker has seen no change and it has never
-  read since sync was enabled. Two keys never sync — `tiroClipHistory` because one key of
+  `local` is mirrored three ways — writes go to both areas, a read records what
+  it took from `sync`, and the service worker mirrors synced changes as Chrome
+  delivers them — so switching sync back off leaves every machine holding the
+  most recent settings **it has observed**, not just the machine that switched
+  it. Observed, not current: Chrome syncs state rather than an event log, so a
+  machine closed or offline while the settings last changed keeps the older
+  copy, and one that has seen no change and never read since sync was enabled
+  falls back to defaults. That clearing is the point of switching it off — it
+  takes the token back off Google's servers — and whichever machine sees the
+  switch go off clears anything a late write put back. ADR 0022 has the exact
+  limits, including the cross-machine write race the clearing narrows rather
+  than closes. Two keys never sync — `tiroClipHistory` because one key of
   up to 500 entries (~35-50 KB) exceeds sync's 8,192-byte per-item cap, and
   `tiroDisclosure` because consent to read pages belongs to an install, not an
   account.
