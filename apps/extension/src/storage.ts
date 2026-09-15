@@ -31,41 +31,71 @@ const SYNCED_KEYS = [KEY, LANGUAGE_KEY];
  * to every machine on the profile, which is the user's call to make and not a
  * default to inherit (ADR 0022).
  *
- * A failed read answers "off" rather than throwing. That is the safe
- * direction: writes are mirrored to `local` unconditionally, so falling back
- * to `local` always finds current settings, whereas throwing would leave the
- * popup with no config at all. */
+ * Throws if the answer cannot be read. Only the read path may paper over that
+ * (see `syncEnabledForRead`); anything that writes, or that reports the state
+ * to the user, has to know it asked successfully. */
 export async function loadSyncEnabled(): Promise<boolean> {
+  const stored = await chrome.storage.sync.get(SYNC_KEY);
+  return stored[SYNC_KEY] === true;
+}
+
+/** The same question, answered "off" when it cannot be asked at all.
+ *
+ * Reads may do this because `local` is kept current (see `readSynced`), so
+ * falling back to it still finds settings, where throwing would leave the
+ * popup with no config and no way to clip. A *write* must never take the same
+ * shortcut: it would store the config locally, report success, and leave the
+ * synced copy to win again the moment the read recovered. */
+async function syncEnabledForRead(): Promise<boolean> {
   try {
-    const stored = await chrome.storage.sync.get(SYNC_KEY);
-    return stored[SYNC_KEY] === true;
+    return await loadSyncEnabled();
   } catch {
     return false;
   }
 }
 
-/** The area to read a synced key from. Writes never use this — they go to
- * `local` always and to `sync` as well when enabled, so `local` stays a warm
- * mirror and turning sync off can never look like a wipe. */
-async function readArea(): Promise<chrome.storage.StorageArea> {
-  return (await loadSyncEnabled()) ? chrome.storage.sync : chrome.storage.local;
-}
-
 /** Reads one synced key, preferring `sync` when enabled but falling back to
  * `local` when it holds nothing yet — the window after the toggle goes on and
- * before Chrome has pushed anything down. */
+ * before Chrome has pushed anything down.
+ *
+ * Records what it reads from `sync` into `local`. The write on a read path is
+ * the point of this function rather than an accident: a machine configured
+ * entirely by sync never calls a writer, so it would hold no copy of its own,
+ * and disabling sync from another machine — which withdraws the synced keys
+ * everywhere — would leave it with nothing but defaults. Mirroring on read is
+ * what makes ADR 0022's "no machine is left without settings" true for the
+ * machine the feature exists to serve.
+ *
+ * Best-effort, and deliberately so: a machine whose `local` cannot be written
+ * has worse problems than a cold mirror, and failing the read would stop a
+ * clip that was otherwise fine. Writing only on a difference keeps opening the
+ * popup from churning storage for nothing. */
 async function readSynced(key: string): Promise<unknown> {
-  const area = await readArea();
-  const stored = await area.get(key);
-  if (key in stored) return stored[key];
-  if (area === chrome.storage.local) return undefined;
-  return (await chrome.storage.local.get(key))[key];
+  if (!(await syncEnabledForRead())) {
+    return (await chrome.storage.local.get(key))[key];
+  }
+  const stored = await chrome.storage.sync.get(key);
+  const local = (await chrome.storage.local.get(key))[key];
+  if (!(key in stored)) return local;
+  const value = stored[key];
+  if (JSON.stringify(local) !== JSON.stringify(value)) {
+    try {
+      await chrome.storage.local.set({ [key]: value });
+    } catch {
+      // Cold mirror; the value read is still good.
+    }
+  }
+  return value;
 }
 
-/** Writes one synced key to `local`, and to `sync` too when enabled. */
+/** Writes one synced key to `local`, and to `sync` too when enabled.
+ *
+ * Settles the flag before writing anything, so a flag that cannot be read
+ * fails the whole save rather than quietly demoting it to local-only. */
 async function writeSynced(key: string, value: unknown): Promise<void> {
+  const enabled = await loadSyncEnabled();
   await chrome.storage.local.set({ [key]: value });
-  if (await loadSyncEnabled()) {
+  if (enabled) {
     await chrome.storage.sync.set({ [key]: value });
   }
 }

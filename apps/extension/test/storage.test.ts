@@ -328,3 +328,90 @@ describe("settings sync", () => {
     expect(await loadConfig()).toEqual(config);
   });
 });
+
+describe("settings sync — surviving a change made elsewhere", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const config: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+
+  test("a machine configured only by sync keeps its settings when another machine disables it", async () => {
+    // The zero-setup case, and the one the feature exists for: Chrome has
+    // pushed the flag and the config down, and this machine has never saved
+    // anything of its own. It therefore never called a writer, so only a read
+    // can have left it a copy.
+    chrome.sync.data.tiroSyncEnabled = true;
+    chrome.sync.data.tiroConfig = config;
+    chrome.sync.data.tiroLanguage = "zh";
+    expect(await loadConfig()).toEqual(config);
+    expect(await loadLanguage()).toBe("zh");
+
+    // Another machine switches sync off, which withdraws the synced keys
+    // everywhere and flips the flag.
+    delete chrome.sync.data.tiroConfig;
+    delete chrome.sync.data.tiroLanguage;
+    chrome.sync.data.tiroSyncEnabled = false;
+
+    expect(await loadConfig()).toEqual(config);
+    expect(await loadLanguage()).toBe("zh");
+  });
+
+  test("reading from sync leaves a local copy behind", async () => {
+    chrome.sync.data.tiroSyncEnabled = true;
+    chrome.sync.data.tiroConfig = config;
+    await loadConfig();
+    expect(chrome.local.data.tiroConfig).toEqual(config);
+  });
+
+  test("a cold local mirror does not fail the read", async () => {
+    // A machine that cannot write locally has worse problems than a stale
+    // mirror; refusing the read would stop a clip that was otherwise fine.
+    chrome.sync.data.tiroSyncEnabled = true;
+    chrome.sync.data.tiroConfig = config;
+    chrome.local.set = async () => {
+      throw new Error("local unavailable");
+    };
+    expect(await loadConfig()).toEqual(config);
+  });
+});
+
+describe("settings sync — a flag that cannot be read", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const config: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+
+  test("a save fails rather than silently becoming local-only", async () => {
+    // Demoting the write and reporting success would strand the user: the
+    // older synced config wins again as soon as the read recovers.
+    chrome.sync.data.tiroSyncEnabled = true;
+    chrome.sync.get = async () => {
+      throw new Error("sync unavailable");
+    };
+    await expect(saveConfig(config)).rejects.toThrow("sync unavailable");
+  });
+
+  test("a read still answers, from the local mirror", async () => {
+    // The opposite direction, and deliberately so: the popup must still be
+    // able to clip.
+    await saveConfig(config);
+    chrome.sync.get = async () => {
+      throw new Error("sync unavailable");
+    };
+    expect(await loadConfig()).toEqual(config);
+  });
+});

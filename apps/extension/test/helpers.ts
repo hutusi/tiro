@@ -9,8 +9,13 @@
  * defaulting. `remove` is here because disabling settings sync depends on it.
  */
 export interface StorageAreaMock {
-  /** The backing object, exposed so a test can seed or assert on it directly. */
-  data: Record<string, unknown>;
+  /** The backing object, exposed so a test can seed or assert on it directly.
+   *
+   * Mutate it (`data.key = v`, `delete data.key`); it cannot be reassigned.
+   * `get`/`set` close over this object, so `area.data = {}` would swap the
+   * reference a test reads while leaving the one the mock writes — which once
+   * made a regression test pass against the very bug it was written for. */
+  readonly data: Record<string, unknown>;
   get(keys?: string | string[] | null): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
   remove(keys: string | string[]): Promise<void>;
@@ -25,7 +30,11 @@ export interface ChromeStorageMock {
 function makeArea(): StorageAreaMock {
   const data: Record<string, unknown> = {};
   return {
-    data,
+    // A getter, not a plain property: assigning to it throws in module scope
+    // rather than quietly detaching the mock from its own backing object.
+    get data() {
+      return data;
+    },
     async get(keys) {
       if (keys === undefined || keys === null) return { ...data };
       const wanted = typeof keys === "string" ? [keys] : keys;
