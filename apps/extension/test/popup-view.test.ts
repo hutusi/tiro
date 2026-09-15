@@ -32,6 +32,7 @@ function state(overrides: Partial<PopupState> = {}): PopupState {
     configured: true,
     preview,
     problem: null,
+    source: null,
     clippedOn: null,
     updated: false,
     gated: false,
@@ -74,9 +75,11 @@ describe("popupView", () => {
         .preview?.warning,
     ).toBe(m.warningReadability);
     expect(
-      popupView(state({ preview: { ...preview, fromFetch: true } }), m).preview
-        ?.notice,
-    ).toBe(m.arxivNotice);
+      popupView(
+        state({ source: "arxiv", preview: { ...preview, fromFetch: true } }),
+        m,
+      ).preview?.notice,
+    ).toBe(m.fetchSources.arxiv.notice);
   });
 
   test("already clipped: dated label, Re-clip, both links — hint kept", () => {
@@ -106,10 +109,13 @@ describe("popupView", () => {
   });
 
   test("reading with a body on screen keeps the preview and drops the skeleton", () => {
-    const v = popupView(state({ phase: "reading", fetching: true }), m);
+    const v = popupView(
+      state({ source: "arxiv", phase: "reading", fetching: true }),
+      m,
+    );
     expect(v.loading).toBeNull();
     expect(v.preview).not.toBeNull();
-    expect(v.message).toBe(m.arxivFetching);
+    expect(v.message).toBe(m.fetchSources.arxiv.fetching);
   });
 
   test("clipping: Saving… with the progress caption, preview stays, Clip disabled", () => {
@@ -184,9 +190,10 @@ describe("popupView", () => {
   test("an arXiv PDF is blocked but not an error: the fetch is offered", () => {
     const v = popupView(
       state({
+        source: "arxiv",
         phase: "blocked",
         preview: null,
-        problem: { text: m.arxivOffer, error: false },
+        problem: { text: m.fetchSources.arxiv.offer, error: false },
         gated: true,
         fetchOffered: true,
       }),
@@ -194,16 +201,48 @@ describe("popupView", () => {
     );
     expect(v.label).toBe("");
     expect(v.labelTone).toBe("neutral");
-    expect(v.message).toBe(m.arxivOffer);
-    expect(v.arxivFetch).toBe(true);
+    expect(v.message).toBe(m.fetchSources.arxiv.offer);
+    expect(v.sourceFetch.visible).toBe(true);
   });
 
   test("arXiv gated: tab previewed, fetch offered, Clip waits", () => {
-    const v = popupView(state({ gated: true, fetchOffered: true }), m);
+    const v = popupView(
+      state({ source: "arxiv", gated: true, fetchOffered: true }),
+      m,
+    );
     expect(v.label).toBe("");
-    expect(v.message).toBe(m.arxivOffer);
-    expect(v.arxivFetch).toBe(true);
+    expect(v.message).toBe(m.fetchSources.arxiv.offer);
+    expect(v.sourceFetch.visible).toBe(true);
     expect(v.clip.enabled).toBe(false);
+  });
+
+  // The same flow, the other publisher. Everything that differs is a string,
+  // which is what moving them behind `source` was for.
+  test("GitHub gated: the offer names the file, not a paper", () => {
+    const v = popupView(
+      state({ source: "github", gated: true, fetchOffered: true }),
+      m,
+    );
+    expect(v.message).toBe(m.fetchSources.github.offer);
+    expect(v.sourceFetch.visible).toBe(true);
+    expect(v.sourceFetch.label).toBe(m.fetchSources.github.button);
+    expect(v.clip.enabled).toBe(false);
+  });
+
+  test("a fetched GitHub body says where it came from", () => {
+    const v = popupView(
+      state({ source: "github", preview: { ...preview, fromFetch: true } }),
+      m,
+    );
+    expect(v.preview?.notice).toBe(m.fetchSources.github.notice);
+  });
+
+  // An ordinary page reaches none of the fetch strings, and the button it
+  // would sit on has no label to show.
+  test("a page with no publisher rule shows no fetch button", () => {
+    const v = popupView(state({ gated: true, fetchOffered: true }), m);
+    expect(v.sourceFetch.label).toBe("");
+    expect(v.message).toBeNull();
   });
 
   test("the fetch is not offered until Settings are complete", () => {
@@ -217,19 +256,19 @@ describe("popupView", () => {
       }),
       m,
     );
-    expect(v.arxivFetch).toBe(false);
+    expect(v.sourceFetch.visible).toBe(false);
     expect(v.message).toBe(m.settingsFirst);
   });
 
   test("the fetch offer disappears once the gate is open", () => {
     const v = popupView(state({ gated: false, fetchOffered: true }), m);
-    expect(v.arxivFetch).toBe(false);
+    expect(v.sourceFetch.visible).toBe(false);
     expect(v.clip.enabled).toBe(true);
   });
 
   test("a standing note rides with the preview", () => {
-    const v = popupView(state({ note: m.arxivDenied }), m);
-    expect(v.preview?.note).toBe(m.arxivDenied);
+    const v = popupView(state({ note: m.fetchSources.arxiv.denied }), m);
+    expect(v.preview?.note).toBe(m.fetchSources.arxiv.denied);
   });
 
   test("Chinese table formats the meta line in its own units", () => {

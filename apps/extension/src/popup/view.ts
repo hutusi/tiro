@@ -1,10 +1,10 @@
-import type { Messages } from "../i18n.ts";
+import type { FetchSourceKind, Messages } from "../i18n.ts";
 
 /**
  * What the popup shows, as a pure function of what it knows.
  *
- * popup.ts owns the async story — the tab, the clipper, the arXiv fetch, the
- * upload — and keeps its facts in a `PopupState`. This module turns that into
+ * popup.ts owns the async story — the tab, the clipper, the publisher fetch,
+ * the upload — and keeps its facts in a `PopupState`. This module turns that into
  * a `PopupView` the DOM can be painted from in one place. Pure, so every state
  * the popup can be in is a test case rather than a page to find in the wild
  * (the popup has no DOM harness, see test/popup-view.test.ts).
@@ -27,7 +27,8 @@ export interface PreviewFacts {
   minutes: number;
   excerpt: string;
   readabilityFailed: boolean;
-  /** Read from arxiv.org rather than the tab — the notice says which. */
+  /** Read from the publisher rather than from the tab — the notice says
+   * which. */
   fromFetch: boolean;
 }
 
@@ -51,12 +52,18 @@ export interface PopupState {
   clippedOn: string | null;
   /** Saved phase: the PUT overwrote an existing article. */
   updated: boolean;
-  /** arXiv: Clip waits until the full-text decision is settled. */
+  /**
+   * The publisher whose document could be fetched for this tab, or null for an
+   * ordinary page. Selects every string the fetch flow uses, so adding one is
+   * a message-table entry rather than a branch in here.
+   */
+  source: FetchSourceKind | null;
+  /** Clip waits until the fetch decision is settled. */
   gated: boolean;
-  /** arXiv: the fetch button is on offer — permission not granted, not yet
+  /** The fetch button is on offer — permission not granted, not yet
    * clicked. */
   fetchOffered: boolean;
-  /** arXiv: the full text is being fetched right now. */
+  /** The document is being fetched right now. */
   fetching: boolean;
   /** A note that outlives any one body: a declined permission, a failed
    * fetch, an abstract-only paper. */
@@ -83,7 +90,10 @@ export interface PopupView {
     note: string | null;
     notice: string;
   } | null;
-  arxivFetch: boolean;
+  /** The button that asks for the publisher permission and fetches. Its label
+   * names the document, so it comes from here rather than from the one-time
+   * localize pass, which runs before the tab's URL has been looked at. */
+  sourceFetch: { visible: boolean; label: string };
   /** `primary` is false when the page was clipped before: opening it in Tiro
    * is then the likelier intent, and Re-clip steps back to an outline. */
   clip: { visible: boolean; enabled: boolean; primary: boolean; label: string };
@@ -91,6 +101,10 @@ export interface PopupView {
 }
 
 export function popupView(s: PopupState, m: Messages): PopupView {
+  // Null on an ordinary page, where none of these strings are reachable: every
+  // one of them is behind `s.source !== null` by way of `gated`, `fetching` or
+  // `fetchOffered`, which only a publisher rule ever sets.
+  const source = s.source === null ? null : m.fetchSources[s.source];
   const preview =
     s.preview === null
       ? null
@@ -105,7 +119,10 @@ export function popupView(s: PopupState, m: Messages): PopupView {
             s.preview.excerpt.trim() === "" ? null : s.preview.excerpt.trim(),
           warning: s.preview.readabilityFailed ? m.warningReadability : null,
           note: s.note,
-          notice: s.preview.fromFetch ? m.arxivNotice : m.noticePreview,
+          notice:
+            s.preview.fromFetch && source !== null
+              ? source.notice
+              : m.noticePreview,
         };
   const reclip = s.clippedOn !== null;
   const clipLabel = reclip ? m.reclipButton : m.clipButton;
@@ -123,12 +140,15 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     loading: null,
     progress: null,
     preview,
-    // A tab already showing the paper has nothing to fetch; the offer stays
+    // A tab already showing the document has nothing to fetch; the offer stays
     // only while the gate is waiting on it. Not before Settings are complete
     // either: a clip cannot follow, and the setup block would swallow the
     // fetching feedback, so the click would look like it did nothing.
-    arxivFetch:
-      s.configured && s.fetchOffered && (s.preview === null || s.gated),
+    sourceFetch: {
+      visible:
+        s.configured && s.fetchOffered && (s.preview === null || s.gated),
+      label: source?.button ?? "",
+    },
     clip: clipDisabled,
     links: null,
   };
@@ -148,7 +168,7 @@ export function popupView(s: PopupState, m: Messages): PopupView {
       return {
         ...base,
         label: m.labelReading,
-        message: s.fetching ? m.arxivFetching : null,
+        message: s.fetching ? (source?.fetching ?? null) : null,
         loading: preview === null ? m.loadingExtract : null,
       };
     case "ready": {
@@ -161,7 +181,7 @@ export function popupView(s: PopupState, m: Messages): PopupView {
             ? m.labelReady
             : m.labelSavedOn(clippedOn),
         message: s.gated
-          ? m.arxivOffer
+          ? (source?.offer ?? null)
           : clippedOn === null
             ? m.readyToClip
             : m.alreadyClipped(clippedOn),

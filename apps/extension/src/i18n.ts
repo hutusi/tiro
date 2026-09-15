@@ -48,23 +48,49 @@ const en = {
     "Readability could not extract an article; clipping the raw page instead.",
   cannotClipPdf:
     "This is a PDF, not a web page — its text is rendered by a plugin the extension cannot read.",
-  arxivOffer:
-    "This is an arXiv paper. Tiro can fetch its HTML full text instead of this page.",
-  arxivFetchButton: "Fetch HTML full text",
-  arxivFetching: "Fetching the full text from arxiv.org…",
-  arxivDenied:
-    "Without access to arxiv.org, Tiro can only clip the page you are on.",
-  arxivFailed: (detail: string) =>
-    `Could not fetch the full text (${detail}); clipping this page instead.`,
-  arxivAbstractOnly:
-    "arXiv has no HTML full text for this paper; clipping its abstract page.",
-  arxivNotice:
-    "Fetched from arxiv.org to build this preview. Nothing is sent to your vault until you clip.",
+  /**
+   * The one flow that reads a document instead of the tab, per publisher.
+   * Grouped rather than prefixed so a third publisher adds a block instead of
+   * seven more top-level keys, and so the popup picks a set by name rather
+   * than by a switch that has to be found in three files.
+   */
+  fetchSources: {
+    arxiv: {
+      offer:
+        "This is an arXiv paper. Tiro can fetch its HTML full text instead of this page.",
+      button: "Fetch HTML full text",
+      fetching: "Fetching the full text from arxiv.org…",
+      denied:
+        "Without access to arxiv.org, Tiro can only clip the page you are on.",
+      failed: (detail: string) =>
+        `Could not fetch the full text (${detail}); clipping this page instead.`,
+      notice:
+        "Fetched from arxiv.org to build this preview. Nothing is sent to your vault until you clip.",
+      /** The fetch worked and returned something that is not the document. */
+      partial:
+        "arXiv has no HTML full text for this paper; clipping its abstract page.",
+    },
+    github: {
+      offer:
+        "This is a markdown file on GitHub. Tiro can fetch the file itself instead of this page.",
+      button: "Fetch the markdown file",
+      fetching: "Fetching the file from raw.githubusercontent.com…",
+      denied:
+        "Without access to raw.githubusercontent.com, Tiro can only clip the page you are on.",
+      failed: (detail: string) =>
+        `Could not fetch the file (${detail}); clipping this page instead.`,
+      notice:
+        "Fetched from raw.githubusercontent.com to build this preview. Nothing is sent to your vault until you clip.",
+      /** Null because there is no partial answer: the file arrives or it does
+       * not. */
+      partial: null,
+    },
+  },
   noticePreview:
     "Read in your browser to build this preview. Nothing is sent to your vault until you clip.",
   disclosureTitle: "Before Tiro reads this page",
   disclosureBody1:
-    "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper it can fetch the HTML full text from arxiv.org instead, once you allow it.",
+    "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
     "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
@@ -128,6 +154,9 @@ const en = {
 
 export type Messages = typeof en;
 
+/** Publishers whose documents Tiro fetches rather than reads from the tab. */
+export type FetchSourceKind = keyof Messages["fetchSources"];
+
 const zh: Messages = {
   settingsFirst: "请先在设置中配置 GitHub 仓库和令牌。",
   cannotClip: "此页面无法剪藏。",
@@ -158,19 +187,34 @@ const zh: Messages = {
 
   warningReadability: "Readability 未能提取正文，将剪藏原始页面。",
   cannotClipPdf: "这是 PDF 而非网页，其正文由插件渲染，扩展无法读取。",
-  arxivOffer: "这是 arXiv 论文，Tiro 可以改为抓取其 HTML 全文。",
-  arxivFetchButton: "抓取 HTML 全文",
-  arxivFetching: "正在从 arxiv.org 抓取全文…",
-  arxivDenied: "未获得 arxiv.org 访问权限，只能剪藏当前页面。",
-  arxivFailed: (detail: string) =>
-    `无法抓取全文（${detail}），改为剪藏当前页面。`,
-  arxivAbstractOnly: "该论文没有 HTML 全文，改为剪藏摘要页。",
-  arxivNotice:
-    "已从 arxiv.org 抓取全文以生成预览。剪藏前不会向你的仓库发送任何内容。",
+  fetchSources: {
+    arxiv: {
+      offer: "这是 arXiv 论文，Tiro 可以改为抓取其 HTML 全文。",
+      button: "抓取 HTML 全文",
+      fetching: "正在从 arxiv.org 抓取全文…",
+      denied: "未获得 arxiv.org 访问权限，只能剪藏当前页面。",
+      failed: (detail: string) =>
+        `无法抓取全文（${detail}），改为剪藏当前页面。`,
+      notice:
+        "已从 arxiv.org 抓取全文以生成预览。剪藏前不会向你的仓库发送任何内容。",
+      partial: "该论文没有 HTML 全文，改为剪藏摘要页。",
+    },
+    github: {
+      offer: "这是 GitHub 上的 Markdown 文件，Tiro 可以改为抓取文件本身。",
+      button: "抓取 Markdown 文件",
+      fetching: "正在从 raw.githubusercontent.com 抓取文件…",
+      denied: "未获得 raw.githubusercontent.com 访问权限，只能剪藏当前页面。",
+      failed: (detail: string) =>
+        `无法抓取文件（${detail}），改为剪藏当前页面。`,
+      notice:
+        "已从 raw.githubusercontent.com 抓取文件以生成预览。剪藏前不会向你的仓库发送任何内容。",
+      partial: null,
+    },
+  },
   noticePreview: "预览在你的浏览器中生成，剪藏前不会向你的仓库发送任何内容。",
   disclosureTitle: "在 Tiro 读取此页面之前",
   disclosureBody1:
-    "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文，在你授权后，它会改为从 arxiv.org 抓取该论文的 HTML 全文。",
+    "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
     "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",

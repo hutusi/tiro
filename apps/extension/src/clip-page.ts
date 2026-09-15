@@ -100,6 +100,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     hasMath,
     pdfViewer,
     latexmlFullText,
+    markdownSource: false,
   };
 }
 
@@ -167,6 +168,7 @@ export function clipMarkdownFile(
     hasMath: false,
     pdfViewer: false,
     latexmlFullText: false,
+    markdownSource: true,
   };
 }
 

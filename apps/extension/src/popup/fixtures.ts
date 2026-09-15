@@ -33,6 +33,7 @@ const base: PopupState = {
   problem: null,
   clippedOn: null,
   updated: false,
+  source: null,
   gated: false,
   fetchOffered: false,
   fetching: false,
@@ -83,6 +84,7 @@ export function fixtures(m: Messages): Record<string, PopupState> {
     },
     "arxiv-offer": {
       ...base,
+      source: "arxiv",
       preview: {
         ...preview,
         title: "KAN: Kolmogorov–Arnold Networks",
@@ -93,11 +95,39 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       gated: true,
       fetchOffered: true,
     },
-    "arxiv-fetching": { ...base, phase: "reading", fetching: true },
+    "arxiv-fetching": {
+      ...base,
+      source: "arxiv",
+      phase: "reading",
+      fetching: true,
+    },
     "arxiv-abstract": {
       ...base,
+      source: "arxiv",
       preview: { ...preview, host: "arxiv.org", fromFetch: true },
-      note: m.arxivAbstractOnly,
+      note: m.fetchSources.arxiv.partial,
+    },
+    // The other publisher, in the two states its flow can be seen in. A
+    // GitHub file has no partial answer to show: the bytes arrive or they
+    // do not.
+    "github-offer": {
+      ...base,
+      source: "github",
+      preview: {
+        ...preview,
+        title: "Simple Made Easy",
+        host: "github.com",
+        words: 9600,
+        minutes: 42,
+      },
+      gated: true,
+      fetchOffered: true,
+    },
+    "github-fetching": {
+      ...base,
+      source: "github",
+      phase: "reading",
+      fetching: true,
     },
   };
 }
