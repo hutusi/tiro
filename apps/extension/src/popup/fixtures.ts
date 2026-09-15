@@ -129,6 +129,16 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       phase: "reading",
       fetching: true,
     },
+    // A retry in flight over the preview the refusal left on screen. The
+    // caption is the whole point: before the attempt was reset wholesale, this
+    // painted the refusal instead and the retry looked like it did nothing.
+    "github-retrying": {
+      ...base,
+      source: "github",
+      phase: "reading",
+      preview: { ...preview, title: "Simple Made Easy", host: "github.com" },
+      fetching: true,
+    },
     // The dead end: the fetch answered and the file did not arrive, so the
     // rendering on screen is not something to commit. The offer comes back so
     // the denial can be reconsidered or the failure retried.

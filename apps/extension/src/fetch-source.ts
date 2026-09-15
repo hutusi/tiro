@@ -66,7 +66,7 @@ export function fetchableSource(
       degradesToTab: true,
       clip: () =>
         clipArxivPaper(paper, {
-          fetch: (input, init) => fetch(input, init),
+          fetch: timedFetch,
           parse: (html) => new DOMParser().parseFromString(html, "text/html"),
         }),
     };
@@ -85,7 +85,25 @@ export function fetchableSource(
     // Names the URL rather than the Raw button: it is exact, it is copyable,
     // and clipping it needs no permission at all.
     instead: m.fetchSources.github.instead(rawUrl),
-    clip: () =>
-      clipGitHubDoc(doc, { fetch: (input, init) => fetch(input, init) }),
+    clip: () => clipGitHubDoc(doc, { fetch: timedFetch }),
   };
+}
+
+/**
+ * A request that cannot hang the popup.
+ *
+ * The tab read has had a watchdog since it existed; the publisher fetch had
+ * none, so a server that accepted the connection and then stopped talking left
+ * the popup on "Fetching…" with no button and nothing to end it. A throw
+ * settles the attempt, which re-offers — the same path a refused connection
+ * already took. Thirty seconds, matching the sweep's.
+ */
+function timedFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(30_000),
+  });
 }

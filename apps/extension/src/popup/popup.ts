@@ -215,7 +215,7 @@ async function main(): Promise<void> {
    * "Fetching…", and a successful retry still showed the denial that preceded
    * it. Nothing here outlives the attempt it belongs to.
    */
-  const attempt: Attempt = freshAttempt();
+  let attempt: Attempt = freshAttempt();
   /** The injected clipper has reported, or cannot. Set on failure too — a tab
    * that will not read must not gate the button forever. */
   let tabResolved = false;
@@ -351,8 +351,9 @@ async function main(): Promise<void> {
     const candidate = { isSource: isSourceBody(payload), fromFetch };
     if (!prefersCandidate(best, candidate)) {
       // Still re-render: the losing arrival may have resolved the last source
-      // the gate was waiting on.
-      if (result !== null) showPayload(result);
+      // the gate was waiting on. Only the gate — the phase is not this
+      // arrival's to settle.
+      render();
       return;
     }
     best = candidate;
@@ -362,10 +363,15 @@ async function main(): Promise<void> {
     showPayload(payload);
   }
 
+  /**
+   * Put a body on screen. Called only where there is a *new* body — a caller
+   * that just wants the gate re-evaluated calls `render`, because this also
+   * settles the phase, and doing that from a re-render wiped a failed commit's
+   * error and offered Clip again over an article that had not been saved.
+   */
   function showPayload(payload: ClipResultMessage["payload"]): void {
     if (committing) return;
     result = payload;
-    fetching = false;
     // A PDF has nothing to preview and nothing to commit, so it stops here
     // whatever the configuration says: the button is never enabled. Before
     // this the readability warning appeared but the button did too, and an
@@ -387,12 +393,6 @@ async function main(): Promise<void> {
     render();
   }
 
-  chrome.runtime.onMessage.addListener((message: unknown) => {
-    if (!isClipResult(message)) return;
-    tabResolved = true;
-    offer(message.payload, false, tabSourceUrl(message.payload.url));
-  });
-
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (
     tab?.id === undefined ||
@@ -404,6 +404,18 @@ async function main(): Promise<void> {
   }
   const tabId = tab.id;
   const tabUrl = tab.url;
+
+  /**
+   * Registered below `tabId` so it can check one, and that is the whole reason
+   * it sits here: a clipper injected by an earlier popup session in another tab
+   * can still be extracting, and its result would otherwise drive this
+   * preview — and the URL this commits under.
+   */
+  chrome.runtime.onMessage.addListener((message: unknown, sender) => {
+    if (sender.tab?.id !== tabId || !isClipResult(message)) return;
+    tabResolved = true;
+    offer(message.payload, false, tabSourceUrl(message.payload.url));
+  });
 
   let extracted = false;
   async function extract(): Promise<void> {
@@ -426,7 +438,7 @@ async function main(): Promise<void> {
       // most likely on a PDF tab, where injection is least dependable.
       tabResolved = true;
       if (result !== null) {
-        showPayload(result);
+        render();
         return;
       }
       block(m.cannotRead(String(error)));
@@ -447,7 +459,7 @@ async function main(): Promise<void> {
         block(m.noClipResult);
         return;
       }
-      showPayload(result);
+      render();
     }, 10_000);
   }
 
@@ -462,12 +474,27 @@ async function main(): Promise<void> {
     known: FetchableSource,
     askFirst: boolean,
   ): Promise<void> {
-    attempt.offered = false;
+    // A new attempt invalidates everything the last one said, and paints
+    // before anything can await — so the button is gone the instant it is
+    // pressed, and the prompt window shows "Fetching…" rather than whatever the
+    // failed attempt left on screen. Synchronous to here on purpose: an await
+    // before `permissions.request` spends the user gesture it needs.
+    attempt = freshAttempt();
+    fetching = true;
+    phase = "reading";
+    render();
+
     const text = m.fetchSources[known.kind];
     if (askFirst) {
-      const granted = await chrome.permissions.request({
-        origins: [known.origin],
-      });
+      let granted: boolean;
+      try {
+        granted = await chrome.permissions.request({ origins: [known.origin] });
+      } catch (error) {
+        // The offer was spent above. Without this the rejection is unhandled
+        // and the button is left on screen with nothing behind it.
+        await settleFetch(known, text.failed(String(error)));
+        return;
+      }
       if (!granted) {
         // Declining is an answer. The tab's own content is now the best body
         // available, so Clip stops waiting for one that is not coming.
@@ -475,30 +502,30 @@ async function main(): Promise<void> {
         return;
       }
     }
-    // Reading again, whether or not the tab already put a body on screen: the
-    // view keeps that preview and says the document is being fetched. Without
-    // this the offer's sentence stayed while its button had gone.
-    fetching = true;
-    phase = "reading";
-    render();
+
+    let clip: Awaited<ReturnType<FetchableSource["clip"]>>;
     try {
-      const clip = await known.clip();
-      attempt.resolved = true;
-      attempt.partial = !isSourceBody(clip.payload);
-      offer(clip.payload, true, clip.sourceUrl);
-      // What came back is not the document — an arXiv abstract page, where the
-      // paper had no HTML rendering. The tab may hold one this fetch could not
-      // produce (ar5iv converts papers arxiv.org only stubs) and, on any host,
-      // the tab is *proof* the content was retrievable where a transient
-      // failure just said otherwise. So ask it, and let prefersCandidate
-      // judge. Asking always is the point: an earlier version skipped
-      // arxiv.org tabs on the grounds that the fetch had just targeted the
-      // identical URL, which is true of the content and false of whether it
-      // arrived.
-      if (attempt.partial) await extract();
+      clip = await known.clip();
     } catch (error) {
       await settleFetch(known, text.failed(String(error)));
+      return;
     }
+    // Only the fetch is guarded. Wrapping what follows reported a throw out of
+    // rendering as "could not fetch the file" — over a preview of the file that
+    // had arrived perfectly well — and ran a second settle for one attempt.
+    fetching = false;
+    attempt.resolved = true;
+    attempt.partial = !isSourceBody(clip.payload);
+    offer(clip.payload, true, clip.sourceUrl);
+    // What came back is not the document — an arXiv abstract page, where the
+    // paper had no HTML rendering. The tab may hold one this fetch could not
+    // produce (ar5iv converts papers arxiv.org only stubs) and, on any host,
+    // the tab is *proof* the content was retrievable where a transient failure
+    // just said otherwise. So ask it, and let prefersCandidate judge. Asking
+    // always is the point: an earlier version skipped arxiv.org tabs on the
+    // grounds that the fetch had just targeted the identical URL, which is true
+    // of the content and false of whether it arrived.
+    if (attempt.partial) await extract();
   }
 
   /**
@@ -511,46 +538,45 @@ async function main(): Promise<void> {
    * clip is only fair beside a way to undo it. Not re-offered for a publisher
    * that degrades: there the gate has just opened, and the button would flicker
    * on its way out.
-   *
-   * Re-renders rather than only extracting, because in the not-granted path the
-   * tab was already previewed and its clip result has been and gone — nothing
-   * would otherwise re-evaluate the gate.
    */
   async function settleFetch(
     known: FetchableSource,
     note: string,
   ): Promise<void> {
     attempt.resolved = true;
-    fetching = false;
     attempt.note = note;
-    if (!known.degradesToTab) {
-      attempt.offered = true;
-      armFetch(known);
-    }
-    if (result === null) {
-      await extract();
+    fetching = false;
+    if (!known.degradesToTab) attempt.offered = true;
+    // A PDF tab has no preview, and a note reaches the DOM only inside the
+    // preview card — so on that one shape the outcome goes in the message line
+    // or is never seen at all. Before this it was replaced by the offer to
+    // fetch, which is the thing that had just failed.
+    if (result?.pdfViewer === true) {
+      block(note);
       return;
     }
-    showPayload(result);
+    if (result === null) await extract();
+    // Always, and never through `showPayload`: `extract` paints nothing once
+    // its latch is spent, so a second failed fetch on a tab that cannot be
+    // injected left the popup on "Fetching…" with no button and no timer left
+    // to rescue it.
+    render();
   }
 
   /**
-   * Arm the fetch button for one press.
+   * One listener for the life of the popup, guarded by the offer itself.
    *
-   * `{ once: true }` rather than a standing listener: `fetchDocument` is
-   * awaited across a permission prompt while the button is still on screen, and
-   * a standing listener would admit a second `permissions.request` behind the
-   * first. Re-arming is explicit, and at most one listener exists at a time.
+   * `fetchDocument` spends `attempt.offered` synchronously, so a second press
+   * during the prompt or the fetch does nothing and at most one
+   * `permissions.request` is ever in flight. Re-arming a `{ once: true }`
+   * listener instead made "exactly one settle per click" load-bearing: two
+   * settles without an intervening click left two listeners, and one press then
+   * fired both.
    */
-  function armFetch(known: FetchableSource): void {
-    el.sourceFetch.addEventListener(
-      "click",
-      () => {
-        void fetchDocument(known, true);
-      },
-      { once: true },
-    );
-  }
+  el.sourceFetch.addEventListener("click", () => {
+    if (!attempt.offered || source === null) return;
+    void fetchDocument(source, true);
+  });
 
   // Best-effort state from the local clip record. Slug derivation and the
   // lookup are both local, but they still wait for an accepted disclosure so
@@ -586,13 +612,15 @@ async function main(): Promise<void> {
     // Not granted: nothing is fetched. The tab is previewed as usual and the
     // offer sits beside it, so the permission is asked for by an explicit act.
     attempt.offered = true;
-    armFetch(known);
     await extract();
   }
 
   el.clip.addEventListener("click", () => {
     if (result === null) return;
-    void (async (payload) => {
+    // Both captured at the click, for one reason: `sourceUrl` describes the
+    // body being committed, and reading it from the closure later would let a
+    // body that arrived mid-upload retag the one already on its way.
+    void (async (payload, from) => {
       committing = true;
       phase = "clipping";
       render();
@@ -605,7 +633,7 @@ async function main(): Promise<void> {
         const slug = await slugForUrl(payload.url);
         const clip = {
           url: payload.url,
-          sourceUrl,
+          sourceUrl: from,
           title: payload.title,
           markdown: payload.markdown,
           excerpt: payload.excerpt,
@@ -669,7 +697,7 @@ async function main(): Promise<void> {
         problem = { text: describeClipError(error, m), error: true };
         render();
       }
-    })(result);
+    })(result, sourceUrl);
   });
 
   // The page is read to build the preview, which happens before the Clip
