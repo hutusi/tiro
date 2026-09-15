@@ -241,6 +241,26 @@ function isMarkdownFile(segment: string): boolean {
 }
 
 /**
+ * True when a URL addresses a markdown file.
+ *
+ * Lives here, beside the rule that uses the same list, because the clipper
+ * asks the same question of hosts this module has never heard of — a `.md`
+ * served as plain text by GitLab, Codeberg or anyone else. Two copies of the
+ * list would drift, and the drift would be invisible: a file clipped as
+ * markdown from one host and as a code block from another.
+ */
+export function isMarkdownUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const segments = url.pathname.split("/");
+  return isMarkdownFile(segments[segments.length - 1] ?? "");
+}
+
+/**
  * The file's identity: the page GitHub presents it on.
  *
  * The blob page rather than the raw bytes because that is what "read the
