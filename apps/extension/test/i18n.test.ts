@@ -42,7 +42,12 @@ describe("messages", () => {
   test("both disclosures name every destination the data may reach", () => {
     for (const locale of ["en", "zh"] as const) {
       const disclosure = `${messages(locale).disclosureBody1} ${messages(locale).disclosureBody2}`;
-      for (const host of ["arxiv.org", "GitHub", "Chrome"]) {
+      for (const host of [
+        "arxiv.org",
+        "raw.githubusercontent.com",
+        "GitHub",
+        "Chrome",
+      ]) {
         expect(disclosure).toContain(host);
       }
     }

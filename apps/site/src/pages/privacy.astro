@@ -22,20 +22,21 @@ const updated = "2026-09-15";
       GitHub 以外的任何地方。
       两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；令牌则出现在扩展
       发出的每个 GitHub API 请求的授权头里，也就是那次上传，以及你在设置页点击
-      「测试连接」的时候。此外还有两方可能参与，且都只在你自己选择之后：一是
-      arxiv.org，它会知道你在看哪一篇论文；二是 Google——若你开启设置同步，Chrome
+      「测试连接」的时候。此外还有几方可能参与，且都只在你自己选择之后：一是
+      arxiv.org，它会知道你在看哪一篇论文；二是
+      raw.githubusercontent.com，它会知道你在看 哪一个文件；三是
+      Google——若你开启设置同步，Chrome
       会经由其服务器把你的设置与令牌同步到你的其他设备。后者是浏览器所做的传输，而非扩展所为；这是「谁在传」的区别，并不改变令牌最终会到达哪里。下文分别说明。
     </p>
 
     <p>
-      有一处读取发生在剪藏之前，需要单独说明：在你授权访问 <code>arxiv.org</code
+      有两处读取发生在剪藏之前，需要单独说明：在你授权访问 <code>arxiv.org</code
       >
-      之后，扩展会在生成预览时向该站点请求论文的 HTML 全文。这个请求会让 arxiv.org
-      知道你正在看哪一篇论文——那属于「与某个网址的交互」，也就是本扩展在应用商店中
-      声明的浏览记录一类；它同时会像任何网络请求一样带上常规的网络元数据（例如你的
+      之后，扩展会在生成预览时向该站点请求论文的 HTML 全文；在你授权访问
+      <code>raw.githubusercontent.com</code> 之后，它会在 GitHub 的 Markdown 文件页面上向该站点请求文件本身。这类请求会让对方知道你正在看哪一篇论文、
+      哪一个文件——那属于「与某个网址的交互」，也就是本扩展在应用商店中 声明的浏览记录一类；它同时会像任何网络请求一样带上常规的网络元数据（例如你的
       IP 地址和浏览器信息）。它不会附带你的令牌、仓库名，也不会附带任何已剪藏的内容，
-      更不涉及你打开过的其他页面。它只在 arXiv 论文页面上发生，且只在你授权之后。
-      未授权则不会发出该请求。
+      更不涉及你打开过的其他页面。它只在对应的页面上发生，且只在你授权之后。 未授权则不会发出该请求。
     </p>
 
     <h3>扩展存储什么</h3>
@@ -106,6 +107,17 @@ const updated = "2026-09-15";
         PDF 地址除外， 那里没有可读的正文；你可以随时在 Chrome 的扩展设置中撤销。
       </li>
       <li>
+        <code>https://raw.githubusercontent.com</code> 同样是一项<strong
+          >可选</strong
+        >权限，仅在你首次从 GitHub 的 Markdown
+        文件页面剪藏并同意授权提示后才会生效。
+        同意后，扩展会直接抓取该文件本身，而不是读取标签页里 GitHub
+        渲染出的页面—— 因为文件与其页面在 Tiro
+        中是同一篇文章，剪藏渲染结果会覆盖掉文件本身。
+        若你已经在原始文件地址上，则不需要该权限，也不会发出任何请求。
+        不授权则仍只剪藏你当前看到的页面；同样可以随时撤销。
+      </li>
+      <li>
         点击「剪藏」后，扩展用你自己的令牌把这些内容提交到你自己的仓库：正文的
         Markdown、标题、原文网址、域名和剪藏时间。标题还会出现在提交信息里，
         网址会体现在文章目录名中。
@@ -141,26 +153,29 @@ const updated = "2026-09-15";
       GitHub. The timing differs between the two: what you clip is uploaded only when
       you press Clip, while the token travels in the <code>Authorization</code> header
       of every GitHub API request the extension makes — that upload, and the "Test
-      connection" button on the options page. Two other parties can be involved, both
-      only if you choose it: arxiv.org, which learns which paper you are looking at,
-      and — if you turn on settings sync — Google, through whose servers Chrome then
-      carries your settings and token to your other devices. That last one is a transfer
-      the browser makes rather than the extension — a distinction about who is doing
-      it, not about where the token ends up. The sections below say exactly what each
+      connection" button on the options page. A few other parties can be involved,
+      all only if you choose it: arxiv.org, which learns which paper you are looking
+      at; raw.githubusercontent.com, which learns which file you are looking at; and
+      — if you turn on settings sync — Google, through whose servers Chrome then carries
+      your settings and token to your other devices. That last one is a transfer the
+      browser makes rather than the extension — a distinction about who is doing it,
+      not about where the token ends up. The sections below say exactly what each
       involves.
     </p>
 
     <p>
-      One read happens before that, and is worth stating on its own: once you
+      Two reads happen before that, and are worth stating on their own. Once you
       have granted access to <code>arxiv.org</code>, the extension requests a
-      paper's HTML full text from that site while building the preview. That
-      request tells arxiv.org which paper you are looking at — an interaction
-      with a URL, which is the web history this extension declares in the store
-      — and carries the ordinary network metadata any request does, such as your
-      IP address. It carries no token, no repository name, no clipped content,
-      and nothing about any other page you have open. It happens only on an
-      arXiv paper, and only after you grant it; decline, and the request is
-      never made.
+      paper's HTML full text from that site while building the preview; once you
+      have granted access to <code>raw.githubusercontent.com</code>, it requests
+      a markdown file itself when you are on that file's page on GitHub. Such a
+      request tells the site which paper or file you are looking at — an
+      interaction with a URL, which is the web history this extension declares
+      in the store — and carries the ordinary network metadata any request does,
+      such as your IP address. It carries no token, no repository name, no
+      clipped content, and nothing about any other page you have open. Each
+      happens only on the page it is for, and only after you grant it; decline,
+      and the request is never made.
     </p>
 
     <h3>What the extension stores</h3>
@@ -243,6 +258,17 @@ const updated = "2026-09-15";
         at all; the extension keeps clipping the page you are looking at, unless that
         page is a PDF, which holds no text it can read. You can revoke it at any time
         in Chrome's extension settings.
+      </li>
+      <li>
+        <code>https://raw.githubusercontent.com</code> is an
+        <strong>optional</strong> permission too, granted only if you accept the prompt
+        the first time you clip a markdown file's page on GitHub. Once granted, the
+        extension fetches the file itself rather than reading GitHub's rendering of
+        it in the tab — because the file and its page are one article in Tiro, and
+        clipping the rendering would replace the file with it. It is not needed when
+        you are already on the raw file's address, where no request is made at all.
+        Decline and the extension keeps clipping the page you are looking at; you
+        can revoke it at any time.
       </li>
       <li>
         When you click Clip, it commits to your own repository, with your own
