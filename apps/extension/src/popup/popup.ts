@@ -141,6 +141,30 @@ function localize(locale: Locale, m: Messages): void {
   el.options.textContent = m.settingsLink;
 }
 
+/**
+ * What one fetch attempt has said. Session state lives in `main`'s other
+ * bindings; everything here describes a single attempt and dies with it.
+ */
+interface Attempt {
+  /** The fetch has run its course: succeeded, declined, or failed. */
+  resolved: boolean;
+  /** It came back with something that is not the document — an arXiv abstract
+   * page. Says nothing about which body is on screen: the tab may still have
+   * beaten it. */
+  partial: boolean;
+  /** A note that belongs beside the preview rather than in the status line,
+   * which the next clip result would overwrite. Describes the outcome — a
+   * declined permission, a failed fetch — so it outlives any one body, but not
+   * the attempt that produced it. */
+  note: string | null;
+  /** The permission is not held and the offer has not been used. */
+  offered: boolean;
+}
+
+function freshAttempt(): Attempt {
+  return { resolved: false, partial: false, note: null, offered: false };
+}
+
 async function main(): Promise<void> {
   if (__DEV_FIXTURES__) {
     // A development build paints a canned state on request and stops there
@@ -180,8 +204,18 @@ async function main(): Promise<void> {
   /** Where the body on screen came from, so a second one is judged against it
    * rather than simply overwriting it. */
   let best: ClipCandidate | null = null;
-  /** The fetch has run its course: succeeded, declined, or failed. */
-  let fetchResolved = false;
+  /**
+   * Everything the current fetch attempt has said, replaced wholesale when a
+   * new one begins.
+   *
+   * One value rather than four flags because "a new attempt begins" has to be
+   * one assignment. As peers among the session-scoped state below they were
+   * four, a retry reset one of them, and the other three went on describing an
+   * attempt that had been superseded — the refusal painted over the retry's own
+   * "Fetching…", and a successful retry still showed the denial that preceded
+   * it. Nothing here outlives the attempt it belongs to.
+   */
+  const attempt: Attempt = freshAttempt();
   /** The injected clipper has reported, or cannot. Set on failure too — a tab
    * that will not read must not gate the button forever. */
   let tabResolved = false;
@@ -200,14 +234,6 @@ async function main(): Promise<void> {
    * "already clipped — clipping again updates it" path.
    */
   let committing = false;
-  /** A note that belongs beside the preview rather than in the status line,
-   * which the next clip result would overwrite. Describes the situation — a
-   * declined permission, a failed fetch — so it outlives any one body. */
-  let standingNote: string | null = null;
-  /** The fetch came back with something that is not the document — an arXiv
-   * abstract page. Says nothing about which body is on screen: the tab may
-   * still have beaten it. */
-  let fetchedPartial = false;
   /** What the popup is doing, for the header label and the card underneath.
    * Without a configured vault nothing can be clipped, so the popup opens
    * blocked on the Settings instruction rather than "Reading…". */
@@ -216,10 +242,9 @@ async function main(): Promise<void> {
   let problem: { text: string; error: boolean } | null = configured
     ? null
     : { text: m.settingsFirst, error: true };
-  /** The publisher's copy is being fetched. */
+  /** The publisher's copy is being fetched. Owned by `fetchDocument` alone —
+   * nothing else may clear a flag describing work still in flight. */
   let fetching = false;
-  /** The permission is not held and the offer has not been used. */
-  let fetchOffered = false;
   /** Set once the upload has returned. */
   let saved: { updated: boolean; links: PopupLinks } | null = null;
   /** Local record: where a previous clip of this page landed. */
@@ -235,7 +260,8 @@ async function main(): Promise<void> {
   function render(): void {
     const policy = fetchPolicy();
     const gated =
-      result !== null && !clipReady(best, policy, fetchResolved, tabResolved);
+      result !== null &&
+      !clipReady(best, policy, attempt.resolved, tabResolved);
     // Derived here rather than latched by whoever noticed, because the block
     // would not survive being latched: `settleFetch` ends in `showPayload`,
     // which sets `phase = "ready"` and clears `problem`, and so does every
@@ -250,7 +276,7 @@ async function main(): Promise<void> {
       ? null
       : source === null || source.degradesToTab
         ? null
-        : clipRefused(best, policy, fetchResolved)
+        : clipRefused(best, policy, attempt.resolved)
           ? source.instead
           : null;
     // The page is still read when unconfigured — the preview is harmless and
@@ -284,7 +310,7 @@ async function main(): Promise<void> {
       updated: saved?.updated ?? false,
       source: source?.kind ?? null,
       gated,
-      fetchOffered,
+      fetchOffered: attempt.offered,
       fetching,
       // "This is only the abstract" describes a body, not the session, so it
       // shows only while that body is the one that won. Without the second
@@ -292,8 +318,8 @@ async function main(): Promise<void> {
       // reader an abstract was about to be clipped while the full paper was on
       // screen.
       note:
-        standingNote ??
-        (fetchedPartial && best?.fromFetch === true && source !== null
+        attempt.note ??
+        (attempt.partial && best?.fromFetch === true && source !== null
           ? m.fetchSources[source.kind].partial
           : null),
       links: saved?.links ?? previousLinks,
@@ -436,7 +462,7 @@ async function main(): Promise<void> {
     known: FetchableSource,
     askFirst: boolean,
   ): Promise<void> {
-    fetchOffered = false;
+    attempt.offered = false;
     const text = m.fetchSources[known.kind];
     if (askFirst) {
       const granted = await chrome.permissions.request({
@@ -457,8 +483,8 @@ async function main(): Promise<void> {
     render();
     try {
       const clip = await known.clip();
-      fetchResolved = true;
-      fetchedPartial = !isSourceBody(clip.payload);
+      attempt.resolved = true;
+      attempt.partial = !isSourceBody(clip.payload);
       offer(clip.payload, true, clip.sourceUrl);
       // What came back is not the document — an arXiv abstract page, where the
       // paper had no HTML rendering. The tab may hold one this fetch could not
@@ -469,7 +495,7 @@ async function main(): Promise<void> {
       // arxiv.org tabs on the grounds that the fetch had just targeted the
       // identical URL, which is true of the content and false of whether it
       // arrived.
-      if (fetchedPartial) await extract();
+      if (attempt.partial) await extract();
     } catch (error) {
       await settleFetch(known, text.failed(String(error)));
     }
@@ -494,11 +520,11 @@ async function main(): Promise<void> {
     known: FetchableSource,
     note: string,
   ): Promise<void> {
-    fetchResolved = true;
+    attempt.resolved = true;
     fetching = false;
-    standingNote = note;
+    attempt.note = note;
     if (!known.degradesToTab) {
-      fetchOffered = true;
+      attempt.offered = true;
       armFetch(known);
     }
     if (result === null) {
@@ -559,7 +585,7 @@ async function main(): Promise<void> {
     }
     // Not granted: nothing is fetched. The tab is previewed as usual and the
     // offer sits beside it, so the permission is asked for by an explicit act.
-    fetchOffered = true;
+    attempt.offered = true;
     armFetch(known);
     await extract();
   }
