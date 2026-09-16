@@ -33,6 +33,7 @@ const base: PopupState = {
   problem: null,
   clippedOn: null,
   updated: false,
+  source: null,
   gated: false,
   fetchOffered: false,
   fetching: false,
@@ -83,6 +84,7 @@ export function fixtures(m: Messages): Record<string, PopupState> {
     },
     "arxiv-offer": {
       ...base,
+      source: "arxiv",
       preview: {
         ...preview,
         title: "KAN: Kolmogorov–Arnold Networks",
@@ -93,11 +95,78 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       gated: true,
       fetchOffered: true,
     },
-    "arxiv-fetching": { ...base, phase: "reading", fetching: true },
+    // The tab is Chrome's PDF viewer and the fetch is already running. The
+    // verdict is about the tab, and the fetch is the only thing that can clear
+    // it — so this must not sit on the offer to do what is in progress.
+    "arxiv-pdf-fetching": {
+      ...base,
+      source: "arxiv",
+      phase: "blocked",
+      preview: null,
+      problem: { text: m.fetchSources.arxiv.offer, error: false },
+      fetching: true,
+    },
+    "arxiv-fetching": {
+      ...base,
+      source: "arxiv",
+      phase: "reading",
+      fetching: true,
+    },
     "arxiv-abstract": {
       ...base,
+      source: "arxiv",
       preview: { ...preview, host: "arxiv.org", fromFetch: true },
-      note: m.arxivAbstractOnly,
+      note: m.fetchSources.arxiv.partial,
+    },
+    // The other publisher, in the two states its flow can be seen in. A
+    // GitHub file has no partial answer to show: the bytes arrive or they
+    // do not.
+    "github-offer": {
+      ...base,
+      source: "github",
+      preview: {
+        ...preview,
+        title: "Simple Made Easy",
+        host: "github.com",
+        words: 9600,
+        minutes: 42,
+      },
+      gated: true,
+      fetchOffered: true,
+    },
+    "github-fetching": {
+      ...base,
+      source: "github",
+      phase: "reading",
+      fetching: true,
+    },
+    // A retry in flight over the preview the refusal left on screen. The
+    // caption is the whole point: before the attempt was reset wholesale, this
+    // painted the refusal instead and the retry looked like it did nothing.
+    "github-retrying": {
+      ...base,
+      source: "github",
+      phase: "reading",
+      preview: { ...preview, title: "Simple Made Easy", host: "github.com" },
+      fetching: true,
+    },
+    // The dead end: the fetch answered and the file did not arrive, so the
+    // rendering on screen is not something to commit. The offer comes back so
+    // the denial can be reconsidered or the failure retried.
+    "github-refused": {
+      ...base,
+      source: "github",
+      phase: "blocked",
+      preview: { ...preview, title: "Simple Made Easy", host: "github.com" },
+      problem: {
+        text: m.fetchSources.github.instead(
+          "https://raw.githubusercontent.com/matthiasn/talk-transcripts/master/Hickey_Rich/SimpleMadeEasy.md",
+        ),
+        error: true,
+      },
+      note: m.fetchSources.github.denied,
+      gated: true,
+      fetchOffered: true,
     },
   };
 }

@@ -1,5 +1,6 @@
 import {
   ArticleFrontmatterSchema,
+  canonicalizeUrl,
   indexPath,
   normalizeUrl,
   slugForUrl,
@@ -106,4 +107,31 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
     content: stringifyArticle(frontmatter, input.markdown),
     title,
   };
+}
+
+/**
+ * Where a tab's body was read from, when a publisher rule files the article
+ * somewhere else — the `sourceUrl` above. Undefined for an ordinary page,
+ * whose body and article share a URL.
+ *
+ * Here rather than in the popup so it can be tested: the popup imports CSS and
+ * reaches for `document` at module scope, so nothing can import it.
+ */
+export function tabSourceUrl(rawUrl: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return undefined;
+  }
+  // A reading position is not a source: `?context=cs` and `#S3` describe where
+  // in the document the reader was, not where the document came from.
+  url.search = "";
+  url.hash = "";
+  const stripped = url.toString();
+  // Asked of canonicalization rather than of a named publisher. The question is
+  // "did a rule file this body somewhere other than where it was read", and
+  // every rule creates it: keyed on arXiv alone, a raw.githubusercontent.com
+  // tab was filed under the blob page while claiming that page as its source.
+  return canonicalizeUrl(stripped) === stripped ? undefined : stripped;
 }

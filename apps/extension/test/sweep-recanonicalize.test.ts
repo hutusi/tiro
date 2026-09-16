@@ -47,6 +47,7 @@ const payload = (over: Partial<ClipPayload> = {}): ClipPayload => ({
   hasMath: true,
   pdfViewer: false,
   latexmlFullText: true,
+  markdownSource: false,
   ...over,
 });
 

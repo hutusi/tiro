@@ -9,6 +9,33 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Markdown files clip as markdown.** A `.md` served as plain text —
+  `raw.githubusercontent.com`, GitLab, Codeberg, anywhere — used to arrive as a
+  single code block: Chrome renders `text/plain` as a body of one `<pre>`, and
+  nothing asked what kind of document that was. The consequences compounded,
+  because code is verbatim by contract: the article could not be translated, so
+  its `zh.md` was a byte-identical copy of the English; its title was the
+  hostname; and every repo-relative image resolved against the site's own
+  origin. The file is now carried through as the markdown it already is, with
+  its destinations resolved against the URL the bytes came from, its
+  reference-style links inlined so each block still renders standalone, and its
+  title taken from its own frontmatter or first heading. Detection is by
+  document shape rather than by hostname, so nothing about it is GitHub-specific
+  (ADR 0023).
+- **A GitHub markdown file is one article, however you reached it.** The raw
+  bytes and the `blob` page are one identity, and `refs/heads/main` and `main`
+  are one ref; a different branch, tag or SHA stays a different article, since a
+  ref is a pin rather than a variant. Because the identity collapses, clipping
+  the blob page would *replace* a clip of the file with GitHub's rendering of
+  it — so the popup fetches the bytes instead, under a new optional host
+  permission for `raw.githubusercontent.com` asked for from the Clip flow's own
+  gesture, exactly as arXiv already worked. Nothing is fetched when you are
+  already on the raw URL — and if the fetch is declined or fails, the page is
+  not clipped at all rather than clipped as the rendering: the popup names the
+  raw URL to open instead, which needs no permission. The one affected article in the vault must be
+  re-clipped, and moves to a new slug; `sweep --recanonicalize` performs the
+  rename offline first.
+
 - **Opt-in settings sync for the extension.** Ticking "Sync settings across my
   devices" on the options page moves the GitHub owner, repository, branch,
   token and language preference into `chrome.storage.sync`, so a machine signed
