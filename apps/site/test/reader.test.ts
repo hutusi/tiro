@@ -416,6 +416,22 @@ describe("in-document anchors are scoped to their pane", () => {
     expect(link).toContain('href="#tiro-o-fn1"');
   });
 
+  /**
+   * The sanitizer clobbers `aria-labelledby` and `aria-describedby` alongside
+   * `id`, and hast parses those as arrays because they are space-separated id
+   * lists. Handling only string values moved the id and left the reference
+   * spelled the old way — a screen reader losing the label, with nothing
+   * visibly wrong. remark-gfm's own footnotes are the shape that proves it.
+   */
+  test("an aria reference moves with the id it points at", () => {
+    const html = renderBlockHtml("Text[^1].\n\n[^1]: The note.", "s", {
+      pane: "original",
+    });
+    const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
+    expect(described).toBe("tiro-o-footnote-label");
+    expect(html).toContain(`id="${described}"`);
+  });
+
   // `[slug].astro` puts both columns in one document, so an unscoped id would
   // appear twice and a jump would land in whichever came first.
   test("the two panes never share an id", () => {

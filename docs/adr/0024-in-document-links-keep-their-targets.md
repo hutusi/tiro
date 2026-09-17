@@ -113,7 +113,21 @@ moved onto its own line is caught by the existing revert gate in
 a mangled formula is silent, wrong mathematics, while a missing anchor is a link
 that does nothing — which is where we started.
 
-**11. `tiro.schema` stays at 1.** Nothing in frontmatter changes, and bodies
+**11. The marker holds a list, not an id.** Two empty named anchors in one
+paragraph both hoist onto the following heading, and a single-valued attribute
+let the second erase the first — both links survive, so the loss is silent. The
+hoist also walks past empty paragraphs rather than stopping at the first, since
+handing the marker to another empty `<p>` hands it to an element Readability
+deletes for the very reason it deletes this one.
+
+**12. Scoping moves aria references too, including the array-valued ones.**
+`schema.clobber` lists `ariaDescribedBy` and `ariaLabelledBy` beside `id`, and
+hast parses those as arrays because they are space-separated id lists. Handling
+only string values renamed the id and left the reference pointing at the old
+spelling — remark-gfm's own footnotes carry exactly that shape, so the failure
+was a screen reader losing a label with nothing visibly wrong.
+
+**13. `tiro.schema` stays at 1.** Nothing in frontmatter changes, and bodies
 already carry raw HTML by construction — `VERBATIM_NODE_TYPES` includes `"html"`
 precisely because "clipped articles carry raw HTML the converter could not
 express", which also means `verbatimRanges` protects these anchors from every
@@ -132,6 +146,16 @@ repair for free. An older reader renders the span as inert markup.
 - **Two articles the sweep cannot speak for.** darioamodei.com builds its
   footnotes client-side, so the cached HTML is a shell and the sweep reports
   nothing for 149 of the vault's in-document links. They need a browser clip.
+- **A lifted title takes its anchor with it.** When the body's opening H1 *is*
+  the article title, `liftTitles` skips that row and the title block shows the
+  text alone — so an anchor on that H1 never renders and a link to it stays
+  dead. Carrying it across is not cheap: the title renders as plain text in
+  `[slug].astro`, and emitting clipped markup there would route it around
+  `render.ts`, which is the one place invariant 5 is enforced. Left as a known
+  gap on the evidence: **0 of 122** articles in the vault place an anchor on
+  their opening H1, and the outcome when it happens is a dead link, which is
+  where every one of these links started. Revisit if a re-clip ever produces
+  one.
 - **Heading slugs are out of scope.** A markdown-source article (ADR 0023)
   linking `](#some-heading)` wants *generated* slugs, which is a renderer
   feature needing a document-wide slugger that per-block rendering cannot

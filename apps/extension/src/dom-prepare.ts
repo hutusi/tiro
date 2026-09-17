@@ -1757,7 +1757,14 @@ function markInDocumentAnchors(doc: Document): void {
   for (const id of referencedFragments(doc)) {
     const found = anchorTarget(doc, id);
     if (found === null) continue;
-    (hoistTarget(found) ?? found).setAttribute(ANCHOR_ATTR, id);
+    // Appended, not assigned. Two empty named anchors in one paragraph —
+    // `<p><a name="a"></a><a name="b"></a></p><h2>` — both hoist onto the same
+    // heading, and overwriting meant the first link kept a target that was
+    // never emitted. The separator is a space because `ANCHOR_ID` cannot
+    // contain one, so the split is unambiguous.
+    const host = hoistTarget(found) ?? found;
+    const marked = host.getAttribute(ANCHOR_ATTR);
+    host.setAttribute(ANCHOR_ATTR, marked === null ? id : `${marked} ${id}`);
   }
 }
 
@@ -1820,7 +1827,24 @@ function hoistTarget(target: Element): Element | null {
   const parent = target.parentElement;
   if (parent === null || parent.tagName.toUpperCase() !== "P") return null;
   if ((parent.textContent ?? "").trim() !== "") return null;
-  return parent.nextElementSibling;
+  // Past every sibling that is itself an empty paragraph. Hand-written pages
+  // stack the idiom — `<p><a name="a"></a></p><p><a name="b"></a></p><h2>` —
+  // and hoisting onto the next empty paragraph would hand the marker to an
+  // element Readability deletes for the same reason it deletes this one. Both
+  // ids end up on the heading, which `markInDocumentAnchors` now appends
+  // rather than overwrites.
+  let next = parent.nextElementSibling;
+  while (next !== null && isEmptyParagraph(next)) {
+    next = next.nextElementSibling;
+  }
+  return next;
+}
+
+function isEmptyParagraph(element: Element): boolean {
+  return (
+    element.tagName.toUpperCase() === "P" &&
+    (element.textContent ?? "").trim() === ""
+  );
 }
 
 /**
@@ -1843,21 +1867,25 @@ export function placeAnchorsIn(html: string, doc: Document): string {
   for (const target of Array.from(
     scratch.querySelectorAll(`[${ANCHOR_ATTR}]`),
   )) {
-    const id = target.getAttribute(ANCHOR_ATTR);
+    const marked = target.getAttribute(ANCHOR_ATTR) ?? "";
     target.removeAttribute(ANCHOR_ATTR);
-    if (id !== null && !referenced.has(id)) continue;
     // Validated again rather than trusted from across the extraction boundary,
     // for the reason `restoreCodeLanguagesIn` gives.
-    if (id === null || !ANCHOR_ID.test(id)) continue;
+    const ids = marked
+      .split(" ")
+      .filter((id) => id !== "" && referenced.has(id) && ANCHOR_ID.test(id));
+    if (ids.length === 0) continue;
     // Refused outright inside a fence. Turndown's fenced-code rule wants the
     // `<code>` to be the `<pre>`'s first child; one inserted sibling collapses
     // the whole block to inline code and takes its language with it.
     if (target.closest("pre") !== null) continue;
     const placement = placementFor(target);
     if (placement === null) continue;
-    const anchor = scratch.createElement("span");
-    anchor.setAttribute(ANCHOR_ATTR, id);
-    placement.host.insertBefore(anchor, placement.before);
+    for (const id of ids) {
+      const anchor = scratch.createElement("span");
+      anchor.setAttribute(ANCHOR_ATTR, id);
+      placement.host.insertBefore(anchor, placement.before);
+    }
   }
   return scratch.body.innerHTML;
 }

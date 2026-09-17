@@ -1993,6 +1993,28 @@ describe("in-document links keep their targets", () => {
     ).toContain('<span id="t"></span>');
   });
 
+  /**
+   * One element, two targets. The marker is a single attribute, so assigning it
+   * per id meant the second hoist erased the first and one of the two links
+   * kept pointing at nothing — both links survive, which is what makes the loss
+   * silent.
+   */
+  test.each([
+    ["in one paragraph", '<p><a name="a"></a><a name="b"></a></p>'],
+    [
+      "in consecutive paragraphs",
+      '<p><a name="a"></a></p><p><a name="b"></a></p>',
+    ],
+  ])("keeps both names hoisted onto one heading, %s", (_name, markup) => {
+    const out = anchored(
+      `<p>See <a href="#a">a</a> and <a href="#b">b</a>.</p>${markup}<h2>Heading</h2>`,
+    );
+    expect(out).toContain('<span id="a"></span>');
+    expect(out).toContain('<span id="b"></span>');
+    // On the heading, not stranded in a paragraph Readability deletes.
+    expect(out).toMatch(/^## <span id="a">/m);
+  });
+
   test("resolves a legacy name= target as well as an id", () => {
     expect(anchored(`${ref}<p>[<a name="t">1</a>] Note.</p>`)).toContain(
       '<span id="t"></span>',

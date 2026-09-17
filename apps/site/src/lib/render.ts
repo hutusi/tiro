@@ -254,8 +254,22 @@ function rehypeScopeAnchors(pane: Pane) {
       if (properties === undefined) return;
       for (const name of CLOBBERED) {
         const value = properties[name];
-        if (typeof value !== "string") continue;
-        properties[name] = prefix + stripOnce(value, CLOBBER_PREFIX);
+        // `aria-labelledby` and `aria-describedby` are space-separated lists of
+        // ids, so hast parses them as arrays — and the sanitizer clobbers every
+        // entry. Skipping a non-string here moved the id and left the reference
+        // pointing at the old spelling: remark-gfm's own footnotes carry
+        // `aria-describedby="user-content-footnote-label"` against a heading
+        // this pass had already renamed, which is a screen reader losing the
+        // label rather than anything visible.
+        if (typeof value === "string") {
+          properties[name] = prefix + stripOnce(value, CLOBBER_PREFIX);
+        } else if (Array.isArray(value)) {
+          properties[name] = value.map((entry) =>
+            typeof entry === "string"
+              ? prefix + stripOnce(entry, CLOBBER_PREFIX)
+              : entry,
+          );
+        }
       }
       if (node.tagName !== "a") return;
       const href = properties.href;
