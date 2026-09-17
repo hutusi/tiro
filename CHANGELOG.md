@@ -9,6 +9,16 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **In-document links work.** A clipped article kept its footnote and citation
+  links but never the targets they point at, so all of them were dead — 35 of
+  the vault's articles carry such links, and one arXiv paper carries 258 of
+  them, every citation in the paper. Two independent causes: Turndown drops an
+  anchor because markdown has no syntax for one, and the site's sanitizer
+  renames every `id` while leaving the links alone. The clipper now carries over
+  the targets something actually links to, and the reader reconciles them —
+  scoped per pane, since the original and the translation share one document.
+  Measured recovery on real pages: 9 of 9, 188 of 194, 34 of 34, 30 of 30
+  (ADR 0024). Existing articles need a re-clip to gain them.
 - **Markdown files clip as markdown.** A `.md` served as plain text —
   `raw.githubusercontent.com`, GitLab, Codeberg, anywhere — used to arrive as a
   single code block: Chrome renders `text/plain` as a body of one `<pre>`, and

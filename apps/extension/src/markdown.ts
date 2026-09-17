@@ -1,6 +1,10 @@
 import { gfm } from "@joplin/turndown-plugin-gfm";
 import TurndownService from "turndown";
-import { MATH_ATTR, mathTurndownRule } from "./dom-prepare.ts";
+import {
+  anchorReplacement,
+  MATH_ATTR,
+  mathTurndownRule,
+} from "./dom-prepare.ts";
 
 export interface MarkdownResult {
   markdown: string;
@@ -87,6 +91,12 @@ export function htmlToMarkdown(html: string): MarkdownResult {
     headingStyle: "atx",
     codeBlockStyle: "fenced",
     bulletListMarker: "-",
+    // An in-document anchor is an empty span, and Turndown sends every blank
+    // node here *before* it consults a rule — so this is the only hook that can
+    // see one. Everything else keeps the stock behaviour.
+    blankReplacement: (_content, node) =>
+      anchorReplacement(node) ??
+      ((node as { isBlock?: boolean }).isBlock === true ? "\n\n" : ""),
   });
   turndown.use(gfm);
   turndown.addRule("tiroInlineLink", inlineLinkRule);

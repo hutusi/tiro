@@ -4,9 +4,11 @@ import { splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 import {
+  ANCHOR_ATTR,
   CODE_LANG_ATTR,
   foldFiguresIn,
   MATH_ATTR,
+  placeAnchorsIn,
   prepareForClipping,
 } from "../src/dom-prepare.ts";
 import { htmlToMarkdown } from "../src/markdown.ts";
@@ -1921,6 +1923,203 @@ describe("a <font> does not end the paragraph it sits in", () => {
   test("leaves strikethrough alone", () => {
     expect(bodyOf("<s>struck</s> and <del>deleted</del>")).toContain(
       "~~struck~~ and ~~deleted~~",
+    );
+  });
+});
+
+describe("in-document links keep their targets", () => {
+  /** prepare → place → markdown, without Readability: what the raw-body
+   * fallback takes, and enough to see placement on its own. */
+  function anchored(html: string): string {
+    const { html: prepared, doc } = prepare(html);
+    return htmlToMarkdown(placeAnchorsIn(prepared, doc)).markdown;
+  }
+
+  const ref = '<p>See <a href="#t">t</a>.</p>';
+
+  test("anchors a heading something links to", () => {
+    expect(anchored(`${ref}<h2 id="t">Section</h2>`)).toContain(
+      '## <span id="t"></span>Section',
+    );
+  });
+
+  // The bound. One arXiv paper carries 2257 ids and 258 references; anchoring
+  // every id would put two thousand spans of noise in the vault to no end.
+  test("ignores an id nothing links to", () => {
+    expect(anchored('<h2 id="t">Section</h2>')).not.toContain("<span id=");
+  });
+
+  /**
+   * The marking pass can only see the whole page; this pass sees what
+   * Readability kept. A table of contents links to every heading and is
+   * routinely dropped — anchoring on the marker alone would leave a span behind
+   * for a link that is no longer anywhere in the article. Asking again, of the
+   * extract, is what makes the bound mean what it says.
+   */
+  test("skips an anchor whose only link extraction dropped", () => {
+    const { html: prepared, doc } = prepare(
+      '<nav><a href="#t">Section</a></nav><h2 id="t">Section</h2>',
+    );
+    const kept = prepared.replace(/<nav>[\s\S]*?<\/nav>/, "");
+    expect(kept).toContain(ANCHOR_ATTR);
+    expect(placeAnchorsIn(kept, doc)).not.toContain("<span id=");
+  });
+
+  /**
+   * Zola, Hugo and friends end every heading with a self-referential permalink
+   * whose content is an icon or nothing at all. Turndown drops it, correctly —
+   * so counting it as a reference would anchor every heading on such a site for
+   * a link that is no longer in the markdown. Two real shapes, from the two
+   * articles that surfaced this in the baseline sweep.
+   */
+  test.each([
+    ["an empty permalink", '<a class="zola-anchor" href="#t"></a>'],
+    [
+      "one holding only an icon",
+      '<a href="#t"><svg viewBox="0 0 16 16"></svg></a>',
+    ],
+  ])("ignores %s", (_name, permalink) => {
+    expect(anchored(`<h2 id="t">Section${permalink}</h2>`)).not.toContain(
+      "<span id=",
+    );
+  });
+
+  // The case that keeps the rule honest: empty text, but it still renders.
+  test("counts a link whose content is an image", () => {
+    expect(
+      anchored(
+        `<p><a href="#t"><img src="https://e.com/i.png" alt=""></a></p><h2 id="t">S</h2>`,
+      ),
+    ).toContain('<span id="t"></span>');
+  });
+
+  test("resolves a legacy name= target as well as an id", () => {
+    expect(anchored(`${ref}<p>[<a name="t">1</a>] Note.</p>`)).toContain(
+      '<span id="t"></span>',
+    );
+  });
+
+  test.each([
+    ["list item", '<ul><li id="t">Author, Title.</li></ul>', "-   <span"],
+    [
+      "item wrapping a paragraph",
+      '<ul><li id="t"><p>Author.</p></li></ul>',
+      "-   <span",
+    ],
+    [
+      "table cell",
+      '<table><tr><td id="t">Cell</td></tr></table>',
+      '<span id="t">',
+    ],
+    [
+      "a container, at its first text",
+      '<section id="t"><h3>Head</h3></section>',
+      '### <span id="t"></span>Head',
+    ],
+  ])("anchors %s", (_name, markup, want) => {
+    expect(anchored(ref + markup)).toContain(want);
+  });
+
+  /**
+   * The hand-written anchor idiom, and the one target that does not survive at
+   * all: Readability deletes a paragraph with no text in it. Needs the real
+   * pipeline — a test that skips Readability cannot see the deletion.
+   */
+  test("hoists off an empty paragraph Readability deletes", () => {
+    const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}${ref}<p><a name="t"></a></p><h2>Adverbs</h2>${filler}</article>`;
+    const payload = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    expect(payload.readabilityFailed).toBe(false);
+    expect(payload.markdown).toContain('## <span id="t"></span>Adverbs');
+  });
+
+  // The marker's *value* reaches a public page, so a page-authored one must
+  // never be trusted — the MATH_ATTR precedent, and it matters more here.
+  test("clears a page-authored marker before marking", () => {
+    const html = anchored(
+      `${ref}<h2 id="t">Section</h2><p ${ANCHOR_ATTR}="evil">x</p>`,
+    );
+    expect(html).not.toContain('id="evil"');
+  });
+
+  test.each(["../etc", "a b", ""])("refuses the id %p", (id) => {
+    const markup = `<p>See <a href="#${id}">t</a>.</p><h2 id="${id}">S</h2>`;
+    expect(anchored(markup)).not.toContain("<span id=");
+  });
+
+  /**
+   * The id goes into an attribute in a public article, so a quote in one must
+   * never be able to close it. Written with single-quoted attributes because a
+   * double-quoted fixture would be truncated by the parser before the rule ever
+   * saw the character.
+   */
+  test("refuses an id carrying a quote rather than emitting it", () => {
+    const md = anchored(`<p>See <a href='#a"b'>t</a>.</p><h2 id='a"b'>S</h2>`);
+    expect(md).not.toContain("<span id=");
+  });
+
+  // A bare "#" addresses the top of the page rather than an id.
+  test("ignores a bare hash link", () => {
+    expect(
+      anchored('<p><a href="#">top</a></p><h2 id="t">S</h2>'),
+    ).not.toContain("<span id=");
+  });
+
+  describe("the three shapes an anchor must not break", () => {
+    /**
+     * Turndown's fenced-code rule wants the `<code>` to be the `<pre>`'s first
+     * child. One inserted sibling collapses the whole block to inline code and
+     * takes its language with it — measured, which is why this is a blanket
+     * refusal rather than a placement rule.
+     */
+    test("a fence keeps its fence and its language", () => {
+      const md = anchored(
+        `${ref}<pre id="t"><code class="language-js">const a = 1;</code></pre>`,
+      );
+      expect(md).toContain("```js");
+      expect(md).not.toContain("<span id=");
+    });
+
+    // `rehypeFigureCaptions` reads the picture at the start of the paragraph,
+    // so an anchor in front of it stops the figure being recognised.
+    test("a leading image is still the first thing in its paragraph", () => {
+      const md = anchored(
+        `${ref}<figure id="t"><img src="x.png" alt="alt"><figcaption>A caption.</figcaption></figure>`,
+      );
+      expect(md).toMatch(/!\[alt\]/);
+      expect(md.indexOf("![alt]")).toBeLessThan(
+        md.indexOf("<span") === -1
+          ? Number.MAX_SAFE_INTEGER
+          : md.indexOf("<span"),
+      );
+    });
+
+    test("a task list keeps its checkbox", () => {
+      const md = anchored(
+        `${ref}<ul><li id="t"><input type="checkbox" checked> done</li></ul>`,
+      );
+      expect(md).toContain("[x]");
+      expect(md.indexOf("[x]")).toBeLessThan(md.indexOf("<span id="));
+    });
+  });
+
+  /**
+   * The alignment contract, as one test. An anchor is inline, so it must never
+   * change how a body splits — `zh.md` has to match block for block, and a
+   * placement rule that looked harmless could add a row.
+   */
+  test("never changes a body's block structure", () => {
+    const markup =
+      '<h2 id="t">Sec</h2><p>Text.</p><ul><li id="b">Item</li></ul>' +
+      '<pre><code class="language-js">const a = 1;</code></pre>';
+    const linked = `<p>See <a href="#t">a</a> and <a href="#b">b</a>.</p>${markup}`;
+    const bare = `<p>See a and b.</p>${markup}`;
+    expect(splitBlocks(anchored(linked)).map((b) => b.type)).toEqual(
+      splitBlocks(anchored(bare)).map((b) => b.type),
     );
   });
 });

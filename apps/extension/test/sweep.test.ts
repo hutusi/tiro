@@ -18,11 +18,21 @@ describe("countMarkdown", () => {
       "",
       "Prose mentioning ![c](z.png) inline.",
     ].join("\n");
-    expect(countMarkdown(md)).toEqual({ images: 3, captions: 1 });
+    expect(countMarkdown(md)).toEqual({
+      images: 3,
+      captions: 1,
+      anchors: 0,
+      anchors_live: 0,
+    });
   });
 
   test("counts nothing in empty markdown", () => {
-    expect(countMarkdown("")).toEqual({ images: 0, captions: 0 });
+    expect(countMarkdown("")).toEqual({
+      images: 0,
+      captions: 0,
+      anchors: 0,
+      anchors_live: 0,
+    });
   });
 
   test("counts each image on a shared line", () => {
@@ -38,6 +48,8 @@ describe("countMarkdown", () => {
     expect(countMarkdown("![a](a.png)![b](b.png)  \nCap.")).toEqual({
       images: 2,
       captions: 1,
+      anchors: 0,
+      anchors_live: 0,
     });
   });
 
@@ -45,6 +57,8 @@ describe("countMarkdown", () => {
     expect(countMarkdown("Just prose.  \nMore.")).toEqual({
       images: 0,
       captions: 0,
+      anchors: 0,
+      anchors_live: 0,
     });
   });
 
@@ -374,5 +388,33 @@ describe("isPlainText", () => {
 
   test("a response with no content-type is not plain text", () => {
     expect(isPlainText(null)).toBe(false);
+  });
+});
+
+describe("countMarkdown, in-document links", () => {
+  const anchor = '<span id="fn1"></span>';
+
+  // The number this feature is about: an anchor nothing points at is noise,
+  // and a link with no anchor is the defect it was written for.
+  test("counts a link live only when its target is in the same body", () => {
+    const live = `See [1](#fn1).\n\n${anchor}The note.`;
+    expect(countMarkdown(live).anchors).toBe(1);
+    expect(countMarkdown(live).anchors_live).toBe(1);
+    expect(countMarkdown("See [1](#fn1).").anchors_live).toBe(0);
+    expect(countMarkdown(`${anchor}The note.`).anchors_live).toBe(0);
+  });
+
+  test("does not count a link out to another page", () => {
+    expect(
+      countMarkdown("[spec](https://example.test/a#part)").anchors_live,
+    ).toBe(0);
+  });
+
+  // Same discipline as the image counts above: read what the parser calls
+  // HTML, never a line shape, so a fence showing the markup counts nothing.
+  test("ignores an anchor a fence is only displaying", () => {
+    expect(countMarkdown('```html\n<span id="fn1"></span>\n```').anchors).toBe(
+      0,
+    );
   });
 });

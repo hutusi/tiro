@@ -151,7 +151,10 @@ flowchart LR
    and KaTeX run *after* rehype-sanitize, as trusted generators over
    already-scrubbed text, so the allowlist never has to admit the classes and
    inline styles they emit — which would admit them from clipped markup too
-   (ADR 0009).
+   (ADR 0009). One more pass sits between the sanitizer and those generators:
+   the sanitizer clobbers `id` to `user-content-…` and leaves `href="#…"` alone,
+   so in-document links are reconciled with their targets there — and scoped to
+   the pane they render into, since both columns share one document (ADR 0024).
 
    A fence that still carries no language after the clipper's chain gets one
    inferred from its code at build time (`@tiro/shared`'s `detect-language.ts`),

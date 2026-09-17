@@ -80,7 +80,9 @@ import {
   checkAlignment,
   detectLanguage,
   foldedFigureCount,
+  htmlRanges,
   imageOffsets,
+  markdownLinks,
   normalizeUrl,
   parseArticle,
   slugForUrl,
@@ -122,6 +124,12 @@ interface Article {
 interface Counts {
   images: number;
   captions: number;
+  /** Anchor targets the clip carried over (ADR 0024). */
+  anchors: number;
+  /** In-document links whose target is in the same body — the number this is
+   * actually about, since an anchor nothing points at is noise and a link with
+   * no anchor is the defect. */
+  anchors_live: number;
 }
 
 /**
@@ -134,10 +142,34 @@ interface Counts {
  * four-backtick and blockquoted fences, and splitting on `\n` left a `\r` that
  * made every folded caption in a CRLF document invisible.
  */
+/** Our own emission, matched exactly (ADR 0024). */
+const ANCHOR_SPAN = /<span id="([^"]+)"><\/span>/g;
+
 export function countMarkdown(markdown: string): Counts {
+  // Inline HTML reaches mdast as one node per *tag*, so an anchor is two
+  // adjacent nodes and no single range holds all of it. Matching the emission
+  // over the text and then asking the parser whether that offset is HTML keeps
+  // the discipline the counts above are written to: a fence displaying the
+  // markup is a `code` node and lands in no range at all.
+  const ranges = htmlRanges(markdown);
+  const anchors = new Set<string>();
+  for (const match of markdown.matchAll(ANCHOR_SPAN)) {
+    const at = match.index;
+    if (at === undefined || match[1] === undefined) continue;
+    if (!ranges.some((range) => at >= range.start && at < range.end)) continue;
+    anchors.add(match[1]);
+  }
+  let live = 0;
+  for (const link of markdownLinks(markdown)) {
+    if (link.type !== "link") continue;
+    if (!link.url.startsWith("#") || link.url.length < 2) continue;
+    if (anchors.has(link.url.slice(1))) live += 1;
+  }
   return {
     images: imageOffsets(markdown).length,
     captions: foldedFigureCount(markdown),
+    anchors: anchors.size,
+    anchors_live: live,
   };
 }
 
@@ -306,15 +338,15 @@ async function clipHtml<T>(
 }
 
 function describe(before: Counts, after: Counts): string | null {
-  const images = after.images - before.images;
-  const captions = after.captions - before.captions;
-  if (images === 0 && captions === 0) return null;
   const parts: string[] = [];
-  if (images !== 0) parts.push(`${images > 0 ? "+" : ""}${images} images`);
-  if (captions !== 0) {
-    parts.push(`${captions > 0 ? "+" : ""}${captions} captions`);
+  for (const [label, delta] of [
+    ["images", after.images - before.images],
+    ["captions", after.captions - before.captions],
+    ["live fragments", after.anchors_live - before.anchors_live],
+  ] as const) {
+    if (delta !== 0) parts.push(`${delta > 0 ? "+" : ""}${delta} ${label}`);
   }
-  return parts.join(", ");
+  return parts.length === 0 ? null : parts.join(", ");
 }
 
 /* ---------------------------------------------------------------- backfill */
