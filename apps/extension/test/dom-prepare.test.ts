@@ -2032,6 +2032,43 @@ describe("in-document links keep their targets", () => {
     expect(out).not.toMatch(/## <span id="photo">/);
   });
 
+  /**
+   * `CAPTION_INLINE` includes `IMG`, so an id on an image is an inline target
+   * whose paragraph holds no text — it hoisted to the next block, sending the
+   * link past the photo it named. And an anchor *before* an image costs the
+   * figure fold: `foldFigureCaptions` needs the picture to be its container's
+   * only meaningful child, and a span is one, so the caption silently became a
+   * paragraph of its own. Both leave the link dead, which is where it started.
+   */
+  test.each([
+    ["in a bare paragraph", "<p>%</p><h2>Next</h2>"],
+    [
+      "inside a captioned figure",
+      "<figure>%<figcaption>The caption.</figcaption></figure>",
+    ],
+  ])("refuses an anchor on an image, %s", (_name, shape) => {
+    const out = anchored(
+      '<p>See <a href="#photo">the photo</a>.</p>' +
+        shape.replace(
+          "%",
+          '<img id="photo" src="https://e.com/p.jpg" alt="Photo">',
+        ),
+    );
+    expect(out).toContain("![Photo](https://e.com/p.jpg)");
+    expect(out).not.toContain("<span id=");
+  });
+
+  // The case the refusal must not catch: a target on the figure itself is a
+  // container, and its anchor goes in the caption, ahead of nothing.
+  test("still anchors a figure carrying the id itself", () => {
+    const out = anchored(
+      '<p>See <a href="#fig1">it</a>.</p><figure id="fig1">' +
+        '<img src="https://e.com/p.jpg" alt="Photo">' +
+        "<figcaption>The caption.</figcaption></figure>",
+    );
+    expect(out).toContain('<span id="fig1"></span>The caption.');
+  });
+
   test("resolves a legacy name= target as well as an id", () => {
     expect(anchored(`${ref}<p>[<a name="t">1</a>] Note.</p>`)).toContain(
       '<span id="t"></span>',

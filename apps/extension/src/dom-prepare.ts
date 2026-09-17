@@ -1825,8 +1825,12 @@ function hoistTarget(target: Element): Element | null {
   if (!CAPTION_INLINE.has(target.tagName.toUpperCase())) return null;
   if ((target.textContent ?? "").trim() !== "") return null;
   const parent = target.parentElement;
-  if (parent === null || parent.tagName.toUpperCase() !== "P") return null;
-  if ((parent.textContent ?? "").trim() !== "") return null;
+  if (parent === null) return null;
+  // `isEmptyParagraph`, not a text test — `CAPTION_INLINE` includes `IMG`, so
+  // an id on the image in `<p><img></p>` is a target whose paragraph holds no
+  // text, and hoisting moved it to the next block: the link jumped past the
+  // photo it named.
+  if (!isEmptyParagraph(parent)) return null;
   // Past every sibling that is itself an empty paragraph. Hand-written pages
   // stack the idiom — `<p><a name="a"></a></p><p><a name="b"></a></p><h2>` —
   // and hoisting onto the next empty paragraph would hand the marker to an
@@ -1905,6 +1909,16 @@ function placementFor(
   // An inline target keeps its place. Walking up to the block would put a
   // footnote marker's anchor at the top of the whole essay.
   if (CAPTION_INLINE.has(tag)) {
+    // Except in front of media. `foldFigureCaptions` needs the picture to be
+    // its container's only meaningful child, and an inserted span is one — so
+    // an id on the image of a captioned figure would silently cost the fold,
+    // turning the caption into a paragraph of its own. Refusing leaves the link
+    // dead, which is where it started; it is the same trade `anchorPoint` makes
+    // for an image-leading host, and it does not depend on enumerating which
+    // shapes fold.
+    if (isPictureLike(target) || target.querySelector("img") !== null) {
+      return null;
+    }
     const parent = target.parentElement;
     return parent === null ? null : { host: parent, before: target };
   }
