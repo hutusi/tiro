@@ -646,6 +646,55 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * Re-tag every `<font>` as a `<span>`, before Readability reads the page.
+ *
+ * Not about the tag's own output — Turndown discards `color`, `size` and `face`
+ * anyway — but about where Readability puts its paragraph breaks. A page that
+ * separates paragraphs with `<br><br>`, as paulgraham.com does, has them built
+ * by `_replaceBrs`, which moves siblings into the paragraph it creates only
+ * while they are *phrasing content* and stops at the first that is not. Its
+ * `PHRASING_ELEMS` list has no `FONT` in it, and an `<a>` counts as phrasing
+ * only when every child does. So a footnote marker written
+ *
+ *     [<a name="f1n"><font color=#000000>1</font></a>] You can also make…
+ *
+ * ends the paragraph half-way through itself: `[` stays behind and the anchor
+ * starts a new one. Every note on that essay arrived as a stray `\[` paragraph
+ * followed by `1\] You can also…`, and its closing Thanks block fused to the
+ * last note.
+ *
+ * The notes are only where it shows. This takes that essay from 58 top-level
+ * blocks to 43 and another from 54 to 44 — ten paragraphs that ended
+ * mid-sentence with no visible symptom, and that the translator was handed in
+ * halves.
+ *
+ * **One element in place of one element, rather than unwrapping.** Dropping the
+ * `<font>` and keeping its children fixes the same symptom and was tried first;
+ * a corpus sweep caught what it cost. Readability scores candidates by what
+ * their subtree contains, so removing 22 elements from a page changes which
+ * container it picks — on one PBS NOVA page it then chose a larger one that
+ * begins with the site's navigation, and the article lost nine of its eleven
+ * images. Re-tagging leaves the tree exactly as it was; `<span>` is on the
+ * phrasing list, which is the whole of what needed to change. The attributes
+ * are not carried over: nothing downstream reads them, and neither element
+ * takes a class or id, so `_getClassWeight` sees the same page either way.
+ *
+ * `<big>`, `<tt>` and `<nobr>` share the flaw and are left out until a page
+ * needs them. `<s>`, `<strike>` and `<u>` must be left alone whatever happens:
+ * Turndown's GFM plugin renders the first two as `~~…~~`, so re-tagging them
+ * would drop a strikethrough silently — this bug traded for a worse one.
+ */
+function retagFontsAsSpans(doc: Document): void {
+  for (const font of Array.from(doc.querySelectorAll("font"))) {
+    const span = doc.createElement("span");
+    // Materialized: `childNodes` is live, and appendChild is moving its
+    // entries out from under the iteration.
+    for (const child of Array.from(font.childNodes)) span.appendChild(child);
+    font.replaceWith(span);
+  }
+}
+
+/**
  * Remove an `<svg>` that paints text, so a chart cannot arrive as glyph soup.
  *
  * Turndown has no rule for `<svg>` and does not call it a block, so it keeps
@@ -1608,6 +1657,9 @@ function promoteTableHeaders(doc: Document): void {
  * in a discarded sidebar set the flag (see markdown.ts).
  */
 export function prepareForClipping(doc: Document): void {
+  // First, and order-independent: it changes no structure, only a tag name the
+  // passes below have no opinion about.
+  retagFontsAsSpans(doc);
   normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);

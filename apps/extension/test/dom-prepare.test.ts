@@ -1856,3 +1856,71 @@ describe("markers the page wrote itself", () => {
     expect(hasMath).toBe(false);
   });
 });
+
+describe("a <font> does not end the paragraph it sits in", () => {
+  /**
+   * The whole clip, through the shipped entry point, for the same reason the
+   * fence tests above give: this defect lives *inside* Readability, and a test
+   * that goes straight from `prepareForClipping` to `htmlToMarkdown` cannot
+   * see it.
+   *
+   * `<br><br>` rather than `<p>` because that is the shape that reaches the
+   * code at fault — `_replaceBrs` builds the paragraphs itself, moving siblings
+   * into one only while they are phrasing content, and `FONT` is missing from
+   * Readability's list of those.
+   */
+  const filler = "Body sentence with enough words to score. ".repeat(20);
+
+  function bodyOf(markup: string): string {
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}<br><br>${markup}<br><br>${filler}</article>`;
+    const payload = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    // A case that quietly took the raw-body fallback never ran Readability, so
+    // it would pass without proving anything.
+    expect(payload.readabilityFailed).toBe(false);
+    return payload.markdown;
+  }
+
+  /**
+   * paulgraham.com's footnote marker. Every note on one essay arrived as a
+   * stray `\[` paragraph followed by `1\] You can also…`, because the anchor
+   * wrapping a `<font>` is not phrasing content and ended the paragraph
+   * half-way through the marker.
+   */
+  test("a footnote marker survives in one paragraph", () => {
+    const markup =
+      '[<a name="f1n"><font color="#000000">1</font></a>] You can also make tokens flow.';
+    const body = bodyOf(markup);
+    expect(body).toContain("\\[1\\] You can also make tokens flow.");
+    expect(body).not.toMatch(/\n\\\[\n/);
+  });
+
+  test("a font mid-sentence does not split the sentence", () => {
+    const body = bodyOf(
+      'One sentence <font size="2">with emphasis</font> that continues to its end.',
+    );
+    expect(body).toContain(
+      "One sentence with emphasis that continues to its end.",
+    );
+  });
+
+  // Unwrapping is about Readability's paragraph assembly, not about the tag's
+  // own output — Turndown discards colour and size regardless. Nothing the
+  // element held may go with it.
+  test("keeps everything the font wrapped, including nested markup", () => {
+    expect(bodyOf('<font color="red">kept <b>bold</b> text</font>')).toContain(
+      "kept **bold** text",
+    );
+  });
+
+  // The neighbours this deliberately leaves alone: unwrapping these would drop
+  // a strikethrough Turndown's GFM plugin does render.
+  test("leaves strikethrough alone", () => {
+    expect(bodyOf("<s>struck</s> and <del>deleted</del>")).toContain(
+      "~~struck~~ and ~~deleted~~",
+    );
+  });
+});
