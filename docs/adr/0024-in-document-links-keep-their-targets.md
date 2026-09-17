@@ -118,7 +118,10 @@ paragraph both hoist onto the following heading, and a single-valued attribute
 let the second erase the first — both links survive, so the loss is silent. The
 hoist also walks past empty paragraphs rather than stopping at the first, since
 handing the marker to another empty `<p>` hands it to an element Readability
-deletes for the very reason it deletes this one.
+deletes for the very reason it deletes this one — and "empty" is *Readability's*
+rule, not a text test: it keeps a `<p>` holding an `img`, `embed`, `object` or
+`iframe`, and a text-only test moved a photo's target onto the heading below it,
+so the link jumped past the thing it named.
 
 **12. Scoping moves aria references too, including the array-valued ones.**
 `schema.clobber` lists `ariaDescribedBy` and `ariaLabelledBy` beside `id`, and
@@ -146,16 +149,16 @@ repair for free. An older reader renders the span as inert markup.
 - **Two articles the sweep cannot speak for.** darioamodei.com builds its
   footnotes client-side, so the cached HTML is a shell and the sweep reports
   nothing for 149 of the vault's in-document links. They need a browser clip.
-- **A lifted title takes its anchor with it.** When the body's opening H1 *is*
-  the article title, `liftTitles` skips that row and the title block shows the
-  text alone — so an anchor on that H1 never renders and a link to it stays
-  dead. Carrying it across is not cheap: the title renders as plain text in
-  `[slug].astro`, and emitting clipped markup there would route it around
-  `render.ts`, which is the one place invariant 5 is enforced. Left as a known
-  gap on the evidence: **0 of 122** articles in the vault place an anchor on
-  their opening H1, and the outcome when it happens is a dead link, which is
-  where every one of these links started. Revisit if a re-clip ever produces
-  one.
+- **A lifted title carries its anchors.** When the body's opening H1 *is* the
+  article title, `liftTitles` skips that row — so an anchor on it would never
+  reach the renderer and a `#top` link would stay dead, every time, since an
+  anchor lands there only because something links to it. `liftTitles` returns
+  the ids and the title block re-emits them, scoped by `scopedAnchorId`. **Ids,
+  not markup:** the title is not rendered through `render.ts`, and nothing that
+  bypasses the sanitizer may carry clipped markup (invariant 5) — an id is a
+  validated token in an attribute Astro escapes, which is a different thing.
+  The cost is a second place that has to spell the scoped id the same way, so a
+  test renders one and compares.
 - **Heading slugs are out of scope.** A markdown-source article (ADR 0023)
   linking `](#some-heading)` wants *generated* slugs, which is a renderer
   feature needing a document-wide slugger that per-block rendering cannot

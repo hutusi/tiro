@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildReaderView } from "../src/lib/reader.ts";
-import { renderBlockHtml } from "../src/lib/render.ts";
+import { renderBlockHtml, scopedAnchorId } from "../src/lib/render.ts";
 
 const body = "# Title\n\nA paragraph.\n\n![img](./assets/abc.png)";
 const zhAligned = "# 标题\n\n一个段落。\n\n![img](./assets/abc.png)";
@@ -431,6 +431,22 @@ describe("in-document anchors are scoped to their pane", () => {
     expect(described).toBe("tiro-o-footnote-label");
     expect(html).toContain(`id="${described}"`);
   });
+
+  /**
+   * The title block names an anchor without rendering its block, so this has to
+   * agree with what the pipeline produces — a second rule that could drift. The
+   * awkward case is an id that already begins with the clobber prefix: the
+   * sanitizer adds one and the pass strips one, so it still round-trips.
+   */
+  test.each(["top", "user-content-fn-1"])(
+    "scopedAnchorId agrees with the rendered id, for %s",
+    (id) => {
+      const html = renderBlockHtml(`<span id="${id}"></span>x`, "s", {
+        pane: "original",
+      });
+      expect(html).toContain(`id="${scopedAnchorId(id, "original")}"`);
+    },
+  );
 
   // `[slug].astro` puts both columns in one document, so an unscoped id would
   // appear twice and a jump would land in whichever came first.

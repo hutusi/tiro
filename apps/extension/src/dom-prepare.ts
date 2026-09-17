@@ -1840,10 +1840,18 @@ function hoistTarget(target: Element): Element | null {
   return next;
 }
 
+/**
+ * A paragraph Readability will delete — which is the only reason to hoist past
+ * one, so this mirrors its rule rather than inventing one. `_prepArticle` drops
+ * a `<p>` with no inner text *and* no `img`, `embed`, `object` or `iframe`;
+ * testing text alone called an image-only paragraph empty and moved a target
+ * past the very figure it named, so `#photo` landed on the heading below it.
+ */
 function isEmptyParagraph(element: Element): boolean {
   return (
     element.tagName.toUpperCase() === "P" &&
-    (element.textContent ?? "").trim() === ""
+    (element.textContent ?? "").trim() === "" &&
+    element.querySelector("img, embed, object, iframe") === null
   );
 }
 

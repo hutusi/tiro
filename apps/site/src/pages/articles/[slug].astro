@@ -12,6 +12,7 @@ import {
 } from "../../lib/articles.ts";
 import { shortPathForSlug } from "../../lib/short-links.ts";
 import { buildReaderView } from "../../lib/reader.ts";
+import { scopedAnchorId } from "../../lib/render.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 import { isUnlisted } from "../../lib/visibility.ts";
 
@@ -188,7 +189,13 @@ const tagLinks = await Promise.all(
             <span>{minutesLabel(meta.minutes)}</span>
             {unlisted && <span class="pill">{t.unlisted}</span>}
           </p>
-          <h1 data-pagefind-meta="title">{frontmatter.title}</h1>
+          <h1 data-pagefind-meta="title">
+            {
+              meta.titleAnchors.map((id) => (
+                <span id={scopedAnchorId(id, "original")} />
+              ))
+            }{frontmatter.title}
+          </h1>
           <time
             hidden
             datetime={frontmatter.clipped_at}
@@ -208,6 +215,9 @@ const tagLinks = await Promise.all(
             <div class="zh" lang="zh-CN">
               {hasZhTitle && (
                 <h1 class="title-zh" data-pagefind-meta="title_zh">
+                  {meta.titleZhAnchors.map((id) => (
+                    <span id={scopedAnchorId(id, "translation")} />
+                  ))}
                   {meta.titleZh}
                 </h1>
               )}

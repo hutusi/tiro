@@ -2015,6 +2015,23 @@ describe("in-document links keep their targets", () => {
     expect(out).toMatch(/^## <span id="a">/m);
   });
 
+  /**
+   * The hoist walks past paragraphs Readability deletes, and "deletes" is its
+   * rule, not a text test: an image-only paragraph stays. Testing text alone
+   * moved this target onto the heading *below* the photo, so the link jumped
+   * past the thing it named — worse than not jumping, which is what it does
+   * now (`anchorPoint` refuses an image-leading host because an anchor there
+   * breaks the figure fold).
+   */
+  test("never hoists a target past an image", () => {
+    const out = anchored(
+      '<p>See <a href="#photo">the photo</a>.</p><p><a name="photo"></a></p>' +
+        '<p><img src="https://e.com/p.jpg" alt="Photo"></p><h2>Next</h2>',
+    );
+    expect(out).toContain("![Photo](https://e.com/p.jpg)");
+    expect(out).not.toMatch(/## <span id="photo">/);
+  });
+
   test("resolves a legacy name= target as well as an id", () => {
     expect(anchored(`${ref}<p>[<a name="t">1</a>] Note.</p>`)).toContain(
       '<span id="t"></span>',

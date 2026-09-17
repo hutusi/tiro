@@ -287,6 +287,20 @@ function rehypeScopeAnchors(pane: Pane) {
   };
 }
 
+/**
+ * The id `rehypeScopeAnchors` will give this anchor, for the one place that
+ * has to name it without rendering the block: the reader lifts the body's
+ * opening H1 into the title and skips that row, so an anchor on it never
+ * reaches the renderer (ADR 0024). The sanitizer clobbers to
+ * `<clobberPrefix><id>` and the pass strips exactly one of those back off, so
+ * the round trip is the pane prefix and nothing else — true for an id that
+ * already begins `user-content-` as well, which is why it is a concatenation
+ * rather than a second rule to keep in step.
+ */
+export function scopedAnchorId(id: string, pane: Pane): string {
+  return PANE_PREFIX[pane] + id;
+}
+
 function stripOnce(value: string, prefix: string): string {
   return prefix !== "" && value.startsWith(prefix)
     ? value.slice(prefix.length)

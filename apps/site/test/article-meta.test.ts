@@ -71,32 +71,93 @@ describe("liftTitles", () => {
   test("lifts a mirrored H1 pair into a Chinese title", () => {
     expect(
       liftTitles("# Hello, AI\n\nBody.", "# 你好，AI\n\n正文。", "Hello, AI"),
-    ).toEqual({ titleZh: "你好，AI", liftedH1: true });
+    ).toEqual({
+      titleZh: "你好，AI",
+      liftedH1: true,
+      titleAnchors: [],
+      titleZhAnchors: [],
+    });
   });
 
   test("a body without a leading H1 lifts nothing", () => {
     expect(
       liftTitles("Body first.\n\n# Later", "正文。\n\n# 后面", "Later"),
-    ).toEqual({ titleZh: null, liftedH1: false });
+    ).toEqual({
+      titleZh: null,
+      liftedH1: false,
+      titleAnchors: [],
+      titleZhAnchors: [],
+    });
   });
 
   test("a leading H1 with no translation is still lifted", () => {
     expect(liftTitles("# Hello\n\nBody.", null, "Hello")).toEqual({
       titleZh: null,
       liftedH1: true,
+      titleAnchors: [],
+      titleZhAnchors: [],
     });
   });
 
   test("never lifts when the translation does not open with an H1", () => {
     expect(
       liftTitles("# Hello\n\nBody.", "## 你好\n\n正文。", "Hello"),
-    ).toEqual({ titleZh: null, liftedH1: false });
+    ).toEqual({
+      titleZh: null,
+      liftedH1: false,
+      titleAnchors: [],
+      titleZhAnchors: [],
+    });
     expect(liftTitles("# Hello\n\nBody.", "你好。\n\n正文。", "Hello")).toEqual(
       {
         titleZh: null,
         liftedH1: false,
+        titleAnchors: [],
+        titleZhAnchors: [],
       },
     );
+  });
+
+  /**
+   * An anchor lands on a heading only because something links to it, so a
+   * lifted H1 that drops its anchor is a guaranteed dead link — and `#top` on
+   * the opening heading is the shape that produces one. The title block
+   * re-emits these, scoped per pane (ADR 0024).
+   */
+  test("carries the lifted H1's anchors out for the title block", () => {
+    expect(
+      liftTitles(
+        '# <span id="top"></span>Hello\n\nBody.',
+        '# <span id="top"></span>你好\n\n正文。',
+        "Hello",
+      ),
+    ).toEqual({
+      titleZh: "你好",
+      liftedH1: true,
+      titleAnchors: ["top"],
+      titleZhAnchors: ["top"],
+    });
+  });
+
+  // The translator is free to drop one; the panes are scoped apart anyway, so
+  // each side reports only what its own heading still carries.
+  test("reports each pane's anchors separately", () => {
+    const lifted = liftTitles(
+      '# <span id="top"></span>Hello\n\nBody.',
+      "# 你好\n\n正文。",
+      "Hello",
+    );
+    expect(lifted.titleAnchors).toEqual(["top"]);
+    expect(lifted.titleZhAnchors).toEqual([]);
+  });
+
+  // Nothing is lifted, so there is no skipped row to compensate for — the
+  // anchor renders where it stands.
+  test("reports no anchors when nothing is lifted", () => {
+    expect(
+      liftTitles('# <span id="top"></span>Introduction\n\nBody.', null, "Essay")
+        .titleAnchors,
+    ).toEqual([]);
   });
 
   test("an H2 is not a title", () => {
@@ -108,7 +169,12 @@ describe("liftTitles", () => {
   test("an opening H1 that is not the title is content and stays", () => {
     expect(
       liftTitles("# Introduction\n\nBody.", "# 简介\n\n正文。", "A Long Essay"),
-    ).toEqual({ titleZh: null, liftedH1: false });
+    ).toEqual({
+      titleZh: null,
+      liftedH1: false,
+      titleAnchors: [],
+      titleZhAnchors: [],
+    });
     // A scraped <title> with a site suffix does not match either — safe side.
     expect(
       liftTitles("# Hello\n\nBody.", "# 你好\n\n正文。", "Hello | Example")
@@ -123,7 +189,12 @@ describe("liftTitles", () => {
         "# 费马大定理\n\n正文。",
         "fermat's last theorem",
       ),
-    ).toEqual({ titleZh: "费马大定理", liftedH1: true });
+    ).toEqual({
+      titleZh: "费马大定理",
+      liftedH1: true,
+      titleAnchors: [],
+      titleZhAnchors: [],
+    });
   });
 
   test("uses the heading's plain text, not its markdown source", () => {
@@ -133,7 +204,12 @@ describe("liftTitles", () => {
         "# 你好 *AI* ##\n\n正文。",
         "Hello AI",
       ),
-    ).toEqual({ titleZh: "你好 AI", liftedH1: true });
+    ).toEqual({
+      titleZh: "你好 AI",
+      liftedH1: true,
+      titleAnchors: [],
+      titleZhAnchors: [],
+    });
     expect(
       liftTitles("# Learn C#\n\nBody.", "# 学 C#\n\n正文。", "Learn C#")
         .titleZh,
@@ -176,6 +252,8 @@ describe("articleMeta", () => {
       status: "translated",
       titleZh: "你好",
       liftedH1: true,
+      titleAnchors: [],
+      titleZhAnchors: [],
       summaryOrig: null,
     });
     expect(articleMeta(article)).toBe(meta);

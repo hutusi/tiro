@@ -44,6 +44,26 @@ export interface LiftedTitles {
   /** The reader shows the title in its own block, so a body that opens with
    * an H1 would show it twice; when this is set the first row is skipped. */
   liftedH1: boolean;
+  /** Anchor ids carried by the lifted H1, unscoped, in document order — empty
+   * unless `liftedH1`. Skipping that row would otherwise drop the only target
+   * a `#top` link has, and an anchor lands on a heading only because something
+   * links to it, so losing it is a guaranteed dead link (ADR 0024). The title
+   * block re-emits them, which is why they are ids rather than markup: the
+   * title is not rendered through `render.ts`, and nothing that bypasses the
+   * sanitizer may carry clipped *markup* (invariant 5). */
+  titleAnchors: string[];
+  /** The same, for the lifted `zh.md` H1 — a separate list because the panes
+   * are scoped apart and the translator may not have kept every anchor. */
+  titleZhAnchors: string[];
+}
+
+/** Anchors as `placeAnchorsIn` writes them, which is the only shape that can
+ * appear: a validated id in an empty span, never nested, never attributed. */
+const ANCHOR_SPAN = /<span id="([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})"><\/span>/g;
+
+function anchorIdsIn(block: Block | undefined): string[] {
+  if (block === undefined) return [];
+  return Array.from(block.text.matchAll(ANCHOR_SPAN), (m) => m[1] as string);
 }
 
 const parser = unified().use(remarkParse).use(remarkGfm);
@@ -93,16 +113,27 @@ export function liftTitles(
   zhBody: string | null,
   title: string,
 ): LiftedTitles {
-  const bodyH1 = h1Text(splitBlocks(body)[0]);
+  const none = { titleAnchors: [], titleZhAnchors: [] };
+  const bodyBlock = splitBlocks(body)[0];
+  const bodyH1 = h1Text(bodyBlock);
   if (bodyH1 === null || normalizeTitle(bodyH1) !== normalizeTitle(title)) {
-    return { titleZh: null, liftedH1: false };
+    return { titleZh: null, liftedH1: false, ...none };
   }
-  if (zhBody === null) return { titleZh: null, liftedH1: true };
-  const zhH1 = h1Text(splitBlocks(zhBody)[0]);
+  const titleAnchors = anchorIdsIn(bodyBlock);
+  if (zhBody === null) {
+    return { titleZh: null, liftedH1: true, titleAnchors, titleZhAnchors: [] };
+  }
+  const zhBlock = splitBlocks(zhBody)[0];
+  const zhH1 = h1Text(zhBlock);
   // Alignment says the zh first block is a heading too, but never drop a row
   // the translation pane would still need to show.
-  if (zhH1 === null) return { titleZh: null, liftedH1: false };
-  return { titleZh: zhH1, liftedH1: true };
+  if (zhH1 === null) return { titleZh: null, liftedH1: false, ...none };
+  return {
+    titleZh: zhH1,
+    liftedH1: true,
+    titleAnchors,
+    titleZhAnchors: anchorIdsIn(zhBlock),
+  };
 }
 
 export interface ArticleMeta extends LiftedTitles {
