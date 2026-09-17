@@ -57,13 +57,23 @@ export function plainTextMarkdownSource(
   url: string,
 ): string | null {
   if (!isMarkdownUrl(url)) return null;
-  const children = Array.from(doc.body?.children ?? []);
-  const [only] = children;
-  if (children.length !== 1 || only === undefined) return null;
-  if (only.tagName.toUpperCase() !== "PRE") return null;
-  const inPre = only.textContent ?? "";
-  // Nothing beside the <pre>: a text node sibling would not show up in
-  // `children`, and a page whose article text sits outside the block is a page.
+  const pres = Array.from(doc.body?.querySelectorAll("pre") ?? []);
+  const [pre] = pres;
+  if (pres.length !== 1 || pre === undefined) return null;
+  // Chrome's viewer puts the block straight in the body. One nested inside an
+  // article is a page's code block, not a document.
+  if (pre.parentElement !== doc.body) return null;
+  const inPre = pre.textContent ?? "";
+  // The load-bearing test, and the only one that was ever doing this work:
+  // nothing outside the block contributes text, so a page whose article sits
+  // beside it is a page.
+  //
+  // This used to also demand the body have exactly one child, which read like
+  // a stronger version of the same idea and was in fact a different, wrong one.
+  // Other extensions inject elements into every page's body — DeepL, Grammarly,
+  // a password manager — and the clipper clones the document after they have.
+  // The count then said two, markdown clipping silently stopped happening, and
+  // an injected element contributes no text so the check below never minded.
   if ((doc.body?.textContent ?? "").trim() !== inPre.trim()) return null;
   // An empty file is not worth a second pipeline, and an empty body would
   // commit an article with nothing in it.

@@ -123,8 +123,22 @@ export function isPdfViewerDocument(doc: Document): boolean {
     'embed[type="application/pdf"], object[type="application/pdf"]',
   );
   if (embed === null) return false;
-  const children = Array.from(doc.body?.children ?? []);
-  if (children.length !== 1 || children[0] !== embed) return false;
+  // The shell puts the embed straight in the body; one nested inside an article
+  // is a page carrying an attachment.
+  if (embed.parentElement !== doc.body) return false;
+  // And nothing beside it says anything. Written as "no sibling carries text"
+  // rather than "the embed is the body's only child", because another
+  // extension's injected element is a sibling this never sees coming — that
+  // exact count is what silently stopped markdown clipping working. A heading
+  // beside the embed still fails, which is the case the test below is for.
+  const beside = Array.from(doc.body?.children ?? []).filter(
+    (element) => element !== embed,
+  );
+  if (beside.some((element) => (element.textContent ?? "").trim() !== "")) {
+    return false;
+  }
+  // Still asked, and not redundant: a bare text node beside the embed is not an
+  // element and so appears in neither `children` nor the scan above.
   const text = (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
   return text.length < 200;
 }

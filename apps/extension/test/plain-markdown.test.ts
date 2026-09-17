@@ -65,6 +65,47 @@ describe("plainTextMarkdownSource", () => {
     expect(plainTextMarkdownSource(doc, RAW)).toBeNull();
   });
 
+  /**
+   * The case that shipped broken. Other extensions inject an element into every
+   * page's body — DeepL, Grammarly, a password manager — and the clipper clones
+   * the document after they have, so the body holds two children rather than
+   * one. Demanding exactly one silently stopped markdown clipping for anyone
+   * running such an extension, and no fixture here had ever built a body with
+   * anything else in it.
+   */
+  test("survives another extension injecting into the body", () => {
+    const doc = docFrom(
+      "<pre># Title\n\nProse.</pre><deepl-input-controller></deepl-input-controller>",
+    );
+    expect(plainTextMarkdownSource(doc, RAW)).toBe("# Title\n\nProse.");
+  });
+
+  test("survives an injected wrapper that renders nothing", () => {
+    const doc = docFrom(
+      '<div id="gr-ext"><div></div></div><pre># T</pre><span></span>',
+    );
+    expect(plainTextMarkdownSource(doc, RAW)).toBe("# T");
+  });
+
+  // Tolerating a silent sibling is not tolerating a talkative one: anything
+  // that puts text on the page means the file is not all there is.
+  test("still declines when an injected sibling carries text", () => {
+    const doc = docFrom("<pre># T</pre><div>Translate this page</div>");
+    expect(plainTextMarkdownSource(doc, RAW)).toBeNull();
+  });
+
+  // Chrome's viewer puts the block at the top level. One nested in an article
+  // is a page's code block however little prose surrounds it.
+  test("declines a pre that is not the body's own child", () => {
+    const doc = docFrom("<article><pre># T</pre></article>");
+    expect(plainTextMarkdownSource(doc, RAW)).toBeNull();
+  });
+
+  test("declines a document holding more than one pre", () => {
+    const doc = docFrom("<pre># T</pre><pre>second</pre>");
+    expect(plainTextMarkdownSource(doc, RAW)).toBeNull();
+  });
+
   test("declines a page with text beside the pre", () => {
     const doc = docFrom("<pre># T</pre><p>Also this.</p>");
     expect(plainTextMarkdownSource(doc, RAW)).toBeNull();

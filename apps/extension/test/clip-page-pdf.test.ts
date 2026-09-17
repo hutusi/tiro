@@ -54,6 +54,20 @@ describe("isPdfViewerDocument", () => {
     expect(isPdfViewerDocument(doc)).toBe(false);
   });
 
+  /**
+   * Same fragility as the markdown predicate's, hardened for the same reason:
+   * another extension's injected element is a sibling this never sees coming,
+   * and demanding the embed be the body's only child would call a PDF an
+   * article — committing it empty, with `readability_failed` set, which is the
+   * outcome this guard exists to prevent.
+   */
+  test("survives another extension injecting into the body", () => {
+    const doc = docFrom(
+      '<embed type="application/pdf"><deepl-input-controller></deepl-input-controller>',
+    );
+    expect(isPdfViewerDocument(doc)).toBe(true);
+  });
+
   test("leaves a page that wraps the embed beside other content", () => {
     const doc = docFrom('<h1>Report</h1><embed type="application/pdf">');
     expect(isPdfViewerDocument(doc)).toBe(false);
