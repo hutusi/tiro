@@ -12,7 +12,6 @@ import {
 } from "../../lib/articles.ts";
 import { shortPathForSlug } from "../../lib/short-links.ts";
 import { buildReaderView, skipsLiftedH1 } from "../../lib/reader.ts";
-import { scopedAnchorId } from "../../lib/render.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 import { isUnlisted } from "../../lib/visibility.ts";
 
@@ -50,8 +49,10 @@ const rows =
   view.kind === "paired" ? (skipsH1 ? view.rows.slice(1) : view.rows) : [];
 const blocks =
   view.kind === "single" ? (skipsH1 ? view.blocks.slice(1) : view.blocks) : [];
-const titleAnchors = skipsH1 ? meta.titleAnchors : [];
-const titleZhAnchors = skipsH1 ? meta.titleZhAnchors : [];
+// From the renderer, via the view: these are the ids the dropped row would have
+// shown, already scoped to their pane.
+const titleAnchors = skipsH1 ? view.firstAnchors.original : [];
+const titleZhAnchors = skipsH1 ? view.firstAnchors.translation : [];
 const hasZhTitle = meta.titleZh !== null;
 // One expression feeds both markers: the in-page one the pane rules read, and
 // the `<html>` one that switches `--w-page`, the content measure, which is a
@@ -191,11 +192,7 @@ const tagLinks = await Promise.all(
             {unlisted && <span class="pill">{t.unlisted}</span>}
           </p>
           <h1 data-pagefind-meta="title">
-            {
-              titleAnchors.map((id) => (
-                <span id={scopedAnchorId(id, "original")} />
-              ))
-            }{frontmatter.title}
+            {titleAnchors.map((id) => <span id={id} />)}{frontmatter.title}
           </h1>
           <time
             hidden
@@ -217,7 +214,7 @@ const tagLinks = await Promise.all(
               {hasZhTitle && (
                 <h1 class="title-zh" data-pagefind-meta="title_zh">
                   {titleZhAnchors.map((id) => (
-                    <span id={scopedAnchorId(id, "translation")} />
+                    <span id={id} />
                   ))}
                   {meta.titleZh}
                 </h1>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildReaderView, skipsLiftedH1 } from "../src/lib/reader.ts";
-import { renderBlockHtml, scopedAnchorId } from "../src/lib/render.ts";
+import { renderBlockHtml } from "../src/lib/render.ts";
 
 const body = "# Title\n\nA paragraph.\n\n![img](./assets/abc.png)";
 const zhAligned = "# 标题\n\n一个段落。\n\n![img](./assets/abc.png)";
@@ -424,6 +424,49 @@ describe("skipsLiftedH1", () => {
   );
 });
 
+describe("firstAnchors reports what the first block renders", () => {
+  const idsOf = (heading: string): string[] =>
+    buildReaderView(`${heading}\n\nBody.`, null, "s", {}).firstAnchors.original;
+
+  // The title block stands in for this row when it is dropped, so it has to
+  // name ids that exist — already scoped, because they come from the output.
+  test("an anchor in the heading is reported, scoped", () => {
+    expect(idsOf('# <span id="top"></span>Hello')).toEqual(["tiro-o-top"]);
+  });
+
+  /**
+   * Four ways the source disagrees with the output, each of which was a
+   * separate defect while this was answered from the markdown: a code span and
+   * escaped text render as text, a comment renders as nothing, and the
+   * sanitizer removes a `<script>` outright. Asking the renderer is what makes
+   * the list stop mattering — there is no fifth case to find.
+   */
+  test.each([
+    ["a code span", '# Using `<span id="foo"></span>` in HTML'],
+    ["a comment", '# <!-- <span id="foo"></span> -->Hello'],
+    [
+      "a script the sanitizer drops",
+      '# <script><span id="foo"></span></script>Hello',
+    ],
+    ["escaped text", '# &lt;span id="foo"&gt;&lt;/span&gt;Hello'],
+  ])("%s carries no anchor", (_name, heading) => {
+    expect(idsOf(heading)).toEqual([]);
+  });
+
+  test("reports the translation pane separately, with its own scope", () => {
+    const view = buildReaderView(
+      '# <span id="top"></span>Hello\n\nBody.',
+      '# <span id="top"></span>你好\n\n正文。',
+      "s",
+      {},
+    );
+    expect(view.firstAnchors).toEqual({
+      original: ["tiro-o-top"],
+      translation: ["tiro-t-top"],
+    });
+  });
+});
+
 describe("in-document anchors are scoped to their pane", () => {
   const note = '<span id="fn1"></span>\\[1\\] The note text.';
   const ref = "See \\[[1](#fn1)\\] above.";
@@ -455,22 +498,6 @@ describe("in-document anchors are scoped to their pane", () => {
     expect(described).toBe("tiro-o-footnote-label");
     expect(html).toContain(`id="${described}"`);
   });
-
-  /**
-   * The title block names an anchor without rendering its block, so this has to
-   * agree with what the pipeline produces — a second rule that could drift. The
-   * awkward case is an id that already begins with the clobber prefix: the
-   * sanitizer adds one and the pass strips one, so it still round-trips.
-   */
-  test.each(["top", "user-content-fn-1"])(
-    "scopedAnchorId agrees with the rendered id, for %s",
-    (id) => {
-      const html = renderBlockHtml(`<span id="${id}"></span>x`, "s", {
-        pane: "original",
-      });
-      expect(html).toContain(`id="${scopedAnchorId(id, "original")}"`);
-    },
-  );
 
   // `[slug].astro` puts both columns in one document, so an unscoped id would
   // appear twice and a jump would land in whichever came first.

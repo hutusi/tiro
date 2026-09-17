@@ -9,7 +9,6 @@ import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
-import { visit } from "unist-util-visit";
 
 /**
  * Per-article facts the templates need that the contract does not carry,
@@ -45,58 +44,6 @@ export interface LiftedTitles {
   /** The reader shows the title in its own block, so a body that opens with
    * an H1 would show it twice; when this is set the first row is skipped. */
   liftedH1: boolean;
-  /** Anchor ids carried by the lifted H1, unscoped, in document order — empty
-   * unless `liftedH1`. Skipping that row would otherwise drop the only target
-   * a `#top` link has, and an anchor lands on a heading only because something
-   * links to it, so losing it is a guaranteed dead link (ADR 0024). The title
-   * block re-emits them, which is why they are ids rather than markup: the
-   * title is not rendered through `render.ts`, and nothing that bypasses the
-   * sanitizer may carry clipped *markup* (invariant 5). */
-  titleAnchors: string[];
-  /** The same, for the lifted `zh.md` H1 — a separate list because the panes
-   * are scoped apart and the translator may not have kept every anchor. */
-  titleZhAnchors: string[];
-}
-
-/** Anchors as `placeAnchorsIn` writes them, which is the only shape that can
- * appear: a validated id in an empty span, never nested, never attributed. */
-/**
- * The *opening tag*, not the pair. mdast splits inline HTML into one node per
- * tag, so `<span id="top"></span>` in a heading arrives as `<span id="top">`
- * and `</span>` in separate `html` nodes and a paired pattern matches neither.
- * Matching the open tag is also the right question: what the renderer emits an
- * id for is the element, however it is closed.
- */
-const ANCHOR_SPAN = /<span id="([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})"\s*>/g;
-
-/**
- * The ids the *renderer* will see, which is not the same question as what the
- * source text spells. A heading may quote the markup it is about —
- * ``# Using `<span id="foo"></span>` in HTML`` — and a code span renders as
- * text, not an anchor. Scanning the raw block reported `foo` anyway, so a real
- * `#foo` further down the article would have jumped to the title instead.
- * Asking the parser which nodes are `html` is the same correction `h1Text`
- * needed: decide with the parser, not a regex over source.
- */
-/**
- * A comment is an `html` node too, and it renders as nothing — the sanitizer
- * drops it — so an anchor commented out in a heading must not be reported. The
- * open-ended arm matters as much as the closed one: an unterminated `<!--`
- * comments out the rest of the node just the same.
- */
-function withoutComments(value: string): string {
-  return value.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
-}
-
-function anchorIdsIn(block: Block | undefined): string[] {
-  if (block === undefined) return [];
-  const ids: string[] = [];
-  visit(parser.parse(block.text) as Root, "html", (node) => {
-    for (const match of withoutComments(node.value).matchAll(ANCHOR_SPAN)) {
-      ids.push(match[1] as string);
-    }
-  });
-  return ids;
 }
 
 const parser = unified().use(remarkParse).use(remarkGfm);
@@ -146,27 +93,16 @@ export function liftTitles(
   zhBody: string | null,
   title: string,
 ): LiftedTitles {
-  const none = { titleAnchors: [], titleZhAnchors: [] };
-  const bodyBlock = splitBlocks(body)[0];
-  const bodyH1 = h1Text(bodyBlock);
+  const bodyH1 = h1Text(splitBlocks(body)[0]);
   if (bodyH1 === null || normalizeTitle(bodyH1) !== normalizeTitle(title)) {
-    return { titleZh: null, liftedH1: false, ...none };
+    return { titleZh: null, liftedH1: false };
   }
-  const titleAnchors = anchorIdsIn(bodyBlock);
-  if (zhBody === null) {
-    return { titleZh: null, liftedH1: true, titleAnchors, titleZhAnchors: [] };
-  }
-  const zhBlock = splitBlocks(zhBody)[0];
-  const zhH1 = h1Text(zhBlock);
+  if (zhBody === null) return { titleZh: null, liftedH1: true };
+  const zhH1 = h1Text(splitBlocks(zhBody)[0]);
   // Alignment says the zh first block is a heading too, but never drop a row
   // the translation pane would still need to show.
-  if (zhH1 === null) return { titleZh: null, liftedH1: false, ...none };
-  return {
-    titleZh: zhH1,
-    liftedH1: true,
-    titleAnchors,
-    titleZhAnchors: anchorIdsIn(zhBlock),
-  };
+  if (zhH1 === null) return { titleZh: null, liftedH1: false };
+  return { titleZh: zhH1, liftedH1: true };
 }
 
 export interface ArticleMeta extends LiftedTitles {

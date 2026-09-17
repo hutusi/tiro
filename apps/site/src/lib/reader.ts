@@ -1,15 +1,29 @@
 import { checkAlignment, splitBlocks } from "@tiro/shared";
-import { type Pane, type RenderOptions, renderBlockHtml } from "./render.ts";
+import {
+  type Pane,
+  type RenderOptions,
+  renderBlock,
+  renderBlockHtml,
+} from "./render.ts";
 
 export interface ReaderRow {
   original: string;
   translation: string;
 }
 
-export type ReaderView =
+/** The ids emitted by the body's first block, per pane. Present on every view
+ * because the title block may have to stand in for that row (ADR 0024) — see
+ * `skipsLiftedH1` for when it does. */
+export interface FirstBlockAnchors {
+  original: string[];
+  translation: string[];
+}
+
+export type ReaderView = { firstAnchors: FirstBlockAnchors } & (
   | { kind: "single"; blocks: string[] }
   | { kind: "paired"; rows: ReaderRow[] }
-  | { kind: "stacked"; original: string[]; translation: string[] };
+  | { kind: "stacked"; original: string[]; translation: string[] }
+);
 
 /**
  * Does this view drop the body's opening H1, leaving the title block to stand
@@ -50,19 +64,35 @@ export function buildReaderView(
   // ids and the links pointing at them are scoped to the column they are in.
   const render = (text: string, pane: Pane): string =>
     renderBlockHtml(text, slug, { ...options, pane });
+  // Taken from the renderer rather than re-derived from the source: what
+  // carries an id is decided by the parser and the sanitizer between them, and
+  // every attempt to answer it from the markdown got a different answer.
+  const idsOf = (text: string | undefined, pane: Pane): string[] =>
+    text === undefined
+      ? []
+      : renderBlock(text, slug, { ...options, pane }).anchorIds;
   const originalBlocks = splitBlocks(body);
   if (zhBody === null) {
     return {
       kind: "single",
       blocks: originalBlocks.map((b) => render(b.text, "original")),
+      firstAnchors: {
+        original: idsOf(originalBlocks[0]?.text, "original"),
+        translation: [],
+      },
     };
   }
   const zhBlocks = splitBlocks(zhBody);
+  const firstAnchors = {
+    original: idsOf(originalBlocks[0]?.text, "original"),
+    translation: idsOf(zhBlocks[0]?.text, "translation"),
+  };
   if (!checkAlignment(originalBlocks, zhBlocks).ok) {
     return {
       kind: "stacked",
       original: originalBlocks.map((b) => render(b.text, "original")),
       translation: zhBlocks.map((b) => render(b.text, "translation")),
+      firstAnchors,
     };
   }
   return {
@@ -71,5 +101,6 @@ export function buildReaderView(
       original: render(block.text, "original"),
       translation: render(zhBlocks[i]?.text ?? "", "translation"),
     })),
+    firstAnchors,
   };
 }

@@ -149,27 +149,29 @@ repair for free. An older reader renders the span as inert markup.
 - **Two articles the sweep cannot speak for.** darioamodei.com builds its
   footnotes client-side, so the cached HTML is a shell and the sweep reports
   nothing for 149 of the vault's in-document links. They need a browser clip.
-- **A lifted title carries its anchors.** When the body's opening H1 *is* the
-  article title, `liftTitles` skips that row — so an anchor on it would never
-  reach the renderer and a `#top` link would stay dead, every time, since an
-  anchor lands there only because something links to it. `liftTitles` returns
-  the ids and the title block re-emits them, scoped by `scopedAnchorId`. **Ids,
-  not markup:** the title is not rendered through `render.ts`, and nothing that
-  bypasses the sanitizer may carry clipped markup (invariant 5) — an id is a
-  validated token in an attribute Astro escapes, which is a different thing.
-  The cost is a second place that has to spell the scoped id the same way, so a
-  test renders one and compares. Which ids the heading carries is a question for
-  the *parser*, not a scan of the block's source: a heading may quote the markup
-  it is about, and a code span renders as text — and mdast splits inline HTML
-  into one node per tag, so the pattern matches an opening tag rather than a
-  pair. Comments are `html` nodes too and render as nothing, so they are
-  stripped before matching. Reading the ids back out of the *rendered* HTML
-  would settle the whole class at once, and was tried: the site has no HTML
-  parser among its dependencies, and a regex over rendered markup finds
-  `id="foo"` inside a code span's text, which is the same mistake one layer
-  down. **`skipsLiftedH1` decides both halves**, because stacked keeps the row
-  and its anchors are already on the page; emitting them in the title as well
-  put two copies of every id in one document.
+- **A lifted title carries its anchors, and the renderer says which.** When the
+  body's opening H1 *is* the article title, `liftTitles` skips that row — so an
+  anchor on it would never reach the page and a `#top` link would stay dead,
+  every time, since an anchor lands there only because something links to it.
+  `buildReaderView` reports the first block's ids on `firstAnchors` and the
+  title block re-emits them.
+
+  **Which ids those are is a question only the renderer can answer.** It was
+  asked of the markdown source first, and got a different wrong answer four
+  times: a code span quoting anchor markup, an HTML comment, a `<script>` the
+  sanitizer removes, and inline HTML that mdast splits one node per tag. Each
+  fix was a new special case in an enumeration with no end — the ids now come
+  from `rehypeScopeAnchors`, which is where the final spelling is decided, so
+  they are correct by construction and arrive already scoped. That also retired
+  a `scopedAnchorId` helper that existed only to spell the pane prefix a second
+  time.
+
+  **Ids, not markup:** the title is not rendered through `render.ts`, and
+  nothing that bypasses the sanitizer may carry clipped markup (invariant 5) —
+  an id is a token in an attribute Astro escapes, which is a different thing.
+  **`skipsLiftedH1` decides both halves**, because stacked keeps the row and its
+  anchors are already on the page; emitting them in the title as well put two
+  copies of every id in one document.
 - **Heading slugs are out of scope.** A markdown-source article (ADR 0023)
   linking `](#some-heading)` wants *generated* slugs, which is a renderer
   feature needing a document-wide slugger that per-block rendering cannot

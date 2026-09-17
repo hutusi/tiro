@@ -248,7 +248,15 @@ const CLOBBER_PREFIX: string = schema.clobberPrefix ?? "";
  */
 function rehypeScopeAnchors(pane: Pane) {
   const prefix = PANE_PREFIX[pane];
-  return (tree: Root): void => {
+  return (tree: Root, file: { data: Record<string, unknown> }): void => {
+    // Every id this block actually emits, recorded for the one caller that has
+    // to name an id without showing the block: the reader drops the lifted H1
+    // row and the title block stands in for it (ADR 0024). Asking the renderer
+    // is the only answer that cannot drift — the source disagrees with the
+    // output for a code span, an HTML comment, a `<script>` the sanitizer
+    // removes, and inline HTML split one node per tag. Collected here rather
+    // than by a later pass because this is where the final spelling is decided.
+    const anchorIds: string[] = [];
     visit(tree, "element", (node) => {
       const properties = node.properties;
       if (properties === undefined) return;
@@ -271,6 +279,8 @@ function rehypeScopeAnchors(pane: Pane) {
           );
         }
       }
+      const id = properties.id;
+      if (typeof id === "string") anchorIds.push(id);
       if (node.tagName !== "a") return;
       const href = properties.href;
       // A bare "#" addresses the top of the page rather than an id, and an
@@ -284,21 +294,8 @@ function rehypeScopeAnchors(pane: Pane) {
       // written from the same bytes.
       properties.href = `#${prefix}${href.slice(1)}`;
     });
+    file.data.anchorIds = anchorIds;
   };
-}
-
-/**
- * The id `rehypeScopeAnchors` will give this anchor, for the one place that
- * has to name it without rendering the block: the reader lifts the body's
- * opening H1 into the title and skips that row, so an anchor on it never
- * reaches the renderer (ADR 0024). The sanitizer clobbers to
- * `<clobberPrefix><id>` and the pass strips exactly one of those back off, so
- * the round trip is the pane prefix and nothing else — true for an id that
- * already begins `user-content-` as well, which is why it is a concatenation
- * rather than a second rule to keep in step.
- */
-export function scopedAnchorId(id: string, pane: Pane): string {
-  return PANE_PREFIX[pane] + id;
 }
 
 function stripOnce(value: string, prefix: string): string {
@@ -380,6 +377,16 @@ export function renderBlockHtml(
   slug: string,
   options: RenderOptions = {},
 ): string {
+  return renderBlock(blockText, slug, options).html;
+}
+
+/** One rendered block and the ids it emits, which only the title block needs
+ * (ADR 0024) — every other caller wants the HTML and takes `renderBlockHtml`. */
+export function renderBlock(
+  blockText: string,
+  slug: string,
+  options: RenderOptions = {},
+): { html: string; anchorIds: string[] } {
   const withAssets = normalizeBlockMath(blockText).replaceAll(
     "./assets/",
     `/vault-assets/${slug}/`,
@@ -388,5 +395,7 @@ export function renderBlockHtml(
     options.inlineMath === true,
     options.pane ?? "original",
   );
-  return String(processor.processSync(withAssets));
+  const file = processor.processSync(withAssets);
+  const ids = (file.data as { anchorIds?: string[] }).anchorIds;
+  return { html: String(file), anchorIds: ids ?? [] };
 }
