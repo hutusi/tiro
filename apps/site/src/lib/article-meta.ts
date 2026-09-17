@@ -78,11 +78,21 @@ const ANCHOR_SPAN = /<span id="([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})"\s*>/g;
  * Asking the parser which nodes are `html` is the same correction `h1Text`
  * needed: decide with the parser, not a regex over source.
  */
+/**
+ * A comment is an `html` node too, and it renders as nothing — the sanitizer
+ * drops it — so an anchor commented out in a heading must not be reported. The
+ * open-ended arm matters as much as the closed one: an unterminated `<!--`
+ * comments out the rest of the node just the same.
+ */
+function withoutComments(value: string): string {
+  return value.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+}
+
 function anchorIdsIn(block: Block | undefined): string[] {
   if (block === undefined) return [];
   const ids: string[] = [];
   visit(parser.parse(block.text) as Root, "html", (node) => {
-    for (const match of node.value.matchAll(ANCHOR_SPAN)) {
+    for (const match of withoutComments(node.value).matchAll(ANCHOR_SPAN)) {
       ids.push(match[1] as string);
     }
   });

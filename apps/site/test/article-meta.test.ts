@@ -155,6 +155,23 @@ describe("liftTitles", () => {
     ).toEqual([]);
   });
 
+  /**
+   * A comment is an `html` node like any other and renders as nothing, so an
+   * anchor commented out in a heading is not a target — reporting it would
+   * send a real `#foo` elsewhere in the article to the title instead. The
+   * unterminated form is guarded too, but a heading carrying one does not lift
+   * at all, so there is nothing here that could assert it.
+   */
+  test("a comment in the heading is not an anchor", () => {
+    const lifted = liftTitles(
+      '# <!-- <span id="foo"></span> -->Title\n\nBody.',
+      null,
+      "Title",
+    );
+    expect(lifted.liftedH1).toBe(true);
+    expect(lifted.titleAnchors).toEqual([]);
+  });
+
   // The translator is free to drop one; the panes are scoped apart anyway, so
   // each side reports only what its own heading still carries.
   test("reports each pane's anchors separately", () => {

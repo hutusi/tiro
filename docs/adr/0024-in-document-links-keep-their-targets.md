@@ -162,7 +162,12 @@ repair for free. An older reader renders the span as inert markup.
   the *parser*, not a scan of the block's source: a heading may quote the markup
   it is about, and a code span renders as text — and mdast splits inline HTML
   into one node per tag, so the pattern matches an opening tag rather than a
-  pair. **`skipsLiftedH1` decides both halves**, because stacked keeps the row
+  pair. Comments are `html` nodes too and render as nothing, so they are
+  stripped before matching. Reading the ids back out of the *rendered* HTML
+  would settle the whole class at once, and was tried: the site has no HTML
+  parser among its dependencies, and a regex over rendered markup finds
+  `id="foo"` inside a code span's text, which is the same mistake one layer
+  down. **`skipsLiftedH1` decides both halves**, because stacked keeps the row
   and its anchors are already on the page; emitting them in the title as well
   put two copies of every id in one document.
 - **Heading slugs are out of scope.** A markdown-source article (ADR 0023)
