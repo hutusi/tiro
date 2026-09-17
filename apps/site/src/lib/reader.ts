@@ -1,5 +1,5 @@
 import { checkAlignment, splitBlocks } from "@tiro/shared";
-import { type RenderOptions, renderBlockHtml } from "./render.ts";
+import { type Pane, type RenderOptions, renderBlockHtml } from "./render.ts";
 
 export interface ReaderRow {
   original: string;
@@ -27,27 +27,30 @@ export function buildReaderView(
   slug: string,
   options: RenderOptions = {},
 ): ReaderView {
-  const render = (text: string): string => renderBlockHtml(text, slug, options);
+  // The pane travels with every call: both columns land in one document, so
+  // ids and the links pointing at them are scoped to the column they are in.
+  const render = (text: string, pane: Pane): string =>
+    renderBlockHtml(text, slug, { ...options, pane });
   const originalBlocks = splitBlocks(body);
   if (zhBody === null) {
     return {
       kind: "single",
-      blocks: originalBlocks.map((b) => render(b.text)),
+      blocks: originalBlocks.map((b) => render(b.text, "original")),
     };
   }
   const zhBlocks = splitBlocks(zhBody);
   if (!checkAlignment(originalBlocks, zhBlocks).ok) {
     return {
       kind: "stacked",
-      original: originalBlocks.map((b) => render(b.text)),
-      translation: zhBlocks.map((b) => render(b.text)),
+      original: originalBlocks.map((b) => render(b.text, "original")),
+      translation: zhBlocks.map((b) => render(b.text, "translation")),
     };
   }
   return {
     kind: "paired",
     rows: originalBlocks.map((block, i) => ({
-      original: render(block.text),
-      translation: render(zhBlocks[i]?.text ?? ""),
+      original: render(block.text, "original"),
+      translation: render(zhBlocks[i]?.text ?? "", "translation"),
     })),
   };
 }

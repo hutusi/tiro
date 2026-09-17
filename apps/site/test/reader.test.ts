@@ -399,3 +399,106 @@ describe("buildReaderView", () => {
     expect(view.kind).toBe("stacked");
   });
 });
+
+describe("in-document anchors are scoped to their pane", () => {
+  const note = '<span id="fn1"></span>\\[1\\] The note text.';
+  const ref = "See \\[[1](#fn1)\\] above.";
+
+  /**
+   * Both halves of one rule. The sanitizer clobbers `id` to `user-content-…`
+   * and leaves `href="#fn1"` alone, so before this every in-document link in
+   * every clipped article pointed at an id that no longer spelled that way.
+   */
+  test("an id and the link pointing at it come out matching", () => {
+    const target = renderBlockHtml(note, "s", { pane: "original" });
+    const link = renderBlockHtml(ref, "s", { pane: "original" });
+    expect(target).toContain('id="tiro-o-fn1"');
+    expect(link).toContain('href="#tiro-o-fn1"');
+  });
+
+  // `[slug].astro` puts both columns in one document, so an unscoped id would
+  // appear twice and a jump would land in whichever came first.
+  test("the two panes never share an id", () => {
+    const original = renderBlockHtml(note, "s", { pane: "original" });
+    const translation = renderBlockHtml(note, "s", { pane: "translation" });
+    expect(original).toContain('id="tiro-o-fn1"');
+    expect(translation).toContain('id="tiro-t-fn1"');
+    expect(original).not.toContain('id="tiro-t-fn1"');
+  });
+
+  test("a link stays inside its own pane", () => {
+    expect(renderBlockHtml(ref, "s", { pane: "translation" })).toContain(
+      'href="#tiro-t-fn1"',
+    );
+  });
+
+  // The clobber exists to stop a page-chosen id shadowing a DOM property. Any
+  // non-empty prefix serves that, so replacing it loses no protection.
+  test("still shields a page-chosen id from clobbering the DOM", () => {
+    const html = renderBlockHtml('<span id="body"></span>text', "s");
+    expect(html).toContain('id="tiro-o-body"');
+    expect(html).not.toContain('id="body"');
+  });
+
+  /**
+   * GitHub renders its own footnotes with `user-content-` ids, so a clipped
+   * GitHub page carries them as the author's spelling. The sanitizer clobbers
+   * that to `user-content-user-content-fn-1`; stripping exactly one occurrence
+   * hands the author's id back rather than eating half of it, and the link is
+   * prefixed from the same spelling so the two still meet.
+   */
+  test("gives back an author id that itself begins user-content-", () => {
+    expect(
+      renderBlockHtml('<span id="user-content-fn-1"></span>x', "s"),
+    ).toContain('id="tiro-o-user-content-fn-1"');
+    expect(renderBlockHtml("[x](#user-content-fn-1)", "s")).toContain(
+      'href="#tiro-o-user-content-fn-1"',
+    );
+  });
+
+  // A dead fragment is exactly as dead as before; rendering it as plain text
+  // would remove the reader's ability to see, hover or copy it (ADR 0024).
+  test("a fragment with no target in this article is still a link", () => {
+    expect(renderBlockHtml("[see](#nowhere)", "s")).toContain(
+      'href="#tiro-o-nowhere"',
+    );
+  });
+
+  test("leaves an absolute URL that carries a fragment alone", () => {
+    expect(
+      renderBlockHtml("[spec](https://example.test/a#part)", "s"),
+    ).toContain('href="https://example.test/a#part"');
+  });
+
+  // A bare "#" addresses the top of the page rather than an id.
+  test("leaves a bare hash alone", () => {
+    expect(renderBlockHtml("[top](#)", "s")).toContain('href="#"');
+  });
+
+  // The prefix holds nothing encodable, so an escaped fragment still matches
+  // the id, which was written from the same bytes.
+  test("a percent-encoded fragment keeps its encoding", () => {
+    expect(renderBlockHtml("[x](#a%2Eb)", "s")).toContain(
+      'href="#tiro-o-a%2Eb"',
+    );
+  });
+
+  // Stacked is the degraded mode, and it emits two whole lists into the one
+  // document — so it has exactly the collision `paired` has.
+  test("scopes both lists of a stacked view, not just the first", () => {
+    const view = buildReaderView(`# Title\n\n${note}`, "# 标题", "s");
+    expect(view.kind).toBe("stacked");
+    if (view.kind !== "stacked") return;
+    expect(view.original.join("")).toContain('id="tiro-o-fn1"');
+    expect(view.original.join("")).not.toContain('id="tiro-t-fn1"');
+  });
+
+  test("scopes each side of a paired row", () => {
+    const view = buildReaderView(`# T\n\n${note}`, `# 标\n\n${note}`, "s");
+    expect(view.kind).toBe("paired");
+    if (view.kind !== "paired") return;
+    const row = view.rows[1];
+    expect(row?.original).toContain('id="tiro-o-fn1"');
+    expect(row?.translation).toContain('id="tiro-t-fn1"');
+  });
+});

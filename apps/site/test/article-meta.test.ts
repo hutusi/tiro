@@ -295,3 +295,30 @@ describe("articleMeta", () => {
     expect(meta.titleZh).toBeNull();
   });
 });
+
+describe("liftTitles with a clipped anchor on the heading", () => {
+  /**
+   * `mdast-util-to-string` returns an `html` node's raw markup as its value, so
+   * a heading carrying an anchor (ADR 0024) stringified to the markup, failed
+   * the title comparison, and silently stopped the lift — the reader printed
+   * the title twice and lost the Chinese title.
+   */
+  test("lifts an H1 that carries an anchor", () => {
+    const result = liftTitles(
+      '# <span id="top"></span>Hello World\n\nProse.',
+      null,
+      "Hello World",
+    );
+    expect(result.liftedH1).toBe(true);
+  });
+
+  test("still lifts the translated title when both carry anchors", () => {
+    const result = liftTitles(
+      '# <span id="top"></span>Hello World\n\nProse.',
+      '# <span id="top"></span>你好世界\n\n散文。',
+      "Hello World",
+    );
+    expect(result.liftedH1).toBe(true);
+    expect(result.titleZh).toBe("你好世界");
+  });
+});
