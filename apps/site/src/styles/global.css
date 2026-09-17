@@ -99,6 +99,51 @@
    to, since they all require mode="both". */
 html[data-page="reader"] {
   --w-page: var(--w-reader);
+  /* The reader's toolbar is sticky at the top, so a fragment jump would land
+     underneath it. Offsetting the scroll port is one rule where a margin would
+     be one per anchor — and it is the only form that also covers
+     `scrollIntoView` and the focus the browser moves alongside the scroll.
+     Measured on a clipped article: 51px at desktop, wrapping to roughly two
+     rows on a phone. Both values clear the measurement with room, because too
+     much costs a little blank space above the target and too little hides it. */
+  scroll-padding-top: 4.5rem;
+}
+
+@media (width < 43rem) {
+  html[data-page="reader"] {
+    scroll-padding-top: 7rem;
+  }
+}
+
+/* A jumped-to anchor is a zero-width span, which is a good scroll target and an
+   invisible destination — so mark the block it sits in, briefly, or the reader
+   arrives with no idea which line they were sent to.
+
+   Both selectors are needed, and the second is the one that does the work here:
+   an empty inline span has no box to paint, so animating `:target` itself
+   showed the reader nothing. `:target` still covers a target that *is* a block
+   — a footnote `<li>`, say — which is the shape GFM generates. Background
+   *color*, not `background`, so an element that already carries a background
+   image keeps it. */
+html[data-page="reader"] :target,
+html[data-page="reader"] :has(> span:target) {
+  animation: tiro-target-flash 1.8s ease-out 1;
+}
+
+@keyframes tiro-target-flash {
+  from {
+    background-color: var(--mark, rgb(from var(--accent) r g b / 18%));
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-page="reader"] :target,
+  html[data-page="reader"] :has(> span:target) {
+    animation: none;
+  }
 }
 
 html[data-page="reader"][data-paired][data-reader-mode="both"] {

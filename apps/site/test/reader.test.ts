@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildReaderView } from "../src/lib/reader.ts";
+import { buildReaderView, skipsLiftedH1 } from "../src/lib/reader.ts";
 import { renderBlockHtml } from "../src/lib/render.ts";
 
 const body = "# Title\n\nA paragraph.\n\n![img](./assets/abc.png)";
@@ -397,5 +397,211 @@ describe("buildReaderView", () => {
   test("misaligned translation falls back to stacked", () => {
     const view = buildReaderView(body, zhMisaligned, "s");
     expect(view.kind).toBe("stacked");
+  });
+});
+
+describe("skipsLiftedH1", () => {
+  /**
+   * Stacked renders every block, H1 included, so its anchors are already on
+   * the page — the title block must not emit them a second time. Two copies of
+   * one id in one document is exactly the collision pane scoping exists to
+   * prevent, and it reached the page because the skip and the anchors were two
+   * separate conditions in the template.
+   */
+  test("stacked keeps the row, so the title stands in for nothing", () => {
+    expect(skipsLiftedH1("stacked", true)).toBe(false);
+  });
+
+  test.each(["single", "paired"] as const)("%s skips the row", (kind) => {
+    expect(skipsLiftedH1(kind, true)).toBe(true);
+  });
+
+  test.each(["single", "paired", "stacked"] as const)(
+    "%s skips nothing when there is no lifted H1",
+    (kind) => {
+      expect(skipsLiftedH1(kind, false)).toBe(false);
+    },
+  );
+});
+
+describe("firstAnchors reports what the first block renders", () => {
+  const idsOf = (heading: string): string[] =>
+    buildReaderView(`${heading}\n\nBody.`, null, "s", {}).firstAnchors.original;
+
+  // The title block stands in for this row when it is dropped, so it has to
+  // name ids that exist — already scoped, because they come from the output.
+  test("an anchor in the heading is reported, scoped", () => {
+    expect(idsOf('# <span id="top"></span>Hello')).toEqual(["tiro-o-top"]);
+  });
+
+  /**
+   * Four ways the source disagrees with the output, each of which was a
+   * separate defect while this was answered from the markdown: a code span and
+   * escaped text render as text, a comment renders as nothing, and the
+   * sanitizer removes a `<script>` outright. Asking the renderer is what makes
+   * the list stop mattering — there is no fifth case to find.
+   */
+  test.each([
+    ["a code span", '# Using `<span id="foo"></span>` in HTML'],
+    ["a comment", '# <!-- <span id="foo"></span> -->Hello'],
+    [
+      "a script the sanitizer drops",
+      '# <script><span id="foo"></span></script>Hello',
+    ],
+    ["escaped text", '# &lt;span id="foo"&gt;&lt;/span&gt;Hello'],
+  ])("%s carries no anchor", (_name, heading) => {
+    expect(idsOf(heading)).toEqual([]);
+  });
+
+  /**
+   * The generators run after the scoping pass and rewrite what it touched:
+   * KaTeX replaces a `<code class="language-math">` outright, taking any id on
+   * it with them. Collecting at the scoping pass reported an id the page does
+   * not have — so collection happens last, where what a block emits is a
+   * settled question.
+   */
+  test("an id the generators delete is not reported", () => {
+    const view = buildReaderView(
+      '# <code id="foo" class="language-math math-inline">x</code>Title\n\nB.',
+      null,
+      "s",
+      {},
+    );
+    const html = view.kind === "single" ? (view.blocks[0] ?? "") : "";
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain('id="tiro-o-foo"');
+    expect(view.firstAnchors.original).toEqual([]);
+  });
+
+  test("reports the translation pane separately, with its own scope", () => {
+    const view = buildReaderView(
+      '# <span id="top"></span>Hello\n\nBody.',
+      '# <span id="top"></span>你好\n\n正文。',
+      "s",
+      {},
+    );
+    expect(view.firstAnchors).toEqual({
+      original: ["tiro-o-top"],
+      translation: ["tiro-t-top"],
+    });
+  });
+});
+
+describe("in-document anchors are scoped to their pane", () => {
+  const note = '<span id="fn1"></span>\\[1\\] The note text.';
+  const ref = "See \\[[1](#fn1)\\] above.";
+
+  /**
+   * Both halves of one rule. The sanitizer clobbers `id` to `user-content-…`
+   * and leaves `href="#fn1"` alone, so before this every in-document link in
+   * every clipped article pointed at an id that no longer spelled that way.
+   */
+  test("an id and the link pointing at it come out matching", () => {
+    const target = renderBlockHtml(note, "s", { pane: "original" });
+    const link = renderBlockHtml(ref, "s", { pane: "original" });
+    expect(target).toContain('id="tiro-o-fn1"');
+    expect(link).toContain('href="#tiro-o-fn1"');
+  });
+
+  /**
+   * The sanitizer clobbers `aria-labelledby` and `aria-describedby` alongside
+   * `id`, and hast parses those as arrays because they are space-separated id
+   * lists. Handling only string values moved the id and left the reference
+   * spelled the old way — a screen reader losing the label, with nothing
+   * visibly wrong. remark-gfm's own footnotes are the shape that proves it.
+   */
+  test("an aria reference moves with the id it points at", () => {
+    const html = renderBlockHtml("Text[^1].\n\n[^1]: The note.", "s", {
+      pane: "original",
+    });
+    const described = /aria-describedby="([^"]+)"/.exec(html)?.[1];
+    expect(described).toBe("tiro-o-footnote-label");
+    expect(html).toContain(`id="${described}"`);
+  });
+
+  // `[slug].astro` puts both columns in one document, so an unscoped id would
+  // appear twice and a jump would land in whichever came first.
+  test("the two panes never share an id", () => {
+    const original = renderBlockHtml(note, "s", { pane: "original" });
+    const translation = renderBlockHtml(note, "s", { pane: "translation" });
+    expect(original).toContain('id="tiro-o-fn1"');
+    expect(translation).toContain('id="tiro-t-fn1"');
+    expect(original).not.toContain('id="tiro-t-fn1"');
+  });
+
+  test("a link stays inside its own pane", () => {
+    expect(renderBlockHtml(ref, "s", { pane: "translation" })).toContain(
+      'href="#tiro-t-fn1"',
+    );
+  });
+
+  // The clobber exists to stop a page-chosen id shadowing a DOM property. Any
+  // non-empty prefix serves that, so replacing it loses no protection.
+  test("still shields a page-chosen id from clobbering the DOM", () => {
+    const html = renderBlockHtml('<span id="body"></span>text', "s");
+    expect(html).toContain('id="tiro-o-body"');
+    expect(html).not.toContain('id="body"');
+  });
+
+  /**
+   * GitHub renders its own footnotes with `user-content-` ids, so a clipped
+   * GitHub page carries them as the author's spelling. The sanitizer clobbers
+   * that to `user-content-user-content-fn-1`; stripping exactly one occurrence
+   * hands the author's id back rather than eating half of it, and the link is
+   * prefixed from the same spelling so the two still meet.
+   */
+  test("gives back an author id that itself begins user-content-", () => {
+    expect(
+      renderBlockHtml('<span id="user-content-fn-1"></span>x', "s"),
+    ).toContain('id="tiro-o-user-content-fn-1"');
+    expect(renderBlockHtml("[x](#user-content-fn-1)", "s")).toContain(
+      'href="#tiro-o-user-content-fn-1"',
+    );
+  });
+
+  // A dead fragment is exactly as dead as before; rendering it as plain text
+  // would remove the reader's ability to see, hover or copy it (ADR 0024).
+  test("a fragment with no target in this article is still a link", () => {
+    expect(renderBlockHtml("[see](#nowhere)", "s")).toContain(
+      'href="#tiro-o-nowhere"',
+    );
+  });
+
+  test("leaves an absolute URL that carries a fragment alone", () => {
+    expect(
+      renderBlockHtml("[spec](https://example.test/a#part)", "s"),
+    ).toContain('href="https://example.test/a#part"');
+  });
+
+  // A bare "#" addresses the top of the page rather than an id.
+  test("leaves a bare hash alone", () => {
+    expect(renderBlockHtml("[top](#)", "s")).toContain('href="#"');
+  });
+
+  // The prefix holds nothing encodable, so an escaped fragment still matches
+  // the id, which was written from the same bytes.
+  test("a percent-encoded fragment keeps its encoding", () => {
+    expect(renderBlockHtml("[x](#a%2Eb)", "s")).toContain(
+      'href="#tiro-o-a%2Eb"',
+    );
+  });
+
+  // Stacked is the degraded mode, and it emits two whole lists into the one
+  // document — so it has exactly the collision `paired` has.
+  test("scopes both lists of a stacked view, not just the first", () => {
+    const view = buildReaderView(`# Title\n\n${note}`, "# 标题", "s");
+    expect(view.kind).toBe("stacked");
+    if (view.kind !== "stacked") return;
+    expect(view.original.join("")).toContain('id="tiro-o-fn1"');
+    expect(view.original.join("")).not.toContain('id="tiro-t-fn1"');
+  });
+
+  test("scopes each side of a paired row", () => {
+    const view = buildReaderView(`# T\n\n${note}`, `# 标\n\n${note}`, "s");
+    expect(view.kind).toBe("paired");
+    if (view.kind !== "paired") return;
+    const row = view.rows[1];
+    expect(row?.original).toContain('id="tiro-o-fn1"');
+    expect(row?.translation).toContain('id="tiro-t-fn1"');
   });
 });

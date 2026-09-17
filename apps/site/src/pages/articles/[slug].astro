@@ -11,7 +11,7 @@ import {
   tagPageUrl,
 } from "../../lib/articles.ts";
 import { shortPathForSlug } from "../../lib/short-links.ts";
-import { buildReaderView } from "../../lib/reader.ts";
+import { buildReaderView, skipsLiftedH1 } from "../../lib/reader.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 import { isUnlisted } from "../../lib/visibility.ts";
 
@@ -38,18 +38,21 @@ const noTranslationNeeded = view.kind === "single" && frontmatter.lang === "zh";
 // The title block shows the title; a body that opens with the same H1 would
 // show it twice, so that first block is skipped (stacked view never skips —
 // it is the degraded mode and stays dumb).
+//
+// One flag, because two things hang off it and they must agree: the row that
+// is dropped, and the anchors the title block re-emits on its behalf. Stacked
+// keeps the row, so the anchors are already on the page — emitting them in the
+// title too put two copies of every id in one document, which is the collision
+// pane scoping exists to prevent.
+const skipsH1 = skipsLiftedH1(view.kind, meta.liftedH1);
 const rows =
-  view.kind === "paired"
-    ? meta.liftedH1
-      ? view.rows.slice(1)
-      : view.rows
-    : [];
+  view.kind === "paired" ? (skipsH1 ? view.rows.slice(1) : view.rows) : [];
 const blocks =
-  view.kind === "single"
-    ? meta.liftedH1
-      ? view.blocks.slice(1)
-      : view.blocks
-    : [];
+  view.kind === "single" ? (skipsH1 ? view.blocks.slice(1) : view.blocks) : [];
+// From the renderer, via the view: these are the ids the dropped row would have
+// shown, already scoped to their pane.
+const titleAnchors = skipsH1 ? view.firstAnchors.original : [];
+const titleZhAnchors = skipsH1 ? view.firstAnchors.translation : [];
 const hasZhTitle = meta.titleZh !== null;
 // One expression feeds both markers: the in-page one the pane rules read, and
 // the `<html>` one that switches `--w-page`, the content measure, which is a
@@ -188,7 +191,9 @@ const tagLinks = await Promise.all(
             <span>{minutesLabel(meta.minutes)}</span>
             {unlisted && <span class="pill">{t.unlisted}</span>}
           </p>
-          <h1 data-pagefind-meta="title">{frontmatter.title}</h1>
+          <h1 data-pagefind-meta="title">
+            {titleAnchors.map((id) => <span id={id} />)}{frontmatter.title}
+          </h1>
           <time
             hidden
             datetime={frontmatter.clipped_at}
@@ -208,6 +213,9 @@ const tagLinks = await Promise.all(
             <div class="zh" lang="zh-CN">
               {hasZhTitle && (
                 <h1 class="title-zh" data-pagefind-meta="title_zh">
+                  {titleZhAnchors.map((id) => (
+                    <span id={id} />
+                  ))}
                   {meta.titleZh}
                 </h1>
               )}

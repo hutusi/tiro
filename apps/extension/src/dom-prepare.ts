@@ -194,6 +194,10 @@ function unwrapEquationTables(doc: Document): void {
       holder.appendChild(paragraph);
     }
     if (holder.childNodes.length === 0) continue;
+    // The id travels with the content: a paper's equation references
+    // (`#S4.E1`) point at the table, and dropping it here would leave them
+    // pointing at nothing once the table is gone (ADR 0024).
+    if (table.id !== "") holder.id = table.id;
     table.replaceWith(holder);
   }
 }
@@ -1679,6 +1683,10 @@ export function prepareForClipping(doc: Document): void {
   // would rewrite the very cells they select on — `td.lntd` becomes a `<th>`
   // and the code block stays a table.
   promoteTableHeaders(doc);
+  // Last: a separate pass over the finished DOM, for the reason
+  // `markCodeLanguages` gives — everything above may move or replace the very
+  // elements a link points at, and the marker has to land on what survives.
+  markInDocumentAnchors(doc);
 }
 
 /**
@@ -1691,6 +1699,342 @@ export function prepareForClipping(doc: Document): void {
  * display math degrades to inline rather than to either of those.
  */
 const BLOCK_HOSTILE = "td, th, li, blockquote, h1, h2, h3, h4, h5, h6";
+
+export const ANCHOR_ATTR = "data-tiro-anchor";
+
+/**
+ * An id this is willing to carry into the vault, and the reason the whole
+ * feature can ignore percent-encoding: every string matching this is its own
+ * `decodeURIComponent`, so the fragment a link wrote and the id an element
+ * carries are the same bytes either way. Anchored, because a page chooses these
+ * and the value ends up inside an HTML attribute in a public article.
+ */
+const ANCHOR_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+/** Elements that hold a block's text directly — where an anchor can sit and
+ * still be inline. */
+const TEXT_HOST: ReadonlySet<string> = new Set([
+  "P",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LI",
+  "TD",
+  "TH",
+  "FIGCAPTION",
+  "DT",
+  "DD",
+  "CAPTION",
+]);
+
+/**
+ * Mark the elements an in-document link points at, so the anchor can be written
+ * once Readability is out of the way.
+ *
+ * The third user of the contract ADR 0009 states: compute before Readability,
+ * carry it across on a `data-*`, act after. Here the "compute before" half is
+ * not a preference but a requirement in both directions — Readability keeps
+ * `id`, `name` and hash hrefs, so the information survives on its own, but
+ * `_prepArticle` *deletes* a `<p>` with no text in it, which is exactly the
+ * hand-written `<p><a name="x"></a></p>` idiom. Inserting the anchor before
+ * Readability would hand it to that deletion, and would change the child counts
+ * `_isElementWithoutContent` and `_hasSingleTagInsideElement` judge by.
+ *
+ * Bounded to ids something actually links to. One arXiv paper carries 2257 ids
+ * and 258 references; anchoring every id would put two thousand spans of pure
+ * noise in the vault to no end.
+ */
+function markInDocumentAnchors(doc: Document): void {
+  // Page-authored markers go first. Every marker pass in this file does this,
+  // and it matters more here than for the others: this one's *value* is written
+  // into an attribute that reaches a public page.
+  for (const stale of Array.from(doc.querySelectorAll(`[${ANCHOR_ATTR}]`))) {
+    stale.removeAttribute(ANCHOR_ATTR);
+  }
+  for (const id of referencedFragments(doc)) {
+    const found = anchorTarget(doc, id);
+    if (found === null) continue;
+    // Appended, not assigned. Two empty named anchors in one paragraph —
+    // `<p><a name="a"></a><a name="b"></a></p><h2>` — both hoist onto the same
+    // heading, and overwriting meant the first link kept a target that was
+    // never emitted. The separator is a space because `ANCHOR_ID` cannot
+    // contain one, so the split is unambiguous.
+    const host = hoistTarget(found) ?? found;
+    const marked = host.getAttribute(ANCHOR_ATTR);
+    host.setAttribute(ANCHOR_ATTR, marked === null ? id : `${marked} ${id}`);
+  }
+}
+
+/**
+ * Will this link still be a link once Turndown is done with it?
+ *
+ * Static site generators end every heading with a self-referential permalink —
+ * an empty `<a>`, or one holding only an `<svg>` icon — and `inlineLinkRule`
+ * drops a link whose content flattens to nothing, exactly as it should. Counting
+ * one as a reference would anchor every heading on such a site for a referrer
+ * that no longer exists in the markdown. Mirrors the rule's own test, with the
+ * one case where empty text still produces output: an image.
+ */
+function producesLink(link: Element): boolean {
+  return (
+    (link.textContent ?? "").trim() !== "" ||
+    link.querySelector("img, picture") !== null
+  );
+}
+
+function referencedFragments(doc: Document | DocumentFragment): Set<string> {
+  const referenced = new Set<string>();
+  for (const link of Array.from(doc.querySelectorAll("a[href]"))) {
+    const href = link.getAttribute("href") ?? "";
+    // A bare "#" addresses the top of the page, not an id.
+    if (!href.startsWith("#") || href.length < 2) continue;
+    if (!producesLink(link)) continue;
+    let id: string;
+    try {
+      id = decodeURIComponent(href.slice(1));
+    } catch {
+      continue;
+    }
+    if (ANCHOR_ID.test(id)) referenced.add(id);
+  }
+  return referenced;
+}
+
+function anchorTarget(doc: Document, id: string): Element | null {
+  // `getElementById`, never `querySelector("#" + id)`: `bib.bib4` and `fn:1`
+  // are ids a page is entitled to choose and neither is a valid CSS selector,
+  // so building a selector out of one either throws or matches the wrong thing.
+  const byId = doc.getElementById(id);
+  if (byId !== null) return byId;
+  for (const named of Array.from(doc.querySelectorAll("[name]"))) {
+    if (named.getAttribute("name") === id) return named;
+  }
+  return null;
+}
+
+/**
+ * `<p><a name="x"></a></p>` — the hand-written anchor, and the one shape whose
+ * target does not survive at all: Readability removes a paragraph with no text
+ * in it. Marking the element *after* it keeps the link working, and is what the
+ * page meant by putting the anchor there.
+ */
+function hoistTarget(target: Element): Element | null {
+  if (!CAPTION_INLINE.has(target.tagName.toUpperCase())) return null;
+  if ((target.textContent ?? "").trim() !== "") return null;
+  const parent = target.parentElement;
+  if (parent === null) return null;
+  // `isEmptyParagraph`, not a text test — `CAPTION_INLINE` includes `IMG`, so
+  // an id on the image in `<p><img></p>` is a target whose paragraph holds no
+  // text, and hoisting moved it to the next block: the link jumped past the
+  // photo it named.
+  if (!isEmptyParagraph(parent)) return null;
+  // Past every sibling that is itself an empty paragraph. Hand-written pages
+  // stack the idiom — `<p><a name="a"></a></p><p><a name="b"></a></p><h2>` —
+  // and hoisting onto the next empty paragraph would hand the marker to an
+  // element Readability deletes for the same reason it deletes this one. Both
+  // ids end up on the heading, which `markInDocumentAnchors` now appends
+  // rather than overwrites.
+  let next = parent.nextElementSibling;
+  while (next !== null && isEmptyParagraph(next)) {
+    next = next.nextElementSibling;
+  }
+  return next;
+}
+
+/**
+ * A paragraph Readability will delete — which is the only reason to hoist past
+ * one, so this mirrors its rule rather than inventing one. `_prepArticle` drops
+ * a `<p>` with no inner text *and* no `img`, `embed`, `object` or `iframe`;
+ * testing text alone called an image-only paragraph empty and moved a target
+ * past the very figure it named, so `#photo` landed on the heading below it.
+ */
+function isEmptyParagraph(element: Element): boolean {
+  return (
+    element.tagName.toUpperCase() === "P" &&
+    (element.textContent ?? "").trim() === "" &&
+    element.querySelector("img, embed, object, iframe") === null
+  );
+}
+
+/**
+ * Turn the markers into anchors, on the HTML Readability returned.
+ *
+ * Runs before `foldFiguresIn` on purpose: a `<figure id>` resolves to its
+ * `<figcaption>`, and the fold then carries the anchor into the caption half of
+ * the paragraph it builds, where the picture is still `children[0]`.
+ */
+export function placeAnchorsIn(html: string, doc: Document): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  // Asked again, of what Readability kept. The marking pass could only see the
+  // whole page, and Readability routinely drops the table of contents whose
+  // links are the reason a heading was marked at all — leaving an anchor for a
+  // link that is no longer in the article. Intersecting here is what makes the
+  // bound mean what it says: an anchor exists because something in this body
+  // points at it.
+  const referenced = referencedFragments(scratch);
+  for (const target of Array.from(
+    scratch.querySelectorAll(`[${ANCHOR_ATTR}]`),
+  )) {
+    const marked = target.getAttribute(ANCHOR_ATTR) ?? "";
+    target.removeAttribute(ANCHOR_ATTR);
+    // Validated again rather than trusted from across the extraction boundary,
+    // for the reason `restoreCodeLanguagesIn` gives.
+    const ids = marked
+      .split(" ")
+      .filter((id) => id !== "" && referenced.has(id) && ANCHOR_ID.test(id));
+    if (ids.length === 0) continue;
+    // Refused outright inside a fence. Turndown's fenced-code rule wants the
+    // `<code>` to be the `<pre>`'s first child; one inserted sibling collapses
+    // the whole block to inline code and takes its language with it.
+    if (target.closest("pre") !== null) continue;
+    const placement = placementFor(target);
+    if (placement === null) continue;
+    for (const id of ids) {
+      const anchor = scratch.createElement("span");
+      anchor.setAttribute(ANCHOR_ATTR, id);
+      placement.host.insertBefore(anchor, placement.before);
+    }
+  }
+  return scratch.body.innerHTML;
+}
+
+function placementFor(
+  target: Element,
+): { host: Element; before: Node | null } | null {
+  const tag = target.tagName.toUpperCase();
+  // An inline target keeps its place. Walking up to the block would put a
+  // footnote marker's anchor at the top of the whole essay.
+  if (CAPTION_INLINE.has(tag)) {
+    // Except in front of media. `foldFigureCaptions` needs the picture to be
+    // its container's only meaningful child, and an inserted span is one — so
+    // an id on the image of a captioned figure would silently cost the fold,
+    // turning the caption into a paragraph of its own. Refusing leaves the link
+    // dead, which is where it started; it is the same trade `anchorPoint` makes
+    // for an image-leading host, and it does not depend on enumerating which
+    // shapes fold.
+    if (isPictureLike(target) || target.querySelector("img") !== null) {
+      return null;
+    }
+    const parent = target.parentElement;
+    return parent === null ? null : { host: parent, before: target };
+  }
+  const host = TEXT_HOST.has(tag)
+    ? descendToHost(target)
+    : firstTextHost(target);
+  if (host === null) return null;
+  const before = anchorPoint(host);
+  return before === undefined ? null : { host, before };
+}
+
+/** `<li><p>…</p></li>` is one block with two hosts; the inner one is where the
+ * text is, and an anchor above it would land outside the list item's line. */
+function descendToHost(host: Element): Element {
+  let current = host;
+  for (;;) {
+    const child = current.firstElementChild;
+    if (child === null || !TEXT_HOST.has(child.tagName.toUpperCase())) {
+      return current;
+    }
+    current = child;
+  }
+}
+
+/** A container target — `<section id="S1">`, `<figure id="F1">` — anchors at
+ * the first thing inside it that holds text. */
+function firstTextHost(container: Element): Element | null {
+  for (const element of Array.from(container.querySelectorAll("*"))) {
+    if (TEXT_HOST.has(element.tagName.toUpperCase())) {
+      return descendToHost(element);
+    }
+  }
+  return null;
+}
+
+/**
+ * Where inside a host the anchor may go, or `undefined` for "nowhere safe".
+ *
+ * Skipping past breaks, checkbox inputs and a leading picture is not tidiness:
+ * an anchor before a task list's `<input>` breaks the checkbox, and one before
+ * a figure's image stops `rehypeFigureCaptions` recognising the paragraph,
+ * because both read their subject at the start. The picture test is drawn
+ * exactly where `pictureOf` here and `isPicture` in the site's renderer draw
+ * it — ADR 0011 already requires those two to move together, and this is a
+ * third reader of the same definition.
+ */
+function anchorPoint(host: Element): Node | null | undefined {
+  for (const node of Array.from(host.childNodes)) {
+    if (node.nodeType === node.TEXT_NODE) {
+      if ((node.textContent ?? "").trim() === "") continue;
+      return node;
+    }
+    if (node.nodeType !== node.ELEMENT_NODE) continue;
+    const element = node as Element;
+    const tag = element.tagName.toUpperCase();
+    if (tag === "BR" || tag === "INPUT") continue;
+    if (isPictureLike(element)) continue;
+    return node;
+  }
+  return undefined;
+}
+
+function isPictureLike(element: Element): boolean {
+  const tag = element.tagName.toUpperCase();
+  if (tag === "IMG") return true;
+  if (tag !== "A") return false;
+  const children = Array.from(element.children);
+  return (
+    children.length === 1 &&
+    children[0]?.tagName.toUpperCase() === "IMG" &&
+    (element.textContent ?? "").trim() === ""
+  );
+}
+
+/**
+ * The other half of the anchor contract: how a marked span becomes markdown.
+ *
+ * A `<span>` rather than an `<a>`, for three reasons in descending weight: an
+ * `<a>` nested inside another `<a>` is a shape that really occurs and markdown
+ * cannot express it; `<a>` would inherit the prose link styling on an element
+ * that shows nothing; and `marker()` above already builds a
+ * `<span data-tiro-*>` for math, so this is the established shape.
+ *
+ * Reached through Turndown's `blankReplacement` rather than as a rule, which is
+ * not a preference: `rules.forNode` short-circuits to the blank rule *before*
+ * it consults any rule, and an empty span is blank by definition — no text, no
+ * void child. The math marker never hit this because its span holds the TeX.
+ * `blankReplacement` is the one hook that runs for a node with nothing in it.
+ */
+export function anchorReplacement(node: Node): string | null {
+  const element = node as Element;
+  const id = element.getAttribute?.(ANCHOR_ATTR);
+  if (id == null || !ANCHOR_ID.test(id)) return null;
+  // Refused when what follows is a block. The anchor would then sit alone on
+  // its line, which CommonMark reads as an HTML block, and the reader would
+  // grow an empty row that `zh.md` has to match. One dead link is cheaper.
+  if (!hasInlineFollower(element)) return "";
+  return `<span id="${id}"></span>`;
+}
+
+function hasInlineFollower(element: Element): boolean {
+  let next = element.nextSibling;
+  while (next !== null) {
+    if (next.nodeType === next.TEXT_NODE) {
+      if ((next.textContent ?? "").trim() !== "") return true;
+      next = next.nextSibling;
+      continue;
+    }
+    if (next.nodeType !== next.ELEMENT_NODE) {
+      next = next.nextSibling;
+      continue;
+    }
+    return CAPTION_INLINE.has((next as Element).tagName.toUpperCase());
+  }
+  return false;
+}
 
 /**
  * The other half of the marker contract: how a recovered formula becomes

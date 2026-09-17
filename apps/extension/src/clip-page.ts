@@ -3,6 +3,7 @@ import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
   foldFiguresIn,
   hasLatexmlFullText,
+  placeAnchorsIn,
   prepareForClipping,
   readLatexmlMetadata,
   restoreCodeLanguagesIn,
@@ -80,7 +81,13 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // mirror-image reason: Readability strips the class Turndown reads them
   // from, so they cross it on a `data-*` marker and become a class again once
   // it is out of the way.
-  const html = foldFiguresIn(restoreCodeLanguagesIn(extracted, doc), doc);
+  // Anchors are placed between the two: a `<figure id>` resolves to its
+  // caption, and folding then carries the anchor into the caption half of the
+  // paragraph it builds, where the picture is still the first thing in it.
+  const html = foldFiguresIn(
+    placeAnchorsIn(restoreCodeLanguagesIn(extracted, doc), doc),
+    doc,
+  );
 
   // hasMath comes from the HTML actually being converted, so a formula
   // Readability discarded with the page furniture cannot set the flag.

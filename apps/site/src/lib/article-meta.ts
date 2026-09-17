@@ -57,7 +57,14 @@ function h1Text(block: Block | undefined): string | null {
   if (node === undefined || node.type !== "heading" || node.depth !== 1) {
     return null;
   }
-  return mdastToString(node).replace(/\s+/g, " ").trim();
+  // `includeHtml: false` because a clipped body's heading may carry an anchor
+  // (ADR 0024), and mdast-util-to-string returns an `html` node's raw markup as
+  // its value — so `# <span id="top"></span>Hello` stringified to the markup,
+  // failed the title comparison, and silently stopped the lift: the reader then
+  // printed the title twice and lost the Chinese one.
+  return mdastToString(node, { includeHtml: false })
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Fold the differences a scraped `<title>` and a body heading disagree on

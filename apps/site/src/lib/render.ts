@@ -206,6 +206,115 @@ function rehypeFigureCaptions() {
   };
 }
 
+/** Which of the reader's two columns a block is being rendered into. */
+export type Pane = "original" | "translation";
+
+/**
+ * Both panes render into one document — `[slug].astro` emits `.pane-original`
+ * and `.pane-translation` side by side in every row, and the stacked view emits
+ * two whole lists — so an id from `index.md` and the same id from `zh.md` would
+ * collide, and a jump would land in whichever came first. Scoping ids to their
+ * pane, and the links that point at them with them, keeps each column's
+ * navigation inside itself.
+ */
+const PANE_PREFIX: Record<Pane, string> = {
+  original: "tiro-o-",
+  translation: "tiro-t-",
+};
+
+/**
+ * What the sanitizer renamed, and what it renamed them with — read off the
+ * schema rather than written out again, so this cannot drift from what actually
+ * happened to the tree. `clobber` is `id`, `name` and the two aria references;
+ * taking the whole list is what keeps an `aria-labelledby` pointing at its
+ * label once both have moved.
+ */
+const CLOBBERED: readonly string[] = schema.clobber ?? [];
+const CLOBBER_PREFIX: string = schema.clobberPrefix ?? "";
+
+/**
+ * Scope a block's anchors and in-document links to one pane.
+ *
+ * Two halves of one rule, and both are needed: the sanitizer clobbers `id` to
+ * `user-content-…` to stop a page-chosen id shadowing a DOM property, and
+ * leaves `href="#…"` alone — so before this ran, a clipped article's every
+ * in-document link pointed at an id that no longer spelled that way.
+ *
+ * The clobber prefix is *replaced* rather than stacked on. Any non-empty prefix
+ * satisfies what the clobber is for, `#tiro-o-fn:1` is a fragment a reader can
+ * look at where `#tiro-o-user-content-fn:1` is not, and stripping exactly one
+ * occurrence is also right for a GitHub-clipped article whose author ids
+ * genuinely begin `user-content-`.
+ */
+function rehypeScopeAnchors(pane: Pane) {
+  const prefix = PANE_PREFIX[pane];
+  return (tree: Root): void => {
+    visit(tree, "element", (node) => {
+      const properties = node.properties;
+      if (properties === undefined) return;
+      for (const name of CLOBBERED) {
+        const value = properties[name];
+        // `aria-labelledby` and `aria-describedby` are space-separated lists of
+        // ids, so hast parses them as arrays — and the sanitizer clobbers every
+        // entry. Skipping a non-string here moved the id and left the reference
+        // pointing at the old spelling: remark-gfm's own footnotes carry
+        // `aria-describedby="user-content-footnote-label"` against a heading
+        // this pass had already renamed, which is a screen reader losing the
+        // label rather than anything visible.
+        if (typeof value === "string") {
+          properties[name] = prefix + stripOnce(value, CLOBBER_PREFIX);
+        } else if (Array.isArray(value)) {
+          properties[name] = value.map((entry) =>
+            typeof entry === "string"
+              ? prefix + stripOnce(entry, CLOBBER_PREFIX)
+              : entry,
+          );
+        }
+      }
+      if (node.tagName !== "a") return;
+      const href = properties.href;
+      // A bare "#" addresses the top of the page rather than an id, and an
+      // absolute URL that happens to carry a fragment points at the source
+      // page, where the target really does live.
+      if (typeof href !== "string" || !href.startsWith("#") || href === "#") {
+        return;
+      }
+      // Verbatim, no decoding: the prefix holds nothing encodable, so a
+      // percent-escaped fragment survives and still matches the id, which was
+      // written from the same bytes.
+      properties.href = `#${prefix}${href.slice(1)}`;
+    });
+  };
+}
+
+/**
+ * Record every id in the finished tree.
+ *
+ * Runs *last*, after the markup generators, because they rewrite what the
+ * earlier passes produced: KaTeX replaces a `<code class="language-math">`
+ * outright, so an id on it is scoped by the pass above and then deleted, and
+ * reporting it would give the title block a target the page does not have.
+ * Collecting at the end is the only position where "what this block emits" is
+ * a settled question — which is the whole reason the ids are read from the
+ * renderer rather than from the source.
+ */
+function rehypeCollectAnchorIds() {
+  return (tree: Root, file: { data: Record<string, unknown> }): void => {
+    const anchorIds: string[] = [];
+    visit(tree, "element", (node) => {
+      const id = node.properties?.id;
+      if (typeof id === "string") anchorIds.push(id);
+    });
+    file.data.anchorIds = anchorIds;
+  };
+}
+
+function stripOnce(value: string, prefix: string): string {
+  return prefix !== "" && value.startsWith(prefix)
+    ? value.slice(prefix.length)
+    : value;
+}
+
 /**
  * `singleDollarTextMath` is the only difference between the two processors.
  * With it on, `$` is a math delimiter everywhere and "it costs $5 to $10"
@@ -213,7 +322,7 @@ function rehypeFigureCaptions() {
  * flagged as containing real math. `$$…$$` is unambiguous and stays on for
  * everything, including articles clipped before math support existed.
  */
-function buildProcessor(singleDollarTextMath: boolean) {
+function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
   return (
     unified()
       .use(remarkParse)
@@ -224,6 +333,12 @@ function buildProcessor(singleDollarTextMath: boolean) {
       .use(remarkRehype, { allowDangerousHtml: true })
       .use(rehypeRaw)
       .use(rehypeSanitize, schema)
+      // After the sanitizer because it has to see the *clobbered* id to
+      // reconcile it with the link that points at it, and before the
+      // generators because it may only ever touch clipped markup — Shiki and
+      // KaTeX emit no ids today, and keeping this upstream of them makes that
+      // a structural guarantee rather than a fact about their current config.
+      .use(rehypeScopeAnchors, pane)
       // Order is load-bearing: Shiki and KaTeX emit classes and inline styles
       // the schema above allows on nothing. Running them afterwards keeps the
       // allowlist narrow — widening it instead would hand the same permission
@@ -233,17 +348,36 @@ function buildProcessor(singleDollarTextMath: boolean) {
       .use(rehypeFigureCaptions)
       .use(rehypeKatex, KATEX_OPTIONS)
       .use(rehypeIgnoreMathmlInSearch)
+      // Last, so what it records is what gets stringified — the generators
+      // above rewrite elements, and an id on one they replace is gone.
+      .use(rehypeCollectAnchorIds)
       .use(rehypeStringify)
       .freeze()
   );
 }
 
-const proseProcessor = buildProcessor(false);
-const mathProcessor = buildProcessor(true);
+// Four rather than two, because the pane cannot be a per-call option: these are
+// frozen at module scope. It costs nothing — the Shiki highlighter they share is
+// a module-level singleton, so this builds no second set of grammars.
+const proseOriginal = buildProcessor(false, "original");
+const proseTranslation = buildProcessor(false, "translation");
+const mathOriginal = buildProcessor(true, "original");
+const mathTranslation = buildProcessor(true, "translation");
+
+function processorFor(inlineMath: boolean, pane: Pane) {
+  if (inlineMath) {
+    return pane === "original" ? mathOriginal : mathTranslation;
+  }
+  return pane === "original" ? proseOriginal : proseTranslation;
+}
 
 export interface RenderOptions {
   /** Read `$…$` as inline math — frontmatter `has_math` (ADR 0009). */
   inlineMath?: boolean;
+  /** Which column this block lands in. Ids and in-document links are scoped to
+   * it, because both panes share one document. Defaults to the original, which
+   * is what a single-pane article is. */
+  pane?: Pane;
 }
 
 /**
@@ -257,11 +391,25 @@ export function renderBlockHtml(
   slug: string,
   options: RenderOptions = {},
 ): string {
+  return renderBlock(blockText, slug, options).html;
+}
+
+/** One rendered block and the ids it emits, which only the title block needs
+ * (ADR 0024) — every other caller wants the HTML and takes `renderBlockHtml`. */
+export function renderBlock(
+  blockText: string,
+  slug: string,
+  options: RenderOptions = {},
+): { html: string; anchorIds: string[] } {
   const withAssets = normalizeBlockMath(blockText).replaceAll(
     "./assets/",
     `/vault-assets/${slug}/`,
   );
-  const processor =
-    options.inlineMath === true ? mathProcessor : proseProcessor;
-  return String(processor.processSync(withAssets));
+  const processor = processorFor(
+    options.inlineMath === true,
+    options.pane ?? "original",
+  );
+  const file = processor.processSync(withAssets);
+  const ids = (file.data as { anchorIds?: string[] }).anchorIds;
+  return { html: String(file), anchorIds: ids ?? [] };
 }

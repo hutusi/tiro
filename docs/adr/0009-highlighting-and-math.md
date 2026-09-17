@@ -106,7 +106,15 @@ be typeset, and the translator received two orphaned half-delimited fragments.
   carrier. The language is copied onto `data-tiro-lang` before extraction and
   restored as the class afterwards, generalising the marker contract the math
   half of this ADR already relies on: **anything computed before Readability
-  must ride a `data-*` attribute to get past it.** The class is restored rather
+  must ride a `data-*` attribute to get past it.** Three things do now — the
+  formula, the fence language, and the target of an in-document link (ADR 0024),
+  which also found the sharper form of the rule: *marking* before Readability is
+  required, and inserting the **finished element** before it is forbidden,
+  because `_prepArticle` deletes an empty paragraph and empty children change
+  what Readability collapses. The distinction is not pedantry — the math half
+  inserts a carrier `<span>` before extraction and must keep doing so; what it
+  inserts holds the TeX, so it is neither empty nor droppable. An anchor is
+  empty by definition, which is why it is built afterwards. The class is restored rather
   than read by a Turndown rule of our own, so fence-width arithmetic stays
   Turndown's.
 
