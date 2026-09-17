@@ -12,6 +12,25 @@ export type ReaderView =
   | { kind: "stacked"; original: string[]; translation: string[] };
 
 /**
+ * Does this view drop the body's opening H1, leaving the title block to stand
+ * in for it?
+ *
+ * Two things hang off the answer and they must agree: the row that is skipped,
+ * and the anchors the title block re-emits on that row's behalf (ADR 0024).
+ * Stacked is the degraded mode and stays dumb — it renders every block,
+ * including the H1 — so its anchors are already on the page and emitting them
+ * in the title as well put two copies of every id in one document, which is
+ * the collision pane scoping exists to prevent. Exported because it lived in
+ * the template as two separate conditions, which is how they came apart.
+ */
+export function skipsLiftedH1(
+  kind: ReaderView["kind"],
+  liftedH1: boolean,
+): boolean {
+  return kind !== "stacked" && liftedH1;
+}
+
+/**
  * Prepare the reader's HTML at build time. Aligned translations render as
  * paired rows (side by side on wide screens); a translation that fails the
  * alignment check renders stacked rather than in misaligned rows; no

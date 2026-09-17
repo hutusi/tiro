@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildReaderView } from "../src/lib/reader.ts";
+import { buildReaderView, skipsLiftedH1 } from "../src/lib/reader.ts";
 import { renderBlockHtml, scopedAnchorId } from "../src/lib/render.ts";
 
 const body = "# Title\n\nA paragraph.\n\n![img](./assets/abc.png)";
@@ -398,6 +398,30 @@ describe("buildReaderView", () => {
     const view = buildReaderView(body, zhMisaligned, "s");
     expect(view.kind).toBe("stacked");
   });
+});
+
+describe("skipsLiftedH1", () => {
+  /**
+   * Stacked renders every block, H1 included, so its anchors are already on
+   * the page — the title block must not emit them a second time. Two copies of
+   * one id in one document is exactly the collision pane scoping exists to
+   * prevent, and it reached the page because the skip and the anchors were two
+   * separate conditions in the template.
+   */
+  test("stacked keeps the row, so the title stands in for nothing", () => {
+    expect(skipsLiftedH1("stacked", true)).toBe(false);
+  });
+
+  test.each(["single", "paired"] as const)("%s skips the row", (kind) => {
+    expect(skipsLiftedH1(kind, true)).toBe(true);
+  });
+
+  test.each(["single", "paired", "stacked"] as const)(
+    "%s skips nothing when there is no lifted H1",
+    (kind) => {
+      expect(skipsLiftedH1(kind, false)).toBe(false);
+    },
+  );
 });
 
 describe("in-document anchors are scoped to their pane", () => {

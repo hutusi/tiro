@@ -158,7 +158,13 @@ repair for free. An older reader renders the span as inert markup.
   bypasses the sanitizer may carry clipped markup (invariant 5) — an id is a
   validated token in an attribute Astro escapes, which is a different thing.
   The cost is a second place that has to spell the scoped id the same way, so a
-  test renders one and compares.
+  test renders one and compares. Which ids the heading carries is a question for
+  the *parser*, not a scan of the block's source: a heading may quote the markup
+  it is about, and a code span renders as text — and mdast splits inline HTML
+  into one node per tag, so the pattern matches an opening tag rather than a
+  pair. **`skipsLiftedH1` decides both halves**, because stacked keeps the row
+  and its anchors are already on the page; emitting them in the title as well
+  put two copies of every id in one document.
 - **Heading slugs are out of scope.** A markdown-source article (ADR 0023)
   linking `](#some-heading)` wants *generated* slugs, which is a renderer
   feature needing a document-wide slugger that per-block rendering cannot

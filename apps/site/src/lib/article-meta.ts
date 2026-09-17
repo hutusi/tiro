@@ -9,6 +9,7 @@ import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { visit } from "unist-util-visit";
 
 /**
  * Per-article facts the templates need that the contract does not carry,
@@ -59,11 +60,33 @@ export interface LiftedTitles {
 
 /** Anchors as `placeAnchorsIn` writes them, which is the only shape that can
  * appear: a validated id in an empty span, never nested, never attributed. */
-const ANCHOR_SPAN = /<span id="([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})"><\/span>/g;
+/**
+ * The *opening tag*, not the pair. mdast splits inline HTML into one node per
+ * tag, so `<span id="top"></span>` in a heading arrives as `<span id="top">`
+ * and `</span>` in separate `html` nodes and a paired pattern matches neither.
+ * Matching the open tag is also the right question: what the renderer emits an
+ * id for is the element, however it is closed.
+ */
+const ANCHOR_SPAN = /<span id="([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})"\s*>/g;
 
+/**
+ * The ids the *renderer* will see, which is not the same question as what the
+ * source text spells. A heading may quote the markup it is about —
+ * ``# Using `<span id="foo"></span>` in HTML`` — and a code span renders as
+ * text, not an anchor. Scanning the raw block reported `foo` anyway, so a real
+ * `#foo` further down the article would have jumped to the title instead.
+ * Asking the parser which nodes are `html` is the same correction `h1Text`
+ * needed: decide with the parser, not a regex over source.
+ */
 function anchorIdsIn(block: Block | undefined): string[] {
   if (block === undefined) return [];
-  return Array.from(block.text.matchAll(ANCHOR_SPAN), (m) => m[1] as string);
+  const ids: string[] = [];
+  visit(parser.parse(block.text) as Root, "html", (node) => {
+    for (const match of node.value.matchAll(ANCHOR_SPAN)) {
+      ids.push(match[1] as string);
+    }
+  });
+  return ids;
 }
 
 const parser = unified().use(remarkParse).use(remarkGfm);

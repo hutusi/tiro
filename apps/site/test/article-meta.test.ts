@@ -139,6 +139,22 @@ describe("liftTitles", () => {
     });
   });
 
+  /**
+   * A heading may quote the markup it is about. A code span renders as text,
+   * so there is no anchor — but scanning the block's source found one, and a
+   * real `#foo` further down the article would then have jumped to the title.
+   * The parser is what knows the difference.
+   */
+  test("a code span in the heading is not an anchor", () => {
+    expect(
+      liftTitles(
+        '# Using `<span id="foo"></span>` in HTML\n\nBody.',
+        null,
+        'Using <span id="foo"></span> in HTML',
+      ).titleAnchors,
+    ).toEqual([]);
+  });
+
   // The translator is free to drop one; the panes are scoped apart anyway, so
   // each side reports only what its own heading still carries.
   test("reports each pane's anchors separately", () => {
