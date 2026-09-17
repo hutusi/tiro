@@ -453,6 +453,26 @@ describe("firstAnchors reports what the first block renders", () => {
     expect(idsOf(heading)).toEqual([]);
   });
 
+  /**
+   * The generators run after the scoping pass and rewrite what it touched:
+   * KaTeX replaces a `<code class="language-math">` outright, taking any id on
+   * it with them. Collecting at the scoping pass reported an id the page does
+   * not have — so collection happens last, where what a block emits is a
+   * settled question.
+   */
+  test("an id the generators delete is not reported", () => {
+    const view = buildReaderView(
+      '# <code id="foo" class="language-math math-inline">x</code>Title\n\nB.',
+      null,
+      "s",
+      {},
+    );
+    const html = view.kind === "single" ? (view.blocks[0] ?? "") : "";
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain('id="tiro-o-foo"');
+    expect(view.firstAnchors.original).toEqual([]);
+  });
+
   test("reports the translation pane separately, with its own scope", () => {
     const view = buildReaderView(
       '# <span id="top"></span>Hello\n\nBody.',

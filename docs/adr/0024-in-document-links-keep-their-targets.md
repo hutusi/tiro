@@ -161,8 +161,12 @@ repair for free. An older reader renders the span as inert markup.
   times: a code span quoting anchor markup, an HTML comment, a `<script>` the
   sanitizer removes, and inline HTML that mdast splits one node per tag. Each
   fix was a new special case in an enumeration with no end — the ids now come
-  from `rehypeScopeAnchors`, which is where the final spelling is decided, so
-  they are correct by construction and arrive already scoped. That also retired
+  from the finished tree, in a `rehypeCollectAnchorIds` pass that runs **last**,
+  and arrive already scoped. Last is the load-bearing part: collecting at the
+  scoping pass still reported an id KaTeX went on to delete with the `<code>`
+  it replaced. Scoping must run early, right after the sanitizer; collection
+  must run late, after the generators. They are two passes because they answer
+  to two different positions in the pipeline. That also retired
   a `scopedAnchorId` helper that existed only to spell the pane prefix a second
   time.
 

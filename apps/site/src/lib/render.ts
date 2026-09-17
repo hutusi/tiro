@@ -248,15 +248,7 @@ const CLOBBER_PREFIX: string = schema.clobberPrefix ?? "";
  */
 function rehypeScopeAnchors(pane: Pane) {
   const prefix = PANE_PREFIX[pane];
-  return (tree: Root, file: { data: Record<string, unknown> }): void => {
-    // Every id this block actually emits, recorded for the one caller that has
-    // to name an id without showing the block: the reader drops the lifted H1
-    // row and the title block stands in for it (ADR 0024). Asking the renderer
-    // is the only answer that cannot drift — the source disagrees with the
-    // output for a code span, an HTML comment, a `<script>` the sanitizer
-    // removes, and inline HTML split one node per tag. Collected here rather
-    // than by a later pass because this is where the final spelling is decided.
-    const anchorIds: string[] = [];
+  return (tree: Root): void => {
     visit(tree, "element", (node) => {
       const properties = node.properties;
       if (properties === undefined) return;
@@ -279,8 +271,6 @@ function rehypeScopeAnchors(pane: Pane) {
           );
         }
       }
-      const id = properties.id;
-      if (typeof id === "string") anchorIds.push(id);
       if (node.tagName !== "a") return;
       const href = properties.href;
       // A bare "#" addresses the top of the page rather than an id, and an
@@ -293,6 +283,27 @@ function rehypeScopeAnchors(pane: Pane) {
       // percent-escaped fragment survives and still matches the id, which was
       // written from the same bytes.
       properties.href = `#${prefix}${href.slice(1)}`;
+    });
+  };
+}
+
+/**
+ * Record every id in the finished tree.
+ *
+ * Runs *last*, after the markup generators, because they rewrite what the
+ * earlier passes produced: KaTeX replaces a `<code class="language-math">`
+ * outright, so an id on it is scoped by the pass above and then deleted, and
+ * reporting it would give the title block a target the page does not have.
+ * Collecting at the end is the only position where "what this block emits" is
+ * a settled question — which is the whole reason the ids are read from the
+ * renderer rather than from the source.
+ */
+function rehypeCollectAnchorIds() {
+  return (tree: Root, file: { data: Record<string, unknown> }): void => {
+    const anchorIds: string[] = [];
+    visit(tree, "element", (node) => {
+      const id = node.properties?.id;
+      if (typeof id === "string") anchorIds.push(id);
     });
     file.data.anchorIds = anchorIds;
   };
@@ -337,6 +348,9 @@ function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
       .use(rehypeFigureCaptions)
       .use(rehypeKatex, KATEX_OPTIONS)
       .use(rehypeIgnoreMathmlInSearch)
+      // Last, so what it records is what gets stringified — the generators
+      // above rewrite elements, and an id on one they replace is gone.
+      .use(rehypeCollectAnchorIds)
       .use(rehypeStringify)
       .freeze()
   );
