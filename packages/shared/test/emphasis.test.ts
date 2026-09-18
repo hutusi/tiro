@@ -197,6 +197,23 @@ describe("normalizeCjkEmphasis", () => {
     expect(normalizeCjkEmphasis("中文__不匹配_文字")).toBe("中文__不匹配_文字");
   });
 
+  test("a bare CR ends a line as surely as a newline does", () => {
+    // CommonMark counts `\r` as a line ending, and a CR-only body reaches here
+    // intact. Testing for `\n` alone let a span cross a line in exactly those
+    // documents — with or without an inline node in between.
+    for (const untouched of [
+      "中文_甲\r乙_文字",
+      "中文_甲\r[链接](url)乙_文字",
+      "中文_甲\r\n乙_文字",
+    ]) {
+      expect(normalizeCjkEmphasis(untouched)).toBe(untouched);
+    }
+    // And a span that stays on its line is still repaired in such a body.
+    expect(normalizeCjkEmphasis("细节_真的_很重要\r\n下一行")).toBe(
+      "细节*真的*很重要\r\n下一行",
+    );
+  });
+
   test("an unpaired underscore does not hide the lines after it", () => {
     expect(normalizeCjkEmphasis("前文_未闭合\n细节_真的_很重要")).toBe(
       "前文_未闭合\n细节*真的*很重要",

@@ -77,6 +77,19 @@ function charAfter(source: string, offset: number): string {
   return [...source.slice(offset, offset + 2)].at(0) ?? "";
 }
 
+/**
+ * Whether this character ends a line.
+ *
+ * CommonMark counts a bare `\r` as a line ending, and markdown written that
+ * way reaches here intact — the processor's repair pass normalizes CRLF and
+ * leaves CR-only bodies alone, having nothing to pair the `\r` with. Testing
+ * for `\n` alone let a span cross a line in exactly those documents, which is
+ * the one thing the one-line rule exists to stop.
+ */
+function isLineEnd(char: string | undefined): boolean {
+  return char === "\n" || char === "\r";
+}
+
 /** Length of the run of underscores starting at `offset`, bounded by `end`. */
 function runLength(source: string, offset: number, end: number): number {
   let length = 0;
@@ -168,7 +181,7 @@ function textOnly(
   walls: ReadonlySet<number>,
 ): string {
   const blank = (text: string, from: number): string =>
-    text.replace(/[^\n]/g, (char, index: number) =>
+    text.replace(/[^\r\n]/g, (char, index: number) =>
       char === "|" && walls.has(from + index) ? "\n" : "\u0000",
     );
   const parts: string[] = [];
@@ -206,7 +219,7 @@ function opensNearerSpan(
 ): boolean {
   for (let i = offset + length; i < scannable.length; i += 1) {
     // The node ends at the first blanked character, and a break ends the line.
-    if (scannable[i] === "\u0000" || scannable[i] === "\n") return false;
+    if (scannable[i] === "\u0000" || isLineEnd(scannable[i])) return false;
     if (scannable[i] !== "_" || isEscaped(scannable, i)) continue;
     if (runLength(scannable, i, scannable.length) !== length) return false;
     return isEmphasis(source, { open: offset, close: i, length });
@@ -258,7 +271,7 @@ function pairsIn(source: string, scannable: string): Pair[] {
       // Emphasis may span lines, but a span that does is far more likely to be
       // two unrelated underscores in a list or a table than one span, and the
       // swap would join them. One line, like the defect itself.
-      if (scannable[i] === "\n") break;
+      if (isLineEnd(scannable[i])) break;
       if (scannable[i] === "_" && !isEscaped(scannable, i)) {
         // Only a run of the same length closes this one. A different length is
         // a shape CommonMark reads by splitting runs, which is more than a
