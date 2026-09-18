@@ -26,10 +26,19 @@ import {
  */
 const CJK = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
 
-/** One `_…_` pair, by source offset of each delimiter. */
+/** The longest delimiter run this repairs: `_`, `__` and `___` are emphasis,
+ * strong, and both — past that CommonMark's own reading gets ambiguous, and a
+ * run that long in prose is far more likely to be a rule or a table. */
+const MAX_RUN = 3;
+
+/** One `_…_` span, by the source offset and length of each delimiter run. */
 interface Pair {
   open: number;
   close: number;
+  /** Characters in each run — 1 for `_x_`, 2 for `__x__`. Both runs are this
+   * long, because a repair that changed the run length would change what the
+   * span means. */
+  length: number;
 }
 
 /**
@@ -43,10 +52,16 @@ function isEscaped(source: string, offset: number): boolean {
   return slashes % 2 === 1;
 }
 
+/** Length of the run of underscores starting at `offset`, bounded by `end`. */
+function runLength(source: string, offset: number, end: number): number {
+  let length = 0;
+  while (offset + length < end && source[offset + length] === "_") length += 1;
+  return length;
+}
+
 /**
- * Whether `_x_` would be emphasis here if the CJK letters beside it were
- * spaces — that is, whether CJK adjacency is the *only* reason the parser
- * refused it.
+ * Whether the span would be emphasis if the CJK letters beside it were spaces
+ * — that is, whether CJK adjacency is the *only* reason the parser refused it.
  *
  * One character on each side is the whole context: CommonMark's flanking rules
  * read the character immediately before the opening run and immediately after
@@ -58,43 +73,51 @@ function curedByCjk(source: string, pair: Pair): boolean {
   const neighbour = (char: string | undefined): string =>
     char === undefined || char === "\n" || CJK.test(char) ? " " : char;
   const left = neighbour(source[pair.open - 1]);
-  const right = neighbour(source[pair.close + 1]);
-  const inner = source.slice(pair.open + 1, pair.close);
-  return opensEmphasisAt(`a${left}_${inner}_${right}b`, 1 + left.length);
+  const right = neighbour(source[pair.close + pair.length]);
+  const inner = source.slice(pair.open + pair.length, pair.close);
+  const run = "_".repeat(pair.length);
+  return opensEmphasisAt(
+    `a${left}${run}${inner}${run}${right}b`,
+    1 + left.length,
+  );
 }
 
 /**
- * Whether this pair is one the author meant as emphasis.
+ * Whether this span is one the author meant as emphasis.
  *
- * "Would it parse after the swap?" is not a sufficient test on its own: `*`
- * works inside a word where `_` does not, so it would happily turn
- * `snake_case_name` into italics. Nor is "does it touch CJK?", because a true
- * repair and a false one have the same shape — `一个_tick_（时刻）` is emphasis
- * on a Latin word and `中文_file_name` is an identifier, and both are a Latin
- * span with a CJK character in front. So:
+ * **This repair only ever cures CJK adjacency**, so a span with no CJK letter
+ * immediately outside either delimiter is not its business, whatever else is
+ * wrong with it. That is the first condition, and it is what tells
+ * `my_报告_draft` — an identifier, Latin on both sides — from `细节_真的_很重要`.
+ *
+ * Given that, two ways for the adjacency to be the whole story:
  *
  * - **CJK inside the delimiters** means the span is CJK text, which no
- *   identifier is a fragment of. That is the ordinary case, and it has to be
- *   decided here rather than by the probe below — `不会_少于_8个月` is emphasis
- *   even though the `8` after it is a word character.
+ *   identifier is a fragment of. This is the ordinary case, and it has to be
+ *   decided here rather than by the probe — `不会_少于_8个月` is emphasis even
+ *   though the `8` after it is a word character, because the obstacle is the
+ *   CJK letter on the *inside* edge, which no substitution outside can lift.
  * - **Otherwise** the content is Latin and could belong to an identifier, so
- *   it is only a repair if CJK adjacency was the sole obstacle. That is
- *   CommonMark's own intraword rule doing the separating: what follows the
- *   closing `_` is punctuation in `一个_tick_（` and a word character in
- *   `中文_file_name`.
+ *   ask the probe: `一个_tick_（时刻）` is emphasis and `中文_file_name` is not,
+ *   and what separates them is CommonMark's own intraword rule read on the
+ *   Latin side — punctuation after the closing run in the first, a word
+ *   character in the second.
  *
- * The whitespace check stays in front of both. No emphasis delimiter is
- * followed or preceded by a space, and the first clause would otherwise accept
+ * The whitespace check stays in front of all of it. No emphasis delimiter is
+ * preceded or followed by a space, and the CJK clause would otherwise accept
  * `_ 中文 _`.
  */
 function isEmphasis(source: string, pair: Pair): boolean {
-  const inner = source.slice(pair.open + 1, pair.close);
+  const inner = source.slice(pair.open + pair.length, pair.close);
   if (inner.length === 0) return false;
   if (/^\s/.test(inner) || /\s$/.test(inner)) return false;
+  const before = source[pair.open - 1] ?? "";
+  const after = source[pair.close + pair.length] ?? "";
+  if (!CJK.test(before) && !CJK.test(after)) return false;
   return CJK.test(inner) || curedByCjk(source, pair);
 }
 
-/** Every `_…_` pair inside one text node's source range. */
+/** Every `_…_` span inside one text node's source range. */
 function pairsIn(source: string, start: number, end: number): Pair[] {
   const found: Pair[] = [];
   let open = start;
@@ -103,45 +126,66 @@ function pairsIn(source: string, start: number, end: number): Pair[] {
       open += 1;
       continue;
     }
+    // Runs are matched whole. Reading `中文__强调__文字` as a `_` pair with an
+    // underscore either side of it rewrote the inner two and left the outer
+    // two standing — italics with stray underscores, where the author wrote
+    // strong emphasis.
+    const length = runLength(source, open, end);
     let close = -1;
-    for (let i = open + 1; i < end; i += 1) {
-      // Emphasis may span lines, but a pair that does is far more likely to be
+    for (let i = open + length; i < end; i += 1) {
+      // Emphasis may span lines, but a span that does is far more likely to be
       // two unrelated underscores in a list or a table than one span, and the
       // swap would join them. One line, like the defect itself.
       if (source[i] === "\n") break;
       if (source[i] === "_" && !isEscaped(source, i)) {
-        close = i;
+        // Only a run of the same length closes this one. A different length is
+        // a shape CommonMark reads by splitting runs, which is more than a
+        // delimiter swap can faithfully reproduce.
+        close = runLength(source, i, end) === length ? i : -1;
         break;
       }
     }
     // Not `return`: an underscore with no partner on its line says nothing
     // about the rest of the node, and abandoning the scan there hid every
     // repairable pair on the lines after it.
-    if (close === -1) {
-      open += 1;
+    if (close === -1 || length > MAX_RUN) {
+      open += length;
       continue;
     }
-    const pair = { open, close };
+    const pair = { open, close, length };
     if (isEmphasis(source, pair)) {
       found.push(pair);
-      open = close + 1;
+      open = close + length;
     } else {
-      // Not from `close`: a rejected closer can still open the next pair, which
-      // is exactly the shape of `a_b_中文_很重要_`.
-      open += 1;
+      // Only past the opening run: a rejected closer can still open the next
+      // span, which is exactly the shape of `a_b_中文_很重要_`.
+      open += length;
     }
   }
   return found;
 }
 
-/** Replace the character at each offset. Length-preserving, so a caller may
- * apply pairs one at a time without recomputing the offsets between them. */
-function replaceAt(source: string, offsets: readonly number[], with_: string) {
-  let out = source;
-  for (const offset of offsets) {
-    out = out.slice(0, offset) + with_ + out.slice(offset + 1);
-  }
-  return out;
+/** The delimiter runs of these spans, in descending source order so that
+ * editing one leaves the offsets of the rest valid. */
+function runsOf(pairs: readonly Pair[]): { at: number; length: number }[] {
+  return pairs
+    .flatMap((pair) => [
+      { at: pair.open, length: pair.length },
+      { at: pair.close, length: pair.length },
+    ])
+    .sort((a, b) => b.at - a.at);
+}
+
+/** Swap every delimiter for `*`. Length-preserving, so a caller may apply
+ * spans one at a time without recomputing the offsets between them. */
+function swapped(source: string, pairs: readonly Pair[]): string {
+  return runsOf(pairs).reduce(
+    (text, run) =>
+      text.slice(0, run.at) +
+      "*".repeat(run.length) +
+      text.slice(run.at + run.length),
+    source,
+  );
 }
 
 /**
@@ -155,11 +199,10 @@ function replaceAt(source: string, offsets: readonly number[], with_: string) {
  * side-by-side rendering (ADR 0003).
  */
 function isSafe(before: string, after: string, pairs: readonly Pair[]) {
-  const offsets = pairs.flatMap((p) => [p.open, p.close]);
-  // Descending, so each deletion leaves the offsets before it valid.
-  const deleted = [...offsets]
-    .sort((a, b) => b - a)
-    .reduce((text, at) => text.slice(0, at) + text.slice(at + 1), before);
+  const deleted = runsOf(pairs).reduce(
+    (text, run) => text.slice(0, run.at) + text.slice(run.at + run.length),
+    before,
+  );
   if (plainText(deleted) !== plainText(after)) return false;
   const original = splitBlocks(before);
   const rewritten = splitBlocks(after);
@@ -179,7 +222,7 @@ function isSafe(before: string, after: string, pairs: readonly Pair[]) {
  * snippet are out of reach without any rule of their own.
  *
  * Every rewrite is then checked against the original before it is returned, and
- * checked again one pair at a time if the whole-body swap does not hold, so one
+ * checked again one span at a time if the whole-body swap does not hold, so one
  * pathological span costs that span rather than the article.
  */
 export function normalizeCjkEmphasis(markdown: string): string {
@@ -188,13 +231,12 @@ export function normalizeCjkEmphasis(markdown: string): string {
   );
   if (pairs.length === 0) return markdown;
 
-  const offsets = pairs.flatMap((p) => [p.open, p.close]);
-  const all = replaceAt(markdown, offsets, "*");
+  const all = swapped(markdown, pairs);
   if (isSafe(markdown, all, pairs)) return all;
 
   let out = markdown;
   for (const pair of pairs) {
-    const one = replaceAt(out, [pair.open, pair.close], "*");
+    const one = swapped(out, [pair]);
     if (isSafe(out, one, [pair])) out = one;
   }
   return out;

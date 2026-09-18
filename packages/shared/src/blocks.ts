@@ -699,7 +699,7 @@ export function textRanges(text: string): { start: number; end: number }[] {
  * would the parser read *this* one as emphasis? Anchored to the offset rather
  * than "is there emphasis anywhere", because the text around it may hold
  * emphasis of its own and answering about that would be answering a different
- * question.
+ * question. `strong` counts: `__x__` is the same span with a longer run.
  */
 export function opensEmphasisAt(text: string, offset: number): boolean {
   // Its own walk rather than `rangesOf`, which stops at the outermost match:
@@ -710,7 +710,10 @@ export function opensEmphasisAt(text: string, offset: number): boolean {
       children?: unknown[];
       position?: { start: { offset?: number } };
     };
-    if (n.type === "emphasis" && n.position?.start.offset === offset) {
+    if (
+      (n.type === "emphasis" || n.type === "strong") &&
+      n.position?.start.offset === offset
+    ) {
       return true;
     }
     return (n.children ?? []).some(walk);

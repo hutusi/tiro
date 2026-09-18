@@ -45,6 +45,10 @@ describe("normalizeCjkEmphasis", () => {
       "the fire_and_forget function",
       "中文_file_name 的说明",
       "数据_table_name_ 的字段",
+      // CJK *inside* an identifier is no different: Latin sits on both sides
+      // of these delimiters, so there is no CJK adjacency to cure.
+      "my_报告_draft 文件",
+      "a 报告_draft_file name",
     ]) {
       expect(normalizeCjkEmphasis(untouched)).toBe(untouched);
     }
@@ -66,6 +70,33 @@ describe("normalizeCjkEmphasis", () => {
     expect(normalizeCjkEmphasis("不会_少于_8个月的估算")).toBe(
       "不会*少于*8个月的估算",
     );
+  });
+
+  test("treats a span as prose once CJK sits against a delimiter", () => {
+    // `用户_信息_table` is repaired and `my_报告_draft` is not, and the only
+    // difference is the CJK character in front. The two are genuinely
+    // ambiguous — an identifier can look like either — so this follows the
+    // corpus: a delimiter that ran into CJK is overwhelmingly prose, which is
+    // also what makes `不会_少于_8个月` above come out right.
+    expect(normalizeCjkEmphasis("the 用户_信息_table column")).toBe(
+      "the 用户*信息*table column",
+    );
+  });
+
+  test("matches delimiter runs whole", () => {
+    // Reading `__强调__` as a `_` pair with an underscore either side rewrote
+    // the inner two and left the outer two standing — italics with stray
+    // underscores, where the author wrote strong emphasis.
+    expect(normalizeCjkEmphasis("中文__强调__文字")).toBe("中文**强调**文字");
+    expect(normalizeCjkEmphasis("中文___双重___文字")).toBe(
+      "中文***双重***文字",
+    );
+  });
+
+  test("leaves runs of different lengths alone", () => {
+    // CommonMark reads this by splitting the runs, which is more than a
+    // delimiter swap can faithfully reproduce.
+    expect(normalizeCjkEmphasis("中文__不匹配_文字")).toBe("中文__不匹配_文字");
   });
 
   test("an unpaired underscore does not hide the lines after it", () => {

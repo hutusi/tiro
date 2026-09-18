@@ -49,17 +49,27 @@ are never part of text, so working from text-node ranges puts code spans, fenced
 code, math, raw HTML and link destinations out of reach without a rule for each.
 Deciding *which* of those refused delimiters were meant as emphasis needs a
 second rule, because `*` works inside a word where `_` does not: "would it parse
-after the swap?" would happily turn `fire_and_forget` into italics. Nor is
-"does it touch CJK?" enough — `一个_tick_（时刻）` is emphasis on a Latin word
-and `中文_file_name` is an identifier, and they are the same shape. So: CJK
-*inside* the delimiters settles it, since no identifier is a fragment of CJK
-text; otherwise the content is Latin and the pair is only a repair if CJK
-adjacency was the sole obstacle — replace the CJK letters just outside the
-delimiters with spaces and ask whether `_x_` is emphasis there. What follows the
-closing `_` is then doing the separating, which is CommonMark's own intraword
-rule read on the Latin side. Every rewrite is checked afterwards — same blocks,
-same rendered text bar the delimiters — and retried one pair at a time if the
+after the swap?" would happily turn `fire_and_forget` into italics. The rule is
+that **this repair only ever cures CJK adjacency**, so a span with no CJK letter
+immediately outside either delimiter is left alone whatever else is wrong with
+it — which is what tells `my_报告_draft` from `细节_真的_很重要`. Given the
+adjacency, two ways for it to be the whole story: CJK *inside* the delimiters
+settles it, since no identifier is a fragment of CJK text (and the obstacle is
+then on the inside edge, where no substitution outside could lift it); otherwise
+the content is Latin, and the pair is a repair only if replacing the CJK letters
+just outside with spaces makes `_x_` emphasis. What follows the closing run is
+then doing the separating — punctuation in `一个_tick_（时刻）`, a word character
+in `中文_file_name` — which is CommonMark's own intraword rule read on the Latin
+side. Delimiter runs are matched whole, so `__强调__` becomes `**强调**` rather
+than being half-rewritten. Every rewrite is checked afterwards — same blocks,
+same rendered text bar the delimiters — and retried one span at a time if the
 whole-body swap does not hold.
+
+One boundary is left ambiguous on purpose: `用户_信息_table` is repaired and
+`my_报告_draft` is not, and the only difference is the CJK character in front.
+An identifier can look like either, so this follows the corpus — a delimiter
+that ran into CJK is overwhelmingly prose, and the alternative would lose
+ordinary sentences like `不会_少于_8个月`.
 
 ## Consequences
 
