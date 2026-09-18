@@ -122,6 +122,25 @@ whose every line is an image, which is also why content legitimately indented
 inside a list is out of reach: that belongs to a `list` block, never a
 top-level `code` block.
 
+It also repairs emphasis (ADR 0025): `细节_真的_很重要` is two literal
+underscores, because CommonMark refuses `_` between word characters and CJK
+ideographs are word characters. That pass runs *after* the masking rather than
+inside it, for the opposite reason — it brings its own and stricter protection.
+The mask hands a transform everything the parser did not call code, math or
+HTML, a link destination included, and `https://example.com/a_b_c` is exactly
+the shape this rewrites; asking the parser for text nodes instead puts the
+destination out of reach, so it has to see the real source. Almost always it is
+`zh.md` alone that changes: the same `_` renders correctly in English.
+
+This is the one repair that also rewrites `.tiro-zh-cache.json`. The checkpoint
+holds the same Chinese text keyed by the English block it came from, and a later
+`--force` run or re-clip rebuilds `zh.md` out of it, so repairing the file and
+not the checkpoint would hand the defect back — long after the repair looked
+like it held. The checkpoint is written in the same all-or-nothing rename as the
+two markdown files; one that cannot be parsed is skipped rather than fatal, and
+costs a re-translation at worst. Where `index.md` itself changed, the keys of
+the blocks that changed go stale and those blocks re-translate on the next run.
+
 ```sh
 bun run packages/processor/src/cli.ts repair --vault ../tiro-vault --dry-run
 bun run packages/processor/src/cli.ts repair --vault ../tiro-vault

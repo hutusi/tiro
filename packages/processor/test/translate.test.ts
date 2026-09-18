@@ -749,3 +749,60 @@ describe("token substitution", () => {
     expect(splitBlocks(zh ?? "").map((b) => b.type)).toEqual(["list"]);
   });
 });
+
+describe("emphasis the model mirrors from the source", () => {
+  /** Answers every marker with the same Chinese sentence, `_` delimiters and
+   * all — which is what a model does when the block it was given used them. */
+  const underscoreChat: ChatFn = async (request) => {
+    const user = request.messages.find((m) => m.role === "user")?.content ?? "";
+    const markers = [...user.matchAll(/<<<TIRO_BLOCK_(\d+)>>>/g)];
+    if (markers.length === 0) return "细节_真的_很重要。";
+    return markers
+      .map((m) => `<<<TIRO_BLOCK_${m[1]}>>>\n细节_真的_很重要。`)
+      .join("\n");
+  };
+
+  test("is repaired on the way out of an older checkpoint too", async () => {
+    // A checkpoint written before the repair existed holds `_强调_`, and a
+    // resumed run never sends those blocks anywhere — so reusing one verbatim
+    // would publish the defect the repair had already been run to remove.
+    const path = cachePath();
+    const seeded = await loadTranslationCache(path, header);
+    seeded.set("Detail really matters.", "细节_真的_很重要。");
+    await seeded.flush();
+
+    const cache = await loadTranslationCache(path, header);
+    const zh = await translateBlocks({
+      chat: () => {
+        throw new Error("a cached block must not be re-sent");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks("Detail really matters.\n"),
+      cache,
+    });
+
+    expect(zh).toBe("细节*真的*很重要。\n");
+  });
+
+  test("is repaired in zh.md and in the checkpoint alike", async () => {
+    const path = cachePath();
+    const cache = await loadTranslationCache(path, header);
+    const zh = await translateBlocks({
+      chat: underscoreChat,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks("Detail really matters.\n"),
+      cache,
+    });
+
+    expect(zh).toBe("细节*真的*很重要。\n");
+    // The checkpoint too, or a resumed or --force run writes the defect back
+    // after the article has been repaired.
+    await cache.flush();
+    const stored = (await Bun.file(path).json()) as {
+      blocks: Record<string, string>;
+    };
+    expect(Object.values(stored.blocks)).toEqual(["细节*真的*很重要。"]);
+  });
+});

@@ -9,6 +9,19 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Emphasis in Chinese rendered as punctuation.** Half the library showed
+  `细节_真的_很重要` instead of italics. Two unrelated causes, both about CJK.
+  CommonMark refuses `_` as a delimiter between word characters so that
+  `snake_case_name` stays one word, and CJK ideographs are word characters with
+  no spaces between them — 383 spans across 67 of 134 translations, inherited
+  from the `_` Turndown wrote for every `<em>` the clipper ever saw. Separately,
+  a span whose text ends in CJK punctuation (`**事实上，**`) does not close under
+  any delimiter — another ~85. The clipper now writes `*`; the processor repairs
+  what the model mirrors, in `zh.md` and in the translation checkpoint alike;
+  `tiro-process repair` repairs the vault; and the site and `@tiro/shared` parse
+  with `remark-cjk-friendly`, the proposed CommonMark amendment for CJK, which
+  is the only thing that can read the second class (ADR 0025).
+
 - **Summaries that stopped mid-sentence.** The model sometimes returned valid
   JSON carrying a `summary` cut off mid-clause — 13 of 135 articles, one of them
   30 characters ending on the word before the comparison it was making. Nothing

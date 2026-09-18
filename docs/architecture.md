@@ -147,7 +147,10 @@ flowchart LR
    field existed. That lifted pair still decides one thing on its own: whether
    the body repeats its own title and the reader should skip its first row.
 
-   Rendering is one unified pipeline (`apps/site/src/lib/render.ts`). Shiki
+   Rendering is one unified pipeline (`apps/site/src/lib/render.ts`). It parses
+   with `remark-cjk-friendly`, as `@tiro/shared` does, so a translation whose
+   emphasis touches CJK punctuation renders as emphasis rather than asterisks
+   (ADR 0025). Shiki
    and KaTeX run *after* rehype-sanitize, as trusted generators over
    already-scrubbed text, so the allowlist never has to admit the classes and
    inline styles they emit — which would admit them from clipped markup too

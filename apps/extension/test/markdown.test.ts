@@ -59,3 +59,21 @@ describe("unwrapPictures", () => {
     );
   });
 });
+
+describe("emphasis delimiters", () => {
+  test("writes `*`, which CommonMark reads inside a word", () => {
+    // Turndown's default `_` is unreadable between word characters, and CJK
+    // ideographs are word characters — so a translation of `_x_` came out as
+    // two literal underscores on the site. `*` has no intraword rule.
+    expect(clip("<p>Which company is <em>better off</em>?</p>")).toBe(
+      "Which company is *better off*?",
+    );
+    expect(clip("<p>un<em>bel</em>ievable</p>")).toBe("un*bel*ievable");
+  });
+
+  test("leaves strong alone — `**` never had the problem", () => {
+    expect(clip("<p>a <strong>bold</strong> claim</p>")).toBe(
+      "a **bold** claim",
+    );
+  });
+});

@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { splitBlocks } from "@tiro/shared";
+import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
 import {
   deindentBlockImages,
   joinLinkTitles,
@@ -634,5 +635,87 @@ describe("repairVault", () => {
     const report = await repairVault(vault, { slug: EN, dryRun: true });
     expect(report.repaired).toHaveLength(1);
     expect(readFileSync(index, "utf8")).toBe(before);
+  });
+});
+
+describe("CJK emphasis", () => {
+  test("swaps a delimiter CommonMark cannot read next to CJK", () => {
+    expect(repairBody("细节_真的_很重要")).toBe("细节*真的*很重要");
+  });
+
+  test("leaves a link destination alone, which the mask would not have", () => {
+    // `outsideVerbatim` hands its transforms everything the parser did not call
+    // code, math or HTML — a destination included. This pass runs outside it
+    // and asks the parser for text nodes, so `a_b_c` in a URL is unreachable.
+    const body = "见 [链接](https://example.com/a_b_c) 的说明";
+    expect(repairBody(body)).toBe(body);
+  });
+
+  test("repairs the translation checkpoint in the same write", async () => {
+    // Without this the next --force run rebuilds zh.md out of the checkpoint
+    // and puts the defect back, long after the repair looked like it held.
+    const vault = freshVault();
+    const index = join(vault, "articles", EN, "index.md");
+    const zh = join(vault, "articles", EN, "zh.md");
+    const cache = join(vault, "articles", EN, TRANSLATION_CACHE_FILE);
+    writeFileSync(
+      index,
+      `${readFileSync(index, "utf8")}\nDetail _really_ matters.\n`,
+    );
+    writeFileSync(zh, `${readFileSync(zh, "utf8")}\n细节_真的_很重要。\n`);
+    writeFileSync(
+      cache,
+      `${JSON.stringify({ version: 1, target: "zh", model: "m", blocks: { abc123: "细节_真的_很重要。" } }, null, 2)}\n`,
+    );
+
+    const report = await repairVault(vault, { slug: EN });
+    expect(report.refused).toEqual([]);
+    expect(report.repaired).toEqual([
+      { slug: EN, files: ["zh.md", TRANSLATION_CACHE_FILE] },
+    ]);
+    expect(readFileSync(zh, "utf8")).toContain("细节*真的*很重要。");
+    const written = JSON.parse(readFileSync(cache, "utf8")) as {
+      target: string;
+      blocks: Record<string, string>;
+    };
+    expect(written.blocks.abc123).toBe("细节*真的*很重要。");
+    // The header has to survive, or the next run drops the whole checkpoint.
+    expect(written.target).toBe("zh");
+  });
+
+  test("skips a checkpoint holding JSON null without stopping the scan", async () => {
+    // `null` parses, so it escapes the try/catch that covers a torn file, and
+    // reading `.blocks` off it used to throw out of the whole vault scan.
+    const vault = freshVault();
+    const index = join(vault, "articles", EN, "index.md");
+    const zh = join(vault, "articles", EN, "zh.md");
+    writeFileSync(
+      index,
+      `${readFileSync(index, "utf8")}\nDetail _really_ matters.\n`,
+    );
+    writeFileSync(zh, `${readFileSync(zh, "utf8")}\n细节_真的_很重要。\n`);
+    writeFileSync(join(vault, "articles", EN, TRANSLATION_CACHE_FILE), "null");
+
+    const report = await repairVault(vault);
+    expect(report.repaired).toEqual([{ slug: EN, files: ["zh.md"] }]);
+    // Every other article still got its turn.
+    expect(report.scanned).toBeGreaterThan(1);
+  });
+
+  test("skips a checkpoint it cannot read and still repairs the article", async () => {
+    const vault = freshVault();
+    const index = join(vault, "articles", EN, "index.md");
+    const zh = join(vault, "articles", EN, "zh.md");
+    const cache = join(vault, "articles", EN, TRANSLATION_CACHE_FILE);
+    writeFileSync(
+      index,
+      `${readFileSync(index, "utf8")}\nDetail _really_ matters.\n`,
+    );
+    writeFileSync(zh, `${readFileSync(zh, "utf8")}\n细节_真的_很重要。\n`);
+    writeFileSync(cache, "{ not json");
+
+    const report = await repairVault(vault, { slug: EN });
+    expect(report.repaired).toEqual([{ slug: EN, files: ["zh.md"] }]);
+    expect(readFileSync(cache, "utf8")).toBe("{ not json");
   });
 });

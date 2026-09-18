@@ -7,6 +7,7 @@ import rehypeSanitize, {
   type Options as SanitizeSchema,
 } from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
+import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -327,6 +328,16 @@ function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
     unified()
       .use(remarkParse)
       .use(remarkGfm)
+      // The proposed CommonMark amendment for CJK, and the one place a
+      // translation needs it: strict CommonMark will not close `**事实上，**`,
+      // because `，` is punctuation and the closing run is therefore not
+      // flanking, so the asterisks stay on the page. No delimiter can express
+      // that span — `*事实上，*` fails identically — which is why it is fixed
+      // here and not in the content, unlike the `_` that the clipper used to
+      // write (`normalizeCjkEmphasis` in `@tiro/shared`). Output is unchanged
+      // for any input without CJK, and `@tiro/shared` parses with it too, so
+      // the contract reads an article the way this renders it.
+      .use(remarkCjkFriendly)
       .use(remarkMath, { singleDollarTextMath })
       // allowDangerousHtml here only carries raw HTML into the tree, where
       // rehypeRaw parses it and rehypeSanitize scrubs it before stringifying.

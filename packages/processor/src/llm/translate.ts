@@ -4,6 +4,7 @@ import {
   isInlineMathOnlyParagraph,
   joinBlocks,
   mathRanges,
+  normalizeCjkEmphasis,
   splitBlocks,
   VERBATIM_BLOCK_TYPES,
 } from "@tiro/shared";
@@ -120,7 +121,11 @@ export async function translateBlocks(
   for (const item of translatable) {
     const cached = cache?.get(item.block.text);
     if (cached === undefined) todo.push(item);
-    else translated[item.index] = cached;
+    // Repaired on the way out as well as on the way in (see `record` below):
+    // a checkpoint written before that repair existed — or one `tiro-process
+    // repair` could not read — still holds `_强调_`, and reusing it verbatim
+    // would put the defect back into zh.md for every block that resumed.
+    else translated[item.index] = normalizeCjkEmphasis(cached);
   }
   const resumed = translatable.length - todo.length;
   if (resumed > 0) {
@@ -141,7 +146,13 @@ export async function translateBlocks(
     // original text and must hold a real translation, or a resumed run reads
     // the tokens back out and publishes TIROMATH0 into zh.md.
     const restored = unmaskMath(text.trim(), item.formulas);
-    const cleaned = restored?.trim() || item.block.text;
+    // The model mirrors the delimiter it was given, and the clipper wrote `_`
+    // for years: `_emphasis_` reads correctly in English, where spaces flank
+    // it, and reads as two literal underscores in Chinese, where nothing does.
+    // Repaired here rather than at the join so the checkpoint holds the fixed
+    // text too — a resumed or `--force` run rebuilds zh.md from it, and would
+    // otherwise put the defect back after the article had been repaired.
+    const cleaned = normalizeCjkEmphasis(restored?.trim() || item.block.text);
     translated[item.index] = cleaned;
     cache?.set(item.block.text, cleaned);
   };
