@@ -45,7 +45,13 @@ export interface SummaryResult {
   titleZh?: string;
   /** The summary in the article's own language, the other half of the pair. */
   summaryOrig?: string;
-  /** True when the LLM failed and the excerpt fallback was used. */
+  /**
+   * True when the summary needs a human look, by either route: three replies
+   * the schema could not accept, so the excerpt fallback was used — or three
+   * that stopped mid-sentence, in which case the longest is kept and this is
+   * the only record of it. The pipeline writes `tiro.summary_failed` from it;
+   * the log line says which happened.
+   */
   failed: boolean;
 }
 
@@ -69,11 +75,47 @@ const ResponseSchema = z.object({
 const MAX_ATTEMPTS = 3;
 
 /**
- * One JSON-mode call producing summary + category + tags. Invalid JSON or an
- * off-taxonomy category is retried with the validation error appended; after
- * MAX_ATTEMPTS the result falls back to a first-paragraph excerpt with
- * `failed: true` so the article still gets processed (and is greppable for a
- * manual `--force` retry).
+ * Does this summary read as a finished thought rather than a cut one?
+ *
+ * The model returns a JSON object that parses, validates, and carries a real
+ * category, real tags and a complete `summary_orig` — beside a `summary` that
+ * stops mid-clause, sometimes after only a few dozen characters, on the word
+ * before the phrase it was building towards. 13 of the vault's 135 summaries
+ * were written that way and nothing caught it: `z.string().min(1)` is happy,
+ * and the summary is the one field no later stage reads, so it reaches the page
+ * and the `<meta name="description">` exactly as the model left it.
+ *
+ * Measured before guessing, because the obvious cause is a token budget and it
+ * is not one. The affected articles have *shorter* total model output than the
+ * unaffected ones (1253 against 1583 characters on average), and an intact
+ * reply carries a longer `summary_orig` than any cut article's. The cut is also
+ * one-sided: `summary_orig` is never cut, in 57 bilingual articles. The model
+ * simply stops sometimes, so the answer is to notice and ask again rather than
+ * to raise a cap that was never the constraint.
+ *
+ * A trailing ellipsis is a cut, not an ending — it is what a sentence trailing
+ * off looks like, and accepting it let the very shape this guards against pass
+ * on the first attempt. Nothing legitimate is lost: no model-written summary in
+ * the vault ends in one. The three that do are `excerptFallback`'s own
+ * `…`, which never reaches this predicate.
+ */
+const ELLIPSIS = /(?:\.{2,}|…+)["'」』”’）)】\]]?$/u;
+/** Terminal punctuation in either language, optionally behind a closing pair. */
+const FINISHED = /[。．.！!？?]["'」』”’）)】\]]?$/u;
+
+export function summaryIsFinished(summary: string): boolean {
+  const trimmed = summary.trim();
+  return !ELLIPSIS.test(trimmed) && FINISHED.test(trimmed);
+}
+
+/**
+ * One JSON-mode call producing summary + category + tags. Invalid JSON, an
+ * off-taxonomy category, or a summary that stops mid-sentence is retried with
+ * the reason appended; after MAX_ATTEMPTS the article is still processed and
+ * still marked `failed: true`, so it stays greppable for a manual `--force`
+ * retry. What it is left holding differs: a first-paragraph excerpt when no
+ * reply was usable, or the longest cut summary when the replies were fine
+ * apart from stopping early.
  *
  * Only *model* failures are handled that way. Transport and HTTP errors from
  * `chat` propagate to the caller, which leaves the article pending (invariant
@@ -121,6 +163,8 @@ export async function summarize(
     },
   ];
 
+  // The best cut summary seen so far, kept in case every attempt is cut.
+  let unfinished: z.infer<typeof ResponseSchema> | undefined;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     // Outside the try on purpose — see the note above about propagating.
     const raw = await chat({
@@ -136,6 +180,26 @@ export async function summarize(
         feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
       } else if (!categories.includes(parsed.data.category)) {
         feedback = `Your previous "category" (${parsed.data.category}) is not in the allowed list: ${categories.join(", ")}.`;
+      } else if (parsed.data.summary.trim() === "") {
+        // Before the cut-summary branch, and deliberately not kept: whitespace
+        // satisfies `z.string().min(1)`, which counts characters rather than
+        // content. Retaining it would put a blank summary on the page and in
+        // the meta description — the one outcome the excerpt fallback is
+        // better than, so this must be allowed to reach it.
+        feedback =
+          'Your previous "summary" was blank. Write the summary out in full.';
+      } else if (!summaryIsFinished(parsed.data.summary)) {
+        // Retryable, but never a *failure*: the reply is otherwise complete and
+        // useful, and the `failed` path below replaces the summary with a
+        // first-paragraph excerpt. Trading a cut summary for an excerpt would
+        // lose the model's reading of the article to fix its punctuation.
+        if (
+          unfinished === undefined ||
+          parsed.data.summary.length > unfinished.summary.length
+        ) {
+          unfinished = parsed.data;
+        }
+        feedback = `Your previous "summary" stopped mid-sentence, ending "${parsed.data.summary.trim().slice(-40)}". Write the whole summary and finish every sentence.`;
       } else {
         return {
           ...accept(
@@ -163,6 +227,38 @@ export async function summarize(
     }
   }
 
+  // A cut summary beats an excerpt — it is the model's reading of the article,
+  // with a real category and tags beside it — so the text is kept rather than
+  // replaced. But it is still marked: the whole reason 13 of these reached the
+  // vault unnoticed is that nothing wrote anything down, and a run log scrolls
+  // away. `summary_failed` therefore means "this summary needs a human look",
+  // by either of its two routes, which the log lines tell apart.
+  if (unfinished !== undefined) {
+    // "no attempt finished", not "every attempt was cut": `unfinished` holds
+    // the best of the cut replies, and the others may have failed for entirely
+    // different reasons — unparseable JSON, a category off the taxonomy. The
+    // per-attempt lines above say what each one did; this one says only what
+    // the article is left holding, which is the part the runbook indexes.
+    log(
+      `summary unfinished after ${MAX_ATTEMPTS} attempts; keeping the longest cut reply (${unfinished.summary.trim().length} chars)`,
+    );
+    return {
+      ...accept(
+        unfinished,
+        { bilingual, title, targetLang, cjkThreshold },
+        log,
+      ),
+      failed: true,
+    };
+  }
+
+  // The other marked outcome, and it says so itself rather than leaving the
+  // pipeline's slug line to imply it. Both paths set `summary_failed`, so a log
+  // that does not distinguish them leaves an operator unable to tell an article
+  // holding a short summary from one holding its own first paragraph.
+  log(
+    `summary unusable after ${MAX_ATTEMPTS} attempts; using a first-paragraph excerpt`,
+  );
   return {
     summary: excerptFallback(body, title),
     category: fallbackCategory(categories),

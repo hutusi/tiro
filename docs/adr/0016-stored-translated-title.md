@@ -50,6 +50,16 @@ decide not to be content. Frontmatter is the one place left.
   spend three round trips on a 30 K-char body and cost an article its summary,
   category and tags because a model omitted a title.
 
+  **Amended:** the marker now has a second cause. A model that answers correctly
+  but stops its summary mid-sentence is retried the same way, and after three
+  attempts the longest of those summaries is *kept* — falling back to an excerpt
+  would trade the model's reading of the article for its own first paragraph, to
+  fix punctuation — and `tiro.summary_failed` is set anyway. So the marker reads
+  "this summary needs a human look", not "there is no summary here"; the run log
+  says which of the two happened. Reusing it rather than adding a sibling key is
+  the owner's call, taken against the argument that it makes the CLI's "summary
+  fallback(s)" count include articles that did not fall back.
+
   A candidate with no Han character is an echo, not a translation — `The
   Twelve-Factor App` handed back unchanged — and is dropped. One Han character
   is the whole bar, not a ratio: a real translation can be almost entirely

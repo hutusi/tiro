@@ -251,6 +251,37 @@ describe("failure markers", () => {
     expect(frontmatter.summary_orig).toBeUndefined();
   });
 
+  /**
+   * The other route to the same marker, and the one where its meaning is easy
+   * to get wrong: the model answered perfectly except that it stopped
+   * mid-sentence every time. The article keeps that summary, its category and
+   * its tags — nothing falls back — and is flagged all the same, so a summary
+   * nobody would otherwise notice is greppable in the vault.
+   */
+  test("marks an article whose summary was cut every time, and keeps the text", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: {
+          summary: "本文提出了三个论点，第一个是",
+          category: "ai",
+          tags: ["t"],
+        },
+      }),
+    });
+    expect(report.summaryFailed).toEqual([RAW_SLUG]);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.tiro.summary_failed).toBe(true);
+    // The model's reading of the article, not the body's first paragraph.
+    expect(frontmatter.summary).toBe("本文提出了三个论点，第一个是");
+    expect(frontmatter.category).toBe("ai");
+    expect(frontmatter.tags).toEqual(["t"]);
+  });
+
   test("--force reprocess clears a stale summary_failed marker", async () => {
     const vault = freshVault();
     const config = await loadVaultConfig(vault);
