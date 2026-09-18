@@ -95,6 +95,27 @@ describe("normalizeCjkEmphasis", () => {
     expect(normalizeCjkEmphasis("😀_x_y 表情")).toBe("😀_x_y 表情");
   });
 
+  test("pairs delimiters that sit either side of an inline node", () => {
+    // The span wraps a link, so its two delimiters are in different text
+    // nodes — the shape a per-node scan could never pair, which left literal
+    // underscores on four articles.
+    expect(
+      normalizeCjkEmphasis("决定的_[纽约时报](https://e.com/a_b)_文章抓住了"),
+    ).toBe("决定的*[纽约时报](https://e.com/a_b)*文章抓住了");
+    // The `a_b` in the destination is not a text node, so it stays put.
+    expect(normalizeCjkEmphasis("见 [链接](https://e.com/a_b_c) 的说明")).toBe(
+      "见 [链接](https://e.com/a_b_c) 的说明",
+    );
+  });
+
+  test("does not pair across a table cell boundary", () => {
+    // Two cells are not one span. Nothing rejects this in the scan — the
+    // verification does, because `*a` and `b*` in separate cells are not
+    // emphasis and the rendered text would change.
+    const table = "| 甲 | 乙 |\n| --- | --- |\n| 中文_a | b_文 |";
+    expect(normalizeCjkEmphasis(table)).toBe(table);
+  });
+
   test("matches delimiter runs whole", () => {
     // Reading `__强调__` as a `_` pair with an underscore either side rewrote
     // the inner two and left the outer two standing — italics with stray
