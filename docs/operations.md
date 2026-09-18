@@ -226,7 +226,7 @@ in the original is a formula in the translation.
 
 | Marker | Meaning | Fix |
 | --- | --- | --- |
-| `tiro.summary_failed: true` | the model returned unusable JSON three times; excerpt used | reprocess with `force` + slug |
+| `tiro.summary_failed: true` | the summary needs a human look. The run log says which of two things it is holding: `summary unusable after 3 attempts; using a first-paragraph excerpt`, or `summary unfinished after 3 attempts; keeping the longest cut reply` | reprocess with `force` + slug. For the cut kind, read the article first — the kept summary is often serviceable, and a retry may cut it again |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |

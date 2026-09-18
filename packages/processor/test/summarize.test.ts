@@ -28,21 +28,170 @@ function scripted(responses: string[]): { chat: ChatFn; calls: () => number } {
 describe("summarize", () => {
   test("returns a valid result on the first attempt", async () => {
     const { chat } = scripted([
-      JSON.stringify({ summary: "摘要", category: "ai", tags: ["a"] }),
+      JSON.stringify({ summary: "摘要。", category: "ai", tags: ["a"] }),
     ]);
     const result = await summarize({ ...baseOptions, chat });
     expect(result).toEqual({
-      summary: "摘要",
+      summary: "摘要。",
       category: "ai",
       tags: ["a"],
       failed: false,
     });
   });
 
+  /**
+   * The shape that reached the vault 13 times: valid JSON, a real category and
+   * tags, and a `summary` that stops mid-clause. `z.string().min(1)` accepts
+   * it, and the summary is the one field no later stage reads — so it goes to
+   * the page and the meta description exactly as the model left it.
+   */
+  test("retries a summary that stops mid-sentence", async () => {
+    const { chat, calls } = scripted([
+      JSON.stringify({
+        summary: "本文提出了三个论点，第一个是",
+        category: "ai",
+        tags: ["a"],
+      }),
+      JSON.stringify({ summary: "完整的摘要。", category: "ai", tags: ["a"] }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.summary).toBe("完整的摘要。");
+    expect(result.failed).toBe(false);
+    expect(calls()).toBe(2);
+  });
+
+  test("tells the model what it cut, so the correction has a referent", async () => {
+    const seen: string[] = [];
+    let i = 0;
+    const chat: ChatFn = async ({ messages }) => {
+      for (const m of messages) if (m.role === "user") seen.push(m.content);
+      i += 1;
+      return JSON.stringify(
+        i === 1
+          ? { summary: "第一个论点是", category: "ai", tags: [] }
+          : { summary: "完整的摘要。", category: "ai", tags: [] },
+      );
+    };
+    await summarize({ ...baseOptions, chat });
+    expect(seen.at(-1)).toContain("第一个论点是");
+    expect(seen.at(-1)).toContain("stopped mid-sentence");
+  });
+
+  /**
+   * Both halves of the decision, which pull in opposite directions. The text is
+   * *kept* — dropping to the excerpt fallback would trade the model's reading
+   * of the article for its own first paragraph, to fix punctuation — and the
+   * article is *marked* anyway, because 13 of these reached the vault precisely
+   * because nothing was written down and a run log scrolls away.
+   */
+  test("keeps the longest cut summary and still marks it", async () => {
+    const { chat } = scripted([
+      JSON.stringify({ summary: "短的", category: "ai", tags: ["a"] }),
+      JSON.stringify({
+        summary: "长一些的摘要，但仍然没有写完",
+        category: "ai",
+        tags: ["a"],
+      }),
+      JSON.stringify({ summary: "又短了", category: "ai", tags: ["a"] }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    // Not the excerpt fallback, which would be the body's first paragraph.
+    expect(result.summary).toBe("长一些的摘要，但仍然没有写完");
+    expect(result.category).toBe("ai");
+    expect(result.tags).toEqual(["a"]);
+    expect(result.failed).toBe(true);
+  });
+
+  /**
+   * An ellipsis is what trailing off looks like, so accepting it let the exact
+   * shape this guards against through on the first attempt. No model-written
+   * summary in the vault ends in one; the only ones that do are
+   * `excerptFallback`'s own, which never reaches the predicate.
+   */
+  test.each([
+    ["a Chinese ellipsis", "本文提出了三个论点，第一个是…"],
+    ["a doubled one", "本文提出了三个论点，第一个是……"],
+    ["three ASCII dots", "The article argues that..."],
+  ])("retries a summary ending in %s", async (_name, cut) => {
+    const { chat, calls } = scripted([
+      JSON.stringify({ summary: cut, category: "ai", tags: [] }),
+      JSON.stringify({ summary: "完整的摘要。", category: "ai", tags: [] }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.summary).toBe("完整的摘要。");
+    expect(calls()).toBe(2);
+  });
+
+  test.each([
+    ["Chinese full stop", "摘要。"],
+    ["a closing quote after it", "他说“这很重要”。"],
+    ["a question mark", "这是什么？"],
+    ["an English period", "A finished summary."],
+    ["a decimal point mid-sentence", "成本下降了 1.5 倍。"],
+    ["a bracket after the stop", "见下文（附录）。"],
+  ])("accepts a summary ending in %s", async (_name, summary) => {
+    const { chat, calls } = scripted([
+      JSON.stringify({ summary, category: "ai", tags: [] }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.summary).toBe(summary);
+    expect(calls()).toBe(1);
+  });
+
+  /**
+   * Both marked outcomes set `tiro.summary_failed`, so the log is the only
+   * thing that says which one an article is holding — a short summary, or the
+   * body's first paragraph. The runbook indexes these exact strings, and it
+   * already named one the code had stopped emitting, so they are asserted here
+   * rather than left to agree by habit.
+   */
+  test("says which outcome it settled on when every attempt failed", async () => {
+    const lines: string[] = [];
+    const cut = JSON.stringify({
+      summary: "本文提出了三个论点，第一个是",
+      category: "ai",
+      tags: [],
+    });
+    const { chat } = scripted([cut, cut, cut]);
+    await summarize({ ...baseOptions, chat, log: (m) => lines.push(m) });
+    expect(lines.at(-1)).toContain("summary unfinished after 3 attempts");
+
+    const bad: string[] = [];
+    const { chat: broken } = scripted(["nope", "nope", "nope"]);
+    await summarize({ ...baseOptions, chat: broken, log: (m) => bad.push(m) });
+    expect(bad.at(-1)).toContain("summary unusable after 3 attempts");
+  });
+
+  /**
+   * The claim the old line made and could not support: `unfinished` holds the
+   * best *cut* reply, but the other attempts may have failed for unrelated
+   * reasons, so "every attempt stopped mid-sentence" was sometimes false.
+   */
+  test("does not claim every attempt was cut when only one was", async () => {
+    const lines: string[] = [];
+    const { chat } = scripted([
+      "not json at all",
+      JSON.stringify({ summary: "只有这次被截断了", category: "ai", tags: [] }),
+      JSON.stringify({
+        summary: "仍然没写完",
+        category: "wrong-category",
+        tags: [],
+      }),
+    ]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      log: (m) => lines.push(m),
+    });
+    expect(result.summary).toBe("只有这次被截断了");
+    expect(lines.at(-1)).toContain("keeping the longest cut reply");
+    expect(lines.at(-1)).not.toContain("every");
+  });
+
   test("retries invalid JSON and then succeeds", async () => {
     const { chat, calls } = scripted([
       "not json at all",
-      JSON.stringify({ summary: "摘要", category: "tech", tags: [] }),
+      JSON.stringify({ summary: "摘要。", category: "tech", tags: [] }),
     ]);
     const result = await summarize({ ...baseOptions, chat });
     expect(result.failed).toBe(false);
@@ -52,8 +201,8 @@ describe("summarize", () => {
 
   test("retries an off-taxonomy category", async () => {
     const { chat } = scripted([
-      JSON.stringify({ summary: "摘要", category: "sports", tags: [] }),
-      JSON.stringify({ summary: "摘要", category: "other", tags: [] }),
+      JSON.stringify({ summary: "摘要。", category: "sports", tags: [] }),
+      JSON.stringify({ summary: "摘要。", category: "other", tags: [] }),
     ]);
     const result = await summarize({ ...baseOptions, chat });
     expect(result.category).toBe("other");
@@ -75,7 +224,7 @@ describe("summarize", () => {
     const chat: ChatFn = async (request) => {
       seenLength =
         request.messages.find((m) => m.role === "user")?.content.length ?? 0;
-      return JSON.stringify({ summary: "s", category: "ai", tags: [] });
+      return JSON.stringify({ summary: "s.", category: "ai", tags: [] });
     };
     await summarize({
       ...baseOptions,
@@ -90,7 +239,7 @@ describe("summarize", () => {
     let system = "";
     const chat: ChatFn = async (request) => {
       system = request.messages.find((m) => m.role === "system")?.content ?? "";
-      return JSON.stringify({ summary: "摘要", category: "ai", tags: [] });
+      return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
     };
     await summarize({ ...baseOptions, chat, bilingual: true });
     expect(system).toContain("title_zh");
@@ -104,7 +253,7 @@ describe("summarize", () => {
   test("returns the pair when the model supplies it", async () => {
     const { chat } = scripted([
       JSON.stringify({
-        summary: "摘要",
+        summary: "摘要。",
         category: "ai",
         tags: ["a"],
         title_zh: "你好",
@@ -122,11 +271,11 @@ describe("summarize", () => {
     // the omission back as a correction and, three attempts later, cost the
     // article its summary, category and tags and mark it summary_failed.
     const { chat, calls } = scripted([
-      JSON.stringify({ summary: "摘要", category: "ai", tags: ["a"] }),
+      JSON.stringify({ summary: "摘要。", category: "ai", tags: ["a"] }),
     ]);
     const result = await summarize({ ...baseOptions, chat, bilingual: true });
     expect(result.failed).toBe(false);
-    expect(result.summary).toBe("摘要");
+    expect(result.summary).toBe("摘要。");
     expect(result.titleZh).toBeUndefined();
     expect(calls()).toBe(1);
   });
@@ -134,7 +283,7 @@ describe("summarize", () => {
   test("drops a title the model echoed in the source language", async () => {
     const { chat } = scripted([
       JSON.stringify({
-        summary: "摘要",
+        summary: "摘要。",
         category: "ai",
         tags: [],
         title_zh: "Hello",
@@ -150,7 +299,7 @@ describe("summarize", () => {
     // so handing it back unchanged satisfies "contains Chinese".
     const { chat } = scripted([
       JSON.stringify({
-        summary: "摘要",
+        summary: "摘要。",
         category: "ai",
         tags: [],
         title_zh: "AI 与 the Future",
@@ -200,10 +349,10 @@ describe("summarize", () => {
   test("drops a source summary that just repeats the target one", async () => {
     const { chat } = scripted([
       JSON.stringify({
-        summary: "摘要",
+        summary: "摘要。",
         category: "ai",
         tags: [],
-        summary_orig: "摘要",
+        summary_orig: "摘要。",
       }),
     ]);
     const result = await summarize({ ...baseOptions, chat, bilingual: true });
@@ -213,7 +362,7 @@ describe("summarize", () => {
   test("ignores a pair volunteered for an article already in the target language", async () => {
     const { chat } = scripted([
       JSON.stringify({
-        summary: "摘要",
+        summary: "摘要。",
         category: "ai",
         tags: [],
         title_zh: "另一个标题",
@@ -315,7 +464,7 @@ describe("summarize", () => {
     let i = 0;
     const replies = [
       "not json",
-      JSON.stringify({ summary: "摘要", category: "ai", tags: [] }),
+      JSON.stringify({ summary: "摘要。", category: "ai", tags: [] }),
     ];
     const chat: ChatFn = async (request) => {
       seen.length = 0;

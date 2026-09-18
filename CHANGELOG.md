@@ -7,6 +7,21 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Summaries that stopped mid-sentence.** The model sometimes returned valid
+  JSON carrying a `summary` cut off mid-clause — 13 of 135 articles, one of them
+  30 characters ending on the word before the comparison it was making. Nothing
+  noticed: the schema asks only that the field be non-empty, and the summary is
+  the one field no later stage reads, so it reached the page and the meta
+  description as written. The summarizer now checks that a summary ends like a
+  finished sentence and asks again if it does not, using the retry loop that
+  already corrects invalid JSON. A summary cut on every attempt is kept rather
+  than replaced by a first-paragraph excerpt — it is short, not missing — and
+  the article is marked `tiro.summary_failed` so it can be found later, which is
+  exactly what was missing when these went unnoticed. The marker now means "this
+  summary needs a human look" by either route; the run log says which.
+
 ### Added
 
 - **In-document links work.** A clipped article kept its footnote and citation

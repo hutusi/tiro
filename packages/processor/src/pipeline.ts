@@ -275,7 +275,10 @@ async function processOne(
   });
   if (summary.failed) {
     report.summaryFailed.push(article.slug);
-    log(`summary fell back to excerpt for ${article.slug}`);
+    // Deliberately says only *that* the summary needs a look, not why:
+    // `summarize` has already logged the reason, and it is not always the
+    // excerpt fallback — a summary cut on every attempt is kept and marked.
+    log(`summary marked for review: ${article.slug}`);
   }
 
   let translationFailed = false;
