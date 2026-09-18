@@ -683,6 +683,25 @@ describe("CJK emphasis", () => {
     expect(written.target).toBe("zh");
   });
 
+  test("skips a checkpoint holding JSON null without stopping the scan", async () => {
+    // `null` parses, so it escapes the try/catch that covers a torn file, and
+    // reading `.blocks` off it used to throw out of the whole vault scan.
+    const vault = freshVault();
+    const index = join(vault, "articles", EN, "index.md");
+    const zh = join(vault, "articles", EN, "zh.md");
+    writeFileSync(
+      index,
+      `${readFileSync(index, "utf8")}\nDetail _really_ matters.\n`,
+    );
+    writeFileSync(zh, `${readFileSync(zh, "utf8")}\n细节_真的_很重要。\n`);
+    writeFileSync(join(vault, "articles", EN, TRANSLATION_CACHE_FILE), "null");
+
+    const report = await repairVault(vault);
+    expect(report.repaired).toEqual([{ slug: EN, files: ["zh.md"] }]);
+    // Every other article still got its turn.
+    expect(report.scanned).toBeGreaterThan(1);
+  });
+
   test("skips a checkpoint it cannot read and still repairs the article", async () => {
     const vault = freshVault();
     const index = join(vault, "articles", EN, "index.md");

@@ -121,7 +121,11 @@ export async function translateBlocks(
   for (const item of translatable) {
     const cached = cache?.get(item.block.text);
     if (cached === undefined) todo.push(item);
-    else translated[item.index] = cached;
+    // Repaired on the way out as well as on the way in (see `record` below):
+    // a checkpoint written before that repair existed — or one `tiro-process
+    // repair` could not read — still holds `_强调_`, and reusing it verbatim
+    // would put the defect back into zh.md for every block that resumed.
+    else translated[item.index] = normalizeCjkEmphasis(cached);
   }
   const resumed = translatable.length - todo.length;
   if (resumed > 0) {

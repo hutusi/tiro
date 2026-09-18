@@ -732,6 +732,12 @@ async function repairedCheckpoint(
   } catch {
     return null;
   }
+  // `JSON.parse` returns `null` for a file holding `null` rather than throwing,
+  // so the catch above does not cover it and reading `.blocks` off it threw a
+  // TypeError all the way out of the vault scan — the one unreadable
+  // checkpoint stopping every article after it, which is what this whole
+  // function exists not to do.
+  if (typeof parsed !== "object" || parsed === null) return null;
   const blocks = (parsed as { blocks?: unknown }).blocks;
   if (typeof blocks !== "object" || blocks === null) return null;
   const entries = Object.entries(blocks as Record<string, unknown>);

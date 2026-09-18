@@ -762,6 +762,29 @@ describe("emphasis the model mirrors from the source", () => {
       .join("\n");
   };
 
+  test("is repaired on the way out of an older checkpoint too", async () => {
+    // A checkpoint written before the repair existed holds `_强调_`, and a
+    // resumed run never sends those blocks anywhere — so reusing one verbatim
+    // would publish the defect the repair had already been run to remove.
+    const path = cachePath();
+    const seeded = await loadTranslationCache(path, header);
+    seeded.set("Detail really matters.", "细节_真的_很重要。");
+    await seeded.flush();
+
+    const cache = await loadTranslationCache(path, header);
+    const zh = await translateBlocks({
+      chat: () => {
+        throw new Error("a cached block must not be re-sent");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks("Detail really matters.\n"),
+      cache,
+    });
+
+    expect(zh).toBe("细节*真的*很重要。\n");
+  });
+
   test("is repaired in zh.md and in the checkpoint alike", async () => {
     const path = cachePath();
     const cache = await loadTranslationCache(path, header);
