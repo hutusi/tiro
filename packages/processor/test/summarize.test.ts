@@ -188,6 +188,37 @@ describe("summarize", () => {
     expect(lines.at(-1)).not.toContain("every");
   });
 
+  /**
+   * The one case a cut summary must not beat: `z.string().min(1)` counts
+   * characters, not content, so whitespace validates — and keeping "the longest
+   * unfinished reply" would have stored it, putting a blank summary on the page
+   * and in the meta description. The excerpt is better than nothing, so a blank
+   * has to fall through to it.
+   */
+  test("falls back to the excerpt rather than keeping a blank summary", async () => {
+    const blank = JSON.stringify({
+      summary: "   ",
+      category: "ai",
+      tags: ["a"],
+    });
+    const { chat, calls } = scripted([blank, blank, blank]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.summary).toBe("First paragraph of the article.");
+    expect(result.failed).toBe(true);
+    expect(calls()).toBe(3);
+  });
+
+  test("asks again for a blank summary before giving up on it", async () => {
+    const { chat, calls } = scripted([
+      JSON.stringify({ summary: "  ", category: "ai", tags: [] }),
+      JSON.stringify({ summary: "完整的摘要。", category: "ai", tags: [] }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.summary).toBe("完整的摘要。");
+    expect(result.failed).toBe(false);
+    expect(calls()).toBe(2);
+  });
+
   test("retries invalid JSON and then succeeds", async () => {
     const { chat, calls } = scripted([
       "not json at all",

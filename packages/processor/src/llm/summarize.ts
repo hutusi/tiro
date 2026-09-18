@@ -180,6 +180,14 @@ export async function summarize(
         feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
       } else if (!categories.includes(parsed.data.category)) {
         feedback = `Your previous "category" (${parsed.data.category}) is not in the allowed list: ${categories.join(", ")}.`;
+      } else if (parsed.data.summary.trim() === "") {
+        // Before the cut-summary branch, and deliberately not kept: whitespace
+        // satisfies `z.string().min(1)`, which counts characters rather than
+        // content. Retaining it would put a blank summary on the page and in
+        // the meta description — the one outcome the excerpt fallback is
+        // better than, so this must be allowed to reach it.
+        feedback =
+          'Your previous "summary" was blank. Write the summary out in full.';
       } else if (!summaryIsFinished(parsed.data.summary)) {
         // Retryable, but never a *failure*: the reply is otherwise complete and
         // useful, and the `failed` path below replaces the summary with a
