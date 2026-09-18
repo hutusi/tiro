@@ -83,6 +83,18 @@ describe("normalizeCjkEmphasis", () => {
     );
   });
 
+  test("reads its neighbours as characters, not UTF-16 code units", () => {
+    // 𠮷 is Han from Extension B, so it is a surrogate pair. Reading one code
+    // unit beside the delimiter saw a lone surrogate, decided no CJK was
+    // adjacent, and left the span broken.
+    expect(normalizeCjkEmphasis("𠮷_强调_8 文字")).toBe("𠮷*强调*8 文字");
+    expect(normalizeCjkEmphasis("名字𠮷_tick_（时刻）")).toBe(
+      "名字𠮷*tick*（时刻）",
+    );
+    // A supplementary character that is not CJK is still not CJK.
+    expect(normalizeCjkEmphasis("😀_x_y 表情")).toBe("😀_x_y 表情");
+  });
+
   test("matches delimiter runs whole", () => {
     // Reading `__强调__` as a `_` pair with an underscore either side rewrote
     // the inner two and left the outer two standing — italics with stray

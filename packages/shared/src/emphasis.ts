@@ -52,6 +52,28 @@ function isEscaped(source: string, offset: number): boolean {
   return slashes % 2 === 1;
 }
 
+/**
+ * The whole character on either side of `offset` — a code point, not a UTF-16
+ * code unit.
+ *
+ * `source[offset - 1]` is half a surrogate pair for anything outside the BMP,
+ * and CJK reaches well outside it: Extension B onwards holds the rare
+ * characters that turn up in names. `𠮷_强调_8` read its neighbour as a lone
+ * surrogate, concluded there was no CJK beside the delimiter, and left the
+ * span broken. Spreading a two-unit slice iterates by code point, which
+ * reassembles a pair and leaves an ordinary character alone.
+ *
+ * Their *lengths* stay in code units on purpose — the parser reports offsets
+ * that way, so the probe below counts in the same currency.
+ */
+function charBefore(source: string, offset: number): string {
+  return [...source.slice(Math.max(0, offset - 2), offset)].at(-1) ?? "";
+}
+
+function charAfter(source: string, offset: number): string {
+  return [...source.slice(offset, offset + 2)].at(0) ?? "";
+}
+
 /** Length of the run of underscores starting at `offset`, bounded by `end`. */
 function runLength(source: string, offset: number, end: number): number {
   let length = 0;
@@ -70,10 +92,10 @@ function runLength(source: string, offset: number, end: number): number {
  * something at the beginning of a line and nothing in the middle of one.
  */
 function curedByCjk(source: string, pair: Pair): boolean {
-  const neighbour = (char: string | undefined): string =>
-    char === undefined || char === "\n" || CJK.test(char) ? " " : char;
-  const left = neighbour(source[pair.open - 1]);
-  const right = neighbour(source[pair.close + pair.length]);
+  const neighbour = (char: string): string =>
+    char === "" || char === "\n" || CJK.test(char) ? " " : char;
+  const left = neighbour(charBefore(source, pair.open));
+  const right = neighbour(charAfter(source, pair.close + pair.length));
   const inner = source.slice(pair.open + pair.length, pair.close);
   const run = "_".repeat(pair.length);
   return opensEmphasisAt(
@@ -111,8 +133,8 @@ function isEmphasis(source: string, pair: Pair): boolean {
   const inner = source.slice(pair.open + pair.length, pair.close);
   if (inner.length === 0) return false;
   if (/^\s/.test(inner) || /\s$/.test(inner)) return false;
-  const before = source[pair.open - 1] ?? "";
-  const after = source[pair.close + pair.length] ?? "";
+  const before = charBefore(source, pair.open);
+  const after = charAfter(source, pair.close + pair.length);
   if (!CJK.test(before) && !CJK.test(after)) return false;
   return CJK.test(inner) || curedByCjk(source, pair);
 }
