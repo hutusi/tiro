@@ -36,15 +36,42 @@ describe("normalizeCjkEmphasis", () => {
   });
 
   test("leaves underscores that were never delimiters alone", () => {
-    // The CJK guard is what separates these from a refused delimiter: `*`
-    // works inside a word where `_` does not, so a swap here would turn an
-    // identifier into italics.
+    // `*` works inside a word where `_` does not, so a swap here would turn an
+    // identifier into italics. The last two are the ones that matter: a CJK
+    // character in front is not evidence of emphasis, because an identifier in
+    // Chinese prose has one too.
     for (const untouched of [
       "调用 snake_case_name 之后",
       "the fire_and_forget function",
+      "中文_file_name 的说明",
+      "数据_table_name_ 的字段",
     ]) {
       expect(normalizeCjkEmphasis(untouched)).toBe(untouched);
     }
+  });
+
+  test("repairs a Latin span when CJK adjacency is the only obstacle", () => {
+    // Same shape as `中文_file_name` above and the opposite answer, decided by
+    // what follows the closing delimiter: punctuation here, a word character
+    // there. That is CommonMark's own intraword rule, asked of the Latin side.
+    expect(normalizeCjkEmphasis("一个_tick_（时刻）便流逝")).toBe(
+      "一个*tick*（时刻）便流逝",
+    );
+  });
+
+  test("repairs a CJK span that a word character follows", () => {
+    // The probe alone would refuse this one — `_少于_8` is intraword on the
+    // Latin side — but the content is CJK, which no identifier is a fragment
+    // of, so there is nothing to be ambiguous about.
+    expect(normalizeCjkEmphasis("不会_少于_8个月的估算")).toBe(
+      "不会*少于*8个月的估算",
+    );
+  });
+
+  test("an unpaired underscore does not hide the lines after it", () => {
+    expect(normalizeCjkEmphasis("前文_未闭合\n细节_真的_很重要")).toBe(
+      "前文_未闭合\n细节*真的*很重要",
+    );
   });
 
   test("never reaches inside code, math, HTML or a link destination", () => {

@@ -47,11 +47,19 @@ the whole safety argument: **an underscore that survives into an mdast `text`
 node is by construction a delimiter the parser refused.** Successful delimiters
 are never part of text, so working from text-node ranges puts code spans, fenced
 code, math, raw HTML and link destinations out of reach without a rule for each.
-On top of that it requires the span to touch CJK, because `*` works inside a
-word where `_` does not: "would it parse after the swap?" would happily turn
-`fire_and_forget` in English prose into italics. Every rewrite is then checked —
-same blocks, same rendered text bar the delimiters — and retried one pair at a
-time if the whole-body swap does not hold.
+Deciding *which* of those refused delimiters were meant as emphasis needs a
+second rule, because `*` works inside a word where `_` does not: "would it parse
+after the swap?" would happily turn `fire_and_forget` into italics. Nor is
+"does it touch CJK?" enough — `一个_tick_（时刻）` is emphasis on a Latin word
+and `中文_file_name` is an identifier, and they are the same shape. So: CJK
+*inside* the delimiters settles it, since no identifier is a fragment of CJK
+text; otherwise the content is Latin and the pair is only a repair if CJK
+adjacency was the sole obstacle — replace the CJK letters just outside the
+delimiters with spaces and ask whether `_x_` is emphasis there. What follows the
+closing `_` is then doing the separating, which is CommonMark's own intraword
+rule read on the Latin side. Every rewrite is checked afterwards — same blocks,
+same rendered text bar the delimiters — and retried one pair at a time if the
+whole-body swap does not hold.
 
 ## Consequences
 

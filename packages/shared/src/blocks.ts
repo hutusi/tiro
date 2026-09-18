@@ -693,6 +693,32 @@ export function textRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
+ * Whether an emphasis span opens exactly at `offset`.
+ *
+ * The question a caller asks about a delimiter it is considering rewriting:
+ * would the parser read *this* one as emphasis? Anchored to the offset rather
+ * than "is there emphasis anywhere", because the text around it may hold
+ * emphasis of its own and answering about that would be answering a different
+ * question.
+ */
+export function opensEmphasisAt(text: string, offset: number): boolean {
+  // Its own walk rather than `rangesOf`, which stops at the outermost match:
+  // emphasis nests, and a span wrapped in another one is still emphasis.
+  const walk = (node: unknown): boolean => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number } };
+    };
+    if (n.type === "emphasis" && n.position?.start.offset === offset) {
+      return true;
+    }
+    return (n.children ?? []).some(walk);
+  };
+  return walk(parser.parse(text) as Root);
+}
+
+/**
  * Source ranges of the paragraphs in a fragment.
  *
  * This is the answer to "could a fence open here?". A paragraph begins exactly

@@ -1,4 +1,9 @@
-import { plainText, splitBlocks, textRanges } from "./blocks.ts";
+import {
+  opensEmphasisAt,
+  plainText,
+  splitBlocks,
+  textRanges,
+} from "./blocks.ts";
 
 /**
  * CommonMark will not read `_` as an emphasis delimiter between two word
@@ -14,9 +19,10 @@ import { plainText, splitBlocks, textRanges } from "./blocks.ts";
  * Hiragana, Katakana and Hangul are here with Han because the rule is about
  * scripts without word separators, not about Chinese: a Japanese or Korean
  * translation would break identically. Fullwidth punctuation is deliberately
- * absent — a delimiter beside `，` or `。` fails for the *other* CommonMark
- * reason (the run is not flanking), which no delimiter can express, and the
- * site handles it in the parser instead.
+ * absent — it is not a word character, so it never triggers the intraword
+ * rule; a delimiter beside `，` or `。` fails for the *other* CommonMark reason
+ * (the run is not flanking), which no delimiter can express, and the site
+ * handles it in the parser instead.
  */
 const CJK = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u;
 
@@ -38,26 +44,54 @@ function isEscaped(source: string, offset: number): boolean {
 }
 
 /**
+ * Whether `_x_` would be emphasis here if the CJK letters beside it were
+ * spaces — that is, whether CJK adjacency is the *only* reason the parser
+ * refused it.
+ *
+ * One character on each side is the whole context: CommonMark's flanking rules
+ * read the character immediately before the opening run and immediately after
+ * the closing one, and nothing further out. The `a`/`b` around it only stop a
+ * neighbour from being read as a line-start construct — `#`, `>`, `-` all mean
+ * something at the beginning of a line and nothing in the middle of one.
+ */
+function curedByCjk(source: string, pair: Pair): boolean {
+  const neighbour = (char: string | undefined): string =>
+    char === undefined || char === "\n" || CJK.test(char) ? " " : char;
+  const left = neighbour(source[pair.open - 1]);
+  const right = neighbour(source[pair.close + 1]);
+  const inner = source.slice(pair.open + 1, pair.close);
+  return opensEmphasisAt(`a${left}_${inner}_${right}b`, 1 + left.length);
+}
+
+/**
  * Whether this pair is one the author meant as emphasis.
  *
- * Two conditions, and both are load-bearing. The span may not begin or end
- * with whitespace, because no emphasis delimiter ever does. And the pair must
- * touch CJK — inside or immediately outside — because "would it parse as
- * emphasis after the swap?" is *not* a sufficient test on its own: `*` works
- * inside a word where `_` does not, so rewriting `snake_case_name` in prose
- * would turn an identifier into italics. Requiring CJK is what separates a
- * delimiter the parser refused from an underscore that was always just an
- * underscore.
+ * "Would it parse after the swap?" is not a sufficient test on its own: `*`
+ * works inside a word where `_` does not, so it would happily turn
+ * `snake_case_name` into italics. Nor is "does it touch CJK?", because a true
+ * repair and a false one have the same shape — `一个_tick_（时刻）` is emphasis
+ * on a Latin word and `中文_file_name` is an identifier, and both are a Latin
+ * span with a CJK character in front. So:
+ *
+ * - **CJK inside the delimiters** means the span is CJK text, which no
+ *   identifier is a fragment of. That is the ordinary case, and it has to be
+ *   decided here rather than by the probe below — `不会_少于_8个月` is emphasis
+ *   even though the `8` after it is a word character.
+ * - **Otherwise** the content is Latin and could belong to an identifier, so
+ *   it is only a repair if CJK adjacency was the sole obstacle. That is
+ *   CommonMark's own intraword rule doing the separating: what follows the
+ *   closing `_` is punctuation in `一个_tick_（` and a word character in
+ *   `中文_file_name`.
+ *
+ * The whitespace check stays in front of both. No emphasis delimiter is
+ * followed or preceded by a space, and the first clause would otherwise accept
+ * `_ 中文 _`.
  */
 function isEmphasis(source: string, pair: Pair): boolean {
   const inner = source.slice(pair.open + 1, pair.close);
   if (inner.length === 0) return false;
   if (/^\s/.test(inner) || /\s$/.test(inner)) return false;
-  return (
-    CJK.test(inner) ||
-    CJK.test(source[pair.open - 1] ?? "") ||
-    CJK.test(source[pair.close + 1] ?? "")
-  );
+  return CJK.test(inner) || curedByCjk(source, pair);
 }
 
 /** Every `_…_` pair inside one text node's source range. */
@@ -80,7 +114,13 @@ function pairsIn(source: string, start: number, end: number): Pair[] {
         break;
       }
     }
-    if (close === -1) return found;
+    // Not `return`: an underscore with no partner on its line says nothing
+    // about the rest of the node, and abandoning the scan there hid every
+    // repairable pair on the lines after it.
+    if (close === -1) {
+      open += 1;
+      continue;
+    }
     const pair = { open, close };
     if (isEmphasis(source, pair)) {
       found.push(pair);
