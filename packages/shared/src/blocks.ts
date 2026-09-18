@@ -693,6 +693,32 @@ export function textRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
+ * Source offsets at which the parser opened an emphasis or strong span.
+ *
+ * The answer to "has this text already been read as emphasis here?", which a
+ * rewrite has to ask before treating two delimiters as a pair: if the parser
+ * built a span between them, its own reading disagrees, and rewriting anyway
+ * would re-bracket the sentence rather than repair it.
+ */
+export function emphasisStarts(text: string): number[] {
+  const found: number[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number } };
+    };
+    const start = n.position?.start.offset;
+    if ((n.type === "emphasis" || n.type === "strong") && start !== undefined) {
+      found.push(start);
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(parser.parse(text) as Root);
+  return found;
+}
+
+/**
  * Whether an emphasis span opens exactly at `offset`.
  *
  * The question a caller asks about a delimiter it is considering rewriting:

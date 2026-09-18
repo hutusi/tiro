@@ -1,4 +1,5 @@
 import {
+  emphasisStarts,
   opensEmphasisAt,
   plainText,
   splitBlocks,
@@ -151,13 +152,19 @@ function isEmphasis(source: string, pair: Pair): boolean {
  * every delimiter it rewrites is one the parser left inside a text node.
  *
  * Newlines survive the blanking, because the one-line rule has to see a break
- * wherever it falls — inside a link title as much as in the prose.
+ * wherever it falls — inside a link title as much as in the prose. A `|` that
+ * the parser left outside a text node is a cell wall, and becomes a break for
+ * the same reason: two cells are never one span. Without that, every pair of
+ * underscores in a wide table is a candidate the verification has to reject
+ * one at a time, which on a 400-row table costs a full reparse per candidate.
+ * A literal `|` in prose is inside a text node and is not touched.
  */
 function textOnly(
   source: string,
   ranges: readonly { start: number; end: number }[],
 ): string {
-  const blank = (text: string): string => text.replace(/[^\n]/g, "\u0000");
+  const blank = (text: string): string =>
+    text.replace(/[^\n]/g, (char) => (char === "|" ? "\n" : "\u0000"));
   const parts: string[] = [];
   let cursor = 0;
   for (const range of ranges) {
@@ -170,6 +177,37 @@ function textOnly(
 }
 
 /**
+ * Whether the run at `offset` opens a span of its own, nearer than the one
+ * being considered and inside the same text node.
+ *
+ * A stray underscore reaching across an inline node can otherwise swallow the
+ * *opener* of the span that follows it: in `中文_file[链接](url)中文_真的_文字`
+ * the first underscore pairs with the second, which leaves `_真的_` broken and
+ * italicises text nobody marked. Nothing downstream can tell that apart — the
+ * rendered text is the same either way — so it has to be decided here, by
+ * giving the nearer, same-node reading priority.
+ *
+ * Same node only, and one step only. Within a node, pairing left to right is
+ * what `细节_真的_很重要_确实_如此` needs, and looking ahead there would pair
+ * `_很重要_` and strand the two ends.
+ */
+function opensNearerSpan(
+  source: string,
+  scannable: string,
+  offset: number,
+  length: number,
+): boolean {
+  for (let i = offset + length; i < scannable.length; i += 1) {
+    // The node ends at the first blanked character, and a break ends the line.
+    if (scannable[i] === "\u0000" || scannable[i] === "\n") return false;
+    if (scannable[i] !== "_" || isEscaped(scannable, i)) continue;
+    if (runLength(scannable, i, scannable.length) !== length) return false;
+    return isEmphasis(source, { open: offset, close: i, length });
+  }
+  return false;
+}
+
+/**
  * Every `_…_` span in the document.
  *
  * `scannable` is where the delimiters are read from — the blanked source, so
@@ -179,6 +217,11 @@ function textOnly(
  * CommonMark sees, gaps included.
  */
 function pairsIn(source: string, scannable: string): Pair[] {
+  // Underscores the parser already spent on a span of its own. Blanking cannot
+  // distinguish those from an `a_b` inside a link destination — both sit
+  // outside every text node — and the difference decides whether a pair is a
+  // repair or a re-bracketing.
+  const spent = emphasisStarts(source).filter((at) => source[at] === "_");
   const found: Pair[] = [];
   let open = 0;
   while (open < scannable.length) {
@@ -209,6 +252,24 @@ function pairsIn(source: string, scannable: string): Pair[] {
     // about the rest of the document, and abandoning the scan there hid every
     // repairable span on the lines after it.
     if (close === -1 || length > MAX_RUN) {
+      open += length;
+      continue;
+    }
+    // Crossing an inline node is what makes a wrong pairing possible, so the
+    // check is paid only there: within a node the greedy reading is the right
+    // one, and has been all along.
+    // A span the parser built between these two is its reading of the same
+    // delimiters — `_"a"_，而_"b"_是指_"c"_` pairs its inner four and strands
+    // the outer two, and joining those outer two would emphasise the entire
+    // sentence instead of the three phrases the author marked.
+    if (spent.some((at) => at > open && at < close)) {
+      open += length;
+      continue;
+    }
+    if (
+      scannable.slice(open, close).includes("\u0000") &&
+      opensNearerSpan(source, scannable, close, length)
+    ) {
       open += length;
       continue;
     }

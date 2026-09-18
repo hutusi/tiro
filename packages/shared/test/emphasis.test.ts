@@ -108,6 +108,29 @@ describe("normalizeCjkEmphasis", () => {
     );
   });
 
+  test("does not re-bracket a sentence the parser already read as spans", () => {
+    // Six delimiters: the parser pairs the inner four and strands the outer
+    // two. Joining those two would emphasise the whole sentence instead of the
+    // three phrases the author marked, so the sentence is left as it is.
+    const run = `是指_"悲惨"_，而_"悲惨"_是指_"自作自受"_的话`;
+    expect(normalizeCjkEmphasis(run)).toBe(run);
+  });
+
+  test("does not let a stray underscore swallow the next span's opener", () => {
+    // Reaching across the link, the first underscore would pair with the
+    // opener of `_真的_` — italicising text nobody marked and leaving the real
+    // span broken. The nearer, same-node reading wins.
+    expect(
+      normalizeCjkEmphasis("调用 中文_file[链接](url)中文_真的_文字"),
+    ).toBe("调用 中文_file[链接](url)中文*真的*文字");
+  });
+
+  test("a span of the other delimiter inside is not in the way", () => {
+    expect(normalizeCjkEmphasis("看看_这个**重点**的说明_吧")).toBe(
+      "看看*这个**重点**的说明*吧",
+    );
+  });
+
   test("does not pair across a table cell boundary", () => {
     // Two cells are not one span. Nothing rejects this in the scan — the
     // verification does, because `*a` and `b*` in separate cells are not
