@@ -3,12 +3,14 @@ import {
   checkAlignment,
   frontmatterLength,
   isImageOnlyParagraph,
+  normalizeCjkEmphasis,
   normalizeUrl,
   parseArticle,
   splitBlocks,
   translationPath,
   verbatimRanges,
 } from "@tiro/shared";
+import { TRANSLATION_CACHE_FILE } from "./llm/cache.ts";
 
 /**
  * Repair markdown that the clipper wrote before its Turndown defects were
@@ -22,6 +24,12 @@ import {
  * text, which is what makes applying the same transform to `index.md` and
  * `zh.md` safe — the defects are mirrored in both, since the translator
  * preserves structure.
+ *
+ * `normalizeCjkEmphasis` is the one pass that is not mirrored: the clipper's
+ * `_` delimiter renders correctly in English and not in Chinese, so it is
+ * almost always `zh.md` alone that changes. That is still safe for the same
+ * reason — swapping a delimiter cannot invent text — and the alignment gate
+ * below is what checks it rather than the symmetry.
  */
 
 /**
@@ -547,9 +555,16 @@ function repairLf(body: string, context: RepairContext): string {
   // The pre-pass runs first and outside the masking, because the block it
   // repairs is itself verbatim — see `deindentBlockImages`. Once lifted, the
   // image is ordinary prose and the line transforms see it like any other.
-  return outsideVerbatim(deindentBlockImages(body), (prose) =>
+  const repaired = outsideVerbatim(deindentBlockImages(body), (prose) =>
     TRANSFORMS.reduce((text, transform) => transform(text, context), prose),
   );
+  // The post-pass is outside the masking for the opposite reason: it brings its
+  // own, and a stricter one. `outsideVerbatim` hands a transform every line the
+  // parser did not call code, math or HTML — which still includes a link
+  // destination, and `https://example.com/a_b_c` is exactly the shape this one
+  // rewrites. Asking the parser for text nodes instead puts the destination out
+  // of reach, so it must see the source rather than the masked prose.
+  return normalizeCjkEmphasis(repaired);
 }
 
 /**
@@ -635,10 +650,13 @@ export async function repairVault(
     const context: RepairContext = { articleUrl: articleUrlOf(indexText) };
     const newIndex = repairFile(indexText, context);
     const newZh = zhText === null ? null : repairFile(zhText, context);
+    const cacheAbs = `${articlesDir}/${slug}/${TRANSLATION_CACHE_FILE}`;
+    const newCache = await repairedCheckpoint(cacheAbs);
 
     const files: string[] = [];
     if (newIndex !== indexText) files.push("index.md");
     if (newZh !== null && newZh !== zhText) files.push("zh.md");
+    if (newCache !== null) files.push(TRANSLATION_CACHE_FILE);
     if (files.length === 0) continue;
 
     if (newZh !== null) {
@@ -665,12 +683,73 @@ export async function repairVault(
       if (newZh !== null && newZh !== zhText && zhText !== null) {
         writes.push({ pathAbs: zhAbs, contents: newZh, original: zhText });
       }
+      if (newCache !== null) {
+        writes.push({
+          pathAbs: cacheAbs,
+          contents: newCache.contents,
+          original: newCache.original,
+        });
+      }
       await writePairAtomically(writes);
     }
     repaired.push({ slug, files });
   }
 
   return { repaired, refused, scanned };
+}
+
+/**
+ * The translation checkpoint beside an article, with every stored translation
+ * repaired — or null when it holds nothing this pass would change.
+ *
+ * The checkpoint is the same Chinese text keyed by the English block it came
+ * from, and a later run rebuilds `zh.md` out of it for every block whose source
+ * is unchanged (ADR 0008). Repairing the file and not the checkpoint would
+ * therefore hand the defect straight back on the next re-clip or `--force` run,
+ * silently — the repair would look like it had held until someone read the
+ * article again.
+ *
+ * Read and written as plain JSON rather than through `llm/cache.ts`: that
+ * module is a checkpoint *writer* for a run in progress, which stamps its own
+ * header and drops anything whose header disagrees. Here the header has to
+ * survive byte-for-byte, because the point is that the next run still
+ * recognises the checkpoint and resumes from it.
+ *
+ * Anything unreadable is skipped rather than fatal. This is processor state,
+ * not content: ignoring it costs a re-translation, while refusing the whole
+ * article's repair over it costs the reader the fix.
+ */
+async function repairedCheckpoint(
+  pathAbs: string,
+): Promise<{ original: string; contents: string } | null> {
+  const file = Bun.file(pathAbs);
+  if (!(await file.exists())) return null;
+  let original: string;
+  let parsed: unknown;
+  try {
+    original = await file.text();
+    parsed = JSON.parse(original);
+  } catch {
+    return null;
+  }
+  const blocks = (parsed as { blocks?: unknown }).blocks;
+  if (typeof blocks !== "object" || blocks === null) return null;
+  const entries = Object.entries(blocks as Record<string, unknown>);
+  // The same guard `loadTranslationCache` applies: a non-string value means a
+  // checkpoint the pipeline will refuse anyway, so there is nothing to repair.
+  if (!entries.every(([, value]) => typeof value === "string")) return null;
+  let changed = false;
+  const repaired: Record<string, string> = {};
+  for (const [key, value] of entries) {
+    const next = normalizeCjkEmphasis(value as string);
+    if (next !== value) changed = true;
+    repaired[key] = next;
+  }
+  if (!changed) return null;
+  // `blocks` is the last key the writer emits, so spreading keeps the file's
+  // key order and indentation identical — the diff is the translations alone.
+  const rewritten = { ...(parsed as object), blocks: repaired };
+  return { original, contents: `${JSON.stringify(rewritten, null, 2)}\n` };
 }
 
 /**

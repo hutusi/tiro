@@ -4,6 +4,7 @@ import {
   isInlineMathOnlyParagraph,
   joinBlocks,
   mathRanges,
+  normalizeCjkEmphasis,
   splitBlocks,
   VERBATIM_BLOCK_TYPES,
 } from "@tiro/shared";
@@ -141,7 +142,13 @@ export async function translateBlocks(
     // original text and must hold a real translation, or a resumed run reads
     // the tokens back out and publishes TIROMATH0 into zh.md.
     const restored = unmaskMath(text.trim(), item.formulas);
-    const cleaned = restored?.trim() || item.block.text;
+    // The model mirrors the delimiter it was given, and the clipper wrote `_`
+    // for years: `_emphasis_` reads correctly in English, where spaces flank
+    // it, and reads as two literal underscores in Chinese, where nothing does.
+    // Repaired here rather than at the join so the checkpoint holds the fixed
+    // text too — a resumed or `--force` run rebuilds zh.md from it, and would
+    // otherwise put the defect back after the article had been repaired.
+    const cleaned = normalizeCjkEmphasis(restored?.trim() || item.block.text);
     translated[item.index] = cleaned;
     cache?.set(item.block.text, cleaned);
   };
