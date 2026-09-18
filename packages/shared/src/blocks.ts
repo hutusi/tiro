@@ -1,4 +1,5 @@
 import type { Root } from "mdast";
+import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -11,7 +12,21 @@ export interface Block {
   text: string;
 }
 
-const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
+/**
+ * `remarkCjkFriendly` is on every parser here because the site renders with it
+ * (`apps/site/src/lib/render.ts`), and the contract has to read an article the
+ * way its reader will see it. It is the proposed CommonMark amendment for CJK:
+ * strict CommonMark refuses `**事实上，**` because `，` counts as punctuation
+ * and so the closing run is not flanking, which leaves the asterisks on the
+ * page. Output is unchanged for any input without CJK, and inline emphasis
+ * cannot move a block boundary, so nothing about alignment changes — verified
+ * over the whole vault, block for block.
+ */
+const parser = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkCjkFriendly)
+  .use(remarkMath);
 /**
  * Without single-dollar math, matching how the site renders an article that
  * has not declared its dollar signs curated (frontmatter `has_math`).
@@ -19,9 +34,13 @@ const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
 const dollarSafeParser = unified()
   .use(remarkParse)
   .use(remarkGfm)
+  .use(remarkCjkFriendly)
   .use(remarkMath, { singleDollarTextMath: false });
 /** No math at all — used to re-read a `$$` fence that was never closed. */
-const proseParser = unified().use(remarkParse).use(remarkGfm);
+const proseParser = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkCjkFriendly);
 
 /**
  * micromark closes a `$$` fence only on a line that holds nothing but
@@ -631,6 +650,14 @@ function escapeFenceAt(text: string, start: number): string {
  * the code *inside* it.
  */
 function proseRanges(text: string): { start: number; end: number }[] {
+  return rangesOf(proseParser.parse(text) as Root, "text");
+}
+
+/**
+ * Source ranges of every node of `type`, at any nesting depth, outermost
+ * first — the walk stops at a match rather than descending into it.
+ */
+function rangesOf(root: Root, type: string): { start: number; end: number }[] {
   const found: { start: number; end: number }[] = [];
   const walk = (node: unknown): void => {
     const n = node as {
@@ -638,7 +665,7 @@ function proseRanges(text: string): { start: number; end: number }[] {
       children?: unknown[];
       position?: { start: { offset?: number }; end: { offset?: number } };
     };
-    if (n.type === "text") {
+    if (n.type === type) {
       const start = n.position?.start.offset;
       const end = n.position?.end.offset;
       if (start !== undefined && end !== undefined) found.push({ start, end });
@@ -646,8 +673,23 @@ function proseRanges(text: string): { start: number; end: number }[] {
     }
     for (const child of n.children ?? []) walk(child);
   };
-  walk(proseParser.parse(text) as Root);
+  walk(root);
   return found;
+}
+
+/**
+ * Source ranges of the text a reader sees as prose, read with the full parser.
+ *
+ * `proseRanges` above answers the same question for the one caller that must
+ * not see math; this is the answer for everyone else. The distinction matters
+ * for a rewrite that edits punctuation in place — a delimiter swap, say — which
+ * has to stay out of formulas as much as out of code, and out of everything a
+ * text node never covers: a link destination, an image URL, an HTML attribute.
+ * Naming the safe places rather than the unsafe ones means a node type nobody
+ * thought of is protected by default.
+ */
+export function textRanges(text: string): { start: number; end: number }[] {
+  return rangesOf(parser.parse(text) as Root, "text");
 }
 
 /**
@@ -661,23 +703,7 @@ function proseRanges(text: string): { start: number; end: number }[] {
  * on the line.
  */
 function paragraphRanges(text: string): { start: number; end: number }[] {
-  const found: { start: number; end: number }[] = [];
-  const walk = (node: unknown): void => {
-    const n = node as {
-      type?: string;
-      children?: unknown[];
-      position?: { start: { offset?: number }; end: { offset?: number } };
-    };
-    if (n.type === "paragraph") {
-      const start = n.position?.start.offset;
-      const end = n.position?.end.offset;
-      if (start !== undefined && end !== undefined) found.push({ start, end });
-      return;
-    }
-    for (const child of n.children ?? []) walk(child);
-  };
-  walk(proseParser.parse(text) as Root);
-  return found;
+  return rangesOf(proseParser.parse(text) as Root, "paragraph");
 }
 
 /**
