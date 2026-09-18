@@ -693,16 +693,55 @@ export function textRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
- * Source ranges of the tables in a fragment.
+ * Offsets of the `|` characters that separate one table cell from the next.
  *
- * A table is the one block whose syntax separates text on the same line: the
- * `|` between two cells is a wall no span reaches across. Everywhere else a
- * `|` is an ordinary character — in a code span, in a link destination, in
- * prose — which is why the question is asked about tables rather than about
- * the character.
+ * A cell wall is the only syntax that divides text on a single line, so it is
+ * the only `|` a span may not reach across. Every other one is an ordinary
+ * character — in prose, in a link destination, in a code span, escaped as
+ * `\|` inside a cell — and asking the parser which cell each offset belongs
+ * to is what tells them apart. A wall is a `|` inside a table and inside none
+ * of its cells.
  */
-export function tableRanges(text: string): { start: number; end: number }[] {
-  return rangesOf(parser.parse(text) as Root, "table");
+export function cellWallOffsets(text: string): number[] {
+  const tables: { start: number; end: number }[] = [];
+  // A cell's own range *starts* at the wall in front of it, so asking whether
+  // an offset is in a cell answers yes for the wall itself. What separates
+  // them is the cell's contents: a wall is in the table, in no piece of
+  // content, and a `|` in a code span or a destination is in one.
+  const content: { start: number; end: number }[] = [];
+  const walk = (node: unknown, inTable: boolean): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    const type = n.type ?? "";
+    const start = n.position?.start.offset;
+    const end = n.position?.end.offset;
+    if (type === "table" && start !== undefined && end !== undefined) {
+      tables.push({ start, end });
+      for (const child of n.children ?? []) walk(child, true);
+      return;
+    }
+    const structural = type === "tableRow" || type === "tableCell";
+    if (inTable && !structural && start !== undefined && end !== undefined) {
+      content.push({ start, end });
+      return;
+    }
+    for (const child of n.children ?? []) walk(child, inTable);
+  };
+  walk(parser.parse(text) as Root, false);
+  if (tables.length === 0) return [];
+
+  const walls: number[] = [];
+  for (const table of tables) {
+    for (let at = table.start; at < table.end; at += 1) {
+      if (text[at] !== "|") continue;
+      if (content.some((r) => at >= r.start && at < r.end)) continue;
+      walls.push(at);
+    }
+  }
+  return walls;
 }
 
 /** Inline containers whose children are a text flow of their own. */
@@ -715,19 +754,45 @@ const SEPARATE_FLOW: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Source offsets at which the parser opened an emphasis or strong span, in the
- * flow those offsets belong to.
+ * Source ranges of the inline containers that hold a text flow of their own.
+ *
+ * A link's label is one. What the parser reads inside it cannot interleave
+ * with delimiters outside it, and what it reads outside cannot interleave with
+ * delimiters inside — so "is this span in the way of that pair?" is a question
+ * about whether the two share a flow, not about whether a link is involved.
+ */
+export function flowRanges(text: string): { start: number; end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    const start = n.position?.start.offset;
+    const end = n.position?.end.offset;
+    if (
+      SEPARATE_FLOW.has(n.type ?? "") &&
+      start !== undefined &&
+      end !== undefined
+    ) {
+      found.push({ start, end });
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(parser.parse(text) as Root);
+  return found;
+}
+
+/**
+ * Source offsets at which the parser opened an emphasis or strong span.
  *
  * The answer to "has this text already been read as emphasis here?", which a
  * rewrite has to ask before treating two delimiters as a pair: if the parser
  * built a span between them, its own reading disagrees, and rewriting anyway
- * would re-bracket the sentence rather than repair it.
- *
- * A link's label is a flow of its own, so a span inside one does not count. It
- * cannot interleave with delimiters outside the link — `_[a _b_ c](url)_` is an
- * emphasised link that contains an emphasised word, not an argument about where
- * the outer span ends — and counting it refused a repair the parser would have
- * been perfectly happy with.
+ * would re-bracket the sentence rather than repair it. Whether a given span is
+ * *between* them in the sense that matters is a question about flows — see
+ * `flowRanges` — so every span is reported here and the caller decides.
  */
 export function emphasisStarts(text: string): number[] {
   const found: number[] = [];
@@ -737,7 +802,6 @@ export function emphasisStarts(text: string): number[] {
       children?: unknown[];
       position?: { start: { offset?: number } };
     };
-    if (SEPARATE_FLOW.has(n.type ?? "")) return;
     const start = n.position?.start.offset;
     if ((n.type === "emphasis" || n.type === "strong") && start !== undefined) {
       found.push(start);

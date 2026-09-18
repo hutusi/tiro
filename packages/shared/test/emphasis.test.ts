@@ -150,6 +150,29 @@ describe("normalizeCjkEmphasis", () => {
     );
   });
 
+  test("a label's own flow still decides its own delimiters", () => {
+    // The mirror of the case above: the sentence the parser read as three
+    // spans is no less its reading for being inside a label, so the outer two
+    // underscores must not be joined there either.
+    const labelled = `[是指_"悲惨"_，而_"悲惨"_是指_"自作自受"_的话](url)`;
+    expect(normalizeCjkEmphasis(labelled)).toBe(labelled);
+  });
+
+  test("a pair may not straddle a label bracket", () => {
+    // Emphasis cannot begin inside a label and end outside it.
+    expect(normalizeCjkEmphasis("[中文_label](u)_文字")).toBe(
+      "[中文_label](u)_文字",
+    );
+  });
+
+  test("a pipe a cell holds as content is not a wall", () => {
+    // Escaped inside a code span, so GFM keeps it in the cell — and so must
+    // the scan, or the span around it is never repaired.
+    const before = "| 甲 | 乙 |\n| --- | --- |\n| 中文_`foo\\|bar`_文字 | x |";
+    const after = "| 甲 | 乙 |\n| --- | --- |\n| 中文*`foo\\|bar`*文字 | x |";
+    expect(normalizeCjkEmphasis(before)).toBe(after);
+  });
+
   test("does not pair across a table cell boundary", () => {
     // Two cells are not one span. Nothing rejects this in the scan — the
     // verification does, because `*a` and `b*` in separate cells are not

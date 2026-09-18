@@ -1,9 +1,10 @@
 import {
+  cellWallOffsets,
   emphasisStarts,
+  flowRanges,
   opensEmphasisAt,
   plainText,
   splitBlocks,
-  tableRanges,
   textRanges,
 } from "./blocks.ts";
 
@@ -156,20 +157,19 @@ function isEmphasis(source: string, pair: Pair): boolean {
  * wherever it falls — inside a link title as much as in the prose. A cell wall
  * becomes a break for the same reason: two cells are never one span, and
  * treating every pair of underscores in a wide table as a candidate made the
- * verification reject them one at a time, a full reparse each. Only inside a
- * table, though — a `|` in a code span or a link destination is an ordinary
- * character, and barring a span from crossing one refused real repairs.
+ * verification reject them one at a time, a full reparse each. Which `|` is a
+ * wall is the parser's answer, not a guess about the character — one in a code
+ * span, in a destination, or escaped inside a cell is ordinary text, and
+ * stopping a span at it refused real repairs.
  */
 function textOnly(
   source: string,
   ranges: readonly { start: number; end: number }[],
-  tables: readonly { start: number; end: number }[],
+  walls: ReadonlySet<number>,
 ): string {
-  const isCellWall = (at: number): boolean =>
-    tables.some((table) => at >= table.start && at < table.end);
   const blank = (text: string, from: number): string =>
     text.replace(/[^\n]/g, (char, index: number) =>
-      char === "|" && isCellWall(from + index) ? "\n" : "\u0000",
+      char === "|" && walls.has(from + index) ? "\n" : "\u0000",
     );
   const parts: string[] = [];
   let cursor = 0;
@@ -229,6 +229,18 @@ function pairsIn(source: string, scannable: string): Pair[] {
   // outside every text node — and the difference decides whether a pair is a
   // repair or a re-bracketing.
   const spent = emphasisStarts(source).filter((at) => source[at] === "_");
+  // The innermost link or image label an offset sits in, or null for the
+  // ordinary flow. Two spans can only be in each other's way when they share
+  // one: what a label holds is bracketed by the label, from both directions.
+  const flows = flowRanges(source);
+  const flowOf = (at: number): { start: number; end: number } | null => {
+    let innermost: { start: number; end: number } | null = null;
+    for (const flow of flows) {
+      if (at < flow.start || at >= flow.end) continue;
+      if (innermost === null || flow.start > innermost.start) innermost = flow;
+    }
+    return innermost;
+  };
   const found: Pair[] = [];
   let open = 0;
   while (open < scannable.length) {
@@ -269,7 +281,14 @@ function pairsIn(source: string, scannable: string): Pair[] {
     // delimiters — `_"a"_，而_"b"_是指_"c"_` pairs its inner four and strands
     // the outer two, and joining those outer two would emphasise the entire
     // sentence instead of the three phrases the author marked.
-    if (spent.some((at) => at > open && at < close)) {
+    const flow = flowOf(open);
+    // A pair that starts inside a label and ends outside it is not a span at
+    // all — emphasis cannot straddle the bracket — and a span the parser built
+    // in the same flow is its reading of these same delimiters.
+    if (
+      flowOf(close) !== flow ||
+      spent.some((at) => at > open && at < close && flowOf(at) === flow)
+    ) {
       open += length;
       continue;
     }
@@ -358,7 +377,11 @@ function isSafe(before: string, after: string, pairs: readonly Pair[]) {
 export function normalizeCjkEmphasis(markdown: string): string {
   const pairs = pairsIn(
     markdown,
-    textOnly(markdown, textRanges(markdown), tableRanges(markdown)),
+    textOnly(
+      markdown,
+      textRanges(markdown),
+      new Set(cellWallOffsets(markdown)),
+    ),
   );
   if (pairs.length === 0) return markdown;
 
