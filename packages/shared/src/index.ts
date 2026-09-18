@@ -7,6 +7,7 @@
 export * from "./blocks.ts";
 export * from "./canonical-url.ts";
 export * from "./detect-language.ts";
+export * from "./emphasis.ts";
 export * from "./frontmatter.ts";
 export * from "./languages.ts";
 export * from "./paths.ts";
