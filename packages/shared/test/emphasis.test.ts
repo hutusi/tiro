@@ -95,6 +95,92 @@ describe("normalizeCjkEmphasis", () => {
     expect(normalizeCjkEmphasis("😀_x_y 表情")).toBe("😀_x_y 表情");
   });
 
+  test("pairs delimiters that sit either side of an inline node", () => {
+    // The span wraps a link, so its two delimiters are in different text
+    // nodes — the shape a per-node scan could never pair, which left literal
+    // underscores on four articles.
+    expect(
+      normalizeCjkEmphasis("决定的_[纽约时报](https://e.com/a_b)_文章抓住了"),
+    ).toBe("决定的*[纽约时报](https://e.com/a_b)*文章抓住了");
+    // The `a_b` in the destination is not a text node, so it stays put.
+    expect(normalizeCjkEmphasis("见 [链接](https://e.com/a_b_c) 的说明")).toBe(
+      "见 [链接](https://e.com/a_b_c) 的说明",
+    );
+  });
+
+  test("does not re-bracket a sentence the parser already read as spans", () => {
+    // Six delimiters: the parser pairs the inner four and strands the outer
+    // two. Joining those two would emphasise the whole sentence instead of the
+    // three phrases the author marked, so the sentence is left as it is.
+    const run = `是指_"悲惨"_，而_"悲惨"_是指_"自作自受"_的话`;
+    expect(normalizeCjkEmphasis(run)).toBe(run);
+  });
+
+  test("does not let a stray underscore swallow the next span's opener", () => {
+    // Reaching across the link, the first underscore would pair with the
+    // opener of `_真的_` — italicising text nobody marked and leaving the real
+    // span broken. The nearer, same-node reading wins.
+    expect(
+      normalizeCjkEmphasis("调用 中文_file[链接](url)中文_真的_文字"),
+    ).toBe("调用 中文_file[链接](url)中文*真的*文字");
+  });
+
+  test("a span of the other delimiter inside is not in the way", () => {
+    expect(normalizeCjkEmphasis("看看_这个**重点**的说明_吧")).toBe(
+      "看看*这个**重点**的说明*吧",
+    );
+  });
+
+  test("a pipe outside a table is an ordinary character", () => {
+    // Only a cell wall separates text on one line. Barring a span from
+    // crossing any `|` refused these, which the parser reads without complaint.
+    expect(normalizeCjkEmphasis("中文_`foo | bar`_文字")).toBe(
+      "中文*`foo | bar`*文字",
+    );
+    expect(normalizeCjkEmphasis("中文_[链接](https://e.com/a|b)_文字")).toBe(
+      "中文*[链接](https://e.com/a|b)*文字",
+    );
+  });
+
+  test("a span inside a link label is a flow of its own", () => {
+    // An emphasis the parser built inside the label cannot interleave with
+    // delimiters outside the link, so it is not evidence against this pair.
+    expect(normalizeCjkEmphasis("中文_[链接 _important_](url)_文字")).toBe(
+      "中文*[链接 _important_](url)*文字",
+    );
+  });
+
+  test("a label's own flow still decides its own delimiters", () => {
+    // The mirror of the case above: the sentence the parser read as three
+    // spans is no less its reading for being inside a label, so the outer two
+    // underscores must not be joined there either.
+    const labelled = `[是指_"悲惨"_，而_"悲惨"_是指_"自作自受"_的话](url)`;
+    expect(normalizeCjkEmphasis(labelled)).toBe(labelled);
+  });
+
+  test("a pair may not straddle a label bracket", () => {
+    // Emphasis cannot begin inside a label and end outside it.
+    expect(normalizeCjkEmphasis("[中文_label](u)_文字")).toBe(
+      "[中文_label](u)_文字",
+    );
+  });
+
+  test("a pipe a cell holds as content is not a wall", () => {
+    // Escaped inside a code span, so GFM keeps it in the cell — and so must
+    // the scan, or the span around it is never repaired.
+    const before = "| 甲 | 乙 |\n| --- | --- |\n| 中文_`foo\\|bar`_文字 | x |";
+    const after = "| 甲 | 乙 |\n| --- | --- |\n| 中文*`foo\\|bar`*文字 | x |";
+    expect(normalizeCjkEmphasis(before)).toBe(after);
+  });
+
+  test("does not pair across a table cell boundary", () => {
+    // Two cells are not one span. Nothing rejects this in the scan — the
+    // verification does, because `*a` and `b*` in separate cells are not
+    // emphasis and the rendered text would change.
+    const table = "| 甲 | 乙 |\n| --- | --- |\n| 中文_a | b_文 |";
+    expect(normalizeCjkEmphasis(table)).toBe(table);
+  });
+
   test("matches delimiter runs whole", () => {
     // Reading `__强调__` as a `_` pair with an underscore either side rewrote
     // the inner two and left the outer two standing — italics with stray
@@ -109,6 +195,23 @@ describe("normalizeCjkEmphasis", () => {
     // CommonMark reads this by splitting the runs, which is more than a
     // delimiter swap can faithfully reproduce.
     expect(normalizeCjkEmphasis("中文__不匹配_文字")).toBe("中文__不匹配_文字");
+  });
+
+  test("a bare CR ends a line as surely as a newline does", () => {
+    // CommonMark counts `\r` as a line ending, and a CR-only body reaches here
+    // intact. Testing for `\n` alone let a span cross a line in exactly those
+    // documents — with or without an inline node in between.
+    for (const untouched of [
+      "中文_甲\r乙_文字",
+      "中文_甲\r[链接](url)乙_文字",
+      "中文_甲\r\n乙_文字",
+    ]) {
+      expect(normalizeCjkEmphasis(untouched)).toBe(untouched);
+    }
+    // And a span that stays on its line is still repaired in such a body.
+    expect(normalizeCjkEmphasis("细节_真的_很重要\r\n下一行")).toBe(
+      "细节*真的*很重要\r\n下一行",
+    );
   });
 
   test("an unpaired underscore does not hide the lines after it", () => {

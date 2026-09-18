@@ -1,4 +1,7 @@
 import {
+  cellWallOffsets,
+  emphasisStarts,
+  flowRanges,
   opensEmphasisAt,
   plainText,
   splitBlocks,
@@ -74,6 +77,19 @@ function charAfter(source: string, offset: number): string {
   return [...source.slice(offset, offset + 2)].at(0) ?? "";
 }
 
+/**
+ * Whether this character ends a line.
+ *
+ * CommonMark counts a bare `\r` as a line ending, and markdown written that
+ * way reaches here intact — the processor's repair pass normalizes CRLF and
+ * leaves CR-only bodies alone, having nothing to pair the `\r` with. Testing
+ * for `\n` alone let a span cross a line in exactly those documents, which is
+ * the one thing the one-line rule exists to stop.
+ */
+function isLineEnd(char: string | undefined): boolean {
+  return char === "\n" || char === "\r";
+}
+
 /** Length of the run of underscores starting at `offset`, bounded by `end`. */
 function runLength(source: string, offset: number, end: number): number {
   let length = 0;
@@ -139,12 +155,109 @@ function isEmphasis(source: string, pair: Pair): boolean {
   return CJK.test(inner) || curedByCjk(source, pair);
 }
 
-/** Every `_…_` span inside one text node's source range. */
-function pairsIn(source: string, start: number, end: number): Pair[] {
+/**
+ * The source with everything outside a text node blanked out.
+ *
+ * A span's two delimiters need not sit in the same text node: emphasis that
+ * wraps a link — `_[New York Times](url)_` — keeps one delimiter at the end of
+ * the paragraph's text and the other at the start of the text after it, with
+ * the link node between them, and a scan that never left one node could not
+ * pair them at all. Blanking the gaps rather than skipping them lets a single
+ * linear pass do it, while keeping the property the whole repair rests on:
+ * every delimiter it rewrites is one the parser left inside a text node.
+ *
+ * Newlines survive the blanking, because the one-line rule has to see a break
+ * wherever it falls — inside a link title as much as in the prose. A cell wall
+ * becomes a break for the same reason: two cells are never one span, and
+ * treating every pair of underscores in a wide table as a candidate made the
+ * verification reject them one at a time, a full reparse each. Which `|` is a
+ * wall is the parser's answer, not a guess about the character — one in a code
+ * span, in a destination, or escaped inside a cell is ordinary text, and
+ * stopping a span at it refused real repairs.
+ */
+function textOnly(
+  source: string,
+  ranges: readonly { start: number; end: number }[],
+  walls: ReadonlySet<number>,
+): string {
+  const blank = (text: string, from: number): string =>
+    text.replace(/[^\r\n]/g, (char, index: number) =>
+      char === "|" && walls.has(from + index) ? "\n" : "\u0000",
+    );
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      parts.push(blank(source.slice(cursor, range.start), cursor));
+    }
+    parts.push(source.slice(range.start, Math.max(cursor, range.end)));
+    cursor = Math.max(cursor, range.end);
+  }
+  return parts.join("") + blank(source.slice(cursor), cursor);
+}
+
+/**
+ * Whether the run at `offset` opens a span of its own, nearer than the one
+ * being considered and inside the same text node.
+ *
+ * A stray underscore reaching across an inline node can otherwise swallow the
+ * *opener* of the span that follows it: in `中文_file[链接](url)中文_真的_文字`
+ * the first underscore pairs with the second, which leaves `_真的_` broken and
+ * italicises text nobody marked. Nothing downstream can tell that apart — the
+ * rendered text is the same either way — so it has to be decided here, by
+ * giving the nearer, same-node reading priority.
+ *
+ * Same node only, and one step only. Within a node, pairing left to right is
+ * what `细节_真的_很重要_确实_如此` needs, and looking ahead there would pair
+ * `_很重要_` and strand the two ends.
+ */
+function opensNearerSpan(
+  source: string,
+  scannable: string,
+  offset: number,
+  length: number,
+): boolean {
+  for (let i = offset + length; i < scannable.length; i += 1) {
+    // The node ends at the first blanked character, and a break ends the line.
+    if (scannable[i] === "\u0000" || isLineEnd(scannable[i])) return false;
+    if (scannable[i] !== "_" || isEscaped(scannable, i)) continue;
+    if (runLength(scannable, i, scannable.length) !== length) return false;
+    return isEmphasis(source, { open: offset, close: i, length });
+  }
+  return false;
+}
+
+/**
+ * Every `_…_` span in the document.
+ *
+ * `scannable` is where the delimiters are read from — the blanked source, so
+ * an underscore outside a text node is invisible and a run cannot grow past
+ * the node that holds it. Everything *about* a span is read from `source`,
+ * because the characters flanking it and the content between them are what
+ * CommonMark sees, gaps included.
+ */
+function pairsIn(source: string, scannable: string): Pair[] {
+  // Underscores the parser already spent on a span of its own. Blanking cannot
+  // distinguish those from an `a_b` inside a link destination — both sit
+  // outside every text node — and the difference decides whether a pair is a
+  // repair or a re-bracketing.
+  const spent = emphasisStarts(source).filter((at) => source[at] === "_");
+  // The innermost link or image label an offset sits in, or null for the
+  // ordinary flow. Two spans can only be in each other's way when they share
+  // one: what a label holds is bracketed by the label, from both directions.
+  const flows = flowRanges(source);
+  const flowOf = (at: number): { start: number; end: number } | null => {
+    let innermost: { start: number; end: number } | null = null;
+    for (const flow of flows) {
+      if (at < flow.start || at >= flow.end) continue;
+      if (innermost === null || flow.start > innermost.start) innermost = flow;
+    }
+    return innermost;
+  };
   const found: Pair[] = [];
-  let open = start;
-  while (open < end) {
-    if (source[open] !== "_" || isEscaped(source, open)) {
+  let open = 0;
+  while (open < scannable.length) {
+    if (scannable[open] !== "_" || isEscaped(scannable, open)) {
       open += 1;
       continue;
     }
@@ -152,25 +265,50 @@ function pairsIn(source: string, start: number, end: number): Pair[] {
     // underscore either side of it rewrote the inner two and left the outer
     // two standing — italics with stray underscores, where the author wrote
     // strong emphasis.
-    const length = runLength(source, open, end);
+    const length = runLength(scannable, open, scannable.length);
     let close = -1;
-    for (let i = open + length; i < end; i += 1) {
+    for (let i = open + length; i < scannable.length; i += 1) {
       // Emphasis may span lines, but a span that does is far more likely to be
       // two unrelated underscores in a list or a table than one span, and the
       // swap would join them. One line, like the defect itself.
-      if (source[i] === "\n") break;
-      if (source[i] === "_" && !isEscaped(source, i)) {
+      if (isLineEnd(scannable[i])) break;
+      if (scannable[i] === "_" && !isEscaped(scannable, i)) {
         // Only a run of the same length closes this one. A different length is
         // a shape CommonMark reads by splitting runs, which is more than a
         // delimiter swap can faithfully reproduce.
-        close = runLength(source, i, end) === length ? i : -1;
+        close = runLength(scannable, i, scannable.length) === length ? i : -1;
         break;
       }
     }
     // Not `return`: an underscore with no partner on its line says nothing
-    // about the rest of the node, and abandoning the scan there hid every
-    // repairable pair on the lines after it.
+    // about the rest of the document, and abandoning the scan there hid every
+    // repairable span on the lines after it.
     if (close === -1 || length > MAX_RUN) {
+      open += length;
+      continue;
+    }
+    // Crossing an inline node is what makes a wrong pairing possible, so the
+    // check is paid only there: within a node the greedy reading is the right
+    // one, and has been all along.
+    // A span the parser built between these two is its reading of the same
+    // delimiters — `_"a"_，而_"b"_是指_"c"_` pairs its inner four and strands
+    // the outer two, and joining those outer two would emphasise the entire
+    // sentence instead of the three phrases the author marked.
+    const flow = flowOf(open);
+    // A pair that starts inside a label and ends outside it is not a span at
+    // all — emphasis cannot straddle the bracket — and a span the parser built
+    // in the same flow is its reading of these same delimiters.
+    if (
+      flowOf(close) !== flow ||
+      spent.some((at) => at > open && at < close && flowOf(at) === flow)
+    ) {
+      open += length;
+      continue;
+    }
+    if (
+      scannable.slice(open, close).includes("\u0000") &&
+      opensNearerSpan(source, scannable, close, length)
+    ) {
       open += length;
       continue;
     }
@@ -241,15 +379,22 @@ function isSafe(before: string, after: string, pairs: readonly Pair[]) {
  * construction a delimiter the parser refused, and the text nodes are the only
  * place this may touch. Inline code, fenced code, math, raw HTML and link
  * destinations are not text nodes, so `https://example.com/a_b_c` and a shell
- * snippet are out of reach without any rule of their own.
+ * snippet are out of reach without any rule of their own. A span may *enclose*
+ * one of those — `_[New York Times](url)_` is emphasis wrapping a link — so
+ * the two delimiters need not share a text node, only be in one.
  *
  * Every rewrite is then checked against the original before it is returned, and
  * checked again one span at a time if the whole-body swap does not hold, so one
  * pathological span costs that span rather than the article.
  */
 export function normalizeCjkEmphasis(markdown: string): string {
-  const pairs = textRanges(markdown).flatMap((range) =>
-    pairsIn(markdown, range.start, range.end),
+  const pairs = pairsIn(
+    markdown,
+    textOnly(
+      markdown,
+      textRanges(markdown),
+      new Set(cellWallOffsets(markdown)),
+    ),
   );
   if (pairs.length === 0) return markdown;
 
