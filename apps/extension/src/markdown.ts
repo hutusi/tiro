@@ -91,6 +91,13 @@ export function htmlToMarkdown(html: string): MarkdownResult {
     headingStyle: "atx",
     codeBlockStyle: "fenced",
     bulletListMarker: "-",
+    // Turndown's default is `_`, and CommonMark will not read `_` as emphasis
+    // between two word characters — the rule that keeps `snake_case_name` one
+    // word. CJK ideographs are word characters and Chinese has no spaces, so
+    // the translator mirroring the delimiter into `细节_真的_很重要` produced
+    // two literal underscores on the site. `*` has no intraword rule, which
+    // also fixes an `<em>` that starts mid-word in English.
+    emDelimiter: "*",
     // An in-document anchor is an empty span, and Turndown sends every blank
     // node here *before* it consults a rule — so this is the only hook that can
     // see one. Everything else keeps the stock behaviour.

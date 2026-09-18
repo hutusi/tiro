@@ -760,7 +760,7 @@ describe("figure captions (ADR 0011)", () => {
         "</figcaption></figure>",
     );
     expect(md).toBe(
-      "![d](f.png)  \nCredit: [M. G.](https://example.com) and _others_.",
+      "![d](f.png)  \nCredit: [M. G.](https://example.com) and *others*.",
     );
   });
 
