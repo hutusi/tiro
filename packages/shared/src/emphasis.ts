@@ -3,6 +3,7 @@ import {
   opensEmphasisAt,
   plainText,
   splitBlocks,
+  tableRanges,
   textRanges,
 } from "./blocks.ts";
 
@@ -152,28 +153,34 @@ function isEmphasis(source: string, pair: Pair): boolean {
  * every delimiter it rewrites is one the parser left inside a text node.
  *
  * Newlines survive the blanking, because the one-line rule has to see a break
- * wherever it falls — inside a link title as much as in the prose. A `|` that
- * the parser left outside a text node is a cell wall, and becomes a break for
- * the same reason: two cells are never one span. Without that, every pair of
- * underscores in a wide table is a candidate the verification has to reject
- * one at a time, which on a 400-row table costs a full reparse per candidate.
- * A literal `|` in prose is inside a text node and is not touched.
+ * wherever it falls — inside a link title as much as in the prose. A cell wall
+ * becomes a break for the same reason: two cells are never one span, and
+ * treating every pair of underscores in a wide table as a candidate made the
+ * verification reject them one at a time, a full reparse each. Only inside a
+ * table, though — a `|` in a code span or a link destination is an ordinary
+ * character, and barring a span from crossing one refused real repairs.
  */
 function textOnly(
   source: string,
   ranges: readonly { start: number; end: number }[],
+  tables: readonly { start: number; end: number }[],
 ): string {
-  const blank = (text: string): string =>
-    text.replace(/[^\n]/g, (char) => (char === "|" ? "\n" : "\u0000"));
+  const isCellWall = (at: number): boolean =>
+    tables.some((table) => at >= table.start && at < table.end);
+  const blank = (text: string, from: number): string =>
+    text.replace(/[^\n]/g, (char, index: number) =>
+      char === "|" && isCellWall(from + index) ? "\n" : "\u0000",
+    );
   const parts: string[] = [];
   let cursor = 0;
   for (const range of ranges) {
-    if (range.start > cursor)
-      parts.push(blank(source.slice(cursor, range.start)));
+    if (range.start > cursor) {
+      parts.push(blank(source.slice(cursor, range.start), cursor));
+    }
     parts.push(source.slice(range.start, Math.max(cursor, range.end)));
     cursor = Math.max(cursor, range.end);
   }
-  return parts.join("") + blank(source.slice(cursor));
+  return parts.join("") + blank(source.slice(cursor), cursor);
 }
 
 /**
@@ -349,7 +356,10 @@ function isSafe(before: string, after: string, pairs: readonly Pair[]) {
  * pathological span costs that span rather than the article.
  */
 export function normalizeCjkEmphasis(markdown: string): string {
-  const pairs = pairsIn(markdown, textOnly(markdown, textRanges(markdown)));
+  const pairs = pairsIn(
+    markdown,
+    textOnly(markdown, textRanges(markdown), tableRanges(markdown)),
+  );
   if (pairs.length === 0) return markdown;
 
   const all = swapped(markdown, pairs);

@@ -693,12 +693,41 @@ export function textRanges(text: string): { start: number; end: number }[] {
 }
 
 /**
- * Source offsets at which the parser opened an emphasis or strong span.
+ * Source ranges of the tables in a fragment.
+ *
+ * A table is the one block whose syntax separates text on the same line: the
+ * `|` between two cells is a wall no span reaches across. Everywhere else a
+ * `|` is an ordinary character — in a code span, in a link destination, in
+ * prose — which is why the question is asked about tables rather than about
+ * the character.
+ */
+export function tableRanges(text: string): { start: number; end: number }[] {
+  return rangesOf(parser.parse(text) as Root, "table");
+}
+
+/** Inline containers whose children are a text flow of their own. */
+const SEPARATE_FLOW: ReadonlySet<string> = new Set([
+  "link",
+  "linkReference",
+  "image",
+  "imageReference",
+  "footnoteReference",
+]);
+
+/**
+ * Source offsets at which the parser opened an emphasis or strong span, in the
+ * flow those offsets belong to.
  *
  * The answer to "has this text already been read as emphasis here?", which a
  * rewrite has to ask before treating two delimiters as a pair: if the parser
  * built a span between them, its own reading disagrees, and rewriting anyway
  * would re-bracket the sentence rather than repair it.
+ *
+ * A link's label is a flow of its own, so a span inside one does not count. It
+ * cannot interleave with delimiters outside the link — `_[a _b_ c](url)_` is an
+ * emphasised link that contains an emphasised word, not an argument about where
+ * the outer span ends — and counting it refused a repair the parser would have
+ * been perfectly happy with.
  */
 export function emphasisStarts(text: string): number[] {
   const found: number[] = [];
@@ -708,6 +737,7 @@ export function emphasisStarts(text: string): number[] {
       children?: unknown[];
       position?: { start: { offset?: number } };
     };
+    if (SEPARATE_FLOW.has(n.type ?? "")) return;
     const start = n.position?.start.offset;
     if ((n.type === "emphasis" || n.type === "strong") && start !== undefined) {
       found.push(start);

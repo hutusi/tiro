@@ -131,6 +131,25 @@ describe("normalizeCjkEmphasis", () => {
     );
   });
 
+  test("a pipe outside a table is an ordinary character", () => {
+    // Only a cell wall separates text on one line. Barring a span from
+    // crossing any `|` refused these, which the parser reads without complaint.
+    expect(normalizeCjkEmphasis("中文_`foo | bar`_文字")).toBe(
+      "中文*`foo | bar`*文字",
+    );
+    expect(normalizeCjkEmphasis("中文_[链接](https://e.com/a|b)_文字")).toBe(
+      "中文*[链接](https://e.com/a|b)*文字",
+    );
+  });
+
+  test("a span inside a link label is a flow of its own", () => {
+    // An emphasis the parser built inside the label cannot interleave with
+    // delimiters outside the link, so it is not evidence against this pair.
+    expect(normalizeCjkEmphasis("中文_[链接 _important_](url)_文字")).toBe(
+      "中文*[链接 _important_](url)*文字",
+    );
+  });
+
   test("does not pair across a table cell boundary", () => {
     // Two cells are not one span. Nothing rejects this in the scan — the
     // verification does, because `*a` and `b*` in separate cells are not
