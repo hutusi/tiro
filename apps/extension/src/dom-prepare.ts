@@ -1683,6 +1683,10 @@ export function prepareForClipping(doc: Document): void {
   // would rewrite the very cells they select on — `td.lntd` becomes a `<th>`
   // and the code block stays a table.
   promoteTableHeaders(doc);
+  // Before the anchor marking below, which is the whole point of the ordering:
+  // the link this restores is both a reference that pass has to count and the
+  // target it has to mark.
+  restoreFootnoteRefs(doc);
   // Last: a separate pass over the finished DOM, for the reason
   // `markCodeLanguages` gives — everything above may move or replace the very
   // elements a link points at, and the marker has to land on what survives.
@@ -1729,6 +1733,87 @@ const TEXT_HOST: ReadonlySet<string> = new Set([
   "DD",
   "CAPTION",
 ]);
+
+/**
+ * Give a footnote reference back the `<a>` the page replaced it with.
+ *
+ * Sites increasingly enhance their footnotes into popovers or sidenotes, and
+ * the usual way to do it is to swap the reference for a button: vale.rocks'
+ * `footnotes.js` runs `reference.parentNode.replaceChild(button, reference)`
+ * over every `sup a[data-footnote-ref]`, leaving
+ * `<sup><button id="footnote-ref-1">1</button></sup>` with no `href` on it at
+ * all. Readability then deletes it, because it deletes every `<button>`
+ * (`_clean(articleContent, "button")`), and the whole reference goes with it —
+ * the essay reads "should never be used" where the page says "should never¹ be
+ * used", and the note's `↩` survives, being an ordinary link, pointing at an id
+ * nothing carries any more. Both halves of the footnote are published and
+ * neither can reach the other.
+ *
+ * **The lost href is recovered by reciprocity, not by knowing the site.** The
+ * backref still says which id was the reference (`href="#footnote-ref-1"`) and
+ * the `<li>` holding it says which id is the note (`id="footnote-1"`); that
+ * pairing is the entire thing the enhancement destroyed. Every footnote
+ * generator worth naming — GFM, markdown-it, Pandoc, Hugo, Eleventy — renders
+ * notes as `<ol><li id=…>`, so reading the pairing off that shape covers all of
+ * them without enumerating any of them.
+ *
+ * **One element in place of one element**, the rule `retagFontsAsSpans`
+ * records: Readability scores candidates by what their subtree holds, so a
+ * repair that changes the element count can change which container it picks.
+ * `<button>` → `<a>` leaves the tree exactly as large as it was. It does move
+ * link density, which `_cleanConditionally` reads — a footnote marker is one
+ * character against a paragraph, so the shift is far below anything that
+ * decides a verdict, and the corpus sweep is what would show otherwise.
+ *
+ * Restricted to `<button>` because that is the defect. `<button>` is the one
+ * tag on Readability's unconditional delete list that pages put inline in
+ * prose; a target that survives extraction is not broken, and an `<a>` target
+ * never was. The other guards each close a way of being wrong: an empty
+ * reference produces no markdown, so repairing it buys nothing (`producesLink`
+ * draws the same line); a reference holding a link would become an `<a>` inside
+ * an `<a>`, which markdown cannot express and which is why `anchorReplacement`
+ * emits a span; and requiring the backref to sit in an *identified* list item
+ * is what keeps this off a page that merely happens to link at a button.
+ *
+ * Before `markInDocumentAnchors`, necessarily: that pass has to see this link
+ * to count `#footnote-1` as referenced at all, and to mark the reference as the
+ * target `#footnote-ref-1` needs.
+ */
+function restoreFootnoteRefs(doc: Document): void {
+  for (const backref of Array.from(doc.querySelectorAll("li[id] a[href]"))) {
+    const href = backref.getAttribute("href") ?? "";
+    // The same reading `referencedFragments` makes, for the same reasons: a
+    // bare "#" addresses the top of the page, and `ANCHOR_ID` is what this file
+    // is willing to write into a public article.
+    if (!href.startsWith("#") || href.length < 2) continue;
+    let refId: string;
+    try {
+      refId = decodeURIComponent(href.slice(1));
+    } catch {
+      continue;
+    }
+    // `closest`, not the matched ancestor: a note nested in an inner list must
+    // pair with the item that actually carries an id.
+    const noteId = backref.closest("li[id]")?.getAttribute("id") ?? "";
+    if (!ANCHOR_ID.test(refId) || !ANCHOR_ID.test(noteId)) continue;
+    // `getElementById`, never `querySelector`, for the reason `anchorTarget`
+    // gives: `fn:1` is an id a page may choose and is not a valid selector.
+    const reference = doc.getElementById(refId);
+    if (reference === null) continue;
+    if (reference.tagName.toUpperCase() !== "BUTTON") continue;
+    if ((reference.textContent ?? "").trim() === "") continue;
+    if (reference.querySelector("a") !== null) continue;
+    const link = doc.createElement("a");
+    link.setAttribute("id", refId);
+    link.setAttribute("href", `#${noteId}`);
+    // Materialized: `childNodes` is live, and appendChild is moving its entries
+    // out from under the iteration.
+    for (const child of Array.from(reference.childNodes)) {
+      link.appendChild(child);
+    }
+    reference.replaceWith(link);
+  }
+}
 
 /**
  * Mark the elements an in-document link points at, so the anchor can be written

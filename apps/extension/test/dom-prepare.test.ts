@@ -2199,3 +2199,113 @@ describe("in-document links keep their targets", () => {
     );
   });
 });
+
+describe("a footnote reference the page replaced with a button", () => {
+  /**
+   * The whole clip, through the shipped entry point, because the defect is
+   * Readability's own `_clean(articleContent, "button")`. Everything above
+   * hands extraction a page that looks intact; a test that goes straight from
+   * `prepareForClipping` to `htmlToMarkdown` never runs the step at fault and
+   * would pass before the fix.
+   */
+  const filler = "<p>Body sentence with enough words to score.</p>".repeat(20);
+
+  function clipped(markup: string): string {
+    const window = new Window({ url: "https://example.test/a" });
+    window.document.body.innerHTML = `<article>${filler}${markup}</article>`;
+    const payload = clipPage(
+      window.document as unknown as Document,
+      "https://example.test/a",
+    );
+    // A case that quietly took the raw-body fallback never ran Readability, so
+    // it would pass without proving anything.
+    expect(payload.readabilityFailed).toBe(false);
+    return payload.markdown;
+  }
+
+  const note = (id: string, ref: string, text = "There are rare cases.") =>
+    `<li id="${id}"><p>${text} <a href="#${ref}" data-footnote-backref>↩</a></p></li>`;
+
+  const notes = (...items: string[]) =>
+    `<section class="footnotes" data-footnotes><ol>${items.join("")}</ol></section>`;
+
+  /** vale.rocks' live DOM: `footnotes.js` has already swapped the reference. */
+  const enhanced =
+    '<p>Scaling should never<sup><button class="footnote-button" id="footnote-ref-1" popovertarget="footnote-popover-0">1</button></sup> be used here.</p>' +
+    notes(note("footnote-1", "footnote-ref-1"));
+
+  /** The same page before its script ran — what the repair has to reproduce. */
+  const original =
+    '<p>Scaling should never<sup><a id="footnote-ref-1" href="#footnote-1" data-footnote-ref>1</a></sup> be used here.</p>' +
+    notes(note("footnote-1", "footnote-ref-1"));
+
+  test("the reference reaches the markdown, linked to its note", () => {
+    expect(clipped(enhanced)).toContain(
+      'never<span id="footnote-ref-1"></span>[1](#footnote-1) be used here.',
+    );
+  });
+
+  test("the note gains the anchor the backref points at", () => {
+    expect(clipped(enhanced)).toContain('<span id="footnote-1"></span>');
+  });
+
+  /**
+   * The invariant behind both of the above, and the one worth keeping: an
+   * enhanced page has to clip exactly like the page it was built from. It also
+   * says the repair does nothing to a page that never needed it — `original`
+   * goes through the same pass and comes out the same way.
+   */
+  test("clips the same as the page before its script ran", () => {
+    expect(clipped(enhanced)).toBe(clipped(original));
+  });
+
+  test("never changes a body's block structure", () => {
+    expect(splitBlocks(clipped(enhanced)).map((b) => b.type)).toEqual(
+      splitBlocks(clipped(original)).map((b) => b.type),
+    );
+  });
+
+  test("pairs two footnotes with their own notes", () => {
+    const md = clipped(
+      '<p>First<sup><button id="fnref-1">1</button></sup> and second<sup><button id="fnref-2">2</button></sup>.</p>' +
+        notes(note("fn-1", "fnref-1"), note("fn-2", "fnref-2", "Second note.")),
+    );
+    expect(md).toContain('First<span id="fnref-1"></span>[1](#fn-1)');
+    expect(md).toContain('second<span id="fnref-2"></span>[2](#fn-2)');
+  });
+
+  /**
+   * The rule this must not widen. Readability deletes every `<button>` for a
+   * good reason, and a page's chrome has to keep going out with it.
+   */
+  test("a button nothing links to is still deleted", () => {
+    expect(clipped("<p>A snippet.</p><button>Copy</button>")).not.toContain(
+      "Copy",
+    );
+  });
+
+  test.each([
+    [
+      "a backref outside a list item",
+      '<p>Text<sup><button id="fnref-1">1</button></sup>.</p>' +
+        '<div id="fn-1"><p>Note. <a href="#fnref-1">↩</a></p></div>',
+    ],
+    [
+      "a note whose id this would not write",
+      '<p>Text<sup><button id="fnref-1">1</button></sup>.</p>' +
+        notes('<li id="fn(1)"><p>Note. <a href="#fnref-1">↩</a></p></li>'),
+    ],
+    [
+      "a reference holding a link",
+      '<p>Text<sup><button id="fnref-1"><a href="https://example.com/x">1</a></button></sup>.</p>' +
+        notes(note("fn-1", "fnref-1")),
+    ],
+    [
+      "a reference with nothing in it",
+      '<p>Text<sup><button id="fnref-1"></button></sup>.</p>' +
+        notes(note("fn-1", "fnref-1")),
+    ],
+  ])("leaves %s alone", (_name, markup) => {
+    expect(clipped(markup)).not.toContain("](#fn-1)");
+  });
+});
