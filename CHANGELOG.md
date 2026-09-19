@@ -7,6 +7,37 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **PDFs can be clipped.** Until now a PDF tab was a dead end: Chrome renders
+  the document in a plugin the DOM cannot see, so the extension refused it
+  rather than commit an empty article. It now clips a **stub** — the URL and
+  the title — and the processor builds the body during processing, fetching the
+  document itself and reading its text layer. Nothing binary enters the vault,
+  and no new extension permission is asked for, because the extension never
+  fetches the PDF. Where a publisher offers an HTML twin the existing fetch
+  still wins: an arXiv `/pdf/` URL goes on fetching `arxiv.org/html/<id>`,
+  because stubbing it would file the lesser body under the paper's own slug
+  (ADR 0026).
+
+  The conversion is text-layer extraction plus a model pass that restores
+  headings, paragraphs and rejoined hyphenation. That route was chosen over
+  rendering pages for a vision model because it needs no capability the vault's
+  provider does not already have — file input is not part of the
+  OpenAI-compatible chat-completions shape at all, and the client is text-only.
+  Running headers and footers are removed first, deterministically, since "this
+  line, modulo its page number, opens eleven of fifteen pages" is a fact rather
+  than a judgement to delegate.
+
+  **A PDF article is honestly worse than a page clip**, and the popup says so
+  before you commit: no figures, equations flattened to text, and tables left as
+  extracted lines rather than rebuilt — a blank cell and an absent cell are the
+  same bytes in a text layer, so a rebuilt row would be a guess that reads as
+  data. Scanned PDFs are refused outright rather than filed as empty articles;
+  OCR is out of scope. Every reply from the model is measured against its input
+  and a batch that fails keeps the raw extracted text, because a summary
+  wearing clean Markdown is otherwise indistinguishable from success.
+
 ## [0.8.0] - 2026-09-19
 
 ### Fixed

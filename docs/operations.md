@@ -102,6 +102,29 @@ endpoint works.
     -d '{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}'
   ```
 
+### PDFs
+
+A PDF is clipped as a stub and converted during processing (ADR 0026): the
+processor fetches the document, reads its text layer, and asks the model to
+restore Markdown structure. No extra provider capability is needed — it is text
+in, text out, on the same OpenAI-compatible endpoint everything else uses, which
+is why this route was chosen over sending page images to a vision model.
+
+The `pdf` block in `config/tiro.yml` bounds it: `max_bytes` and `timeout_ms` for
+the download, `stage_timeout_ms` for the whole stage, `max_pages` above which a
+document is refused rather than truncated, and `min_chars_per_page`, the gate
+that separates a born-digital PDF from a scan. Real papers measure 2600-2800
+chars/page, so the default of 100 sits well below anything carrying prose.
+
+What a converted article will not have: figures (they are not in the text
+layer — captions survive), equations as anything but flattened text, and
+reconstructed tables. That last one is deliberate rather than missing: a blank
+cell and an absent cell are identical in a text layer, so a rebuilt row would be
+a guess that reads as data.
+
+Nothing binary is stored. Reprocessing re-downloads, so a source that has since
+404'd cannot be reprocessed — the article keeps the Markdown it has.
+
 ## Repairing clip-time markdown defects
 
 A clipper fix only helps the *next* clip: the vault keeps whatever Turndown
@@ -249,6 +272,10 @@ in the original is a formula in the translation.
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |
+| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever. Clip the HTML version if one exists, or delete the stub |
+| PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
+| PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |
+| PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, so those kept the raw text layer | reprocess with `force` + slug to retry; if it repeats, the article is readable but unformatted in places |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys

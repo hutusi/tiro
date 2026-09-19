@@ -58,8 +58,13 @@ flowchart LR
      (ADR 0023). Nothing is fetched when the reader is already on the raw URL:
      the tab holds the file and `activeTab` covers reading it.
 
-   A PDF served to the tab itself is refused outright rather than committed as
-   an empty article.
+   A PDF served to the tab itself is clipped as a **stub** — identity and title,
+   no body — and the body is built later by the processor from the document's
+   text layer (ADR 0026). The extension never reads the PDF: Chrome renders it
+   in a plugin the DOM cannot see, so `isPdfViewerDocument` detects the viewer
+   by shape and the popup commits the URL instead. Where a publisher offers an
+   HTML twin the offer above wins and no stub is written, because stubbing an
+   arXiv PDF would file the lesser body under the paper's own slug.
 
    A markdown file is the one document the pipeline below does not touch. Chrome
    renders `text/plain` as a shell whose body is one `<pre>`, which the clipper
@@ -111,6 +116,12 @@ flowchart LR
    `<figure hidden>` became a plain `<p>` and its hidden image was published.
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
+   - for a PDF stub (`tiro.source_media: "pdf"`), build the body first: fetch
+     the document under the same guards the image stage uses, read its text
+     layer, drop the running headers and footers it repeats, and ask the model
+     to restore Markdown structure — checking each reply kept its content and
+     rebuilt no tables, and keeping the extracted text where it did not
+     (ADR 0026). A refusal leaves the article pending, so nothing is re-clipped,
    - detect language (CJK-codepoint ratio, no LLM call),
    - download images into `assets/` and rewrite body URLs to relative paths
      (per-image fallback to hotlink on failure),
@@ -284,6 +295,15 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   content layer measured every image an article referenced. The site reads the
   vault itself now and serves assets as plain copies, so a bad one costs its own
   image and nothing else (ADR 0020); a fixture holds the line.
+- **A PDF whose source disappears** cannot be reprocessed: unlike a clip, a PDF
+  article's body is derived from bytes the vault never stored, so a 404 later
+  means the article keeps the Markdown it already has. The same position a
+  re-clip of a dead URL is in, and the price of keeping binaries out of the
+  vault (ADR 0026).
+- **A model that summarizes instead of restructuring** a PDF would be invisible:
+  the reply is clean Markdown either way. Each reply is measured against its
+  input for retained content and refused for rebuilding tables; a batch that
+  fails every attempt keeps the extracted text instead.
 - **`btoa` throws on non-Latin1** (Chinese titles): the extension encodes
   base64 via a chunked `TextEncoder` helper.
 - **Readability returns `null`** on SPAs/paywalls: fall back to capturing
