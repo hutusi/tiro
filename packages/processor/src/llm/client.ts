@@ -12,9 +12,31 @@ export interface ChatRequest {
   temperature?: number;
 }
 
+/**
+ * Per-call controls that are not part of the request body.
+ *
+ * Separate from `ChatRequest` because that object is serialized straight to the
+ * provider — anything added to it is sent as a field of the API payload.
+ */
+export interface ChatCallOptions {
+  /**
+   * Stops this call: the in-flight request is aborted and no retry follows.
+   *
+   * For a stage with a cap of its own. The run's budget is already this
+   * client's own clock, but a stage deadline is invisible from in here, and
+   * without a way to say so a caller that stopped waiting still left the
+   * client retrying — spending the provider's quota on an answer nobody would
+   * read.
+   */
+  signal?: AbortSignal;
+}
+
 /** The one capability the pipeline needs from any LLM provider. Tests
  * substitute a fake; production wires createChatClient. */
-export type ChatFn = (req: ChatRequest) => Promise<string>;
+export type ChatFn = (
+  req: ChatRequest,
+  options?: ChatCallOptions,
+) => Promise<string>;
 
 /** Structural fetch type so tests can pass plain fakes (Bun's `typeof fetch`
  * also demands its non-standard `preconnect` property). */
@@ -79,6 +101,12 @@ function isTimeout(error: unknown): boolean {
  * Minimal OpenAI-compatible chat-completions client. One POST shape is all
  * the pipeline needs, so no SDK dependency (ADR 0004).
  */
+/** One signal from two, when there are two. `AbortSignal.any` allocates, so the
+ * common case of no caller signal keeps the client's own. */
+function abortWith(own: AbortSignal, caller?: AbortSignal): AbortSignal {
+  return caller === undefined ? own : AbortSignal.any([own, caller]);
+}
+
 export function createChatClient(options: ChatClientOptions): ChatFn {
   const {
     baseUrl,
@@ -91,7 +119,10 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
   } = options;
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
-  return async function chat(request: ChatRequest): Promise<string> {
+  return async function chat(
+    request: ChatRequest,
+    options?: ChatCallOptions,
+  ): Promise<string> {
     let lastError: unknown;
     let timeouts = 0;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -130,8 +161,13 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
           },
           body: JSON.stringify(request),
           // Clamped so a request cannot outlive the run's budget — the same
-          // idiom the image stage uses against its own stage deadline.
-          signal: AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
+          // idiom the image stage uses against its own stage deadline — and
+          // combined with the caller's, which carries a stage cap this client
+          // cannot see.
+          signal: abortWith(
+            AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
+            options?.signal,
+          ),
         });
         if (!res.ok) throw new ChatHttpError(res.status, await res.text());
         const payload = (await res.json()) as {
@@ -149,6 +185,10 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         // of the budget dies as a TimeoutError, and letting that escape had the
         // pipeline read an orderly stop as a fault — which for a forced article
         // meant its marker survived and the next ordinary run skipped it.
+        // The caller has stopped waiting, so retrying would spend the
+        // provider's quota on an answer nobody is going to read. Checked
+        // before the budget, because this is the more specific instruction.
+        if (options?.signal?.aborted === true) throw error;
         const left = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
         if (left <= 0) {
           throw new DeadlineExceededError("a chat completions retry", left, {

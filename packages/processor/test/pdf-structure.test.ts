@@ -456,6 +456,43 @@ describe("restorePdfStructure and the stage cap inside a call", () => {
     expect(calls).toBe(1);
   });
 
+  test("reports a blown run budget as a deferral, not a stage failure", async () => {
+    // The timer is set to whichever clock is nearer and does not record which,
+    // so the two have to be told apart afterwards — and they want opposite
+    // handling: the run's budget defers the article with the run's work
+    // committed, the stage's fails this one.
+    const never: ChatFn = () => new Promise(() => {});
+    await expect(
+      restorePdfStructure({
+        ...opts,
+        chat: never,
+        remainingMs: () => 10,
+        check: () => {
+          throw new DeadlineExceededError("the run", -1);
+        },
+      }),
+    ).rejects.toThrow(DeadlineExceededError);
+  });
+
+  test("aborts the request rather than only giving up on it", async () => {
+    // Racing alone stopped this function waiting while the client kept
+    // retrying underneath. The signal is what ends the work.
+    let aborted = false;
+    const watching: ChatFn = (_request, options) =>
+      new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("aborted"));
+        });
+      });
+    await restorePdfStructure({
+      ...opts,
+      chat: watching,
+      remainingMs: () => 10,
+    }).catch(() => {});
+    expect(aborted).toBe(true);
+  });
+
   test("leaves a call alone while the stage still has time", async () => {
     const result = await restorePdfStructure({
       ...opts,

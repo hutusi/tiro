@@ -135,6 +135,13 @@ time the article is processed.
   when the file cannot be removed, and refusing the article outright when
   neither works. A `--force` that silently replayed what it was invoked to
   discard would be worse than one that failed.
+- **The stage cap reaches into the model call.** A cap the client cannot see is
+  one it will overrun: it retries on the run's clock, so a batch admitted with
+  room to spare could return long afterwards. The call carries an abort signal,
+  and the client treats an aborted call as final rather than retryable, so the
+  request stops rather than merely stopping being waited for. The wait is
+  bounded too, as a backstop — an abort only helps if the callee honours it, and
+  hanging forever on one that does not would be worse than overrunning.
 - **The sweep needs teaching or excluding.** `scripts/sweep.ts` replays cached
   bytes through `response.text()`, so a PDF article reports a permanent phantom
   diff. `plainTextShell` is the precedent for teaching it a non-HTML source.

@@ -150,14 +150,13 @@ function decodeEntry(stored: string): { text: string; fallback: boolean } {
 }
 
 /**
- * Give up on `call` once the stage has none of its budget left.
+ * Stop waiting for `call` once the stage's budget is gone.
  *
- * The losing promise keeps running — an HTTP request in flight cannot be taken
- * back from here, and the chat client owns its own abort — so this bounds when
- * the stage *stops waiting*, not when the work stops. That is the honest
- * meaning of a cap laid over a client that retries on its own clock, and it is
- * enough: the stage stops, the checkpoint holds what it finished, and the next
- * run resumes.
+ * The backstop, not the mechanism. Aborting the request is what actually ends
+ * the work — see the signal at the call site — but an abort only helps if the
+ * callee honours it, and a stage that hangs forever on a ChatFn that does not
+ * is worse than one that overruns. So the wait is bounded here as well, and the
+ * two fire together: the signal stops the request, this stops the waiting.
  */
 async function withinStage<T>(
   call: Promise<T>,
@@ -291,16 +290,27 @@ export async function restorePdfStructure(
       }
       let reply: string;
       const what = `pdf batch ${index + 1} of ${batches.length}`;
+      // A real abort rather than a race. Racing only stopped this function
+      // waiting: the client went on retrying underneath, spending quota on an
+      // answer nobody would read. This stops the request itself, and the
+      // client treats an aborted call as final rather than retryable.
+      const stageSignal =
+        remainingMs === undefined
+          ? undefined
+          : AbortSignal.timeout(Math.max(0, remainingMs()));
       try {
-        const call = chat({
-          model,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: batch },
-          ],
-          // Restructuring has one right answer; sampling only invents.
-          temperature: 0,
-        });
+        const call = chat(
+          {
+            model,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: batch },
+            ],
+            // Restructuring has one right answer; sampling only invents.
+            temperature: 0,
+          },
+          ...(stageSignal === undefined ? [] : [{ signal: stageSignal }]),
+        );
         reply =
           remainingMs === undefined
             ? await call
@@ -315,7 +325,27 @@ export async function restorePdfStructure(
         if (error instanceof DeadlineExceededError) {
           throw asHardFailureIfUnsaved(error);
         }
-        if (error instanceof StageTimeoutError) throw error;
+        // A clock ran out — by the abort or by the backstop, which fire
+        // together. Which one matters, because they want opposite handling:
+        // the run's budget defers the article with the run's work committed,
+        // the stage's fails this one. The timer was set to whichever was
+        // nearer and does not record which, so the clocks are re-read. Asked
+        // for a millisecond rather than nothing, because at the boundary
+        // "expired" is exactly the question being rounded.
+        if (
+          stageSignal?.aborted === true ||
+          error instanceof StageTimeoutError
+        ) {
+          try {
+            check(1, what);
+          } catch (clock) {
+            throw clock instanceof DeadlineExceededError
+              ? asHardFailureIfUnsaved(clock)
+              : clock;
+          }
+          // Neither reads as out, so it was the stage's own cap.
+          throw new StageTimeoutError("pdf", what);
+        }
         log(
           `pdf batch ${index + 1} attempt ${attempt} failed: ${String(error)}`,
         );

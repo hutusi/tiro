@@ -322,3 +322,70 @@ describe("createChatClient", () => {
     expect(slept).toEqual([100]);
   });
 });
+
+describe("a caller that has stopped waiting", () => {
+  const request = {
+    model: "m",
+    messages: [{ role: "user" as const, content: "hi" }],
+  };
+
+  test("stops retrying once the caller's signal aborts", async () => {
+    // A stage with a cap of its own is invisible from inside the client, so
+    // without this the caller stopped waiting and the client went on retrying
+    // underneath — spending the provider's quota on an answer nobody reads.
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 3,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("upstream", { status: 503 });
+      },
+      sleep: noSleep,
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      chat(request, { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+
+  test("still retries for a caller that is waiting", async () => {
+    // The control: the same failure without a signal must keep its retries,
+    // or this would be a way of disabling them.
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 2,
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("upstream", { status: 503 });
+      },
+      sleep: noSleep,
+    });
+    await expect(chat(request)).rejects.toThrow();
+    expect(calls).toBe(3);
+  });
+
+  test("does not put the signal in the request body", async () => {
+    // ChatRequest is serialized straight to the provider, which is why this is
+    // a second argument rather than a field on it.
+    let body = "";
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async (_input, init) => {
+        body = String(init?.body ?? "");
+        return jsonResponse("hello");
+      },
+      sleep: noSleep,
+    });
+    await chat(request, { signal: new AbortController().signal });
+    expect(body).not.toContain("signal");
+    expect(JSON.parse(body)).toEqual(request);
+  });
+});
