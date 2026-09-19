@@ -108,7 +108,20 @@ export interface PdfTextOptions {
   /** The scanned-PDF gate. Averaged across the document rather than demanded of
    * every page, so a paper carrying full-page figures still passes. */
   minCharsPerPage: number;
+  /** Fraction of pages that must carry text at all — the other half of that
+   * gate. See `extractPdfText`. */
+  minPageCoverage: number;
 }
+
+/**
+ * Characters below which a page carries nothing.
+ *
+ * Not a fraction of `minCharsPerPage`: that knob is about how dense a document
+ * is on average, and this one is the difference between a page with words on it
+ * and a page with a stray running number. A scanned page extracts to nothing at
+ * all, so the bar only has to clear debris.
+ */
+const PAGE_TEXT_FLOOR = 20;
 
 export interface PdfText {
   /** One entry per page, in reading order. */
@@ -139,12 +152,20 @@ export interface PdfText {
  *   so it extracts to roughly nothing. Letting it through would produce an
  *   empty body — exactly the empty article the clipper refuses on a PDF tab
  *   today. OCR is out of scope (ADR 0026), so the honest answer is no.
+ *
+ * That second one is asked twice, because either question alone is wrong.
+ * Density averaged over the document tolerates the full-page figures a real
+ * paper carries — but an average is a sum, so one dense page among nine scanned
+ * ones clears a per-page bar comfortably, and the article would be filed as a
+ * whole document while holding a tenth of it. Coverage alone would refuse the
+ * figure-heavy paper the average exists to admit. Together they say what is
+ * actually meant: enough text overall, spread across enough of the document.
  */
 export async function extractPdfText(
   bytes: Uint8Array,
   options: PdfTextOptions,
 ): Promise<PdfText> {
-  const { maxPages, minCharsPerPage } = options;
+  const { maxPages, minCharsPerPage, minPageCoverage } = options;
 
   let doc: Awaited<ReturnType<typeof getDocumentProxy>>;
   try {
@@ -172,6 +193,16 @@ export async function extractPdfText(
   if (perPage < minCharsPerPage) {
     throw new Error(
       `no usable text layer: ${Math.round(perPage)} chars/page across ${totalPages} page(s), below ${minCharsPerPage} — a scanned PDF needs OCR, which Tiro does not do`,
+    );
+  }
+
+  const withText = pages.filter(
+    (page) => page.replace(/\s+/g, " ").trim().length >= PAGE_TEXT_FLOOR,
+  ).length;
+  const coverage = totalPages === 0 ? 0 : withText / totalPages;
+  if (coverage < minPageCoverage) {
+    throw new Error(
+      `text layer covers only ${withText} of ${totalPages} page(s), below ${Math.round(minPageCoverage * 100)}% — the rest is probably scanned, and OCR is out of scope`,
     );
   }
 

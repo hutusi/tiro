@@ -43,6 +43,7 @@ describe("parseTiroConfig", () => {
     // The scanned-PDF gate: an order of magnitude below real prose, which
     // measures 2600-2800 chars/page.
     expect(config.pdf.min_chars_per_page).toBe(100);
+    expect(config.pdf.min_page_coverage).toBe(0.5);
     expect(config.images.timeout_ms).toBe(20000);
   });
 

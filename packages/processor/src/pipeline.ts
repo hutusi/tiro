@@ -327,6 +327,7 @@ async function processOne(
             deadline,
             maxPages: config.pdf.max_pages,
             minCharsPerPage: config.pdf.min_chars_per_page,
+            minPageCoverage: config.pdf.min_page_coverage,
             chat: deps.chat,
             model: modelFor(config, "summary"),
             // Its own checkpoint beside the translation one, so a long PDF

@@ -11,7 +11,7 @@ import { makePdf } from "./helpers.ts";
 
 const PROSE =
   "The method is straightforward to implement, is computationally efficient, has little memory requirements, and is invariant to diagonal rescaling of the gradients.";
-const limits = { maxPages: 200, minCharsPerPage: 100 };
+const limits = { maxPages: 200, minCharsPerPage: 100, minPageCoverage: 0.5 };
 
 describe("extractPdfText", () => {
   test("reads a page's text layer in order", async () => {
@@ -55,6 +55,34 @@ describe("extractPdfText", () => {
     const dense = PROSE.repeat(4);
     const result = await extractPdfText(makePdf([dense, ""]), limits);
     expect(result.totalPages).toBe(2);
+  });
+
+  test("refuses a document that is mostly scanned", async () => {
+    // The hole an average alone leaves: one dense page among nine blank ones
+    // gives 300 chars/page and sails past min_chars_per_page, and the article
+    // would be filed as a whole document while holding a tenth of one.
+    // Dense enough that the average gate passes cleanly; only coverage can
+    // refuse this, which is the whole point of the case.
+    const pages = [PROSE.repeat(20), ...Array<string>(9).fill("")];
+    await expect(extractPdfText(makePdf(pages), limits)).rejects.toThrow(
+      /text layer covers only 1 of 10/,
+    );
+  });
+
+  test("still admits a paper carrying full-page figures", async () => {
+    // The case the average exists for, and which a coverage test alone would
+    // refuse: text on most pages, nothing on the plates.
+    const pages = [PROSE, PROSE, PROSE, "", PROSE, PROSE, ""];
+    const result = await extractPdfText(makePdf(pages), limits);
+    expect(result.totalPages).toBe(7);
+  });
+
+  test("does not count a page holding only a stray number as covered", async () => {
+    // A page whose text layer is debris is not a page with words on it.
+    const pages = [PROSE.repeat(3), "7", "8", "9"];
+    await expect(extractPdfText(makePdf(pages), limits)).rejects.toThrow(
+      /covers only 1 of 4/,
+    );
   });
 
   test("counts content rather than whitespace", async () => {
@@ -281,6 +309,7 @@ describe("convertPdf and its two clocks", () => {
     timeoutMs: 60_000,
     maxPages: 200,
     minCharsPerPage: 100,
+    minPageCoverage: 0.5,
     allowPrivateHosts: true,
     chat,
     model: "m",

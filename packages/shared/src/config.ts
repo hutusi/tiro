@@ -91,6 +91,12 @@ export const TiroConfigSchema = z.object({
       // magnitude below anything with prose on it and still clears a document
       // that is mostly figures.
       min_chars_per_page: z.number().int().positive().default(100),
+      // The other half of that gate. An average is a sum, so one dense page
+      // among nine scanned ones clears min_chars_per_page comfortably and the
+      // article would be filed as a whole document while holding a tenth of
+      // it. This asks that the text be spread across the document, while
+      // staying loose enough for the full-page figures a real paper carries.
+      min_page_coverage: z.number().min(0).max(1).default(0.5),
     })
     .prefault({}),
   processing: z

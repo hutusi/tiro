@@ -83,3 +83,9 @@ pdf:
   # measure 2600-2800 chars/page, so this sits well below anything with prose
   # on it while still clearing a document that is mostly figures.
   min_chars_per_page: 100
+  # The other half of that gate. An average is a sum, so one dense page among
+  # nine scanned ones would clear min_chars_per_page and the article would be
+  # filed as a whole document while holding a tenth of it. At least this
+  # fraction of pages must carry text — loose enough for the full-page figures
+  # a real paper carries.
+  min_page_coverage: 0.5

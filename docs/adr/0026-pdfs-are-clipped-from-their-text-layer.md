@@ -82,6 +82,14 @@ empty body is the article `docs/architecture.md` refuses today. The refusal is
 the same promise the current code makes, kept by other means — so it must be a
 real gate on extracted density, not a hope that the model says something.
 
+The gate asks two questions, because either alone is wrong. Density is averaged
+over the document, so the full-page figures a real paper carries do not sink it
+— but an average is a sum, and one dense page among nine scanned ones clears a
+per-page bar comfortably while the article gets filed as a whole document
+holding a tenth of one. So coverage is asked as well: enough of the pages must
+carry text at all. Coverage alone would refuse the figure-heavy paper the
+average exists to admit.
+
 **5. Tables are not reconstructed into Markdown tables.** This is the one place
 the model would be asked to invent. A blank cell and an absent cell are the same
 bytes in the text layer, so a reconstructed row is a guess presented as data, and
