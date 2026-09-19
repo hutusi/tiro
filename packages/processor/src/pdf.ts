@@ -1,7 +1,10 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import type { Deadline } from "./deadline.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
-import { restorePdfStructure } from "./llm/pdf-structure.ts";
+import {
+  type PdfStructureOptions,
+  restorePdfStructure,
+} from "./llm/pdf-structure.ts";
 import {
   fetchChecked,
   type ResolveHost,
@@ -273,6 +276,9 @@ export interface PdfConversionOptions
   /** The run's budget. Separate from the stage's, because the two mean
    * different things when they expire — see `stageGuard`. */
   deadline: Deadline;
+  /** Checkpoint for restored batches, so a long PDF makes progress across
+   * runs instead of restarting at page one. */
+  cache?: PdfStructureOptions["cache"];
   log?: (message: string) => void;
 }
 
@@ -334,6 +340,7 @@ export async function convertPdf(
     batchChars,
     stageTimeoutMs,
     deadline,
+    cache,
     log = () => {},
     ...rest
   } = options;
@@ -357,6 +364,7 @@ export async function convertPdf(
     pages: stripRunningFurniture(pages),
     ...(batchChars !== undefined ? { batchChars } : {}),
     check: guard.check,
+    ...(cache !== undefined ? { cache } : {}),
     log,
   });
   log(

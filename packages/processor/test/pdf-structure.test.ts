@@ -207,3 +207,106 @@ describe("restorePdfStructure and the run budget", () => {
     ).rejects.toThrow(DeadlineExceededError);
   });
 });
+
+describe("restorePdfStructure and the checkpoint", () => {
+  /** The bits of the checkpoint this stage uses, in memory. */
+  function fakeCache(seed: Record<string, string> = {}, writeError?: unknown) {
+    const store = new Map(Object.entries(seed));
+    let flushes = 0;
+    let retained: readonly string[] | null = null;
+    return {
+      store,
+      get flushes() {
+        return flushes;
+      },
+      get retained() {
+        return retained;
+      },
+      writeError,
+      get: (k: string) => store.get(k),
+      set: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      flush: async () => {
+        flushes += 1;
+      },
+      retain: (keys: readonly string[]) => {
+        retained = keys;
+      },
+    };
+  }
+
+  const threePages = ["a".repeat(80), "b".repeat(80), "c".repeat(80)];
+  const opts = { model: "m", pages: threePages, batchChars: 100 };
+
+  test("reuses a batch the last run already restored", async () => {
+    let calls = 0;
+    const chat: ChatFn = async (request) => {
+      calls += 1;
+      return goodChat(request);
+    };
+    const cache = fakeCache({ [threePages[1] as string]: "## already done" });
+    const result = await restorePdfStructure({ ...opts, chat, cache });
+    expect(result.reused).toBe(1);
+    // Two model calls, not three: the middle batch came off disk.
+    expect(calls).toBe(2);
+    expect(result.markdown).toContain("## already done");
+  });
+
+  test("checkpoints each restored batch as it goes", async () => {
+    // Per batch, so a hard kill costs at most one batch of work.
+    const cache = fakeCache();
+    await restorePdfStructure({ ...opts, chat: goodChat, cache });
+    expect(cache.store.size).toBe(3);
+    expect(cache.flushes).toBe(3);
+  });
+
+  test("does not checkpoint a fallback", async () => {
+    // A fallback is this run's verdict on a reply, not work worth resuming.
+    // Stored, it would make the next run inherit a failure it might not have.
+    const cache = fakeCache();
+    const chat: ChatFn = async () => "## Summary\n\nToo short.";
+    const result = await restorePdfStructure({ ...opts, chat, cache });
+    expect(result.fallbacks).toBe(3);
+    expect(cache.store.size).toBe(0);
+  });
+
+  test("prunes to this document's batches once it finishes", async () => {
+    const cache = fakeCache({ "an old batch": "from a previous version" });
+    await restorePdfStructure({ ...opts, chat: goodChat, cache });
+    expect(cache.retained).toEqual(threePages);
+  });
+
+  test("does not prune when it stopped early", async () => {
+    // A run that did not get back to every batch must not treat the ones it
+    // skipped as gone.
+    const cache = fakeCache();
+    await restorePdfStructure({
+      ...opts,
+      chat: goodChat,
+      cache,
+      check: () => {
+        throw new DeadlineExceededError("the next batch", -1);
+      },
+    }).catch(() => {});
+    expect(cache.retained).toBeNull();
+  });
+
+  test("a budget stop that saved nothing is a hard failure, not a deferral", async () => {
+    // Invariant 8's sharp edge: deferring tells the pipeline to retry work
+    // that was never persisted, so the next run repeats these same batches,
+    // and the one after that, while the log shows steady progress.
+    const cache = fakeCache({}, new Error("EROFS"));
+    const error = await restorePdfStructure({
+      ...opts,
+      chat: goodChat,
+      cache,
+      check: () => {
+        throw new DeadlineExceededError("the next batch", -1);
+      },
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DeadlineExceededError);
+    expect(String(error)).toMatch(/cannot resume/);
+  });
+});

@@ -1,4 +1,5 @@
 import { DeadlineExceededError } from "../deadline.ts";
+import type { TranslationCache } from "./cache.ts";
 import type { ChatFn } from "./client.ts";
 
 /**
@@ -72,6 +73,20 @@ export interface PdfStructureOptions {
    * outcomes — so the caller decides and this just stops.
    */
   check?: (needMs: number, what: string) => void;
+  /**
+   * Batches already restored by an earlier run, and where this run's go.
+   *
+   * A 200-page PDF is many model calls, and without a checkpoint a run that
+   * ran out of budget at batch 40 threw all forty away and began again at page
+   * one — the same way a long article could never finish translating before
+   * ADR 0008. Keyed by the batch's own text, so re-extraction (which is
+   * deterministic) hits every entry, and a re-clip re-uses every batch whose
+   * text did not change.
+   */
+  cache?: Pick<
+    TranslationCache,
+    "get" | "set" | "flush" | "retain" | "writeError"
+  >;
   log?: (message: string) => void;
 }
 
@@ -80,6 +95,8 @@ export interface PdfStructureResult {
   batches: number;
   /** Batches kept as extracted text because no attempt passed the checks. */
   fallbacks: number;
+  /** Batches taken from the checkpoint rather than the model. */
+  reused: number;
 }
 
 /** Alphanumeric content only, so Markdown syntax and whitespace changes do not
@@ -137,18 +154,51 @@ export async function restorePdfStructure(
     batchChars = DEFAULT_BATCH_CHARS,
     maxAttempts = 2,
     check = () => {},
+    cache,
     log = () => {},
   } = options;
+
+  /**
+   * A budget stop that saved nothing is not a resumable stop.
+   *
+   * Invariant 8's sharp edge, and the reason this is not just a `try`: if the
+   * checkpoint could not be written, deferring the article tells the pipeline
+   * to retry work that was never persisted, so the next run repeats these same
+   * batches, and the one after that, while the log shows steady progress.
+   * Reported as a plain Error so it is booked as the genuine fault it is.
+   */
+  const asHardFailureIfUnsaved = (error: unknown): unknown => {
+    if (!(error instanceof DeadlineExceededError)) return error;
+    const writeError = cache?.writeError;
+    if (writeError === undefined) return error;
+    return new Error(
+      `${String(error)}; the PDF checkpoint could not be written (${String(writeError)}), ` +
+        "so this article cannot resume and would repeat this work every run",
+      { cause: error },
+    );
+  };
 
   const batches = batchPages(pages, batchChars);
   const out: string[] = [];
   let fallbacks = 0;
+  let reused = 0;
 
   for (const [index, batch] of batches.entries()) {
+    const cached = cache?.get(batch);
+    if (cached !== undefined) {
+      out.push(cached);
+      reused += 1;
+      continue;
+    }
+
     // Before the request rather than after: a batch started with no budget
     // left is one the chat client will refuse anyway, and stopping here leaves
-    // the batches already done for the caller to keep.
-    check(0, `pdf batch ${index + 1} of ${batches.length}`);
+    // the batches already checkpointed for the next run.
+    try {
+      check(0, `pdf batch ${index + 1} of ${batches.length}`);
+    } catch (error) {
+      throw asHardFailureIfUnsaved(error);
+    }
     let restored: string | null = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       let reply: string;
@@ -167,7 +217,9 @@ export async function restorePdfStructure(
         // how a run that ran out of time produced a finished-looking article
         // made mostly of fallbacks. It has to reach the pipeline, which defers
         // the article with its work saved (invariant 8).
-        if (error instanceof DeadlineExceededError) throw error;
+        if (error instanceof DeadlineExceededError) {
+          throw asHardFailureIfUnsaved(error);
+        }
         log(
           `pdf batch ${index + 1} attempt ${attempt} failed: ${String(error)}`,
         );
@@ -179,6 +231,14 @@ export async function restorePdfStructure(
         break;
       }
       log(`pdf batch ${index + 1} attempt ${attempt} rejected: ${reason}`);
+    }
+    if (restored !== null) {
+      // Checkpointed per batch, so a hard kill costs at most one batch. Only
+      // a restored batch is stored: a fallback is this run's verdict on a
+      // reply, not work worth resuming, and storing it would make the next run
+      // inherit a failure it might not have had.
+      cache?.set(batch, restored);
+      await cache?.flush();
     }
     if (restored === null) {
       fallbacks += 1;
@@ -195,5 +255,19 @@ export async function restorePdfStructure(
       `${fallbacks} of ${batches.length} pdf batch(es) kept as extracted text`,
     );
   }
-  return { markdown: out.join("\n\n"), batches: batches.length, fallbacks };
+  // Only once every batch is accounted for: the checkpoint should hold this
+  // document's batches, not every batch of every version it has ever had.
+  // Unreachable if the stage threw, which is the point — a run that stopped
+  // early must not prune the work it did not get back to.
+  cache?.retain(batches);
+
+  if (reused > 0) {
+    log(`${reused} of ${batches.length} pdf batch(es) resumed from checkpoint`);
+  }
+  return {
+    markdown: out.join("\n\n"),
+    batches: batches.length,
+    fallbacks,
+    reused,
+  };
 }

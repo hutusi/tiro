@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 
 /**
- * Checkpoint of already-translated blocks for one article (ADR 0008).
+ * Checkpoint of expensive per-block work for one article (ADR 0008).
+ *
+ * Used by translation, which named it, and by PDF structure restoration
+ * (ADR 0026), which has the same shape and the same failure without it.
  *
  * Translation is the only stage that can outlive a run's budget, and it used
  * to keep everything in memory: a run killed at batch 12 of 14 threw away all
@@ -25,6 +28,21 @@ const CACHE_VERSION = 1;
  * processor-internal state, deliberately not part of the shared content
  * contract in `@tiro/shared/paths`. */
 export const TRANSLATION_CACHE_FILE = ".tiro-zh-cache.json";
+
+/**
+ * The same checkpoint, for PDF structure restoration (ADR 0026).
+ *
+ * Translation was this module's first user, not its only possible one: what it
+ * actually provides is a hash-keyed, atomically-written, model-gated map from
+ * a piece of source text to an expensive result. PDF conversion has exactly
+ * that shape and exactly the same failure — a 200-page document is many model
+ * calls, and without this a run that ran out of budget at batch 40 threw away
+ * all forty and began again at page one.
+ *
+ * Its own file, because the two hold different vintages of different work and a
+ * model change must be able to invalidate one without the other.
+ */
+export const PDF_CACHE_FILE = ".tiro-pdf-cache.json";
 
 /** Staging path for the atomic write below. Cleaned up on load and on discard:
  * a crash between writing it and renaming it would otherwise leave litter the

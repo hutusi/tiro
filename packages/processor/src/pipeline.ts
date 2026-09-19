@@ -16,6 +16,7 @@ import { detectLang } from "./language.ts";
 import {
   discardTranslationCache,
   loadTranslationCache,
+  PDF_CACHE_FILE,
   TRANSLATION_CACHE_FILE,
   type TranslationCache,
 } from "./llm/cache.ts";
@@ -328,6 +329,15 @@ async function processOne(
             minCharsPerPage: config.pdf.min_chars_per_page,
             chat: deps.chat,
             model: modelFor(config, "summary"),
+            // Its own checkpoint beside the translation one, so a long PDF
+            // resumes where the last run stopped instead of starting again at
+            // page one (ADR 0026, and ADR 0008's reasoning applied a second
+            // time). Gated on the same model, so changing it reconverts.
+            cache: await loadTranslationCache(
+              `${article.dirAbs}/${PDF_CACHE_FILE}`,
+              { target: "pdf", model: modelFor(config, "summary") },
+              log,
+            ),
             ...(deps.fetchImpl !== undefined
               ? { fetchImpl: deps.fetchImpl }
               : {}),
