@@ -59,3 +59,93 @@ describe("caches derived from a vault read", () => {
     }
   });
 });
+
+describe("unconverted PDF stubs", () => {
+  /** A PDF as the extension commits it: identity and title, no body. */
+  function stub(dir: string, slug: string, url: string): void {
+    const articleDir = join(dir, "articles", slug);
+    mkdirSync(articleDir, { recursive: true });
+    writeFileSync(
+      join(articleDir, "index.md"),
+      `---
+url: "${url}"
+title: "A paper"
+domain: "example.com"
+clipped_at: "2026-09-19T08:00:00.000Z"
+tiro:
+  schema: 1
+  source_media: pdf
+---
+`,
+    );
+  }
+
+  test("are not published", async () => {
+    // A deploy fired by the other article would otherwise give the stub a
+    // reader page showing nothing and a library row leading to it — the empty
+    // article the clipper refused to commit before PDFs were clippable at all.
+    const dir = mkdtempSync(join(tmpdir(), "tiro-articles-"));
+    try {
+      write(dir, "example-com-a-3a0f9c1e", "https://example.com/a");
+      stub(dir, "example-com-p-pdf-11223344", "https://example.com/p.pdf");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+
+      const articles = await getAllArticles();
+      expect(articles).toHaveLength(1);
+      expect(articles[0]?.slug).toBe("example-com-a-3a0f9c1e");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("get no short link either", async () => {
+    // Short links are built from the same funnel, so a stub must not acquire
+    // an address that resolves to a page that was never built.
+    const dir = mkdtempSync(join(tmpdir(), "tiro-articles-"));
+    try {
+      write(dir, "example-com-a-3a0f9c1e", "https://example.com/a");
+      stub(dir, "example-com-p-pdf-11223344", "https://example.com/p.pdf");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+
+      expect((await shortLinks()).byId.size).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("appear once the processor has built a body", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-articles-"));
+    try {
+      const slug = "example-com-p-pdf-11223344";
+      stub(dir, slug, "https://example.com/p.pdf");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+      expect(await getAllArticles()).toHaveLength(0);
+
+      writeFileSync(
+        join(dir, "articles", slug, "index.md"),
+        `---
+url: "https://example.com/p.pdf"
+title: "A paper"
+domain: "example.com"
+clipped_at: "2026-09-19T08:00:00.000Z"
+tiro:
+  schema: 1
+  source_media: pdf
+  processed_at: "2026-09-19T09:00:00.000Z"
+---
+
+## Section 1
+
+Converted at last.
+`,
+      );
+      resetVaultCache();
+      expect(await getAllArticles()).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

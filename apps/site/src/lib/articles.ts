@@ -7,7 +7,7 @@ import {
 import { groupByTerm, type TermGroup } from "./terms.ts";
 import { usableTranslation } from "./translation.ts";
 import { readVault } from "./vault-read.ts";
-import { isUnlisted } from "./visibility.ts";
+import { hasReadableBody, isUnlisted } from "./visibility.ts";
 
 export interface Article {
   /** The slug — the article's whole identity (flat layout, ADR 0007). */
@@ -67,11 +67,16 @@ export async function getAllArticles(): Promise<Article[]> {
     );
   }
 
-  articles.sort((a, b) =>
+  // After the guard above, which asks whether the vault has any articles at
+  // all — a different question, and one an all-stubs vault should not be able
+  // to answer misleadingly.
+  const readable = articles.filter(hasReadableBody);
+
+  readable.sort((a, b) =>
     b.frontmatter.clipped_at.localeCompare(a.frontmatter.clipped_at),
   );
-  cache = articles;
-  return articles;
+  cache = readable;
+  return readable;
 }
 
 /** The articles every list, feed and index is built from — unlisted ones
