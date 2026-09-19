@@ -1,4 +1,4 @@
-import { DeadlineExceededError } from "../deadline.ts";
+import { DeadlineExceededError, StageTimeoutError } from "../deadline.ts";
 import type { TranslationCache } from "./cache.ts";
 import type { ChatFn } from "./client.ts";
 
@@ -85,6 +85,15 @@ export interface PdfStructureOptions {
    */
   requestMs?: number;
   /**
+   * Milliseconds left in the stage, read fresh.
+   *
+   * The budget check before a request cannot bound what the request does after
+   * it: the chat client retries inside one call and knows only the run's
+   * deadline, so a batch admitted with room to spare could return minutes after
+   * the stage cap. This bounds the call itself.
+   */
+  remainingMs?: () => number;
+  /**
    * Batches already restored by an earlier run, and where this run's go.
    *
    * A 200-page PDF is many model calls, and without a checkpoint a run that
@@ -138,6 +147,37 @@ function decodeEntry(stored: string): { text: string; fallback: boolean } {
   return stored.startsWith(FALLBACK_MARK)
     ? { text: stored.slice(FALLBACK_MARK.length), fallback: true }
     : { text: stored, fallback: false };
+}
+
+/**
+ * Give up on `call` once the stage has none of its budget left.
+ *
+ * The losing promise keeps running — an HTTP request in flight cannot be taken
+ * back from here, and the chat client owns its own abort — so this bounds when
+ * the stage *stops waiting*, not when the work stops. That is the honest
+ * meaning of a cap laid over a client that retries on its own clock, and it is
+ * enough: the stage stops, the checkpoint holds what it finished, and the next
+ * run resumes.
+ */
+async function withinStage<T>(
+  call: Promise<T>,
+  leftMs: number,
+  what: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      call,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new StageTimeoutError("pdf", what)),
+          Math.max(0, leftMs),
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /** Alphanumeric content only, so Markdown syntax and whitespace changes do not
@@ -196,6 +236,7 @@ export async function restorePdfStructure(
     maxAttempts = 2,
     check = () => {},
     requestMs = 0,
+    remainingMs,
     cache,
     log = () => {},
   } = options;
@@ -249,8 +290,9 @@ export async function restorePdfStructure(
         throw asHardFailureIfUnsaved(error);
       }
       let reply: string;
+      const what = `pdf batch ${index + 1} of ${batches.length}`;
       try {
-        reply = await chat({
+        const call = chat({
           model,
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
@@ -259,14 +301,21 @@ export async function restorePdfStructure(
           // Restructuring has one right answer; sampling only invents.
           temperature: 0,
         });
+        reply =
+          remainingMs === undefined
+            ? await call
+            : await withinStage(call, remainingMs(), what);
       } catch (error) {
         // A blown budget is not a batch that failed, and treating it as one is
         // how a run that ran out of time produced a finished-looking article
         // made mostly of fallbacks. It has to reach the pipeline, which defers
         // the article with its work saved (invariant 8).
+        // Neither clock running out is a batch that failed, and retrying on
+        // one burns the very budget it is out of.
         if (error instanceof DeadlineExceededError) {
           throw asHardFailureIfUnsaved(error);
         }
+        if (error instanceof StageTimeoutError) throw error;
         log(
           `pdf batch ${index + 1} attempt ${attempt} failed: ${String(error)}`,
         );

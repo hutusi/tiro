@@ -130,8 +130,11 @@ time the article is processed.
   same place on every run, redoing exactly the work it redid last time — ADR
   0008's failure by a third route. A batch that spent every attempt has reached
   its verdict, so it is stored, marked so a resumed run still reports the
-  article as partly unformatted. `--force` discards the checkpoint, which is
-  what makes asking again possible.
+  article as partly unformatted. `--force` invalidates the checkpoint, which is
+  what makes asking again possible — by deletion, or by emptying it in place
+  when the file cannot be removed, and refusing the article outright when
+  neither works. A `--force` that silently replayed what it was invoked to
+  discard would be worse than one that failed.
 - **The sweep needs teaching or excluding.** `scripts/sweep.ts` replays cached
   bytes through `response.text()`, so a PDF article reports a permanent phantom
   diff. `plainTextShell` is the precedent for teaching it a non-HTML source.

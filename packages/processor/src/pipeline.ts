@@ -346,7 +346,12 @@ async function processOne(
             // resumes where the last run stopped instead of starting again at
             // page one (ADR 0026, and ADR 0008's reasoning applied a second
             // time). Gated on the same model, so changing it reconverts.
-            ...(await pdfCheckpointOption(article, config, force, log)),
+            cache: await loadPdfCheckpoint(
+              `${article.dirAbs}/${PDF_CACHE_FILE}`,
+              modelFor(config, "summary"),
+              force,
+              log,
+            ),
             ...(deps.fetchImpl !== undefined
               ? { fetchImpl: deps.fetchImpl }
               : {}),
@@ -636,61 +641,6 @@ async function markPending(
 /** Never fatal, for the same reason the discard is not: the article is already
  * written and recorded, and a checkpoint that cannot be saved only costs the
  * next re-clip its shortcut. */
-/**
- * The PDF conversion checkpoint, discarded first on a forced redo.
- *
- * `--force` is how the runbook says to retry a conversion that came out badly,
- * and resuming would make it a no-op: every batch is checkpointed, fallbacks
- * included, so a forced run would replay the very results being complained
- * about. Deleting it first is what makes the flag mean what it says.
- *
- * This is also the escape hatch that makes checkpointing a fallback safe. A
- * batch that spent all its attempts is recorded as settled so the document can
- * finish, and asking again is one documented command away.
- */
-/** The `cache` field, present only when there is one to pass — a forced run
- * whose checkpoint could not be removed deliberately has none. */
-async function pdfCheckpointOption(
-  article: DiscoveredArticle,
-  config: TiroConfig,
-  force: boolean,
-  log: (message: string) => void,
-): Promise<{ cache?: TranslationCache }> {
-  const cache = await loadPdfCheckpoint(
-    `${article.dirAbs}/${PDF_CACHE_FILE}`,
-    modelFor(config, "summary"),
-    force,
-    log,
-  );
-  return cache === undefined ? {} : { cache };
-}
-
-async function loadPdfCheckpoint(
-  pathAbs: string,
-  model: string,
-  force: boolean,
-  log: (message: string) => void,
-): Promise<TranslationCache | undefined> {
-  if (!force)
-    return loadTranslationCache(pathAbs, { target: "pdf", model }, log);
-
-  try {
-    await discardTranslationCache(pathAbs);
-  } catch (error) {
-    // Loading it now would make --force a no-op that reports success: the
-    // article would replay the very fallbacks being complained about and be
-    // marked processed without one batch being reconverted. Running with no
-    // checkpoint at all still does what was asked — every batch is sent again
-    // — and costs only this run's resumability, which is the lesser loss.
-    log(
-      `could not remove the PDF checkpoint ${pathAbs} (${String(error)}); ` +
-        "converting without one so --force still reconverts",
-    );
-    return undefined;
-  }
-  return loadTranslationCache(pathAbs, { target: "pdf", model }, log);
-}
-
 async function flushCheckpointQuietly(
   cache: TranslationCache,
   log: (message: string) => void,
@@ -711,6 +661,55 @@ async function discardCheckpointQuietly(
   } catch (error) {
     log(`could not remove checkpoint ${cacheAbs}: ${String(error)}`);
   }
+}
+
+/**
+ * The PDF conversion checkpoint, invalidated first on a forced redo.
+ *
+ * `--force` is how the runbook says to retry a conversion that came out badly,
+ * and resuming would make it a no-op: every batch is checkpointed, fallbacks
+ * included, so a forced run would replay the very results being complained
+ * about. Clearing it first is what makes the flag mean what it says, and it is
+ * what makes checkpointing a fallback safe in the first place.
+ *
+ * Deleting is the usual way and not the only one. When the file cannot be
+ * removed it is emptied in place instead, through the same atomic write every
+ * flush uses. Carrying on without a cache was worse than either: the stale file
+ * stayed where it was, so this run's batches had nowhere to checkpoint *and* a
+ * later ordinary run would reload exactly the results `--force` was invoked to
+ * be rid of.
+ *
+ * If neither works, the article is refused rather than converted. There is no
+ * honest third option — converting would either replay the stale results or
+ * silently drop this run's, and both end with the article marked processed over
+ * content nobody asked for. Refusing leaves it pending with the body it had.
+ */
+async function loadPdfCheckpoint(
+  pathAbs: string,
+  model: string,
+  force: boolean,
+  log: (message: string) => void,
+): Promise<TranslationCache> {
+  const header = { target: "pdf", model };
+  if (!force) return loadTranslationCache(pathAbs, header, log);
+
+  try {
+    await discardTranslationCache(pathAbs);
+    return await loadTranslationCache(pathAbs, header, log);
+  } catch (error) {
+    log(`could not remove the PDF checkpoint ${pathAbs}: ${String(error)}`);
+  }
+
+  const cache = await loadTranslationCache(pathAbs, header, log);
+  cache.retain([]);
+  await cache.flush();
+  if (cache.writeError !== undefined) {
+    throw new Error(
+      `the PDF checkpoint ${pathAbs} could not be removed or emptied ` +
+        `(${String(cache.writeError)}), so --force cannot reconvert this article`,
+    );
+  }
+  return cache;
 }
 
 /** Reconciliation is housekeeping and must never change an article's outcome,

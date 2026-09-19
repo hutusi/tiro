@@ -134,10 +134,11 @@ per batch, so a PDF too long for one run resumes rather than restarting. Batches
 that fell back to extracted text are recorded too — otherwise a document whose
 batches are slow *and* rejected stops at the same place every run and never
 finishes — which means a bad conversion will be replayed rather than retried.
-**`--force` discards the checkpoint first**, so it is the way to ask again;
-changing `llm.model` invalidates it too. If the file cannot be removed, the run
-converts with no checkpoint at all rather than quietly replaying it — `--force`
-always reconverts.
+**`--force` invalidates the checkpoint first**, so it is the way to ask again;
+changing `llm.model` invalidates it too. If the file cannot be removed it is
+emptied in place instead, and if neither works the article is refused rather
+than converted — `--force` never silently replays the results it was invoked to
+be rid of.
 
 `pdf.stage_timeout_ms` must be at least `llm.timeout_ms`, and the config is
 rejected otherwise: the stage refuses to begin a request it cannot finish
@@ -296,6 +297,7 @@ in the original is a formula in the translation.
 | PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
 | PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
 | PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |
+| PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/` | fix the permissions; the article keeps the body it had and stays pending |
 | PDF article stays unprocessed + run line `pdf stage timed out` | past `pdf.stage_timeout_ms` for this document — a slow server, or more batches than fit | nothing: the checkpoint holds what it finished and the next run resumes. Repeated on a very long PDF, raise `pdf.stage_timeout_ms` |
 | PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, so those kept the raw text layer | reprocess with `force` + slug, which discards the checkpoint and reconverts. Without `force` the run resumes those fallbacks as settled. If it repeats, the article is readable but unformatted in places |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |

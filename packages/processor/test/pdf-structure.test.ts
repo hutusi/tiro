@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DeadlineExceededError } from "../src/deadline.ts";
+import { DeadlineExceededError, StageTimeoutError } from "../src/deadline.ts";
 import type { ChatFn } from "../src/llm/client.ts";
 import {
   batchPages,
@@ -423,5 +423,45 @@ describe("restorePdfStructure and the request budget", () => {
       check: (need) => needed.push(need),
     });
     expect(needed).toEqual([0, 0]);
+  });
+});
+
+describe("restorePdfStructure and the stage cap inside a call", () => {
+  const opts = { model: "m", pages: ["a".repeat(80)], batchChars: 100 };
+
+  test("stops when one call outlives the stage", async () => {
+    // The check before a request cannot bound what happens after it: the chat
+    // client retries inside a single call and knows only the run's deadline,
+    // so a batch admitted with room to spare could return long after the cap.
+    const never: ChatFn = () => new Promise(() => {});
+    await expect(
+      restorePdfStructure({ ...opts, chat: never, remainingMs: () => 10 }),
+    ).rejects.toThrow(StageTimeoutError);
+  });
+
+  test("does not retry a stage timeout as though the request had failed", async () => {
+    // Retrying on a blown clock burns the very budget it is out of, and would
+    // turn the cap into a suggestion.
+    let calls = 0;
+    const never: ChatFn = () => {
+      calls += 1;
+      return new Promise(() => {});
+    };
+    await restorePdfStructure({
+      ...opts,
+      chat: never,
+      maxAttempts: 3,
+      remainingMs: () => 10,
+    }).catch(() => {});
+    expect(calls).toBe(1);
+  });
+
+  test("leaves a call alone while the stage still has time", async () => {
+    const result = await restorePdfStructure({
+      ...opts,
+      chat: goodChat,
+      remainingMs: () => 60_000,
+    });
+    expect(result.fallbacks).toBe(0);
   });
 });

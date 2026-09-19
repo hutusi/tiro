@@ -1452,6 +1452,51 @@ describe("runPipeline with a PDF stub", () => {
     expect(structureCalls).toBeGreaterThan(0);
   });
 
+  test("refuses a forced redo it cannot invalidate the checkpoint for", async () => {
+    // --force must never silently become a no-op. If the checkpoint can be
+    // neither removed nor emptied, converting would either replay the stale
+    // results or drop this run's, and both end with the article marked
+    // processed over content nobody asked for.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+    });
+    const before = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    ).body;
+
+    const articleDir = join(dir, "articles", slug);
+    chmodSync(articleDir, 0o555); // no unlink, and no rename in either
+    try {
+      const report = await runPipeline(
+        { vaultDir: dir, slug, force: true },
+        config,
+        {
+          ...deps,
+          fetchImpl: servePdf(pdf),
+        },
+      );
+      expect(report.errored.length).toBe(1);
+      expect(report.errored[0]?.error).toMatch(/--force cannot reconvert/);
+    } finally {
+      chmodSync(articleDir, 0o755);
+    }
+
+    // The body it could not honour the flag for survives. The frontmatter does
+    // change: a forced article that fails is returned to pending, which is the
+    // pipeline's own markPending path and the reason it can be retried at all.
+    const after = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(after.body).toBe(before);
+    expect(needsProcessing(after.frontmatter)).toBe(true);
+  });
+
   test("an ordinary reprocess resumes from the checkpoint", async () => {
     // The other half: without --force a second run must not re-send batches it
     // already has, which is what lets a long PDF finish across runs at all.

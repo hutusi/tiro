@@ -1,5 +1,5 @@
 import { extractText, getDocumentProxy } from "unpdf";
-import type { Deadline } from "./deadline.ts";
+import { type Deadline, StageTimeoutError } from "./deadline.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import {
   type PdfStructureOptions,
@@ -337,7 +337,7 @@ function stageGuard(stageTimeoutMs: number, run: Deadline) {
     check(needMs: number, what: string): void {
       run.check(needMs, what);
       if (endsAt - Date.now() < needMs) {
-        throw new Error(`pdf stage timed out before ${what}`);
+        throw new StageTimeoutError("pdf", what);
       }
     },
   };
@@ -409,6 +409,11 @@ export async function convertPdf(
     pages: stripRunningFurniture(pages),
     ...(batchChars !== undefined ? { batchChars } : {}),
     check: guard.check,
+    // The cap has to reach inside a single chat() call as well. The client
+    // retries within one call and knows only the run's deadline, so a batch
+    // admitted with budget to spare could still return long after the stage
+    // was over — the check before it cannot bound what happens after it.
+    remainingMs: guard.remainingMs,
     ...(cache !== undefined ? { cache } : {}),
     ...(requestMs !== undefined ? { requestMs } : {}),
     log,
