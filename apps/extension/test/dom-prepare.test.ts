@@ -2334,6 +2334,30 @@ describe("a footnote reference the page replaced with a button", () => {
     expect(md).toContain('Text<span id="fnref-1"></span>[1](#fn-1)');
   });
 
+  /**
+   * Being inside a footnotes region says nothing about *which* of a note's
+   * links is the way back. A note may link anywhere the article goes, and one
+   * pointing at a control turned that control's button into the note's reverse
+   * link — beside a real footnote that was marked, and repaired, correctly.
+   */
+  test("leaves a note's other links alone inside a footnotes region", () => {
+    const md = clipped(
+      '<p>Text<sup><button id="fnref-1">1</button></sup>.</p>' +
+        '<p>The sample runs here.</p><button id="run-example">Run example</button>' +
+        '<section class="footnotes"><ol><li id="fn-1"><p>' +
+        'To try it yourself, <a href="#run-example">jump to the example control</a>. ' +
+        '<a href="#fnref-1" data-footnote-backref>↩</a>' +
+        "</p></li></ol></section>",
+    );
+    // The footnote beside it still works — this must not be fixed by giving up.
+    expect(md).toContain('Text<span id="fnref-1"></span>[1](#fn-1)');
+    expect(md).not.toContain("[Run example](#fn-1)");
+    expect(md).not.toContain('<span id="run-example">');
+    expect(md.split("\n").map((line) => line.trim())).not.toContain(
+      "Run example",
+    );
+  });
+
   test("pairs two footnotes with their own notes", () => {
     const md = clipped(
       '<p>First<sup><button id="fnref-1">1</button></sup> and second<sup><button id="fnref-2">2</button></sup>.</p>' +

@@ -1757,6 +1757,25 @@ const FOOTNOTE_SECTION =
   '[data-footnotes], [role="doc-endnotes"], .footnotes, #footnotes';
 
 /**
+ * What a backref says when the markup says nothing about it.
+ *
+ * Return marks and nothing else, because telling one from a sentence is the
+ * whole job: a note may link anywhere the article goes — "jump to the example
+ * control" — and being inside a footnotes region says nothing about which of
+ * its links is the way back.
+ */
+const BACKREF_MARK = /^[\u21a9\u21b0\u21b1\u2191\u23ce\u2b90\u2303^«‹]$/;
+
+function looksLikeBackref(link: Element): boolean {
+  const text = (link.textContent ?? "")
+    // markdown-it and Pandoc write `↩︎` — the same arrow, with U+FE0E asking
+    // for its text presentation rather than the emoji one.
+    .replace(/[\ufe0e\ufe0f]/g, "")
+    .trim();
+  return BACKREF_MARK.test(text);
+}
+
+/**
  * Give a footnote reference back the `<a>` the page replaced it with.
  *
  * Sites increasingly enhance their footnotes into popovers or sidenotes, and
@@ -1801,12 +1820,16 @@ const FOOTNOTE_SECTION =
  * example` button, satisfies it exactly — and the repair then published that
  * button's label as a paragraph of its own, chrome Readability had correctly
  * deleted, with the step and the button linking circularly at each other. So
- * the page has to *say* these are footnotes: either the backref declares itself
- * (`FOOTNOTE_BACKREF`) or the note sits in a region that does
- * (`FOOTNOTE_SECTION`). Either alone is enough, which is what covers all four
- * generator families — Pandoc marks both ends, hand-written pages sometimes
- * mark only the link, and a bare `<a href="#ref">↩</a>` inside
- * `<section class="footnotes">` marks only the region.
+ * the page has to say so. The markup declaring the link a backref
+ * (`FOOTNOTE_BACKREF`) is enough on its own, and covers all four generator
+ * families. A footnotes region (`FOOTNOTE_SECTION`) is **not**, which cost a
+ * second review round: a note may link anywhere the article goes, and one
+ * saying "jump to the example control" turned that control's button into the
+ * note's reverse link — on a page whose real footnote was marked correctly and
+ * repaired correctly beside it. Being in the region says nothing about *which*
+ * of a note's links is the way back, so that path additionally requires the
+ * link to read as one (`looksLikeBackref`), which is how a hand-written
+ * `<section class="footnotes">` with a bare `↩` still works.
  *
  * Before `markInDocumentAnchors`, necessarily: that pass has to see this link
  * to count `#footnote-1` as referenced at all, and to mark the reference as the
@@ -1819,14 +1842,12 @@ function restoreFootnoteRefs(doc: Document): void {
     // bare "#" addresses the top of the page, and `ANCHOR_ID` is what this file
     // is willing to write into a public article.
     if (!href.startsWith("#") || href.length < 2) continue;
-    // The page must say these are footnotes; a link out of an identified list
-    // item is not on its own a backref. See the comment above.
-    if (
-      !backref.matches(FOOTNOTE_BACKREF) &&
-      backref.closest(FOOTNOTE_SECTION) === null
-    ) {
-      continue;
-    }
+    // The page must say this *link* is a backref — see the comment above. The
+    // markup saying so is enough on its own; the region saying so is not.
+    const declares = backref.matches(FOOTNOTE_BACKREF);
+    const marks =
+      backref.closest(FOOTNOTE_SECTION) !== null && looksLikeBackref(backref);
+    if (!declares && !marks) continue;
     let refId: string;
     try {
       refId = decodeURIComponent(href.slice(1));
