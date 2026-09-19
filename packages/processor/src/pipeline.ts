@@ -317,13 +317,13 @@ async function processOne(
             url: frontmatter.tiro.source_url ?? frontmatter.url,
             maxBytes: config.pdf.max_bytes,
             timeoutMs: config.pdf.timeout_ms,
-            // Clamped to what is left of the run, like the image stage: the
-            // stage's own cap bounds a healthy fetch, the deadline bounds a
-            // run that has already spent its budget (invariant 8).
-            stageTimeoutMs: Math.min(
-              config.pdf.stage_timeout_ms,
-              Math.max(0, deadline.remainingMs()),
-            ),
+            // Both clocks, handed over whole rather than pre-combined: the
+            // stage bounds this document, the run's budget bounds the job, and
+            // the stage has to be able to tell which one stopped it — one
+            // leaves the article pending as a failure, the other defers it with
+            // the run's work committed (invariant 8).
+            stageTimeoutMs: config.pdf.stage_timeout_ms,
+            deadline,
             maxPages: config.pdf.max_pages,
             minCharsPerPage: config.pdf.min_chars_per_page,
             chat: deps.chat,

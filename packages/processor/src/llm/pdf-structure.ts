@@ -1,3 +1,4 @@
+import { DeadlineExceededError } from "../deadline.ts";
 import type { ChatFn } from "./client.ts";
 
 /**
@@ -63,6 +64,14 @@ export interface PdfStructureOptions {
   batchChars?: number;
   /** Attempts per batch before falling back to the extracted text. */
   maxAttempts?: number;
+  /**
+   * Asked before each batch, and free to throw.
+   *
+   * The stage cannot police its own budget from in here — it does not know
+   * whether time ran out on the run or on the stage, and those want different
+   * outcomes — so the caller decides and this just stops.
+   */
+  check?: (needMs: number, what: string) => void;
   log?: (message: string) => void;
 }
 
@@ -127,6 +136,7 @@ export async function restorePdfStructure(
     pages,
     batchChars = DEFAULT_BATCH_CHARS,
     maxAttempts = 2,
+    check = () => {},
     log = () => {},
   } = options;
 
@@ -135,6 +145,10 @@ export async function restorePdfStructure(
   let fallbacks = 0;
 
   for (const [index, batch] of batches.entries()) {
+    // Before the request rather than after: a batch started with no budget
+    // left is one the chat client will refuse anyway, and stopping here leaves
+    // the batches already done for the caller to keep.
+    check(0, `pdf batch ${index + 1} of ${batches.length}`);
     let restored: string | null = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       let reply: string;
@@ -149,6 +163,11 @@ export async function restorePdfStructure(
           temperature: 0,
         });
       } catch (error) {
+        // A blown budget is not a batch that failed, and treating it as one is
+        // how a run that ran out of time produced a finished-looking article
+        // made mostly of fallbacks. It has to reach the pipeline, which defers
+        // the article with its work saved (invariant 8).
+        if (error instanceof DeadlineExceededError) throw error;
         log(
           `pdf batch ${index + 1} attempt ${attempt} failed: ${String(error)}`,
         );

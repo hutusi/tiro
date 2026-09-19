@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DeadlineExceededError } from "../src/deadline.ts";
 import type { ChatFn } from "../src/llm/client.ts";
 import {
   batchPages,
@@ -150,5 +151,59 @@ describe("restorePdfStructure", () => {
     };
     await restorePdfStructure({ ...base, chat });
     expect(temperature).toBe(0);
+  });
+});
+
+describe("restorePdfStructure and the run budget", () => {
+  const base = { model: "m", pages: [PAGE(1), PAGE(2)] };
+
+  test("lets a blown budget out rather than booking it as a failed batch", async () => {
+    // The bug this replaced: DeadlineExceededError was caught with everything
+    // else, so a run that ran out of time produced a finished-looking article
+    // made mostly of fallbacks — and marked it processed.
+    const chat: ChatFn = async () => {
+      throw new DeadlineExceededError("a chat request", -1);
+    };
+    await expect(restorePdfStructure({ ...base, chat })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+  });
+
+  test("still treats an ordinary provider error as a failed batch", async () => {
+    const chat: ChatFn = async () => {
+      throw new Error("502 upstream");
+    };
+    const result = await restorePdfStructure({ ...base, chat });
+    expect(result.fallbacks).toBe(1);
+  });
+
+  test("asks the caller before each batch", async () => {
+    const seen: string[] = [];
+    await restorePdfStructure({
+      ...base,
+      pages: ["a".repeat(80), "b".repeat(80), "c".repeat(80)],
+      batchChars: 100,
+      chat: goodChat,
+      check: (_need, what) => seen.push(what),
+    });
+    expect(seen).toHaveLength(3);
+    expect(seen[0]).toContain("batch 1 of 3");
+  });
+
+  test("stops where the caller says stop", async () => {
+    let calls = 0;
+    await expect(
+      restorePdfStructure({
+        ...base,
+        // Three batches, so there is a second one to be stopped before.
+        pages: ["a".repeat(80), "b".repeat(80), "c".repeat(80)],
+        batchChars: 100,
+        chat: goodChat,
+        check: () => {
+          calls += 1;
+          if (calls > 1) throw new DeadlineExceededError("the next batch", -1);
+        },
+      }),
+    ).rejects.toThrow(DeadlineExceededError);
   });
 });

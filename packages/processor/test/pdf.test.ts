@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { FetchLike } from "../src/llm/client.ts";
-import { extractPdfText, fetchPdf, stripRunningFurniture } from "../src/pdf.ts";
+import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
+import type { ChatFn, FetchLike } from "../src/llm/client.ts";
+import {
+  convertPdf,
+  extractPdfText,
+  fetchPdf,
+  stripRunningFurniture,
+} from "../src/pdf.ts";
 import { makePdf } from "./helpers.ts";
 
 const PROSE =
@@ -262,5 +268,74 @@ describe("stripRunningFurniture", () => {
     const pages = ["Header", "Header", "Header", `Header\n${body(4)}`];
     const out = stripRunningFurniture(pages);
     expect(out[3]).toContain("Discussion of");
+  });
+});
+
+describe("convertPdf and its two clocks", () => {
+  const chat: ChatFn = async (request) =>
+    request.messages.find((m) => m.role === "user")?.content ?? "";
+
+  const options = () => ({
+    url: "https://example.com/paper.pdf",
+    maxBytes: 25 * 1024 * 1024,
+    timeoutMs: 60_000,
+    maxPages: 200,
+    minCharsPerPage: 100,
+    allowPrivateHosts: true,
+    chat,
+    model: "m",
+    fetchImpl: (async () =>
+      new Response(makePdf([PROSE, PROSE]), {
+        headers: { "content-type": "application/pdf" },
+      })) as FetchLike,
+  });
+
+  test("converts a PDF within both budgets", async () => {
+    const result = await convertPdf({
+      ...options(),
+      stageTimeoutMs: 300_000,
+      deadline: createDeadline(300_000),
+    });
+    expect(result.totalPages).toBe(2);
+    expect(result.markdown).toContain("straightforward");
+  });
+
+  test("a blown run budget defers rather than failing the article", async () => {
+    // DeadlineExceededError is the pipeline's signal to leave the article
+    // pending *with the run's work committed*. Nothing in the stage may
+    // convert it into an ordinary failure.
+    await expect(
+      convertPdf({
+        ...options(),
+        stageTimeoutMs: 300_000,
+        deadline: createDeadline(-1),
+      }),
+    ).rejects.toThrow(DeadlineExceededError);
+  });
+
+  test("a blown stage cap is a fault about this document, not the run", async () => {
+    // The other clock, and deliberately not a DeadlineExceededError: the run
+    // is healthy, this PDF is the problem, and reporting it as a late run
+    // would put it in the log line that means "nothing is wrong".
+    const error = await convertPdf({
+      ...options(),
+      stageTimeoutMs: -1,
+      deadline: createDeadline(300_000),
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DeadlineExceededError);
+    expect(String(error)).toMatch(/pdf stage timed out/);
+  });
+
+  test("believes the run budget when both have expired", async () => {
+    // Order matters: a deferral that reported itself as a stage fault would
+    // book the article as failed and lose the reassuring outcome.
+    await expect(
+      convertPdf({
+        ...options(),
+        stageTimeoutMs: -1,
+        deadline: createDeadline(-1),
+      }),
+    ).rejects.toThrow(DeadlineExceededError);
   });
 });

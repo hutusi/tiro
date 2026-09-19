@@ -1,4 +1,5 @@
 import { extractText, getDocumentProxy } from "unpdf";
+import type { Deadline } from "./deadline.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import { restorePdfStructure } from "./llm/pdf-structure.ts";
 import {
@@ -261,11 +262,45 @@ export function stripRunningFurniture(pages: string[]): string[] {
   });
 }
 
-export interface PdfConversionOptions extends PdfFetchOptions, PdfTextOptions {
+export interface PdfConversionOptions
+  extends Omit<PdfFetchOptions, "stageTimeoutMs">,
+    PdfTextOptions {
   chat: ChatFn;
   model: string;
   batchChars?: number;
+  /** Bounds this stage: `pdf.stage_timeout_ms`. */
+  stageTimeoutMs: number;
+  /** The run's budget. Separate from the stage's, because the two mean
+   * different things when they expire — see `stageGuard`. */
+  deadline: Deadline;
   log?: (message: string) => void;
+}
+
+/**
+ * Two clocks, two outcomes.
+ *
+ * The run's budget expiring is an orderly stop: the pipeline defers the article
+ * and everything the run achieved still gets committed, so it must surface as a
+ * `DeadlineExceededError` and nothing here may turn it into anything else. The
+ * stage's own cap expiring is a fault about this document — a server trickling
+ * bytes, a pathological page count — and leaves the article pending as a
+ * failure rather than reporting the run as late.
+ *
+ * The run is checked first, which is what keeps the two apart once both have
+ * expired: the budget is the one that has to be believed.
+ */
+function stageGuard(stageTimeoutMs: number, run: Deadline) {
+  const endsAt = Date.now() + stageTimeoutMs;
+  return {
+    remainingMs: () =>
+      Math.max(0, Math.min(endsAt - Date.now(), run.remainingMs())),
+    check(needMs: number, what: string): void {
+      run.check(needMs, what);
+      if (endsAt - Date.now() < needMs) {
+        throw new Error(`pdf stage timed out before ${what}`);
+      }
+    },
+  };
 }
 
 export interface PdfConversion {
@@ -293,8 +328,26 @@ export interface PdfConversion {
 export async function convertPdf(
   options: PdfConversionOptions,
 ): Promise<PdfConversion> {
-  const { chat, model, batchChars, log = () => {}, ...rest } = options;
-  const bytes = await fetchPdf(rest);
+  const {
+    chat,
+    model,
+    batchChars,
+    stageTimeoutMs,
+    deadline,
+    log = () => {},
+    ...rest
+  } = options;
+  const guard = stageGuard(stageTimeoutMs, deadline);
+
+  guard.check(0, "fetching the PDF");
+  const bytes = await fetchPdf({
+    ...rest,
+    stageTimeoutMs: guard.remainingMs(),
+  });
+
+  // Extraction is the one CPU-bound step here and a long document is not free,
+  // so the clock is read across it too rather than only around the network.
+  guard.check(0, "reading the text layer");
   const { pages, totalPages, chars } = await extractPdfText(bytes, rest);
   log(`pdf: ${totalPages} page(s), ${chars} chars of text layer`);
 
@@ -303,6 +356,7 @@ export async function convertPdf(
     model,
     pages: stripRunningFurniture(pages),
     ...(batchChars !== undefined ? { batchChars } : {}),
+    check: guard.check,
     log,
   });
   log(
