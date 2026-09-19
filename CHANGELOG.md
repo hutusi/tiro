@@ -7,6 +7,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-19
+
 ### Fixed
 
 - **Emphasis in Chinese rendered as punctuation.** Half the library showed
@@ -46,7 +48,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   the targets something actually links to, and the reader reconciles them —
   scoped per pane, since the original and the translation share one document.
   Measured recovery on real pages: 9 of 9, 188 of 194, 34 of 34, 30 of 30
-  (ADR 0024). Existing articles need a re-clip to gain them.
+  (ADR 0024). A reference the page's own script had replaced with a button is
+  restored first — Readability deletes every `<button>`, which had been costing
+  such a page both its footnote marker and the note's way back. Existing
+  articles need a re-clip to gain any of this.
 - **Markdown files clip as markdown.** A `.md` served as plain text —
   `raw.githubusercontent.com`, GitLab, Codeberg, anywhere — used to arrive as a
   single code block: Chrome renders `text/plain` as a body of one `<pre>`, and
@@ -1024,7 +1029,8 @@ verified end to end with real articles in both languages.
 - CI and deploy workflows run with read-only tokens and without persisted
   git credentials.
 
-[Unreleased]: https://github.com/hutusi/tiro/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/hutusi/tiro/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/hutusi/tiro/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/hutusi/tiro/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/hutusi/tiro/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/hutusi/tiro/compare/v0.4.0...v0.5.0
