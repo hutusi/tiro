@@ -311,6 +311,79 @@ describe("failure markers", () => {
     expect(frontmatter.tiro.summary_failed).toBeUndefined();
     expect(frontmatter.category).toBe("ai");
   });
+
+  /**
+   * The bug this guards was measured, not feared: a backfill took one article
+   * from a 9-character summary to a 5-character one. Neither fallback route can
+   * see what it overwrites, so "keep the longest cut reply" means the longest
+   * of *this* run's attempts and nothing else.
+   */
+  test("a failed reprocess does not replace a good summary with a cut one", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, deps);
+    const good = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    ).frontmatter;
+    expect(good.tiro.summary_failed).toBeUndefined();
+
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: RAW_SLUG },
+      config,
+      {
+        ...deps,
+        chat: makeFakeChat({
+          summary: {
+            summary: "本文提出了三个论点，第一个是",
+            category: "ai",
+            tags: ["t"],
+          },
+        }),
+      },
+    );
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    // Still flagged — the run really did fail, and the article needs a look.
+    expect(report.summaryFailed).toEqual([RAW_SLUG]);
+    expect(frontmatter.tiro.summary_failed).toBe(true);
+    // But the reader keeps the finished summary rather than the fragment.
+    expect(frontmatter.summary).toBe(good.summary);
+    expect(frontmatter.summary).not.toBe("本文提出了三个论点，第一个是");
+    // The pair moves together (ADR 0016) rather than mixing two replies.
+    expect(frontmatter.summary_orig).toBe(good.summary_orig);
+  });
+
+  /**
+   * The other direction, and the one that keeps the guard from becoming a
+   * ratchet: when the run succeeds, this run's summary wins outright — a
+   * re-clip whose body changed must not be described by the old one.
+   */
+  test("a successful reprocess still replaces the existing summary", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: {
+          summary: "本文提出了三个论点，第一个是",
+          category: "ai",
+          tags: ["t"],
+        },
+      }),
+    });
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: RAW_SLUG },
+      config,
+      deps,
+    );
+    expect(report.summaryFailed).toEqual([]);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.summary).not.toBe("本文提出了三个论点，第一个是");
+    expect(frontmatter.tiro.summary_failed).toBeUndefined();
+  });
 });
 
 describe("the translated pair", () => {

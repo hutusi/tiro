@@ -20,7 +20,11 @@ import {
   type TranslationCache,
 } from "./llm/cache.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
-import { summarize } from "./llm/summarize.ts";
+import {
+  type SummaryResult,
+  summarize,
+  summaryIsFinished,
+} from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
@@ -75,6 +79,73 @@ export async function loadVaultConfig(vaultDir: string): Promise<TiroConfig> {
 
 /** Process every pending article in the vault. Each stage is idempotent, so
  * a crashed or retried run just continues where the marker scan says. */
+/**
+ * A failed summarization must not overwrite a better summary the article
+ * already had.
+ *
+ * Neither fallback route can see what it is replacing — `summarize` is handed a
+ * body, not a history — so both write their best effort over whatever was
+ * there. Measured, not feared: the backfill of 2026-09-19 took one article from
+ * a 9-character summary to a 5-character one, because "keep the longest cut
+ * reply" means the longest of *this* run's attempts. The re-clip path is the
+ * one that matters more, and it is the same bug: a complete summary replaced by
+ * a fragment for no reason but the model stopping that time, on an article
+ * whose body barely changed.
+ *
+ * Only ever consulted when this run failed, which is what keeps it from holding
+ * a stale summary in front of a good fresh one — the reason the derived fields
+ * are otherwise rebuilt from this run alone.
+ *
+ * Two clauses, each doing something different. A finished summary always beats
+ * a cut one, which covers the case worth the most. Between two cut summaries
+ * the longer wins, which is the measured regression — except that an excerpt
+ * never wins on length, because `summarize` has already ruled that a cut
+ * summary beats one: it is the model's reading of the article rather than the
+ * article's own first paragraph. A trailing ellipsis is `excerptFallback`'s
+ * signature and nothing else in the vault ends that way.
+ *
+ * The pair moves together (ADR 0016): `summary_orig` is the other half of the
+ * same reply, so keeping one and dropping the other would publish two halves of
+ * different answers. That does mean discarding a good fresh `summary_orig`
+ * beside a cut `summary` — accepted, because the alternative breaks the one
+ * thing that ADR promises about them.
+ *
+ * `summary_failed` stays set either way. The article still needs a human look,
+ * and the log line below is what tells this route from the other two.
+ */
+function keepBetterSummary(
+  produced: SummaryResult,
+  frontmatter: { summary?: string; summary_orig?: string },
+  log: (line: string) => void,
+): SummaryResult {
+  const existing = frontmatter.summary?.trim() ?? "";
+  if (existing === "") return produced;
+  if (!isBetterSummary(existing, produced.summary.trim())) return produced;
+  log(
+    `summary would have regressed; keeping the existing one (${existing.length} chars, was offered ${produced.summary.trim().length})`,
+  );
+  return {
+    ...produced,
+    summary: existing,
+    summaryOrig: frontmatter.summary_orig,
+  };
+}
+
+/** True when `candidate` is the one a reader is better served by. */
+function isBetterSummary(candidate: string, incumbent: string): boolean {
+  const candidateFinished = summaryIsFinished(candidate);
+  if (candidateFinished !== summaryIsFinished(incumbent)) {
+    return candidateFinished;
+  }
+  // Both cut. An excerpt is long by construction, so length alone would let it
+  // win against the model's own reading; it never does.
+  if (ENDS_IN_ELLIPSIS.test(candidate)) return false;
+  return candidate.length > incumbent.length;
+}
+
+/** `excerptFallback`'s signature; nothing model-written in the vault ends so. */
+const ENDS_IN_ELLIPSIS = /(?:\.{2,}|…+)["'」』”’）)】\]]?$/u;
+
 export async function runPipeline(
   options: PipelineOptions,
   config: TiroConfig,
@@ -273,7 +344,10 @@ async function processOne(
     cjkThreshold: config.translation.cjk_threshold,
     log,
   });
-  if (summary.failed) {
+  const chosen = summary.failed
+    ? keepBetterSummary(summary, frontmatter, log)
+    : summary;
+  if (chosen.failed) {
     report.summaryFailed.push(article.slug);
     // Deliberately says only *that* the summary needs a look, not why:
     // `summarize` has already logged the reason, and it is not always the
@@ -364,18 +438,18 @@ async function processOne(
   const updated = {
     ...previous,
     lang,
-    summary: summary.summary,
-    category: summary.category,
-    tags: summary.tags,
-    ...(summary.titleZh !== undefined ? { title_zh: summary.titleZh } : {}),
-    ...(summary.summaryOrig !== undefined
-      ? { summary_orig: summary.summaryOrig }
+    summary: chosen.summary,
+    category: chosen.category,
+    tags: chosen.tags,
+    ...(chosen.titleZh !== undefined ? { title_zh: chosen.titleZh } : {}),
+    ...(chosen.summaryOrig !== undefined
+      ? { summary_orig: chosen.summaryOrig }
       : {}),
     tiro: {
       ...previousTiro,
       processed_at: now().toISOString(),
       processor_version: PROCESSOR_VERSION,
-      ...(summary.failed ? { summary_failed: true } : {}),
+      ...(chosen.failed ? { summary_failed: true } : {}),
       ...(translationFailed ? { translation_failed: true } : {}),
     },
   };
