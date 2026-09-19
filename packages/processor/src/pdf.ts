@@ -1,0 +1,174 @@
+import { extractText, getDocumentProxy } from "unpdf";
+import type { FetchLike } from "./llm/client.ts";
+import {
+  fetchChecked,
+  type ResolveHost,
+  readBodyCapped,
+  resolveViaDns,
+  USER_AGENT,
+} from "./net-fetch.ts";
+
+/**
+ * Turning a clipped PDF stub into text the structure pass can work on.
+ *
+ * The extension cannot read a PDF — Chrome renders it in a plugin the DOM does
+ * not see — so it records a stub and this stage fetches the document itself
+ * (ADR 0026). Nothing binary is kept: the bytes are downloaded, read, and
+ * dropped, and the vault stores only what comes out the far end.
+ *
+ * Every refusal here is deliberate and none of them fails the run. A stage that
+ * throws leaves `tiro.processed_at` absent, which is precisely "still pending"
+ * (invariant 3), so a PDF that cannot be read today can be read by a later
+ * version without anything being re-clipped.
+ */
+
+/** What a PDF has to claim to be before 25 MB of it is pulled down.
+ *
+ * `application/octet-stream` is on the list because it is what a plain file
+ * download is routinely served as, and refusing it would refuse real documents.
+ * That laxity is affordable only because `PDF_MAGIC` below is checked against
+ * the bytes themselves — the content type decides whether to spend the
+ * download, the magic bytes decide whether it was a PDF. */
+const PDF_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "application/x-pdf",
+  "application/octet-stream",
+  "binary/octet-stream",
+]);
+
+/** Every PDF begins with this, by specification. The authoritative test: a
+ * content type is a claim by the server, this is a fact about the file. */
+const PDF_MAGIC = "%PDF-";
+
+export interface PdfFetchOptions {
+  url: string;
+  maxBytes: number;
+  timeoutMs: number;
+  /** Bounds the whole stage, so a slow server cannot outrun the run's budget
+   * (invariant 8). Re-read per redirect hop, like the image stage. */
+  stageTimeoutMs: number;
+  fetchImpl?: FetchLike;
+  resolveHost?: ResolveHost;
+  /** Test escape hatch: fixture servers listen on localhost. */
+  allowPrivateHosts?: boolean;
+}
+
+/** Download a PDF under the same guards the image stage uses. */
+export async function fetchPdf(options: PdfFetchOptions): Promise<Uint8Array> {
+  const {
+    url,
+    maxBytes,
+    timeoutMs,
+    stageTimeoutMs,
+    fetchImpl = fetch,
+    resolveHost = resolveViaDns,
+    allowPrivateHosts = false,
+  } = options;
+
+  const deadline = Date.now() + stageTimeoutMs;
+  const res = await fetchChecked(
+    url,
+    {
+      headers: { "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(Math.min(timeoutMs, stageTimeoutMs)),
+    },
+    fetchImpl,
+    allowPrivateHosts,
+    resolveHost,
+    () => Math.min(timeoutMs, Math.max(0, deadline - Date.now())),
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const contentType = res.headers.get("content-type");
+  const media = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!PDF_CONTENT_TYPES.has(media)) {
+    throw new Error(`not a PDF: ${contentType ?? "no content type"}`);
+  }
+  // Checked before the body is read so an oversized document costs one request
+  // rather than one download. A server that omits or lies about it is caught by
+  // readBodyCapped, which stops mid-stream.
+  const declared = Number(res.headers.get("content-length") ?? "0");
+  if (declared > maxBytes) throw new Error(`too large: ${declared} bytes`);
+
+  const bytes = await readBodyCapped(res, maxBytes);
+  const magic = new TextDecoder().decode(bytes.slice(0, PDF_MAGIC.length));
+  if (magic !== PDF_MAGIC) {
+    throw new Error(`not a PDF: begins ${JSON.stringify(magic)}`);
+  }
+  return bytes;
+}
+
+export interface PdfTextOptions {
+  maxPages: number;
+  /** The scanned-PDF gate. Averaged across the document rather than demanded of
+   * every page, so a paper carrying full-page figures still passes. */
+  minCharsPerPage: number;
+}
+
+export interface PdfText {
+  /** One entry per page, in reading order. */
+  pages: string[];
+  totalPages: number;
+  /** Non-whitespace characters found, the number the gate was applied to. */
+  chars: number;
+}
+
+/**
+ * Read a PDF's text layer, or refuse the document.
+ *
+ * **Consumes `bytes`.** pdf.js takes ownership of the underlying ArrayBuffer
+ * and detaches it, so after this returns the caller's view has length 0. That
+ * is fine for the one flow there is — fetch, read, drop, keep the Markdown —
+ * and copying 25 MB to defend a caller that does not exist would cost every
+ * article. Anything that needs the bytes afterwards must pass a copy.
+ *
+ * Refuses rather than returns something thin, because every caller downstream
+ * would have to make the same judgement with less information. The two
+ * refusals are different failures wearing the same shape:
+ *
+ * - **Too many pages.** Extraction is cheap per page but the structure pass
+ *   that follows is not, and a 600-page book would spend a whole run's budget
+ *   on one article. Refused rather than truncated: half a document filed as the
+ *   whole one is the silent kind of wrong, and nothing downstream could tell.
+ * - **Too little text.** A scanned page is an image and carries no text layer,
+ *   so it extracts to roughly nothing. Letting it through would produce an
+ *   empty body — exactly the empty article the clipper refuses on a PDF tab
+ *   today. OCR is out of scope (ADR 0026), so the honest answer is no.
+ */
+export async function extractPdfText(
+  bytes: Uint8Array,
+  options: PdfTextOptions,
+): Promise<PdfText> {
+  const { maxPages, minCharsPerPage } = options;
+
+  let doc: Awaited<ReturnType<typeof getDocumentProxy>>;
+  try {
+    doc = await getDocumentProxy(bytes);
+  } catch (error) {
+    throw new Error(`cannot read the PDF: ${String(error)}`);
+  }
+  // Asked before any text is pulled: the page count is in the catalogue, so
+  // refusing here costs nothing, while extracting first would spend the work
+  // this gate exists to avoid.
+  if (doc.numPages > maxPages) {
+    throw new Error(`too many pages: ${doc.numPages} (cap ${maxPages})`);
+  }
+
+  const { totalPages, text } = await extractText(doc, { mergePages: false });
+  const pages = (text as string[]).map((page) => page ?? "");
+
+  // Whitespace collapsed before counting, so a page of hard-wrapped blanks
+  // cannot pass a gate meant to measure content.
+  const chars = pages.reduce(
+    (total, page) => total + page.replace(/\s+/g, " ").trim().length,
+    0,
+  );
+  const perPage = totalPages === 0 ? 0 : chars / totalPages;
+  if (perPage < minCharsPerPage) {
+    throw new Error(
+      `no usable text layer: ${Math.round(perPage)} chars/page across ${totalPages} page(s), below ${minCharsPerPage} — a scanned PDF needs OCR, which Tiro does not do`,
+    );
+  }
+
+  return { pages, totalPages, chars };
+}
