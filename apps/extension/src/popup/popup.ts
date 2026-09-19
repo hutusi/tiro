@@ -680,9 +680,28 @@ async function main(): Promise<void> {
           clipperVersion: chrome.runtime.getManifest().version,
           clipperCommit: __CLIPPER_COMMIT__,
         };
+        /**
+         * A stub must not replace a body that is already there.
+         *
+         * A PDF clip carries no body and bets that the next processing run
+         * builds one. Written over a converted article that bet costs the
+         * article: if the fetch then fails, or the source has 404'd since, the
+         * Markdown is gone from the vault's current state and this stage
+         * cannot regenerate it — unlike an HTML re-clip, which replaces
+         * content with content. So the old body rides along until a
+         * conversion actually succeeds, and a failed reconversion costs
+         * freshness instead (ADR 0026).
+         *
+         * Read from the same lookup `unlisted` uses, and carried on the same
+         * principle: a re-clip rebuilds index.md from scratch, so anything it
+         * cannot regenerate has to be carried or it is dropped.
+         */
+        const carryBody = (found: typeof existing) =>
+          stub && found !== null ? { markdown: found.body } : {};
         const existing = await findExistingIndex(config, slug);
         const file = await buildClipFile({
           ...clip,
+          ...carryBody(existing),
           unlisted: existing?.unlisted,
         });
         const path = file.path;
@@ -700,6 +719,7 @@ async function main(): Promise<void> {
             const again = await findExistingIndex(config, slug);
             const rebuilt = await buildClipFile({
               ...clip,
+              ...carryBody(again),
               unlisted: again?.unlisted,
             });
             return {

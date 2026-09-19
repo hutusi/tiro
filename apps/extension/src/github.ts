@@ -78,6 +78,21 @@ export interface ExistingIndex {
    * dropped and the article would silently rejoin the public library
    * (ADR 0017). False when the content could not be read — see below. */
   unlisted: boolean;
+  /**
+   * The body of the article being overwritten.
+   *
+   * Only a PDF re-clip reads it, and for that one it is load-bearing: a PDF is
+   * clipped as a stub with no body, so writing the stub over a converted
+   * article would replace real Markdown with nothing and bet that the next
+   * processing run rebuilds it. If the fetch then fails — or the source has
+   * 404'd since — the article is simply gone from the vault's current state.
+   * Carrying it forward means a failed reconversion costs freshness rather
+   * than content (ADR 0026).
+   *
+   * Empty when the article could not be read, which is the same conservative
+   * answer `unlisted` gives there.
+   */
+  body: string;
 }
 
 /** The inverse of `encodeBase64Utf8`, for content GitHub hands back. */
@@ -103,19 +118,6 @@ function decodeBase64Utf8(content: string): string {
  * either read fails the error propagates, because overwriting an article whose
  * visibility is unknown is the one outcome worth failing for.
  */
-async function readUnlisted(
-  config: TiroExtensionConfig,
-  path: string,
-  file: { sha: string; content?: string; encoding?: string },
-  fetchImpl: FetchLike,
-): Promise<boolean> {
-  const inline =
-    file.encoding === "base64" && file.content !== undefined
-      ? file.content
-      : await fetchBlobContent(config, path, file.sha, fetchImpl);
-  return readsAsUnlisted(path, decodeBase64Utf8(inline));
-}
-
 function readsAsUnlisted(path: string, text: string): boolean {
   const frontmatter = readFrontmatterLoose(text);
   if (frontmatter.kind === "unreadable") {
@@ -195,11 +197,33 @@ export async function findExistingIndex(
     content?: string;
     encoding?: string;
   };
+  // Decoded once and read twice: both answers come from the same bytes, and
+  // fetching them again for the second would double a request on every clip.
+  const text = decodeBase64Utf8(
+    file.encoding === "base64" && file.content !== undefined
+      ? file.content
+      : await fetchBlobContent(config, path, file.sha, fetchImpl),
+  );
   return {
     path,
     sha: file.sha,
-    unlisted: await readUnlisted(config, path, file, fetchImpl),
+    unlisted: readsAsUnlisted(path, text),
+    body: bodyOf(text),
   };
+}
+
+/** The article's body — whatever follows the frontmatter fence.
+ *
+ * Deliberately not `parseArticle`: that validates against the schema and
+ * throws, and this is called on an article that may predate any part of the
+ * current contract. A body that cannot be located reads as empty, which is the
+ * same answer as "there was no body", and both are safe here — the caller only
+ * ever uses it to avoid replacing something with nothing. */
+function bodyOf(text: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text);
+  return match === null
+    ? text
+    : text.slice(match[0].length).replace(/^\n+/, "");
 }
 
 export interface PutFileOptions {
