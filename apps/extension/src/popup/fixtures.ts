@@ -38,6 +38,7 @@ const base: PopupState = {
   fetchOffered: false,
   fetching: false,
   note: null,
+  pdfStub: false,
   links: null,
 };
 
@@ -78,9 +79,8 @@ export function fixtures(m: Messages): Record<string, PopupState> {
     },
     pdf: {
       ...base,
-      phase: "blocked",
       preview: null,
-      problem: { text: m.cannotClipPdf, error: true },
+      pdfStub: true,
     },
     "arxiv-offer": {
       ...base,

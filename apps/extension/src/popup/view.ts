@@ -68,6 +68,17 @@ export interface PopupState {
   /** A note that outlives any one body: a declined permission, a failed
    * fetch, an abstract-only paper. */
   note: string | null;
+  /**
+   * The tab is a PDF with no HTML twin, so Clip commits a stub and the body is
+   * built during processing (ADR 0026).
+   *
+   * Its own flag rather than a `preview === null` inference: a null preview is
+   * also what a page still being read looks like, and the two must not say the
+   * same thing. What this changes is the sentence — the reader is agreeing to
+   * an article that will not look like a page clip, and the button should not
+   * claim otherwise.
+   */
+  pdfStub: boolean;
   links: PopupLinks | null;
 }
 
@@ -222,9 +233,11 @@ export function popupView(s: PopupState, m: Messages): PopupView {
             : m.labelSavedOn(clippedOn),
         message: s.gated
           ? (source?.offer ?? null)
-          : clippedOn === null
-            ? m.readyToClip
-            : m.alreadyClipped(clippedOn),
+          : s.pdfStub
+            ? m.pdfWillBeConverted
+            : clippedOn === null
+              ? m.readyToClip
+              : m.alreadyClipped(clippedOn),
         clip: {
           visible: true,
           enabled: s.configured && !s.gated,

@@ -287,6 +287,11 @@ async function main(): Promise<void> {
     const state: PopupState = {
       phase: setupBlocked || refusal !== null ? "blocked" : phase,
       configured,
+      // True only where the tab's PDF is the document: an arXiv PDF has an
+      // HTML twin one click away, and offering to stub it would commit the
+      // lesser body under the paper's own slug — the overwrite ADR 0023's
+      // arbitration exists to prevent.
+      pdfStub: result?.pdfViewer === true && source === null,
       preview:
         result === null || result.pdfViewer
           ? null
@@ -372,16 +377,27 @@ async function main(): Promise<void> {
   function showPayload(payload: ClipResultMessage["payload"]): void {
     if (committing) return;
     result = payload;
-    // A PDF has nothing to preview and nothing to commit, so it stops here
-    // whatever the configuration says: the button is never enabled. Before
-    // this the readability warning appeared but the button did too, and an
-    // empty article with `readability_failed: true` could be committed. On an
-    // arXiv PDF it is not a dead end — the fetch button is already on screen.
+    // A PDF still has nothing to *preview* — its text is behind a plugin the
+    // DOM cannot see — but it now has something to commit: a stub the
+    // processor converts from the document's text layer (ADR 0026).
+    //
+    // Which of the two happens depends on whether a publisher offers an HTML
+    // twin. Where one does, the fetch offer stands and the button stays shut,
+    // because stubbing an arXiv PDF would file the lesser body under the
+    // paper's own slug — the overwrite ADR 0023's arbitration exists to
+    // prevent, and the reason this is not simply "PDFs are clippable now".
+    // Where none does, the stub is the best there is, and refusing it was only
+    // ever a statement about the extension's reach.
     if (payload.pdfViewer) {
-      block(
-        source === null ? m.cannotClipPdf : m.fetchSources[source.kind].offer,
-        source === null,
-      );
+      if (source !== null) {
+        block(m.fetchSources[source.kind].offer, false);
+        return;
+      }
+      // `ready` with no preview: the sentence comes from `pdfStub`, which says
+      // plainly that the body arrives later and without figures.
+      phase = "ready";
+      problem = null;
+      render();
       return;
     }
     // The whole point of the identity rule is that this article is the paper.
@@ -643,15 +659,23 @@ async function main(): Promise<void> {
         // read the old article's `unlisted` flag before it rebuilds `index.md`
         // over it (ADR 0017).
         const slug = await slugForUrl(payload.url);
+        // A PDF tab commits a stub. Readability's reading of an <embed> is not
+        // a body worth keeping, and the flags that describe one would be
+        // claims about text nothing here has seen: `readability_failed` warns
+        // about a raw body whose URLs were never absolutized, and `has_math`
+        // promises an escaping pass that never ran (the reasoning ADR 0023
+        // clause 10 sets out). The excerpt and author go for the same reason.
+        const stub = payload.pdfViewer;
         const clip = {
           url: payload.url,
           sourceUrl: from,
           title: payload.title,
-          markdown: payload.markdown,
-          excerpt: payload.excerpt,
-          author: payload.author,
-          readabilityFailed: payload.readabilityFailed,
-          hasMath: payload.hasMath,
+          markdown: stub ? "" : payload.markdown,
+          excerpt: stub ? undefined : payload.excerpt,
+          author: stub ? undefined : payload.author,
+          readabilityFailed: stub ? undefined : payload.readabilityFailed,
+          hasMath: stub ? undefined : payload.hasMath,
+          ...(stub ? { sourceMedia: "pdf" as const } : {}),
           clippedAt: nowIso,
           clipperVersion: chrome.runtime.getManifest().version,
           clipperCommit: __CLIPPER_COMMIT__,

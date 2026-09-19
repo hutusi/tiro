@@ -41,6 +41,16 @@ export interface ClipInput {
    * it an input is what lets this function be tested without a build.
    */
   clipperCommit?: string;
+  /**
+   * The document is a PDF, so this clip is a stub: identity and title, no body.
+   *
+   * The extension cannot read a PDF — Chrome renders it in a plugin the DOM
+   * does not see — so the body is built by the processor, which fetches the
+   * document and reads its text layer (ADR 0026). Recorded rather than left
+   * implicit because nothing downstream could infer it: an empty body is also
+   * what a failed clip looks like, and a `.pdf` URL proves nothing either way.
+   */
+  sourceMedia?: "pdf";
   /** Carried over from the article this clip overwrites, when it was unlisted
    * (ADR 0017). Nothing here originates it — a re-clip rebuilds the file, and
    * without this the flag would be dropped and a deliberately hidden article
@@ -96,6 +106,9 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       // the field's presence always means "read from somewhere else".
       ...(input.sourceUrl !== undefined && input.sourceUrl !== url
         ? { source_url: input.sourceUrl }
+        : {}),
+      ...(input.sourceMedia !== undefined
+        ? { source_media: input.sourceMedia }
         : {}),
     },
   });
