@@ -111,6 +111,12 @@ time the article is processed.
   floor from falling through entirely; it does not raise the ceiling.
 - **The extension must not ship before the converter.** A stub nothing can
   process is an article pending forever, indistinguishable from queue backlog.
+- **Some running heads survive the strip.** Where extraction fuses one to text
+  baked into a figure — on three of Adam's fifteen pages the ICLR head comes out
+  joined to a chart's axis ticks — the line no longer matches and is kept.
+  Matching on a prefix would catch them, and would also license deleting the
+  start of any line that begins like a header, across every document. Three
+  noise lines is the cheaper side of that trade.
 - **The sweep needs teaching or excluding.** `scripts/sweep.ts` replays cached
   bytes through `response.text()`, so a PDF article reports a permanent phantom
   diff. `plainTextShell` is the precedent for teaching it a non-HTML source.

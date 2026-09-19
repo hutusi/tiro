@@ -233,6 +233,29 @@ describe("stripRunningFurniture", () => {
     expect(stripRunningFurniture(pages)[0]).toContain(long);
   });
 
+  test("leaves a running head that extraction merged with figure text", () => {
+    // Measured on a real paper: on three of Adam's fifteen pages the ICLR
+    // running head comes out fused to a chart's axis ticks
+    // ("...at ICLR 20150 5 10 15 20 25"), so its key differs and it survives
+    // while the other twelve are dropped.
+    //
+    // Pinned rather than fixed. Matching on a prefix would catch these three
+    // and would also license deleting the start of any line that happens to
+    // begin like a header — real content, across the whole corpus, silently.
+    // Three noise lines in one document is the cheaper side of that trade
+    // (ADR 0023's asymmetry), and the model pass is not given deletion either.
+    const head = "Published as a conference paper at ICLR 2015";
+    const pages = [
+      `${head}\n${body(1)}`,
+      `${head}\n${body(2)}`,
+      `${head}\n${body(3)}`,
+      `${head}0 5 10 15 20 25\n${body(4)}`,
+    ];
+    const out = stripRunningFurniture(pages);
+    expect(out[0]).not.toContain(head);
+    expect(out[3]).toContain(head);
+  });
+
   test("does not empty a one-line page by counting it twice", () => {
     // Its only line is both the first and the last non-empty one, so an
     // unguarded rule would drop it as a header and again as a footer.
