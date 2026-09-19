@@ -1735,6 +1735,28 @@ const TEXT_HOST: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * A link that says it is a footnote's way back to its reference.
+ *
+ * Four spellings, one per generator family that ships one:
+ * `data-footnote-backref` (GFM, and so GitHub, Hugo and remark-gfm),
+ * `class="footnote-backref"` (markdown-it), `class="footnote-back"
+ * role="doc-backlink"` (Pandoc), and `rev="footnote"`, the HTML4 convention
+ * hand-written pages still use.
+ */
+const FOOTNOTE_BACKREF = [
+  "a[data-footnote-backref]",
+  'a[rev="footnote"]',
+  'a[role="doc-backlink"]',
+  'a[class~="footnote-backref"]',
+  'a[class~="footnote-back"]',
+  'a[class~="footnote-return"]',
+].join(",");
+
+/** A region that says the notes inside it are footnotes. */
+const FOOTNOTE_SECTION =
+  '[data-footnotes], [role="doc-endnotes"], .footnotes, #footnotes';
+
+/**
  * Give a footnote reference back the `<a>` the page replaced it with.
  *
  * Sites increasingly enhance their footnotes into popovers or sidenotes, and
@@ -1772,8 +1794,19 @@ const TEXT_HOST: ReadonlySet<string> = new Set([
  * reference produces no markdown, so repairing it buys nothing (`producesLink`
  * draws the same line); a reference holding a link would become an `<a>` inside
  * an `<a>`, which markdown cannot express and which is why `anchorReplacement`
- * emits a span; and requiring the backref to sit in an *identified* list item
- * is what keeps this off a page that merely happens to link at a button.
+ * emits a span.
+ *
+ * **Reciprocity alone is not enough to know a footnote, which cost a review
+ * round.** A numbered tutorial whose steps carry ids, linking at a `Run
+ * example` button, satisfies it exactly — and the repair then published that
+ * button's label as a paragraph of its own, chrome Readability had correctly
+ * deleted, with the step and the button linking circularly at each other. So
+ * the page has to *say* these are footnotes: either the backref declares itself
+ * (`FOOTNOTE_BACKREF`) or the note sits in a region that does
+ * (`FOOTNOTE_SECTION`). Either alone is enough, which is what covers all four
+ * generator families — Pandoc marks both ends, hand-written pages sometimes
+ * mark only the link, and a bare `<a href="#ref">↩</a>` inside
+ * `<section class="footnotes">` marks only the region.
  *
  * Before `markInDocumentAnchors`, necessarily: that pass has to see this link
  * to count `#footnote-1` as referenced at all, and to mark the reference as the
@@ -1786,6 +1819,14 @@ function restoreFootnoteRefs(doc: Document): void {
     // bare "#" addresses the top of the page, and `ANCHOR_ID` is what this file
     // is willing to write into a public article.
     if (!href.startsWith("#") || href.length < 2) continue;
+    // The page must say these are footnotes; a link out of an identified list
+    // item is not on its own a backref. See the comment above.
+    if (
+      !backref.matches(FOOTNOTE_BACKREF) &&
+      backref.closest(FOOTNOTE_SECTION) === null
+    ) {
+      continue;
+    }
     let refId: string;
     try {
       refId = decodeURIComponent(href.slice(1));
@@ -1801,7 +1842,10 @@ function restoreFootnoteRefs(doc: Document): void {
     const reference = doc.getElementById(refId);
     if (reference === null) continue;
     if (reference.tagName.toUpperCase() !== "BUTTON") continue;
-    if ((reference.textContent ?? "").trim() === "") continue;
+    // `producesLink`, not a text test: this file already has one definition of
+    // "will this still be a link once Turndown is done", and an image-only
+    // reference is exactly the shape the two disagree about.
+    if (!producesLink(reference)) continue;
     if (reference.querySelector("a") !== null) continue;
     const link = doc.createElement("a");
     link.setAttribute("id", refId);

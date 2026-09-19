@@ -2265,6 +2265,75 @@ describe("a footnote reference the page replaced with a button", () => {
     );
   });
 
+  /**
+   * A reference whose content is an image, which a text test calls empty and
+   * `producesLink` does not. Turndown renders it as a link around an image, so
+   * the un-enhanced page publishes it; refusing here lost the picture as well
+   * as the link.
+   */
+  test("an image-only reference clips like the page before its script ran", () => {
+    const picture = '<img src="https://x.test/m.png" alt="note 1">';
+    const withRef = (reference: string) =>
+      `<p>Text<sup>${reference}</sup>.</p>` + notes(note("fn-1", "fnref-1"));
+    const md = clipped(withRef(`<button id="fnref-1">${picture}</button>`));
+    expect(md).toContain("[![note 1](https://x.test/m.png)](#fn-1)");
+    expect(md).toBe(
+      clipped(withRef(`<a id="fnref-1" href="#fn-1">${picture}</a>`)),
+    );
+  });
+
+  /**
+   * The page has to say these are footnotes. Reciprocity through an identified
+   * list item is not that: a numbered tutorial linking at a `Run example`
+   * button matches it exactly, and the repair then published the button's
+   * label as a paragraph of its own — chrome Readability had deleted — with
+   * the step and the button pointing circularly at each other.
+   */
+  test("leaves an ordinary list link at a button alone", () => {
+    const md = clipped(
+      '<ol><li id="step-1">Open the editor and <a href="#run-1">Run example</a> when ready.</li></ol>' +
+        '<p>The sample runs here.</p><button id="run-1">Run example</button>',
+    );
+    // The page's own `[Run example](#run-1)` stays exactly as it was, dead
+    // target and all. What must not happen is the repair acting on it: no
+    // link back to the step, no anchor on either end, and above all no
+    // paragraph made out of the button Readability deleted.
+    expect(md).not.toContain("](#step-1)");
+    expect(md).not.toContain("<span id=");
+    expect(md.split("\n").map((line) => line.trim())).not.toContain(
+      "Run example",
+    );
+  });
+
+  /**
+   * The four generator families that ship a backref, plus the case where only
+   * the region is marked. Either signal alone has to be enough: Pandoc marks
+   * both ends, hand-written pages sometimes mark only the link, and a bare
+   * `↩` inside `<section class="footnotes">` marks only the region.
+   */
+  test.each([
+    [
+      "GFM, GitHub and Hugo",
+      '<a href="#fnref-1" data-footnote-backref>↩</a>',
+      false,
+    ],
+    ["markdown-it", '<a href="#fnref-1" class="footnote-backref">↩︎</a>', false],
+    [
+      "Pandoc",
+      '<a href="#fnref-1" class="footnote-back" role="doc-backlink">↩︎</a>',
+      false,
+    ],
+    ["the HTML4 convention", '<a href="#fnref-1" rev="footnote">↩</a>', false],
+    ["a marked region alone", '<a href="#fnref-1">↩</a>', true],
+  ])("repairs a reference for %s", (_name, backref, inSection) => {
+    const list = `<ol><li id="fn-1"><p>Note. ${backref}</p></li></ol>`;
+    const md = clipped(
+      '<p>Text<sup><button id="fnref-1">1</button></sup>.</p>' +
+        (inSection ? `<section class="footnotes">${list}</section>` : list),
+    );
+    expect(md).toContain('Text<span id="fnref-1"></span>[1](#fn-1)');
+  });
+
   test("pairs two footnotes with their own notes", () => {
     const md = clipped(
       '<p>First<sup><button id="fnref-1">1</button></sup> and second<sup><button id="fnref-2">2</button></sup>.</p>' +
