@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { FetchLike } from "../src/llm/client.ts";
-import { extractPdfText, fetchPdf } from "../src/pdf.ts";
+import { extractPdfText, fetchPdf, stripRunningFurniture } from "../src/pdf.ts";
 
 /**
  * Build a structurally valid PDF with one text run per page.
@@ -224,5 +224,78 @@ describe("fetchPdf", () => {
         fetchImpl,
       }),
     ).rejects.toThrow(/non-public host/);
+  });
+});
+
+describe("stripRunningFurniture", () => {
+  // Genuinely distinct per page, not just differing by a number: digit runs are
+  // normalised, so "Body text for page 1/2/3" would itself tally as one
+  // repeated line and be dropped as a footer. That is the rule working — it is
+  // how "Page 3 of 15" is matched — but it makes uniform test bodies useless.
+  const WORDS = [
+    "gradients",
+    "estimates",
+    "objectives",
+    "parameters",
+    "moments",
+  ];
+  const body = (n: number) =>
+    `Discussion of ${WORDS[n % WORDS.length]} in a sentence with enough substance.`;
+
+  test("drops a header repeated across the document", () => {
+    const pages = [1, 2, 3, 4].map(
+      (n) => `Published as a conference paper at ICLR 2015\n${body(n)}`,
+    );
+    const out = stripRunningFurniture(pages);
+    expect(out.every((p) => !p.includes("ICLR 2015"))).toBe(true);
+    expect(out[0]).toContain("Discussion of");
+  });
+
+  test("treats page numbers as one footer, not four different ones", () => {
+    // The whole reason digit runs are normalised: "2", "3", "4" are the same
+    // piece of furniture and only reach the threshold when counted together.
+    const pages = [2, 3, 4, 5].map((n) => `${body(n)}\n${n}`);
+    const out = stripRunningFurniture(pages);
+    expect(out.every((p) => /\n\d+$/.test(p))).toBe(false);
+  });
+
+  test("matches a numbered footer across its varying number", () => {
+    const pages = [1, 2, 3, 4].map((n) => `${body(n)}\nPage ${n} of 4`);
+    const out = stripRunningFurniture(pages);
+    expect(out.every((p) => !p.includes("Page "))).toBe(true);
+  });
+
+  test("leaves a line that recurs on only some pages", () => {
+    // Below the share this is a section label that happens to repeat, and a
+    // false positive costs real content.
+    const pages = [
+      `Methods\n${body(1)}`,
+      `Methods\n${body(2)}`,
+      body(3),
+      body(4),
+      body(5),
+    ];
+    expect(stripRunningFurniture(pages)[0]).toContain("Methods");
+  });
+
+  test("leaves a short document alone", () => {
+    // Two pages sharing a line is a coincidence, not furniture.
+    const pages = [`Header\n${body(1)}`, `Header\n${body(2)}`];
+    expect(stripRunningFurniture(pages)).toEqual(pages);
+  });
+
+  test("leaves a long repeated line alone", () => {
+    // A repeated sentence is content; only short lines are furniture.
+    const long = `A sentence far too long to be a running head, repeated on every page of this document because the layout put it there.`;
+    const pages = [1, 2, 3, 4].map((n) => `${long}\n${body(n)}`);
+    expect(stripRunningFurniture(pages)[0]).toContain(long);
+  });
+
+  test("does not empty a one-line page by counting it twice", () => {
+    // Its only line is both the first and the last non-empty one, so an
+    // unguarded rule would drop it as a header and again as a footer.
+    const pages = ["Header", "Header", "Header", `Header\n${body(4)}`];
+    const out = stripRunningFurniture(pages);
+    expect(out[3]).toContain("Discussion of");
   });
 });

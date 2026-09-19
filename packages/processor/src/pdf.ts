@@ -172,3 +172,90 @@ export async function extractPdfText(
 
   return { pages, totalPages, chars };
 }
+
+/** A page's running header or footer, normalised so that "Page 3 of 15" and
+ * "Page 4 of 15" are recognised as the same furniture. Digit runs become `#`
+ * for that reason; nothing else about the line is touched, so two genuinely
+ * different lines never collide. */
+function furnitureKey(line: string): string {
+  return line.replace(/\s+/g, " ").trim().replace(/\d+/g, "#");
+}
+
+/** How much of the document a line must appear on before it is furniture
+ * rather than content. Below this a repeated line is more likely a section
+ * label that happens to recur. */
+const FURNITURE_SHARE = 0.6;
+
+/** Longer than this and it is a sentence that repeated, not a running head. */
+const FURNITURE_MAX_CHARS = 100;
+
+/**
+ * Drop the running headers and footers a PDF repeats on every page.
+ *
+ * Done here, deterministically, rather than asked of the model. The model
+ * would have to be told to delete things, and a model licensed to delete
+ * deletes more than furniture — whereas "this exact line, modulo its page
+ * number, appears at the top of eleven of fifteen pages" is a fact the text
+ * already contains. It is also the artifact that most reliably survives
+ * extraction: `Published as a conference paper at ICLR 2015` on all fifteen.
+ *
+ * Deliberately narrow. Only the first and last non-empty line of a page are
+ * candidates, only on documents long enough for repetition to mean something,
+ * and only when the line is short. A false positive costs one line of content,
+ * so the rule errs toward leaving things alone.
+ */
+export function stripRunningFurniture(pages: string[]): string[] {
+  // Two pages repeating a line is a coincidence; the share below cannot
+  // distinguish furniture from content until there are a few pages.
+  if (pages.length < 3) return pages;
+
+  const split = pages.map((page) => page.split("\n"));
+  const firstIndex = split.map((lines) =>
+    lines.findIndex((line) => line.trim() !== ""),
+  );
+  const lastIndex = split.map((lines) => {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      if ((lines[i] ?? "").trim() !== "") return i;
+    }
+    return -1;
+  });
+
+  const tally = (indexes: number[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    indexes.forEach((index, page) => {
+      if (index < 0) return;
+      const line = split[page]?.[index] ?? "";
+      if (line.trim().length > FURNITURE_MAX_CHARS) return;
+      const key = furnitureKey(line);
+      if (key === "") return;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return counts;
+  };
+
+  const threshold = pages.length * FURNITURE_SHARE;
+  const headers = tally(firstIndex);
+  const footers = tally(lastIndex);
+
+  return split.map((lines, page) => {
+    const drop = new Set<number>();
+    const head = firstIndex[page] ?? -1;
+    const foot = lastIndex[page] ?? -1;
+    if (
+      head >= 0 &&
+      (headers.get(furnitureKey(lines[head] ?? "")) ?? 0) >= threshold
+    ) {
+      drop.add(head);
+    }
+    // A one-line page would otherwise have its only line counted as both a
+    // header and a footer, and dropping it twice is still dropping the page.
+    if (
+      foot >= 0 &&
+      foot !== head &&
+      (footers.get(furnitureKey(lines[foot] ?? "")) ?? 0) >= threshold
+    ) {
+      drop.add(foot);
+    }
+    return lines.filter((_, i) => !drop.has(i)).join("\n");
+  });
+}
