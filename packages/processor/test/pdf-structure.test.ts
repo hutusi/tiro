@@ -258,7 +258,8 @@ describe("restorePdfStructure and the checkpoint", () => {
     const cache = fakeCache();
     await restorePdfStructure({ ...opts, chat: goodChat, cache });
     expect(cache.store.size).toBe(3);
-    expect(cache.flushes).toBe(3);
+    // Three per-batch flushes, plus the one that persists the final prune.
+    expect(cache.flushes).toBe(4);
   });
 
   test("does not checkpoint a fallback", async () => {
@@ -275,6 +276,22 @@ describe("restorePdfStructure and the checkpoint", () => {
     const cache = fakeCache({ "an old batch": "from a previous version" });
     await restorePdfStructure({ ...opts, chat: goodChat, cache });
     expect(cache.retained).toEqual(threePages);
+  });
+
+  test("writes the prune to disk rather than only to memory", async () => {
+    // retain() without a flush left the file holding every batch of every
+    // version the document had ever had.
+    const cache = fakeCache();
+    let flushesAtRetain = -1;
+    const watched = {
+      ...cache,
+      retain: (keys: readonly string[]) => {
+        flushesAtRetain = cache.flushes;
+        cache.retain(keys);
+      },
+    };
+    await restorePdfStructure({ ...opts, chat: goodChat, cache: watched });
+    expect(cache.flushes).toBeGreaterThan(flushesAtRetain);
   });
 
   test("does not prune when it stopped early", async () => {

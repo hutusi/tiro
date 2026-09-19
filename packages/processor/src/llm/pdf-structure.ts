@@ -260,6 +260,9 @@ export async function restorePdfStructure(
   // Unreachable if the stage threw, which is the point — a run that stopped
   // early must not prune the work it did not get back to.
   cache?.retain(batches);
+  // Flushed, or the pruning only ever happened in memory and the file on disk
+  // kept every batch of every version the document has ever had.
+  await cache?.flush();
 
   if (reused > 0) {
     log(`${reused} of ${batches.length} pdf batch(es) resumed from checkpoint`);

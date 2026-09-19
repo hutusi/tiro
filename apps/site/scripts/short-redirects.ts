@@ -11,19 +11,23 @@
  * slug is an enumeration of the vault, which is the thing ADR 0017 keeps out of
  * robots.txt and ADR 0019 refuses to keep in the vault.
  *
- * Reads the slugs off a directory listing rather than the content layer, which
- * does not exist outside Astro — the same thing copy-assets.ts does. No
- * frontmatter is parsed: the short id is in the directory name. The collision
- * policy is not restated here; buildShortLinks owns it.
+ * Reads through `readVault`, the site's one reader of the vault (ADR 0020), so
+ * the aliases are built from exactly the set of articles the build turned into
+ * pages. It used to walk the directory itself and take every folder holding an
+ * index.md, which was the same shortcut `unlisted-slugs.ts` had to give up for
+ * the same reason: a PDF stub has an index.md and no body, gets no page, and
+ * was handed a /s/ alias pointing at a 404. The collision policy is not
+ * restated here; buildShortLinks owns it.
  */
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   buildShortLinks,
   redirectRules,
   reportShortLinks,
 } from "../src/lib/short-links.ts";
-import { vaultDir } from "../src/lib/vault.ts";
+import { readVault } from "../src/lib/vault-read.ts";
+import { hasReadableBody } from "../src/lib/visibility.ts";
 
 // Cloudflare Pages allows 2,000 *static* redirects and 100 dynamic ones, for a
 // combined 2,100. Every rule here is static — a short id cannot be expressed as
@@ -43,13 +47,11 @@ if (!existsSync(distRedirects)) {
   );
 }
 
-const articlesDir = join(vaultDir(), "articles");
-const slugs = readdirSync(articlesDir, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  // A directory without an index.md is not an article; the glob loader ignores
-  // it too, so it has no page for an alias to point at.
-  .filter((entry) => existsSync(join(articlesDir, entry.name, "index.md")))
-  .map((entry) => entry.name);
+// Only articles the build actually published: an alias is a promise that a
+// page is there, and an unconverted PDF stub has none.
+const slugs = readVault()
+  .filter(hasReadableBody)
+  .map((entry) => entry.slug);
 
 const links = buildShortLinks(slugs);
 reportShortLinks(links);
