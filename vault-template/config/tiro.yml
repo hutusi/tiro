@@ -67,3 +67,19 @@ images:
   max_count: 100
   total_max_bytes: 104857600 # 100 MB per article
   stage_timeout_ms: 300000 # 5 min for the whole image stage
+
+pdf:
+  # A PDF article is clipped as a stub; the processor fetches the PDF at
+  # processing time, builds the body from its text layer, and stores no binary
+  # in the vault (ADR 0026). These bound that fetch.
+  max_bytes: 26214400 # 25 MB; a larger PDF is left unconverted and stays pending
+  timeout_ms: 60000
+  stage_timeout_ms: 300000
+  # Past this the PDF is refused rather than truncated — half a document filed
+  # as the whole one is the silent kind of wrong.
+  max_pages: 200
+  # The scanned-PDF gate. A page image carries no text layer, so a scan
+  # extracts to roughly nothing and would land as an empty article. Real papers
+  # measure 2600-2800 chars/page, so this sits well below anything with prose
+  # on it while still clearing a document that is mostly figures.
+  min_chars_per_page: 100

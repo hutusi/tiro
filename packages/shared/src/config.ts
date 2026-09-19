@@ -65,6 +65,34 @@ export const TiroConfigSchema = z.object({
       stage_timeout_ms: z.number().int().positive().default(300_000),
     })
     .prefault({}),
+  pdf: z
+    .object({
+      // A PDF is fetched at processing time and never stored (ADR 0026), so
+      // this bounds one download rather than anything the vault keeps. Larger
+      // than an image's cap because a paper routinely runs to several MB and a
+      // report further; a PDF over this stays unconverted, which leaves the
+      // article pending rather than failing the run.
+      max_bytes: z
+        .number()
+        .int()
+        .positive()
+        .default(25 * 1024 * 1024),
+      timeout_ms: z.number().int().positive().default(60_000),
+      stage_timeout_ms: z.number().int().positive().default(300_000),
+      // Extraction is cheap per page but the structure pass that follows is
+      // not, and a 600-page book would spend a whole run's budget on one
+      // article. Past this the PDF is refused rather than truncated: half a
+      // document filed as the whole one is the silent kind of wrong.
+      max_pages: z.number().int().positive().default(200),
+      // The scanned-PDF gate (ADR 0026 clause 4). A page image carries no text
+      // layer, so a scan extracts to roughly nothing, and an empty body is the
+      // empty article the clipper already refuses. Measured against real
+      // papers, which run 2600-2800 chars/page, so this sits an order of
+      // magnitude below anything with prose on it and still clears a document
+      // that is mostly figures.
+      min_chars_per_page: z.number().int().positive().default(100),
+    })
+    .prefault({}),
   processing: z
     .object({
       // Wall-clock budget for one processor run. The point is to stop the

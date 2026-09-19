@@ -38,6 +38,11 @@ describe("parseTiroConfig", () => {
     expect(config.translation.cjk_threshold).toBe(0.3);
     expect(config.translation.batch_chars).toBe(10_000);
     expect(config.images.max_bytes).toBe(10 * 1024 * 1024);
+    expect(config.pdf.max_bytes).toBe(25 * 1024 * 1024);
+    expect(config.pdf.max_pages).toBe(200);
+    // The scanned-PDF gate: an order of magnitude below real prose, which
+    // measures 2600-2800 chars/page.
+    expect(config.pdf.min_chars_per_page).toBe(100);
     expect(config.images.timeout_ms).toBe(20000);
   });
 
