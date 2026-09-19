@@ -68,6 +68,7 @@ across machines, not for an audience.
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup. Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
 | `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. |
 | `https://arxiv.org/*` (optional) | Fetches a paper's HTML full text (`arxiv.org/html/<id>`) when the user clips an arXiv page. Tiro treats a paper's abstract, PDF and HTML addresses as one article, so it reads the full text rather than whichever of the three the tab happens to show — the PDF address in particular has no readable text at all. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it, and revoking it returns the extension to clipping the current tab — except at a paper's PDF address, which holds no readable text for it to clip. |
+| `https://raw.githubusercontent.com/*` (optional) | Fetches a Markdown file's own bytes when the user clips a `github.com` page showing one. The tab shows GitHub's rendering of the file — its chrome, its heading anchors, its emoji images — and committing that as the article's text would store a copy of the page rather than the file the user pointed at. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it. Revoking it does not degrade the clip silently: on a GitHub file page the extension declines and names the file's direct address to open instead, which needs no permission at all. Not needed to clip a Markdown file served as plain text anywhere, including `raw.githubusercontent.com` itself — the tab already holds the file. |
 
 ## Data use declarations
 
@@ -101,12 +102,13 @@ repository — a declaration that reads narrower than the code is a rejection.
   locally (with a timestamp, at most 500 entries) so the popup can show an
   "already clipped" status; that record never leaves the device, and is excluded
   from settings sync. The same
-  declaration covers the optional arxiv.org fetch: requesting
-  `arxiv.org/html/<id>` tells that site which paper is being read, whether or
-  not the user goes on to clip it. Google's definition covers "the domains or
-  URLs the browser interacts with" and publishes no carve-out for a URL the user
-  deliberately saves, nor for one fetched to build a preview, so both are
-  declared rather than argued.
+  declaration covers both optional fetches: requesting
+  `arxiv.org/html/<id>` tells that site which paper is being read, and requesting
+  a file from `raw.githubusercontent.com` tells GitHub which file is being read,
+  in each case whether or not the user goes on to clip it. Google's definition
+  covers "the domains or URLs the browser interacts with" and publishes no
+  carve-out for a URL the user deliberately saves, nor for one fetched to build a
+  preview, so all of them are declared rather than argued.
 - **Personal communications, location, user activity**: No
 - **Website content**: **Yes** — the text of a page, read when the user opens
   the popup on it, and transmitted only if they then clip it, only to their own
