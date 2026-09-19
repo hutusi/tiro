@@ -237,16 +237,17 @@ export async function restorePdfStructure(
       continue;
     }
 
-    // Before the request rather than after: a batch started with no budget
-    // left is one the chat client will refuse anyway, and stopping here leaves
-    // the batches already checkpointed for the next run.
-    try {
-      check(requestMs, `pdf batch ${index + 1} of ${batches.length}`);
-    } catch (error) {
-      throw asHardFailureIfUnsaved(error);
-    }
     let restored: string | null = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      // Before every request, not once per batch. A batch may make several
+      // attempts and the chat client retries each of them, so one check at the
+      // top gated up to maxAttempts x (1 + llm.max_retries) requests — and a
+      // batch could finish long after the cap it was admitted under.
+      try {
+        check(requestMs, `pdf batch ${index + 1} of ${batches.length}`);
+      } catch (error) {
+        throw asHardFailureIfUnsaved(error);
+      }
       let reply: string;
       try {
         reply = await chat({

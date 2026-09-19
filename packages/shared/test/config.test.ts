@@ -77,3 +77,39 @@ describe("translation.target", () => {
     ).toThrow();
   });
 });
+
+describe("the PDF stage cap and the request timeout", () => {
+  const withTimeouts = (stage: number, request: number) => `
+llm:
+  base_url: https://api.example.com/v1
+  model: m
+  api_key_env: KEY
+  timeout_ms: ${request}
+categories: [other]
+pdf:
+  stage_timeout_ms: ${stage}
+`;
+
+  test("rejects a stage cap that cannot fit one request", () => {
+    // The stage refuses to start work it cannot finish inside its own cap, so
+    // a cap below one request's timeout means no batch is ever attempted: the
+    // article stays pending every run, and the log says "timed out" rather
+    // than "misconfigured".
+    expect(() => parseTiroConfig(withTimeouts(60_000, 120_000))).toThrow(
+      /stage_timeout_ms .* below llm.timeout_ms/,
+    );
+  });
+
+  test("accepts a cap equal to the request timeout", () => {
+    expect(
+      parseTiroConfig(withTimeouts(120_000, 120_000)).pdf.stage_timeout_ms,
+    ).toBe(120_000);
+  });
+
+  test("the defaults are compatible", () => {
+    const config = parseTiroConfig(minimalConfig);
+    expect(config.pdf.stage_timeout_ms).toBeGreaterThanOrEqual(
+      config.llm.timeout_ms,
+    );
+  });
+});

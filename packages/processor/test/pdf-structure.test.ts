@@ -367,7 +367,7 @@ describe("restorePdfStructure and the request budget", () => {
     batchChars: 100,
   };
 
-  test("demands a whole request's budget before starting a batch", async () => {
+  test("demands a whole request's budget before each one", async () => {
     // "Is there any time left" let a batch begin with a millisecond to spare
     // and then run for a full request, overshooting the stage cap by one call.
     const needed: number[] = [];
@@ -378,6 +378,41 @@ describe("restorePdfStructure and the request budget", () => {
       check: (need) => needed.push(need),
     });
     expect(needed).toEqual([120_000, 120_000]);
+  });
+
+  test("asks again before a retry, not once per batch", async () => {
+    // A batch may make several attempts and the chat client retries each, so
+    // one check at the top of the batch admitted work that could finish long
+    // after the cap it was admitted under.
+    let checks = 0;
+    const rejecting: ChatFn = async () => "## Summary\n\nToo short.";
+    await restorePdfStructure({
+      ...opts,
+      pages: ["a".repeat(80)],
+      chat: rejecting,
+      requestMs: 1_000,
+      check: () => {
+        checks += 1;
+      },
+    });
+    // One batch, two attempts, two checks.
+    expect(checks).toBe(2);
+  });
+
+  test("stops between attempts when the budget goes", async () => {
+    let checks = 0;
+    const rejecting: ChatFn = async () => "## Summary\n\nToo short.";
+    await expect(
+      restorePdfStructure({
+        ...opts,
+        pages: ["a".repeat(80)],
+        chat: rejecting,
+        check: () => {
+          checks += 1;
+          if (checks > 1) throw new DeadlineExceededError("a retry", -1);
+        },
+      }),
+    ).rejects.toThrow(DeadlineExceededError);
   });
 
   test("asks for nothing in particular when no request cost is given", async () => {

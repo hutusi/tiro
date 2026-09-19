@@ -346,12 +346,7 @@ async function processOne(
             // resumes where the last run stopped instead of starting again at
             // page one (ADR 0026, and ADR 0008's reasoning applied a second
             // time). Gated on the same model, so changing it reconverts.
-            cache: await loadPdfCheckpoint(
-              `${article.dirAbs}/${PDF_CACHE_FILE}`,
-              modelFor(config, "summary"),
-              force,
-              log,
-            ),
+            ...(await pdfCheckpointOption(article, config, force, log)),
             ...(deps.fetchImpl !== undefined
               ? { fetchImpl: deps.fetchImpl }
               : {}),
@@ -653,13 +648,46 @@ async function markPending(
  * batch that spent all its attempts is recorded as settled so the document can
  * finish, and asking again is one documented command away.
  */
+/** The `cache` field, present only when there is one to pass — a forced run
+ * whose checkpoint could not be removed deliberately has none. */
+async function pdfCheckpointOption(
+  article: DiscoveredArticle,
+  config: TiroConfig,
+  force: boolean,
+  log: (message: string) => void,
+): Promise<{ cache?: TranslationCache }> {
+  const cache = await loadPdfCheckpoint(
+    `${article.dirAbs}/${PDF_CACHE_FILE}`,
+    modelFor(config, "summary"),
+    force,
+    log,
+  );
+  return cache === undefined ? {} : { cache };
+}
+
 async function loadPdfCheckpoint(
   pathAbs: string,
   model: string,
   force: boolean,
   log: (message: string) => void,
-): Promise<TranslationCache> {
-  if (force) await discardCheckpointQuietly(pathAbs, log);
+): Promise<TranslationCache | undefined> {
+  if (!force)
+    return loadTranslationCache(pathAbs, { target: "pdf", model }, log);
+
+  try {
+    await discardTranslationCache(pathAbs);
+  } catch (error) {
+    // Loading it now would make --force a no-op that reports success: the
+    // article would replay the very fallbacks being complained about and be
+    // marked processed without one batch being reconverted. Running with no
+    // checkpoint at all still does what was asked — every batch is sent again
+    // — and costs only this run's resumability, which is the lesser loss.
+    log(
+      `could not remove the PDF checkpoint ${pathAbs} (${String(error)}); ` +
+        "converting without one so --force still reconverts",
+    );
+    return undefined;
+  }
   return loadTranslationCache(pathAbs, { target: "pdf", model }, log);
 }
 

@@ -1423,9 +1423,13 @@ describe("runPipeline with a PDF stub", () => {
     ]);
     const config = await loadVaultConfig(dir);
 
-    let calls = 0;
+    let structureCalls = 0;
     const counting: ChatFn = async (request) => {
-      if (request.response_format?.type !== "json_object") calls += 1;
+      const system =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
+      if (system.includes("restore structure to text extracted from a PDF")) {
+        structureCalls += 1;
+      }
       return makeFakeChat()(request);
     };
     await runPipeline({ vaultDir: dir }, config, {
@@ -1433,19 +1437,19 @@ describe("runPipeline with a PDF stub", () => {
       chat: counting,
       fetchImpl: servePdf(pdf),
     });
-    const first = calls;
-    expect(first).toBeGreaterThan(0);
+    expect(structureCalls).toBeGreaterThan(0);
     expect(
       existsSync(join(dir, "articles", slug, ".tiro-pdf-cache.json")),
     ).toBe(true);
 
-    calls = 0;
+    structureCalls = 0;
     await runPipeline({ vaultDir: dir, slug, force: true }, config, {
       ...deps,
       chat: counting,
       fetchImpl: servePdf(pdf),
     });
-    expect(calls).toBeGreaterThan(0);
+    // Reconverted, not replayed: the checkpoint was discarded first.
+    expect(structureCalls).toBeGreaterThan(0);
   });
 
   test("an ordinary reprocess resumes from the checkpoint", async () => {
@@ -1472,9 +1476,16 @@ describe("runPipeline with a PDF stub", () => {
       ),
     );
 
-    let calls = 0;
+    // Counted by the structure pass's own system prompt: the summarize and
+    // translate stages call the model too, so a bare tally would prove nothing
+    // about which stage was answered from disk.
+    let structureCalls = 0;
     const counting: ChatFn = async (request) => {
-      if (request.response_format?.type !== "json_object") calls += 1;
+      const system =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
+      if (system.includes("restore structure to text extracted from a PDF")) {
+        structureCalls += 1;
+      }
       return makeFakeChat()(request);
     };
     await runPipeline({ vaultDir: dir }, config, {
@@ -1482,7 +1493,10 @@ describe("runPipeline with a PDF stub", () => {
       chat: counting,
       fetchImpl: servePdf(pdf),
     });
-    // The structure pass was answered from disk; only translation called out.
+
+    // Nothing re-sent, and the body was still rebuilt — which is what lets a
+    // long PDF finish across runs at all.
+    expect(structureCalls).toBe(0);
     const article = parseArticle(readFileSync(path, "utf8"));
     expect(article.body).toContain("## Section 1");
   });

@@ -368,3 +368,52 @@ describe("convertPdf and its two clocks", () => {
     ).rejects.toThrow(DeadlineExceededError);
   });
 });
+
+describe("convertPdf when a clock runs out mid-download", () => {
+  const chat: ChatFn = async (request) =>
+    request.messages.find((m) => m.role === "user")?.content ?? "";
+
+  const options = {
+    url: "https://example.com/paper.pdf",
+    maxBytes: 25 * 1024 * 1024,
+    timeoutMs: 60_000,
+    maxPages: 200,
+    minCharsPerPage: 100,
+    minPageCoverage: 0.5,
+    allowPrivateHosts: true,
+    stageTimeoutMs: 300_000,
+    chat,
+    model: "m",
+  };
+
+  test("an expiring run budget defers rather than failing the article", async () => {
+    // AbortSignal.timeout raises TimeoutError whichever clock ran out, so
+    // without re-reading them a routine end-of-budget stop was booked as a
+    // broken article. The clock is driven by hand: at real speed this is a
+    // race against the abort, and the boundary is exactly the interesting case.
+    let now = 0;
+    const deadline = createDeadline(100, () => now);
+    const fetchImpl: FetchLike = async () => {
+      now = 200; // the run budget expires while the request is in flight
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    };
+    const error = await convertPdf({
+      ...options,
+      fetchImpl,
+      deadline,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeadlineExceededError);
+  });
+
+  test("a download that simply failed is still a fault about this document", async () => {
+    // The clock must not be blamed for everything: with budget left, the
+    // original error has to survive.
+    const error = await convertPdf({
+      ...options,
+      fetchImpl: async () => new Response("nope", { status: 500 }),
+      deadline: createDeadline(300_000),
+    }).catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(DeadlineExceededError);
+    expect(String(error)).toMatch(/HTTP 500/);
+  });
+});

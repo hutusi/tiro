@@ -135,7 +135,15 @@ that fell back to extracted text are recorded too — otherwise a document whose
 batches are slow *and* rejected stops at the same place every run and never
 finishes — which means a bad conversion will be replayed rather than retried.
 **`--force` discards the checkpoint first**, so it is the way to ask again;
-changing `llm.model` invalidates it too.
+changing `llm.model` invalidates it too. If the file cannot be removed, the run
+converts with no checkpoint at all rather than quietly replaying it — `--force`
+always reconverts.
+
+`pdf.stage_timeout_ms` must be at least `llm.timeout_ms`, and the config is
+rejected otherwise: the stage refuses to begin a request it cannot finish
+inside its own cap, so a smaller cap would let no batch start at all and the
+article would sit pending every run under a timeout that read as a stall rather
+than a misconfiguration.
 
 ## Repairing clip-time markdown defects
 

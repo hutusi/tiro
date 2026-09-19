@@ -382,10 +382,20 @@ export async function convertPdf(
   const guard = stageGuard(stageTimeoutMs, deadline);
 
   guard.check(0, "fetching the PDF");
-  const bytes = await fetchPdf({
-    ...rest,
-    stageTimeoutMs: guard.remainingMs(),
-  });
+  let bytes: Uint8Array;
+  try {
+    bytes = await fetchPdf({ ...rest, stageTimeoutMs: guard.remainingMs() });
+  } catch (error) {
+    // The fetch is given whatever is left of the run, so a run that expires
+    // mid-download aborts it — and `AbortSignal.timeout` raises a TimeoutError
+    // whether the clock that ran out was the run's, the stage's, or this
+    // document's own. Booked as a fault, that reports a routine end-of-budget
+    // stop as a broken article. Re-reading the clock is what tells them apart;
+    // `check` throws the right kind, and falls through when the download
+    // simply failed.
+    guard.check(0, "fetching the PDF");
+    throw error;
+  }
 
   // Extraction is the one CPU-bound step here and a long document is not free,
   // so the clock is read across it too rather than only around the network.
