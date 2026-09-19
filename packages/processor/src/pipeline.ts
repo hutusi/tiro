@@ -26,6 +26,7 @@ import {
   summaryIsFinished,
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
+import { convertPdf } from "./pdf.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -300,12 +301,50 @@ async function processOne(
 
   const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
 
+  // A PDF stub carries no body of its own: the extension cannot read a PDF, so
+  // it records the URL and the document is fetched and converted here (ADR
+  // 0026). First, because everything below reads the body — language detection
+  // included, and a stub would detect as whatever an empty string is.
+  //
+  // A refusal throws, and that is the intended outcome rather than a tolerated
+  // one: the catch around processOne leaves tiro.processed_at absent, so the
+  // article stays pending and a later run — or a later version of this code —
+  // tries again without anything being re-clipped.
+  const sourceBody =
+    frontmatter.tiro.source_media === "pdf"
+      ? (
+          await convertPdf({
+            url: frontmatter.tiro.source_url ?? frontmatter.url,
+            maxBytes: config.pdf.max_bytes,
+            timeoutMs: config.pdf.timeout_ms,
+            // Clamped to what is left of the run, like the image stage: the
+            // stage's own cap bounds a healthy fetch, the deadline bounds a
+            // run that has already spent its budget (invariant 8).
+            stageTimeoutMs: Math.min(
+              config.pdf.stage_timeout_ms,
+              Math.max(0, deadline.remainingMs()),
+            ),
+            maxPages: config.pdf.max_pages,
+            minCharsPerPage: config.pdf.min_chars_per_page,
+            chat: deps.chat,
+            model: modelFor(config, "summary"),
+            ...(deps.fetchImpl !== undefined
+              ? { fetchImpl: deps.fetchImpl }
+              : {}),
+            ...(deps.resolveHost !== undefined
+              ? { resolveHost: deps.resolveHost }
+              : {}),
+            log,
+          })
+        ).markdown
+      : article.parsed.body;
+
   const lang =
     frontmatter.lang ??
-    detectLang(article.parsed.body, config.translation.cjk_threshold);
+    detectLang(sourceBody, config.translation.cjk_threshold);
 
   const imageResult = await processImages({
-    body: article.parsed.body,
+    body: sourceBody,
     articleUrl: frontmatter.url,
     assetsDirAbs: `${article.dirAbs}/assets`,
     maxBytes: config.images.max_bytes,

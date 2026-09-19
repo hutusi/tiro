@@ -16,6 +16,7 @@ import {
   checkAlignment,
   needsProcessing,
   parseArticle,
+  slugForUrl,
   splitBlocks,
   stringifyArticle,
 } from "@tiro/shared";
@@ -23,7 +24,7 @@ import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
-import { makeFakeChat } from "./helpers.ts";
+import { makeFakeChat, makePdf } from "./helpers.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
@@ -1347,5 +1348,106 @@ describe("run budget", () => {
       m.includes("left pending for the next run"),
     );
     expect(summary).toContain(`${report.skipped.length} article(s)`);
+  });
+});
+
+describe("runPipeline with a PDF stub", () => {
+  const PDF_URL = "https://example.com/papers/method.pdf";
+
+  /** A clipped PDF as the extension writes it: identity and title, no body.
+   * The document itself is fetched at processing time (ADR 0026). */
+  async function stubVault(): Promise<{ dir: string; slug: string }> {
+    const dir = freshVault();
+    const slug = await slugForUrl(PDF_URL);
+    mkdirSync(join(dir, "articles", slug), { recursive: true });
+    writeFileSync(
+      join(dir, "articles", slug, "index.md"),
+      stringifyArticle(
+        {
+          url: PDF_URL,
+          title: "A Method For Something",
+          domain: "example.com",
+          clipped_at: "2026-09-19T10:00:00.000Z",
+          tiro: { schema: 1, source_media: "pdf" },
+        },
+        "",
+      ),
+    );
+    return { dir, slug };
+  }
+
+  const servePdf =
+    (bytes: Uint8Array): FetchLike =>
+    async (input) =>
+      String(input).endsWith(".pdf")
+        ? new Response(bytes, {
+            headers: { "content-type": "application/pdf" },
+          })
+        : new Response("offline", { status: 404 });
+
+  test("builds the body from the PDF and marks the article processed", async () => {
+    const { dir, slug } = await stubVault();
+    // Long enough to clear the density gate, which is what a real page is.
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+      "Section 2\nIt is invariant to diagonal rescaling of the gradients and well suited to problems large in data or in parameters.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(false);
+    // The stub had no body; this one came out of the PDF.
+    expect(article.body).toContain("## Section 1");
+    expect(article.body).toContain("little memory");
+    // The hyphenated line break was rejoined.
+    expect(article.body).toContain("implement");
+    // And the marker survived the round-trip, so a later audit can still find
+    // every article built this way.
+    expect(article.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("leaves the article pending when the PDF cannot be read", async () => {
+    // Invariant 7: a hard failure leaves it pending and never fails the run, so
+    // a later run — or a later version of the extractor — retries it.
+    const { dir, slug } = await stubVault();
+    const scanned = makePdf(["", "", ""]);
+    const config = await loadVaultConfig(dir);
+    const report = await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(scanned),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(true);
+    expect(article.body).toBe("");
+    // Other articles in the vault still processed.
+    expect(report.errored.length).toBeGreaterThan(0);
+  });
+
+  test("leaves the article pending when the URL does not serve a PDF", async () => {
+    // A rate-limit interstitial or a login page must never be filed as the
+    // document: the magic-byte check is what refuses it.
+    const { dir, slug } = await stubVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: async () =>
+        new Response("<html>sign in</html>", {
+          headers: { "content-type": "application/pdf" },
+        }),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(true);
   });
 });

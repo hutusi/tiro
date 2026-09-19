@@ -1,5 +1,6 @@
 import { extractText, getDocumentProxy } from "unpdf";
-import type { FetchLike } from "./llm/client.ts";
+import type { ChatFn, FetchLike } from "./llm/client.ts";
+import { restorePdfStructure } from "./llm/pdf-structure.ts";
 import {
   fetchChecked,
   type ResolveHost,
@@ -258,4 +259,54 @@ export function stripRunningFurniture(pages: string[]): string[] {
     }
     return lines.filter((_, i) => !drop.has(i)).join("\n");
   });
+}
+
+export interface PdfConversionOptions extends PdfFetchOptions, PdfTextOptions {
+  chat: ChatFn;
+  model: string;
+  batchChars?: number;
+  log?: (message: string) => void;
+}
+
+export interface PdfConversion {
+  markdown: string;
+  totalPages: number;
+  /** Batches kept as extracted text because the model's reply failed its
+   * checks. Above zero the article is readable but unformatted in places. */
+  fallbacks: number;
+}
+
+/**
+ * Fetch a PDF and return the Markdown body for its article.
+ *
+ * The whole conversion in one call, because every step is useless without the
+ * others and a caller choosing among them would only be choosing how to get it
+ * wrong. Any refusal throws — a non-public host, a document that is not a PDF,
+ * too many pages, no text layer — and throwing is the correct outcome: the
+ * pipeline's per-article catch leaves `tiro.processed_at` absent, so the
+ * article stays pending and a later run tries again (invariant 7).
+ *
+ * Note this is the one stage whose input is not in the vault. Re-processing
+ * re-downloads, and a source that has since 404'd cannot be reprocessed at all
+ * — the article keeps the Markdown it already has (ADR 0026).
+ */
+export async function convertPdf(
+  options: PdfConversionOptions,
+): Promise<PdfConversion> {
+  const { chat, model, batchChars, log = () => {}, ...rest } = options;
+  const bytes = await fetchPdf(rest);
+  const { pages, totalPages, chars } = await extractPdfText(bytes, rest);
+  log(`pdf: ${totalPages} page(s), ${chars} chars of text layer`);
+
+  const { markdown, batches, fallbacks } = await restorePdfStructure({
+    chat,
+    model,
+    pages: stripRunningFurniture(pages),
+    ...(batchChars !== undefined ? { batchChars } : {}),
+    log,
+  });
+  log(
+    `pdf: ${batches} batch(es) restored, ${fallbacks} kept as extracted text`,
+  );
+  return { markdown, totalPages, fallbacks };
 }
