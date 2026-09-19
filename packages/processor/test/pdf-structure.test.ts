@@ -262,14 +262,46 @@ describe("restorePdfStructure and the checkpoint", () => {
     expect(cache.flushes).toBe(4);
   });
 
-  test("does not checkpoint a fallback", async () => {
-    // A fallback is this run's verdict on a reply, not work worth resuming.
-    // Stored, it would make the next run inherit a failure it might not have.
+  test("checkpoints a fallback too, so it is not redone every run", async () => {
+    // Without this a large PDF whose batches are slow and rejected stops at
+    // the same place on every run and never finishes — ADR 0008's failure by a
+    // third route. A batch that spent every attempt has reached its verdict.
     const cache = fakeCache();
     const chat: ChatFn = async () => "## Summary\n\nToo short.";
     const result = await restorePdfStructure({ ...opts, chat, cache });
     expect(result.fallbacks).toBe(3);
-    expect(cache.store.size).toBe(0);
+    expect(cache.store.size).toBe(3);
+  });
+
+  test("resumes a fallback without reporting the article as clean", async () => {
+    // The reason a fallback is marked rather than stored plainly: the run that
+    // produced it logged it, and a run that resumes must not count it among
+    // the restored.
+    const cache = fakeCache();
+    const rejecting: ChatFn = async () => "## Summary\n\nToo short.";
+    await restorePdfStructure({ ...opts, chat: rejecting, cache });
+
+    let calls = 0;
+    const counted: ChatFn = async (request) => {
+      calls += 1;
+      return goodChat(request);
+    };
+    const again = await restorePdfStructure({ ...opts, chat: counted, cache });
+    // Nothing re-sent, and the article is still reported as unformatted.
+    expect(calls).toBe(0);
+    expect(again.reused).toBe(3);
+    expect(again.fallbacks).toBe(3);
+    // The raw text came back, not the marker.
+    expect(again.markdown).not.toContain("fallback");
+    expect(again.markdown).toContain("a".repeat(80));
+  });
+
+  test("a resumed restored batch is not counted as a fallback", async () => {
+    const cache = fakeCache();
+    await restorePdfStructure({ ...opts, chat: goodChat, cache });
+    const again = await restorePdfStructure({ ...opts, chat: goodChat, cache });
+    expect(again.reused).toBe(3);
+    expect(again.fallbacks).toBe(0);
   });
 
   test("prunes to this document's batches once it finishes", async () => {
@@ -325,5 +357,36 @@ describe("restorePdfStructure and the checkpoint", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(DeadlineExceededError);
     expect(String(error)).toMatch(/cannot resume/);
+  });
+});
+
+describe("restorePdfStructure and the request budget", () => {
+  const opts = {
+    model: "m",
+    pages: ["a".repeat(80), "b".repeat(80)],
+    batchChars: 100,
+  };
+
+  test("demands a whole request's budget before starting a batch", async () => {
+    // "Is there any time left" let a batch begin with a millisecond to spare
+    // and then run for a full request, overshooting the stage cap by one call.
+    const needed: number[] = [];
+    await restorePdfStructure({
+      ...opts,
+      chat: goodChat,
+      requestMs: 120_000,
+      check: (need) => needed.push(need),
+    });
+    expect(needed).toEqual([120_000, 120_000]);
+  });
+
+  test("asks for nothing in particular when no request cost is given", async () => {
+    const needed: number[] = [];
+    await restorePdfStructure({
+      ...opts,
+      chat: goodChat,
+      check: (need) => needed.push(need),
+    });
+    expect(needed).toEqual([0, 0]);
   });
 });

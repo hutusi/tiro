@@ -208,7 +208,15 @@ export async function runPipeline(
       break;
     }
     try {
-      await processOne(article, config, deps, report, log, deadline);
+      await processOne(
+        article,
+        config,
+        deps,
+        report,
+        log,
+        deadline,
+        options.force === true,
+      );
     } catch (error) {
       // Budget exhaustion is an orderly stop, not a fault: the article's
       // translation checkpoint is on disk, so the next run resumes it rather
@@ -295,6 +303,9 @@ async function processOne(
   report: PipelineReport,
   log: (message: string) => void,
   deadline: Deadline,
+  /** A forced redo asks for the work to be done again, which for a checkpoint
+   * means starting from nothing rather than resuming. */
+  force: boolean,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
@@ -330,13 +341,15 @@ async function processOne(
             minPageCoverage: config.pdf.min_page_coverage,
             chat: deps.chat,
             model: modelFor(config, "summary"),
+            requestMs: config.llm.timeout_ms,
             // Its own checkpoint beside the translation one, so a long PDF
             // resumes where the last run stopped instead of starting again at
             // page one (ADR 0026, and ADR 0008's reasoning applied a second
             // time). Gated on the same model, so changing it reconverts.
-            cache: await loadTranslationCache(
+            cache: await loadPdfCheckpoint(
               `${article.dirAbs}/${PDF_CACHE_FILE}`,
-              { target: "pdf", model: modelFor(config, "summary") },
+              modelFor(config, "summary"),
+              force,
               log,
             ),
             ...(deps.fetchImpl !== undefined
@@ -628,6 +641,28 @@ async function markPending(
 /** Never fatal, for the same reason the discard is not: the article is already
  * written and recorded, and a checkpoint that cannot be saved only costs the
  * next re-clip its shortcut. */
+/**
+ * The PDF conversion checkpoint, discarded first on a forced redo.
+ *
+ * `--force` is how the runbook says to retry a conversion that came out badly,
+ * and resuming would make it a no-op: every batch is checkpointed, fallbacks
+ * included, so a forced run would replay the very results being complained
+ * about. Deleting it first is what makes the flag mean what it says.
+ *
+ * This is also the escape hatch that makes checkpointing a fallback safe. A
+ * batch that spent all its attempts is recorded as settled so the document can
+ * finish, and asking again is one documented command away.
+ */
+async function loadPdfCheckpoint(
+  pathAbs: string,
+  model: string,
+  force: boolean,
+  log: (message: string) => void,
+): Promise<TranslationCache> {
+  if (force) await discardCheckpointQuietly(pathAbs, log);
+  return loadTranslationCache(pathAbs, { target: "pdf", model }, log);
+}
+
 async function flushCheckpointQuietly(
   cache: TranslationCache,
   log: (message: string) => void,

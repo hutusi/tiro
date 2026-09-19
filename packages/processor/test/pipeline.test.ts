@@ -1412,6 +1412,81 @@ describe("runPipeline with a PDF stub", () => {
     expect(article.frontmatter.tiro.source_media).toBe("pdf");
   });
 
+  test("a forced redo reconverts rather than resuming the checkpoint", async () => {
+    // --force is how the runbook says to retry a conversion that came out
+    // badly. Resuming would make it a no-op: every batch is checkpointed,
+    // fallbacks included, so a forced run would replay the very results being
+    // complained about.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+
+    let calls = 0;
+    const counting: ChatFn = async (request) => {
+      if (request.response_format?.type !== "json_object") calls += 1;
+      return makeFakeChat()(request);
+    };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      chat: counting,
+      fetchImpl: servePdf(pdf),
+    });
+    const first = calls;
+    expect(first).toBeGreaterThan(0);
+    expect(
+      existsSync(join(dir, "articles", slug, ".tiro-pdf-cache.json")),
+    ).toBe(true);
+
+    calls = 0;
+    await runPipeline({ vaultDir: dir, slug, force: true }, config, {
+      ...deps,
+      chat: counting,
+      fetchImpl: servePdf(pdf),
+    });
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  test("an ordinary reprocess resumes from the checkpoint", async () => {
+    // The other half: without --force a second run must not re-send batches it
+    // already has, which is what lets a long PDF finish across runs at all.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+    });
+
+    // Return it to pending the way a re-clip would, body and all.
+    const path = join(dir, "articles", slug, "index.md");
+    const done = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        { ...done.frontmatter, tiro: { schema: 1, source_media: "pdf" } },
+        "",
+      ),
+    );
+
+    let calls = 0;
+    const counting: ChatFn = async (request) => {
+      if (request.response_format?.type !== "json_object") calls += 1;
+      return makeFakeChat()(request);
+    };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      chat: counting,
+      fetchImpl: servePdf(pdf),
+    });
+    // The structure pass was answered from disk; only translation called out.
+    const article = parseArticle(readFileSync(path, "utf8"));
+    expect(article.body).toContain("## Section 1");
+  });
+
   test("leaves the article pending when the PDF cannot be read", async () => {
     // Invariant 7: a hard failure leaves it pending and never fails the run, so
     // a later run — or a later version of the extractor — retries it.

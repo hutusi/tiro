@@ -74,6 +74,17 @@ export interface PdfStructureOptions {
    */
   check?: (needMs: number, what: string) => void;
   /**
+   * How long one model call may take — `llm.timeout_ms`.
+   *
+   * Demanded of the budget before a batch is started, rather than merely
+   * asking whether any time is left. A batch begun with a millisecond to spare
+   * still runs for a whole request, so "is there time" overshot the stage cap
+   * by up to one call; this asks "is there time for what I am about to do",
+   * which is the question `processing.run_budget_ms` is already checked with
+   * before an article.
+   */
+  requestMs?: number;
+  /**
    * Batches already restored by an earlier run, and where this run's go.
    *
    * A 200-page PDF is many model calls, and without a checkpoint a run that
@@ -97,6 +108,36 @@ export interface PdfStructureResult {
   fallbacks: number;
   /** Batches taken from the checkpoint rather than the model. */
   reused: number;
+}
+
+/**
+ * Marks a checkpointed batch that is raw extracted text rather than a restored
+ * one.
+ *
+ * Fallbacks are checkpointed, and they have to be: without it a large PDF whose
+ * batches are slow *and* rejected stops at the same place on every run, redoes
+ * exactly the work it redid last time, and never finishes — the failure mode
+ * ADR 0008 exists to prevent, arriving by a third route. A fallback is a final
+ * verdict for that batch anyway: it already spent every attempt it was given.
+ *
+ * Marked rather than stored plainly so resuming does not silently report a
+ * degraded article as a clean one. The run that produced the fallback logs it;
+ * the run that resumes would otherwise count it among the restored.
+ *
+ * A NUL sentinel, which markdown cannot contain and JSON escapes if it ever
+ * had to. An unmarked entry is a restored batch, which is also what every
+ * entry written before this existed was.
+ */
+const FALLBACK_MARK = "\u0000fallback\u0000";
+
+function encodeEntry(text: string, isFallback: boolean): string {
+  return isFallback ? `${FALLBACK_MARK}${text}` : text;
+}
+
+function decodeEntry(stored: string): { text: string; fallback: boolean } {
+  return stored.startsWith(FALLBACK_MARK)
+    ? { text: stored.slice(FALLBACK_MARK.length), fallback: true }
+    : { text: stored, fallback: false };
 }
 
 /** Alphanumeric content only, so Markdown syntax and whitespace changes do not
@@ -154,6 +195,7 @@ export async function restorePdfStructure(
     batchChars = DEFAULT_BATCH_CHARS,
     maxAttempts = 2,
     check = () => {},
+    requestMs = 0,
     cache,
     log = () => {},
   } = options;
@@ -186,8 +228,12 @@ export async function restorePdfStructure(
   for (const [index, batch] of batches.entries()) {
     const cached = cache?.get(batch);
     if (cached !== undefined) {
-      out.push(cached);
+      const entry = decodeEntry(cached);
+      out.push(entry.text);
       reused += 1;
+      // Counted again as a fallback, so a resumed run still reports the
+      // article as partly unformatted instead of inheriting a clean tally.
+      if (entry.fallback) fallbacks += 1;
       continue;
     }
 
@@ -195,7 +241,7 @@ export async function restorePdfStructure(
     // left is one the chat client will refuse anyway, and stopping here leaves
     // the batches already checkpointed for the next run.
     try {
-      check(0, `pdf batch ${index + 1} of ${batches.length}`);
+      check(requestMs, `pdf batch ${index + 1} of ${batches.length}`);
     } catch (error) {
       throw asHardFailureIfUnsaved(error);
     }
@@ -232,14 +278,13 @@ export async function restorePdfStructure(
       }
       log(`pdf batch ${index + 1} attempt ${attempt} rejected: ${reason}`);
     }
-    if (restored !== null) {
-      // Checkpointed per batch, so a hard kill costs at most one batch. Only
-      // a restored batch is stored: a fallback is this run's verdict on a
-      // reply, not work worth resuming, and storing it would make the next run
-      // inherit a failure it might not have had.
-      cache?.set(batch, restored);
-      await cache?.flush();
-    }
+    // Checkpointed per batch, so a hard kill costs at most one batch — and
+    // fallbacks are checkpointed too, marked as such, because a batch that
+    // spent every attempt has reached its verdict and a run that cannot record
+    // that verdict repeats it forever. `--force` is the way to ask again.
+    cache?.set(batch, encodeEntry(restored ?? batch.trim(), restored === null));
+    await cache?.flush();
+
     if (restored === null) {
       fallbacks += 1;
       // The extracted text, unformatted but whole. Worse to read and honest

@@ -125,6 +125,13 @@ time the article is processed.
   Matching on a prefix would catch them, and would also license deleting the
   start of any line that begins like a header, across every document. Three
   noise lines is the cheaper side of that trade.
+- **A fallback batch is recorded as settled.** Checkpointing only successful
+  replies left a document whose batches are slow *and* rejected stopping at the
+  same place on every run, redoing exactly the work it redid last time — ADR
+  0008's failure by a third route. A batch that spent every attempt has reached
+  its verdict, so it is stored, marked so a resumed run still reports the
+  article as partly unformatted. `--force` discards the checkpoint, which is
+  what makes asking again possible.
 - **The sweep needs teaching or excluding.** `scripts/sweep.ts` replays cached
   bytes through `response.text()`, so a PDF article reports a permanent phantom
   diff. `plainTextShell` is the precedent for teaching it a non-HTML source.

@@ -310,6 +310,9 @@ export interface PdfConversionOptions
   /** Checkpoint for restored batches, so a long PDF makes progress across
    * runs instead of restarting at page one. */
   cache?: PdfStructureOptions["cache"];
+  /** `llm.timeout_ms` — what one model call may cost, demanded of the budget
+   * before a batch is started. */
+  requestMs?: number;
   log?: (message: string) => void;
 }
 
@@ -372,6 +375,7 @@ export async function convertPdf(
     stageTimeoutMs,
     deadline,
     cache,
+    requestMs,
     log = () => {},
     ...rest
   } = options;
@@ -396,6 +400,7 @@ export async function convertPdf(
     ...(batchChars !== undefined ? { batchChars } : {}),
     check: guard.check,
     ...(cache !== undefined ? { cache } : {}),
+    ...(requestMs !== undefined ? { requestMs } : {}),
     log,
   });
   log(
