@@ -16,7 +16,9 @@ Two independent causes, either of which alone makes the feature impossible.
 **The clipper never kept a target.** Turndown emits a link only for `<a href>`;
 `<a name="f1n">` has none, so it was unwrapped to bare text. `id` on a heading,
 section or list item was dropped because markdown has no syntax for an anchor.
-Readability is not at fault — it preserves `id`, `name` and hash hrefs intact.
+Readability is not at fault for any of this — it preserves `id`, `name` and hash
+hrefs intact. (It *is* at fault for one class of target, which it deletes
+outright; that was found later and is decision 14.)
 
 **The site would have broken them anyway.** `rehype-sanitize` clobbers `id` and
 `name` to `user-content-*`, a defence against a page-chosen id shadowing a DOM
@@ -135,6 +137,40 @@ already carry raw HTML by construction — `VERBATIM_NODE_TYPES` includes `"html
 precisely because "clipped articles carry raw HTML the converter could not
 express", which also means `verbatimRanges` protects these anchors from every
 repair for free. An older reader renders the span as inert markup.
+
+**14. A target Readability deletes is restored before it is marked.** Added
+after the fact, and it corrects the Context above: Readability *is* at fault for
+one class of target. It deletes every `<button>` outright
+(`_clean(articleContent, "button")`), and pages increasingly enhance a footnote
+reference into one — vale.rocks swaps every `sup a[data-footnote-ref]` for a
+popover trigger, so the reference reaches the clipper carrying no `href` at all
+and leaves carrying the `data-tiro-anchor` this ADR had just written onto it.
+Both halves of the footnote were published and neither could reach the other.
+
+`restoreFootnoteRefs` runs immediately before `markInDocumentAnchors` and turns
+the button back into the `<a>` the page replaced, recovering the lost href by
+reciprocity: the note's backref says which id was the reference, and the `<li>`
+holding it says which id is the note. So this is the one place a *reference* is
+created rather than found, which widens decision 2's bound by one link —
+deliberately, and only ever back to a link the page itself once had.
+
+**What counts as a backref took three review rounds, each the same error one
+step narrower.** Reciprocity through an identified list item is not a footnote:
+a numbered tutorial whose steps carry ids, linking at a `Run example` button,
+matches it exactly and had that button's label republished as a paragraph. A
+footnotes region is not a backref either: a note may link anywhere the article
+goes, and one saying "jump to the example control" made that control the note's
+reverse link — beside a real footnote that was marked and repaired correctly, so
+the section being genuine was no protection. What the repair needs is evidence
+about the *link*: markup declaring it a backref, or, inside a footnotes region,
+content that reads as one.
+
+**The corpus sweep cannot see any of this**, and that is worth recording next to
+decision 2's praise of it. It fetches static HTML, where the page still ships
+the real `<a>`, so it reported 0 of 141 differing before and after. Replaying
+the page's own enhancement script over the fetched document is what actually
+tested the repair — and showed the enhanced page clipping byte-identically to
+the page before its script ran.
 
 ## Consequences
 

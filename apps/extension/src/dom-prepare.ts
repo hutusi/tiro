@@ -1833,7 +1833,10 @@ function looksLikeBackref(link: Element): boolean {
  *
  * Before `markInDocumentAnchors`, necessarily: that pass has to see this link
  * to count `#footnote-1` as referenced at all, and to mark the reference as the
- * target `#footnote-ref-1` needs.
+ * target `#footnote-ref-1` needs. So this is the one place a *reference* is
+ * created rather than found, widening that pass's bound by one link — ADR 0024
+ * decision 14, which also corrects that ADR's claim that Readability is not at
+ * fault for a lost target.
  */
 function restoreFootnoteRefs(doc: Document): void {
   for (const backref of Array.from(doc.querySelectorAll("li[id] a[href]"))) {
