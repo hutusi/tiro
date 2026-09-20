@@ -80,6 +80,22 @@ describe("pdfMarkdown headings", () => {
     );
   });
 
+  test("joins a wrapped heading whose leading is bigger than the body's", () => {
+    // Leading scales with type. A 20pt title set 28pt apart is tightly packed,
+    // while an 11pt body 28pt apart has a paragraph break in it — measured
+    // against the body's leading alone, this title came out as two headings.
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("A Title That Runs", 785, { size: 20 }),
+          line("Onto A Second Line", 757, { size: 20 }),
+        ],
+        [20],
+      ),
+    );
+    expect(md.trim()).toBe("# A Title That Runs Onto A Second Line");
+  });
+
   test("leaves body text alone", () => {
     const md = pdfMarkdown(layout([line("Just a sentence.", 700)], [20]));
     expect(md.trim()).toBe("Just a sentence.");
@@ -196,5 +212,33 @@ describe("pdfMarkdown lists and tables", () => {
     );
     expect(md).toContain("```");
     expect(md).not.toContain("|");
+  });
+});
+
+describe("pdfMarkdown code indentation", () => {
+  test("keeps indentation inside a fence", () => {
+    // Code without it is still code and markedly worse to read, and the
+    // offsets are right there in the runs.
+    const mono = { font: "Courier", mono: true };
+    const md = pdfMarkdown(
+      layout([
+        { ...line("function f() {", 700), ...mono, x: 72 },
+        { ...line("return 1;", 680), ...mono, x: 85 },
+        { ...line("}", 660), ...mono, x: 72 },
+      ]),
+    );
+    expect(md.trim()).toBe("```\nfunction f() {\n  return 1;\n}\n```");
+  });
+
+  test("measures indentation from the block's own left edge", () => {
+    // A block set in from the margin must not arrive drowning in spaces.
+    const mono = { font: "Courier", mono: true };
+    const md = pdfMarkdown(
+      layout([
+        { ...line("a", 700), ...mono, x: 200 },
+        { ...line("b", 680), ...mono, x: 200 },
+      ]),
+    );
+    expect(md.trim()).toBe("```\na\nb\n```");
   });
 });

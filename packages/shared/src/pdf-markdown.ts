@@ -136,6 +136,23 @@ function lineSpacing(lines: readonly Line[], bodySize: number): number {
   return common ?? bodySize * DEFAULT_LEADING;
 }
 
+/**
+ * How far apart two lines of this size may sit and still be one block.
+ *
+ * Scaled to the line's own size, because leading is: a 20pt title set 28pt
+ * apart is tightly packed, while an 11pt body 28pt apart has a paragraph break
+ * in it. Measured against the body's leading alone, a two-line title came out
+ * as two separate headings.
+ */
+function expectedLeading(
+  size: number,
+  bodySize: number,
+  leading: number,
+): number {
+  const scale = bodySize > 0 ? Math.max(1, size / bodySize) : 1;
+  return leading * scale * BLOCK_GAP;
+}
+
 function toBlocks(lines: readonly Line[], bodySize: number): Line[][] {
   const leading = lineSpacing(lines, bodySize);
   const blocks: Line[][] = [];
@@ -149,7 +166,7 @@ function toBlocks(lines: readonly Line[], bodySize: number): Line[][] {
         // A size change is a structural boundary: a heading never shares a
         // block with the paragraph beneath it.
         Math.abs(line.size - last.size) > 0.5 ||
-        last.y - line.y > leading * BLOCK_GAP);
+        last.y - line.y > expectedLeading(last.size, bodySize, leading));
     if (broken) {
       blocks.push(block);
       block = [];
@@ -210,6 +227,26 @@ function looksTabular(lines: readonly Line[], bodySize: number): boolean {
 }
 
 /**
+ * A fenced block that keeps its indentation.
+ *
+ * Code without indentation is still code, but it is markedly worse to read, and
+ * the offsets are right there in the runs. Measured against the block's own
+ * left edge rather than the page's, so a whole block set in from the margin
+ * does not arrive drowning in leading spaces.
+ */
+function fence(block: readonly Line[], bodySize: number): string {
+  const left = Math.min(...block.map((line) => line.x));
+  // A monospace character advances about six tenths of its size — the figure
+  // both fixed-width faces in the measured documents came out at.
+  const step = Math.max(1, bodySize * 0.6);
+  const lines = block.map((line) => {
+    const indent = Math.max(0, Math.round((line.x - left) / step));
+    return `${" ".repeat(indent)}${line.text}`;
+  });
+  return ["```", ...lines, "```"].join("\n");
+}
+
+/**
  * Markdown for a document whose layout could be read.
  *
  * Call only when `layout.legible`; on anything else this produces confident
@@ -228,7 +265,7 @@ export function pdfMarkdown(layout: PdfLayout): string {
     if (first === undefined) continue;
 
     if (first.mono) {
-      out.push(["```", ...block.map((l) => l.text), "```"].join("\n"));
+      out.push(fence(block, bodySize));
       continue;
     }
 
@@ -241,7 +278,7 @@ export function pdfMarkdown(layout: PdfLayout): string {
     }
 
     if (looksTabular(block, bodySize)) {
-      out.push(["```", ...block.map((l) => l.text), "```"].join("\n"));
+      out.push(fence(block, bodySize));
       continue;
     }
 
