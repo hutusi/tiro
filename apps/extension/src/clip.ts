@@ -2,6 +2,8 @@ import {
   ArticleFrontmatterSchema,
   canonicalizeUrl,
   indexPath,
+  isLocalDocument,
+  LOCAL_DOCUMENT_DOMAIN,
   normalizeUrl,
   slugForUrl,
   stringifyArticle,
@@ -75,7 +77,13 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
   // keeping it identical to the slug's input means re-clips from any URL
   // variant produce byte-identical frontmatter.
   const url = normalizeUrl(input.url);
-  const domain = new URL(url).hostname;
+  // A document imported off disk has no hostname to take this from, so it
+  // carries the sentinel instead (ADR 0027). Not left to `new URL().hostname`,
+  // which answers "" for a `local:` URL and would fail the contract's
+  // non-empty rule with an error naming the wrong thing.
+  const domain = isLocalDocument(url)
+    ? LOCAL_DOCUMENT_DOMAIN
+    : new URL(url).hostname;
   const title = input.title.trim() || domain;
   const frontmatter = ArticleFrontmatterSchema.parse({
     url,

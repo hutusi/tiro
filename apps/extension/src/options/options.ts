@@ -4,7 +4,21 @@ import "@fontsource/spectral/latin-600.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "../ui/tokens.css";
 import "./options.css";
-import { type ConnectionTestResult, testConnection } from "../github.ts";
+import {
+  localDocumentUrl,
+  PDF_MAX_PAGES,
+  PDF_MIN_CHARS_PER_PAGE,
+  PDF_MIN_PAGE_COVERAGE,
+  slugForUrl,
+} from "@tiro/shared";
+import { buildClipFile } from "../clip.ts";
+import {
+  type ConnectionTestResult,
+  encodeBase64Utf8,
+  findExistingIndex,
+  putFile,
+  testConnection,
+} from "../github.ts";
 import {
   getLocale,
   type LanguageSetting,
@@ -37,12 +51,21 @@ const label = {
   language: document.getElementById("label-language") as HTMLSpanElement,
   sync: document.getElementById("label-sync") as HTMLSpanElement,
   syncHint: document.getElementById("sync-hint") as HTMLParagraphElement,
+  importHeading: document.getElementById(
+    "import-heading",
+  ) as HTMLHeadingElement,
+  importHint: document.getElementById("import-hint") as HTMLParagraphElement,
 };
 const languageSelect = document.getElementById("language") as HTMLSelectElement;
 const syncCheckbox = document.getElementById("sync") as HTMLInputElement;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 const testButton = document.getElementById("test") as HTMLButtonElement;
 const result = document.getElementById("result") as HTMLParagraphElement;
+const importButton = document.getElementById("import") as HTMLButtonElement;
+const fileInput = document.getElementById("pdf-file") as HTMLInputElement;
+const importResult = document.getElementById(
+  "import-result",
+) as HTMLParagraphElement;
 
 /** Every control the form freezes together. At module scope because the sync
  * toggle needs the same treatment `init()` already gives the initial load: the
@@ -55,6 +78,9 @@ const controls: { disabled: boolean }[] = [
   syncCheckbox,
   saveButton,
   testButton,
+  // Not optional: this one writes to GitHub, so a Save landing mid-import is
+  // exactly the race the note above describes.
+  importButton,
 ];
 
 function setControlsEnabled(enabled: boolean): void {
@@ -101,6 +127,9 @@ function applyText(locale: Locale): void {
   label.language.textContent = m.labelLanguage;
   label.sync.textContent = m.labelSync;
   label.syncHint.textContent = m.syncHint;
+  label.importHeading.textContent = m.importHeading;
+  label.importHint.textContent = m.importHint;
+  importButton.textContent = m.importButton;
   const option: Record<LanguageSetting, string> = {
     auto: m.langAuto,
     en: m.langEn,
@@ -326,5 +355,118 @@ testButton.addEventListener("click", () => {
     show(describeConnection(r), r.ok ? "ok" : "error"),
   );
 });
+
+/** Paint the import line, which keeps its own status separate from the
+ * settings form's — the two say different things and both can matter. */
+function showImport(text: string, tone?: "ok" | "error"): void {
+  importResult.textContent = text;
+  importResult.className = tone ?? "";
+}
+
+importButton.addEventListener("click", () => {
+  const config = currentConfig();
+  // Checked here rather than after a file is chosen: asking someone to pick a
+  // document and only then saying the vault is not set up wastes the pick.
+  if (config.owner === "" || config.repo === "" || config.token === "") {
+    showImport(m.importNeedsSettings, "error");
+    return;
+  }
+  // Reset first, so choosing the same file twice still fires `change`.
+  fileInput.value = "";
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files?.[0];
+  if (file === undefined) return;
+  void importPdf(file);
+});
+
+/**
+ * Read a PDF off disk and commit it as an article (ADR 0027).
+ *
+ * Extraction happens here rather than in the processor because the processor
+ * cannot reach this file: it runs in CI, and the bytes exist only on this
+ * machine. So the extension does the part that needs the file — extract, judge,
+ * strip the furniture while it still has pages — and commits the text. The
+ * model pass that turns it into Markdown still happens where every other
+ * article's does.
+ *
+ * The gates run here for a second reason: there is a person to tell. A scan
+ * refused now is a sentence on screen; refused in CI it is an article that
+ * sits pending and says nothing.
+ */
+async function importPdf(file: File): Promise<void> {
+  const name = file.name;
+  if (!/\.pdf$/i.test(name) && file.type !== "application/pdf") {
+    showImport(m.importNotPdf, "error");
+    return;
+  }
+
+  setControlsEnabled(false);
+  showImport(m.importReading(name));
+  try {
+    // Lazy, and load-bearing: pdf.js is 1.7 MB and this page must not pay for
+    // it until someone actually picks a file. A static import would put it on
+    // every open of Settings.
+    const { extractPdfText, joinPdfPages, stripRunningFurniture } =
+      await import("@tiro/shared/pdf");
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { pages, totalPages } = await extractPdfText(bytes, {
+      maxPages: PDF_MAX_PAGES,
+      minCharsPerPage: PDF_MIN_CHARS_PER_PAGE,
+      minPageCoverage: PDF_MIN_PAGE_COVERAGE,
+    });
+
+    const url = localDocumentUrl(name);
+    const slug = await slugForUrl(url);
+    const config = currentConfig();
+    showImport(m.importSaving(name));
+
+    // The same carry-forward a re-clip does, with a different default: an
+    // imported document starts unlisted, and a decision to unhide it survives
+    // the next import (ADR 0017, ADR 0027).
+    const existing = await findExistingIndex(config, slug);
+    const clip = {
+      url,
+      title: name.replace(/\.pdf$/i, ""),
+      markdown: joinPdfPages(stripRunningFurniture(pages)),
+      clippedAt: new Date().toISOString(),
+      clipperVersion: chrome.runtime.getManifest().version,
+      clipperCommit: __CLIPPER_COMMIT__,
+      sourceMedia: "pdf" as const,
+      unlisted: existing?.unlisted ?? true,
+    };
+    const built = await buildClipFile(clip);
+    await putFile(config, {
+      path: built.path,
+      contentBase64: encodeBase64Utf8(built.content),
+      message: `import: ${built.title}`,
+      ...(existing !== null ? { sha: existing.sha } : {}),
+      resolveConflict: async () => {
+        const again = await findExistingIndex(config, slug);
+        const rebuilt = await buildClipFile({
+          ...clip,
+          unlisted: again?.unlisted ?? true,
+        });
+        return {
+          ...(again !== null ? { sha: again.sha } : {}),
+          contentBase64: encodeBase64Utf8(rebuilt.content),
+        };
+      },
+    });
+    showImport(
+      existing === null
+        ? m.importSaved(`${name} (${totalPages}p)`)
+        : m.importUpdated(name),
+      "ok",
+    );
+  } catch (error) {
+    showImport(m.importFailed(String(error)), "error");
+  } finally {
+    setControlsEnabled(true);
+  }
+}
 
 void init();
