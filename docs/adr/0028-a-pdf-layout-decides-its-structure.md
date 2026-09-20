@@ -70,17 +70,30 @@ how much text is set in it: in the papers the headings are a rounding error
 beside the body — 241 characters at 12pt in one, 62 at 14.3pt in another — and a
 volume threshold would discard exactly the thing being looked for.
 
-**6. Monospace is detected by name, and that is a heuristic.** pdf.js does not
-set `isMonospace` for embedded fonts — the resolved objects carry `vertical`,
-and `bold`/`italic` only for the standard fourteen. So the name decides, after
-its subset prefix is stripped (`PNNOIE+NimbusRomNo9L-Regu` is a subset tag plus
-a font). `Courier`, `Mono`, `Consolas` and `Menlo` are caught; TeX's typewriter
-faces are caught by their `TT` convention (`CMTT10`, `SFTT1000`), which is a
-convention and not a guarantee.
+**6. Monospace is measured, not guessed from the name.** pdf.js does not set
+`isMonospace` for embedded fonts — the resolved objects carry `vertical`, and
+`bold`/`italic` only for the standard fourteen — so this began as name matching
+and should not have stayed there. Names are whack-a-mole: `NimbusMonL` is Nimbus
+Mono L, contains no "mono", and was missed in two of the four documents.
 
-A font this misses renders as a paragraph rather than a fence. That is a
-readability loss and not a corruption, which is the side of the trade this
-codebase keeps choosing.
+A fixed-width face advances the same distance for every character, and that is
+visible in the runs themselves. Measured across the four: `Courier` came out at
+a coefficient of variation of 0.000 and `NimbusMonL` at 0.003, while every
+proportional face sat between 0.046 and 0.182 — an order of magnitude of
+daylight, so the threshold is not delicate.
+
+Two guards, both earned by a false positive. A font needs enough runs before it
+is judged at all: a serif italic at seven runs, a bold Arial at five and a TeX
+math face at four each cleared the variation test, while the genuine
+fixed-width faces with enough text to judge had ten and nineteen. And those runs
+must differ — `Arial-BoldMT` measured *exactly* zero variation across five runs
+because they were five copies of one string, and identical text advances
+identically in any face whatsoever.
+
+Below that bar the name still decides, which is how a face appearing twice in a
+whole paper is still caught. A font missed by both renders as a paragraph rather
+than a fence: a readability loss, not a corruption, which is the side of the
+trade this codebase keeps choosing.
 
 **7. Tabular blocks are fenced, not rebuilt.** Consecutive lines sharing two or
 more column positions are recognised and emitted preformatted. ADR 0026 clause 5
