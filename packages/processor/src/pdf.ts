@@ -279,6 +279,12 @@ export async function convertPdf(
   );
   log(`pdf: ${totalPages} page(s), ${chars} chars of text layer`);
 
+  // Read again on the way out, not only on the way in. Extraction is the one
+  // step here that can spend real time on its own — pdf.js is woken per page —
+  // so a document that entered with budget can leave without it, and returning
+  // a finished body then reports a run that overran as one that did not.
+  guard.check(0, "building the article");
+
   // Where the document's own typography says what its structure is, that is
   // the answer — and a better one than a model inferring it from wording
   // (ADR 0028). It also costs nothing and cannot invent anything.

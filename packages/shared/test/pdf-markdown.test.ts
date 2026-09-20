@@ -500,6 +500,29 @@ describe("pdfMarkdown columns versus tables", () => {
     expect(md).not.toContain("Metric 9 Metric 10");
   });
 
+  test("keeps a table's rows when its cells sit a fraction apart", () => {
+    // Real cells are not pinned to the same baseline. Rounding each one on its
+    // own put the two halves of a row in adjacent buckets — one rounding up,
+    // the other down — so a ten-row table measured as nought per cent paired,
+    // passed the column test, and came out as all keys then all values.
+    const items: PdfTextItem[] = [];
+    for (let i = 1; i <= 10; i += 1) {
+      const y = 700 - i * 18;
+      items.push({
+        ...line(`Deployment frequency metric ${i}`, y + 0.6),
+        x: 72,
+      });
+      items.push({
+        ...line(`Improved by ${i * 7} percent overall`, y - 0.6),
+        x: 320,
+      });
+    }
+    const md = pdfMarkdown(layout(items));
+    const row = md.split("\n").find((l) => l.includes("metric 3"));
+    expect(row).toContain("Improved by 21 percent");
+    expect(md).not.toContain("metric 9 Deployment frequency metric 10");
+  });
+
   test("still separates columns on a short page", () => {
     // Requiring eight runs before looking missed a page holding a title and
     // two lines of each column, which then interleaved.

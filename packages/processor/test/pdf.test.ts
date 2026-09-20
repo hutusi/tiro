@@ -153,6 +153,30 @@ describe("convertPdf and its two clocks", () => {
     ).rejects.toThrow(DeadlineExceededError);
   });
 
+  test("stops when extraction itself spends the budget", async () => {
+    // Extraction is the one step that can spend real time on its own — pdf.js
+    // is woken per page — so a document that entered with budget can leave
+    // without it. Returning a finished body then reports a run that overran as
+    // one that did not.
+    let now = 0;
+    const deadline = createDeadline(100, () => now);
+    const fetchImpl: FetchLike = async () => {
+      // The clock moves while the bytes are read, as a long document's does.
+      now = 200;
+      return new Response(makePdf([PROSE, PROSE]), {
+        headers: { "content-type": "application/pdf" },
+      });
+    };
+    await expect(
+      convertPdf({
+        ...options(),
+        fetchImpl,
+        stageTimeoutMs: 300_000,
+        deadline,
+      }),
+    ).rejects.toThrow(DeadlineExceededError);
+  });
+
   test("a blown stage cap is a fault about this document, not the run", async () => {
     // The other clock, and deliberately not a DeadlineExceededError: the run
     // is healthy, this PDF is the problem, and reporting it as a late run

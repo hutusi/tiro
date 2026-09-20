@@ -104,6 +104,30 @@ const ROW_PAIRED_SHARE = 0.6;
 const SPANNING_WIDTH = 0.6;
 
 /**
+ * Runs gathered onto shared baselines, within `LINE_TOLERANCE`.
+ *
+ * The same grouping `toLines` does, and it has to be the same: a row whose
+ * cells differ by a fraction of a point is one row to the reader, to the line
+ * builder, and so to the test that decides whether a page is rows.
+ */
+function groupBaselines(
+  items: readonly PdfTextItem[],
+): Map<number, PdfTextItem[]> {
+  const rows = new Map<number, PdfTextItem[]>();
+  const anchors: number[] = [];
+  for (const item of [...items].sort((a, b) => b.y - a.y)) {
+    let anchor = anchors.find((y) => Math.abs(y - item.y) <= LINE_TOLERANCE);
+    if (anchor === undefined) {
+      anchor = item.y;
+      anchors.push(anchor);
+      rows.set(anchor, []);
+    }
+    rows.get(anchor)?.push(item);
+  }
+  return rows;
+}
+
+/**
  * Where a page's columns divide, or null if it has one.
  *
  * Found from the geometry rather than assumed from the draw order. Content
@@ -154,15 +178,14 @@ function pageGutter(
   // spaced x positions as page columns and can hold text just as long, so
   // neither the gap nor the amount in it tells them apart — see
   // ROW_PAIRED_SHARE.
-  const sides = new Map<number, { left: boolean; right: boolean }>();
-  for (const item of narrow) {
-    const y = Math.round(item.y);
-    const seen = sides.get(y) ?? { left: false, right: false };
-    if (item.x + item.width <= best.at) seen.left = true;
-    else if (item.x >= best.at) seen.right = true;
-    sides.set(y, seen);
-  }
-  const baselines = [...sides.values()];
+  // Clustered with the tolerance `toLines` groups by, not rounded. Rounding
+  // each baseline on its own splits a row whose two cells sit a point apart —
+  // one rounds up, the other down — and a table of ten such rows then measured
+  // as nought per cent paired, passed the column test, and lost every row.
+  const baselines = [...groupBaselines(narrow).values()].map((row) => ({
+    left: row.some((i) => i.x + i.width <= best.at),
+    right: row.some((i) => i.x >= best.at),
+  }));
   const paired = baselines.filter((s) => s.left && s.right).length;
   if (baselines.length === 0) return null;
   return paired / baselines.length <= ROW_PAIRED_SHARE ? best.at : null;
