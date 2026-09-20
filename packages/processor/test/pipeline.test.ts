@@ -27,7 +27,7 @@ import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
-import { makeFakeChat, makePdf } from "./helpers.ts";
+import { makeFakeChat, makePdf, makeStyledPdf } from "./helpers.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
@@ -1425,6 +1425,63 @@ describe("runPipeline with a PDF stub", () => {
     // And the marker survived the round-trip, so a later audit can still find
     // every article built this way.
     expect(article.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("a PDF whose layout reads cleanly converts with no model call", async () => {
+    // The point of ADR 0028: where the document's own typography says what its
+    // structure is, that is the answer — better than a model inferring it from
+    // wording, and free.
+    const { dir, slug } = await stubVault();
+    const body =
+      "The method is straightforward to implement and efficient in practice.";
+    const pdf = makeStyledPdf([
+      [
+        { text: "A Document Title", size: 20, face: "bold" },
+        { text: "Chapter One", size: 16, face: "bold" },
+        { text: body },
+        { text: body },
+        { text: "SELECT id FROM users", face: "courier" },
+      ],
+    ]);
+    const config = await loadVaultConfig(dir);
+    const seen = { calls: 0 };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+      chat: countingChat(seen),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(seen.calls).toBe(0);
+    expect(article.body).toContain("# A Document Title");
+    expect(article.body).toContain("## Chapter One");
+    expect(article.body).toContain("```");
+    expect(article.body).toContain("SELECT id FROM users");
+  });
+
+  test("a PDF with no legible layout still uses the model", async () => {
+    // The fallback earns its keep on exactly the documents that have nothing
+    // to read: one size, one face.
+    const { dir, slug } = await stubVault();
+    // Comfortably over the density gate: at 99 chars a page this was refused
+    // before it could reach the model at all, and proved nothing.
+    const body =
+      "The method is straightforward to implement, is computationally efficient, has little memory requirement, and is invariant to diagonal rescaling of the gradients.";
+    const config = await loadVaultConfig(dir);
+    const seen = { calls: 0 };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(makePdf([body, body])),
+      chat: countingChat(seen),
+    });
+    expect(seen.calls).toBeGreaterThan(0);
+    expect(
+      parseArticle(
+        readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+      ).body.length,
+    ).toBeGreaterThan(0);
   });
 
   test("an unchanged re-clip reuses the conversion it already paid for", async () => {

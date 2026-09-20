@@ -2,7 +2,7 @@ import type { ChatFn, ChatRequest } from "../src/llm/client.ts";
 
 /** Re-exported so the processor's tests keep one import for their helpers,
  * while the builder itself lives beside the extraction it feeds. */
-export { makePdf } from "../../shared/test/pdf-fixture.ts";
+export { makePdf, makeStyledPdf } from "../../shared/test/pdf-fixture.ts";
 
 /**
  * Build a structurally valid PDF with one text run per page.
