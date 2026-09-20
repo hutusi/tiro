@@ -1738,6 +1738,102 @@ describe("runPipeline with an imported local document", () => {
     expect(parseArticle(readFileSync(path, "utf8")).body).toBe(converted.body);
   });
 
+  /** Count only the structure pass; summarize and translate call out too. */
+  function countingChat(seen: { calls: number }): ChatFn {
+    return async (request) => {
+      const system =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
+      if (system.includes("restore structure to text extracted from a PDF")) {
+        seen.calls += 1;
+      }
+      return makeFakeChat()(request);
+    };
+  }
+
+  /** Overwrite the article the way a fresh import does: the same extracted
+   * text, unconverted again, and a new clip time. */
+  function reimport(dir: string, slug: string, clippedAt: string): void {
+    const path = join(dir, "articles", slug, "index.md");
+    const existing = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...existing.frontmatter,
+          clipped_at: clippedAt,
+          tiro: {
+            schema: 1 as const,
+            source_media: "pdf" as const,
+            pdf_unstructured: true,
+          },
+        },
+        joinPdfPages([PAGE(1), PAGE(2)]),
+      ),
+    );
+  }
+
+  test("re-importing the same file actually reconverts it", async () => {
+    // The runbook says to re-import when a conversion came out badly. An
+    // unchanged file extracts to byte-identical batches, so the checkpoint hit
+    // every one of them — fallbacks included — and nothing was retried.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    const first = { calls: 0 };
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: countingChat(first),
+    });
+    expect(first.calls).toBeGreaterThan(0);
+
+    reimport(dir, slug, "2026-09-21T10:00:00.000Z");
+    const again = { calls: 0 };
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: countingChat(again),
+    });
+    expect(again.calls).toBe(first.calls);
+  });
+
+  test("but a run resuming the same import still reuses its work", async () => {
+    // The other half, and the reason this is stamped rather than simply
+    // discarded: a long document that stopped on budget must not start over.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+
+    // Back to unconverted with the *same* clip time — what a budget stop
+    // leaves, not what an import leaves.
+    const path = join(dir, "articles", slug, "index.md");
+    const done = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...done.frontmatter,
+          tiro: {
+            schema: 1 as const,
+            source_media: "pdf" as const,
+            pdf_unstructured: true,
+          },
+        },
+        joinPdfPages([PAGE(1), PAGE(2)]),
+      ),
+    );
+
+    const resumed = { calls: 0 };
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: countingChat(resumed),
+    });
+    expect(resumed.calls).toBe(0);
+  });
+
   test("batches by the pages the import preserved", async () => {
     // A body flattened to one string would be sent as a single enormous
     // request, which is why the separators travel with the text.

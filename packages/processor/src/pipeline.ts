@@ -675,6 +675,11 @@ async function pdfBody(
     cache: await loadPdfCheckpoint(
       `${article.dirAbs}/${PDF_CACHE_FILE}`,
       modelFor(config, "summary"),
+      // Stamped with the clip, so a re-import starts over and a resumed run
+      // does not. Both produce byte-identical batches for an unchanged file,
+      // so content addressing alone cannot tell them apart — and the runbook
+      // tells people to re-import when a conversion came out badly.
+      frontmatter.clipped_at,
       force,
       log,
     ),
@@ -746,10 +751,11 @@ async function pdfBody(
 async function loadPdfCheckpoint(
   pathAbs: string,
   model: string,
+  stamp: string,
   force: boolean,
   log: (message: string) => void,
 ): Promise<TranslationCache> {
-  const header = { target: "pdf", model };
+  const header = { target: "pdf", model, stamp };
   if (!force) return loadTranslationCache(pathAbs, header, log);
 
   try {

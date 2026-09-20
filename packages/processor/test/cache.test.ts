@@ -200,3 +200,48 @@ describe("loadTranslationCache", () => {
     expect(cache.writeError).toBeUndefined();
   });
 });
+
+describe("the checkpoint stamp", () => {
+  const dir = mkdtempSync(join(tmpdir(), "tiro-stamp-"));
+  const path = join(dir, ".tiro-pdf-cache.json");
+
+  test("reuses a checkpoint carrying the same stamp", async () => {
+    const first = await loadTranslationCache(path, {
+      target: "pdf",
+      model: "m",
+      stamp: "2026-09-20T10:00:00.000Z",
+    });
+    first.set("a batch", "## A batch");
+    await first.flush();
+
+    const again = await loadTranslationCache(path, {
+      target: "pdf",
+      model: "m",
+      stamp: "2026-09-20T10:00:00.000Z",
+    });
+    expect(again.get("a batch")).toBe("## A batch");
+  });
+
+  test("drops one carrying a different stamp", async () => {
+    // Content addressing makes reuse safe, not wanted: an unchanged PDF
+    // re-imported produces byte-identical batches, so every entry would hit —
+    // including the fallbacks the re-import was asking to retry.
+    const fresh = await loadTranslationCache(path, {
+      target: "pdf",
+      model: "m",
+      stamp: "2026-09-21T10:00:00.000Z",
+    });
+    expect(fresh.get("a batch")).toBeUndefined();
+  });
+
+  test("leaves a stampless checkpoint working", async () => {
+    // Translation passes none and wants the opposite behaviour: ADR 0010 keeps
+    // its checkpoint precisely so a re-clip reuses every unchanged block.
+    const zh = join(dir, ".tiro-zh-cache.json");
+    const a = await loadTranslationCache(zh, { target: "zh", model: "m" });
+    a.set("block", "译文");
+    await a.flush();
+    const b = await loadTranslationCache(zh, { target: "zh", model: "m" });
+    expect(b.get("block")).toBe("译文");
+  });
+});

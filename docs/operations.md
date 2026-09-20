@@ -143,8 +143,10 @@ What is different from a clipped one:
   the document should.
 - It starts **unlisted**. Unhiding one by hand survives a re-import.
 - `--force` keeps the converted body and redoes only the summary, tags and
-  translation — there is nothing to re-extract, because the bytes are not in the
-  vault. **Re-import the file** to rebuild the text itself.
+  translation — there is nothing to re-extract, because the bytes are not in
+  the vault. **Re-import the file** to rebuild the text itself; the import
+  stamps the article afresh, so the next run reconverts it from scratch rather
+  than resuming the conversion it is being asked to replace.
 - A CJK filename slugs to a bare hash. Not local-specific — `slugify` drops CJK
   for every article — but a `local:` identity has no hostname to soften it. The
   title still carries the name.

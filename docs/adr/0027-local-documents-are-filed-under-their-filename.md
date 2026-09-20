@@ -117,7 +117,13 @@ are values the existing fields already admit.
   translation. Restructuring again would not merely be redundant: a converted
   body has no page separators left, and batching never splits a page, so the
   whole document would go out as a single request. Re-importing the file is the
-  way to genuinely start over.
+  way to genuinely start over — and it works only because the conversion
+  checkpoint is stamped with the article's `clipped_at`. Content addressing
+  makes reuse safe but not wanted: an unchanged file re-imported extracts to
+  byte-identical batches, so every entry would hit, fallbacks included, and the
+  documented way out of a bad conversion would quietly change nothing. The
+  stamp separates the two cases exactly — a resumed run carries the same one
+  and keeps its work, a fresh import carries a new one and starts over.
 - **The filename becomes a public slug.** `unlisted` keeps it out of every
   index, and the address remains derivable by anyone who knows the name. A file
   named for something sensitive should be renamed before importing, or not
