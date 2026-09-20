@@ -1354,6 +1354,18 @@ describe("run budget", () => {
   });
 });
 
+/** Count only the structure pass; summarize and translate call out too. */
+function countingChat(seen: { calls: number }): ChatFn {
+  return async (request) => {
+    const system =
+      request.messages.find((m) => m.role === "system")?.content ?? "";
+    if (system.includes("restore structure to text extracted from a PDF")) {
+      seen.calls += 1;
+    }
+    return makeFakeChat()(request);
+  };
+}
+
 describe("runPipeline with a PDF stub", () => {
   const PDF_URL = "https://example.com/papers/method.pdf";
 
@@ -1413,6 +1425,49 @@ describe("runPipeline with a PDF stub", () => {
     // And the marker survived the round-trip, so a later audit can still find
     // every article built this way.
     expect(article.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("an unchanged re-clip reuses the conversion it already paid for", async () => {
+    // A web re-clip re-downloads the document, so unchanged bytes give
+    // unchanged batches and reuse is the whole point of the checkpoint — for
+    // a long PDF this is a great many model calls. A document that really
+    // changed misses the cache on its own, by content.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    const first = { calls: 0 };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+      chat: countingChat(first),
+    });
+    expect(first.calls).toBeGreaterThan(0);
+
+    // A re-clip: same URL and bytes, a fresh clip time, back to a bodyless
+    // stub. The clip time moving must not throw the conversion away.
+    const path = join(dir, "articles", slug, "index.md");
+    const clipped = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...clipped.frontmatter,
+          clipped_at: "2026-09-21T09:00:00.000Z",
+          tiro: { schema: 1 as const, source_media: "pdf" as const },
+        },
+        "",
+      ),
+    );
+
+    const again = { calls: 0 };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+      chat: countingChat(again),
+    });
+    expect(again.calls).toBe(0);
   });
 
   test("a forced redo reconverts rather than resuming the checkpoint", async () => {
@@ -1737,18 +1792,6 @@ describe("runPipeline with an imported local document", () => {
     expect(structureCalls).toBe(0);
     expect(parseArticle(readFileSync(path, "utf8")).body).toBe(converted.body);
   });
-
-  /** Count only the structure pass; summarize and translate call out too. */
-  function countingChat(seen: { calls: number }): ChatFn {
-    return async (request) => {
-      const system =
-        request.messages.find((m) => m.role === "system")?.content ?? "";
-      if (system.includes("restore structure to text extracted from a PDF")) {
-        seen.calls += 1;
-      }
-      return makeFakeChat()(request);
-    };
-  }
 
   /** Overwrite the article the way a fresh import does: the same extracted
    * text, unconverted again, and a new clip time. */

@@ -656,6 +656,7 @@ async function pdfBody(
 ): Promise<string> {
   const { frontmatter } = article.parsed;
   const url = frontmatter.tiro.source_url ?? frontmatter.url;
+  const local = isLocalDocument(url);
   const shared = {
     // Both clocks, handed over whole rather than pre-combined: the stage
     // bounds this document, the run's budget bounds the job, and the stage has
@@ -675,18 +676,25 @@ async function pdfBody(
     cache: await loadPdfCheckpoint(
       `${article.dirAbs}/${PDF_CACHE_FILE}`,
       modelFor(config, "summary"),
-      // Stamped with the clip, so a re-import starts over and a resumed run
-      // does not. Both produce byte-identical batches for an unchanged file,
-      // so content addressing alone cannot tell them apart — and the runbook
-      // tells people to re-import when a conversion came out badly.
-      frontmatter.clipped_at,
+      // Stamped for an import and only for one. A re-import is a request to
+      // convert again, and the text it writes is byte-identical, so content
+      // addressing cannot tell it from a resumed run — the stamp can.
+      //
+      // A web re-clip is the opposite case and must not be stamped: it
+      // re-downloads the document, so unchanged bytes give unchanged batches
+      // and reuse is exactly what is wanted, while a document that really
+      // changed misses the cache on its own. Stamping those too discarded
+      // every batch of every re-clip, which for a long PDF is a great many
+      // model calls to rediscover the same answers. `--force` remains the way
+      // to retry one of those, and it still clears the checkpoint outright.
+      local ? frontmatter.clipped_at : undefined,
       force,
       log,
     ),
     log,
   };
 
-  if (isLocalDocument(url)) {
+  if (local) {
     // An imported document whose body is already the article has nothing left
     // to re-derive: its bytes were never in the vault. Restructuring again
     // would not merely be redundant — the page separators are gone from a
@@ -751,11 +759,15 @@ async function pdfBody(
 async function loadPdfCheckpoint(
   pathAbs: string,
   model: string,
-  stamp: string,
+  stamp: string | undefined,
   force: boolean,
   log: (message: string) => void,
 ): Promise<TranslationCache> {
-  const header = { target: "pdf", model, stamp };
+  const header = {
+    target: "pdf",
+    model,
+    ...(stamp !== undefined ? { stamp } : {}),
+  };
   if (!force) return loadTranslationCache(pathAbs, header, log);
 
   try {

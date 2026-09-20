@@ -124,6 +124,14 @@ are values the existing fields already admit.
   documented way out of a bad conversion would quietly change nothing. The
   stamp separates the two cases exactly — a resumed run carries the same one
   and keeps its work, a fresh import carries a new one and starts over.
+
+  Imports only. A web re-clip re-downloads the document, so unchanged bytes
+  give unchanged batches and reuse is precisely what ADR 0010 keeps a
+  checkpoint for, while a document that really changed misses the cache by
+  content. Stamping those as well threw away every batch of every re-clip,
+  which for a long paper is a great many model calls spent rediscovering the
+  same answers. `--force` stays the way to retry one of those, and it clears
+  the checkpoint outright.
 - **The filename becomes a public slug.** `unlisted` keeps it out of every
   index, and the address remains derivable by anyone who knows the name. A file
   named for something sensitive should be renamed before importing, or not
