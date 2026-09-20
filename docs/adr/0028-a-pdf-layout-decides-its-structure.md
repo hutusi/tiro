@@ -121,12 +121,22 @@ up as columns, so the text was fenced as tabular — and `code` is verbatim by
 contract (invariant 4), so a whole paper would have been excluded from
 translation as well as scrambled.
 
-And the mistake has a mirror image, which the first version of this rule walked
+And the mistake has a mirror image, which two versions of this rule walked
 straight into: a two-field **table** is the same shape as a two-column page, and
 reading one as columns moves every left cell above every right one and loses
-every row. What separates them is not the gap but what surrounds it — prose is
-set to the measure and reaches the gutter, while cells are short and leave their
-column mostly empty. Measured at 97% against 31%, which is not a close call.
+every row.
+
+What separates them is neither the gap nor how much text sits in it — cells can
+be as long as prose lines. It is that **a table is rows**: every baseline
+carries a cell on each side, by construction. Two columns of prose are set
+independently and drift apart within a page, because their paragraphs, headings
+and figures do not line up. Measured on a real paper: 16%, 23% and 34% of
+baselines shared across three pages, against a table's 100%.
+
+The edge that leaves is recorded rather than hidden. A page whose columns share
+*every* baseline is indistinguishable from a table by any geometry, and is read
+as rows. Real two-column prose does not do that, but a document that did would
+come out as a table — with all its text, in the wrong order, fenced.
 
 **7b. Running headers are dropped on this path too.** The rule is ADR 0026's,
 applied to lines rather than page strings, because that is what this path has.

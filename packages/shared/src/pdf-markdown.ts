@@ -83,19 +83,20 @@ const GUTTER_MIN = 2.5;
 const COLUMN_MIN_SHARE = 0.25;
 
 /**
- * How much of its own width a column of prose fills.
+ * Above this share of shared baselines, the page is rows — a table — and must
+ * not be split into columns.
  *
- * The line between a two-column *page* and a two-column *table*, which are
- * otherwise the same shape: prose is set to the measure and reaches the
- * gutter, while cells are short and leave the rest of the column empty.
- * Measured — a table of ten metrics filled 31% of its column, while a
- * two-column paper's lines reach 97% of the way across.
+ * The structural difference, after two proxies for it failed. A table *is*
+ * rows: every baseline carries a cell on each side, by construction. Two
+ * columns of prose are set independently and drift apart within a page or two,
+ * because their paragraphs, headings and figures do not line up.
  *
- * Getting this wrong reorders a table's cells into two lists and loses every
- * row association, which is the mirror of the failure column detection was
- * added to fix.
+ * Measured rather than chosen. A real two-column paper pairs 16%, 23% and 34%
+ * of its baselines across three pages; a table pairs all of them. The gap is
+ * wide enough that the threshold is not delicate, which is what the two earlier
+ * rules — "cells are short", "the gap is wide" — never had.
  */
-const COLUMN_MIN_FILL = 0.6;
+const ROW_PAIRED_SHARE = 0.6;
 
 /** A run this much of the page wide spans the columns rather than sitting in
  * one — a banner title, a full-width figure caption. It cannot help locate the
@@ -149,20 +150,22 @@ function pageGutter(
   const share = narrow.length * COLUMN_MIN_SHARE;
   if (left.length < share || right.length < share) return null;
 
-  // And both sides have to read like columns of prose rather than like the two
-  // fields of a table — see COLUMN_MIN_FILL.
-  const fills = (side: readonly PdfTextItem[], from: number, to: number) => {
-    const span = to - from;
-    if (span <= 0) return false;
-    const reach =
-      Math.max(...side.map((i) => i.x + i.width)) -
-      Math.min(...side.map((i) => i.x));
-    return reach / span >= COLUMN_MIN_FILL;
-  };
-  const pageLeft = Math.min(...narrow.map((i) => i.x));
-  return fills(left, pageLeft, best.at) && fills(right, best.at, pageWidth)
-    ? best.at
-    : null;
+  // And the page must not be rows. A table's fields sit at the same widely
+  // spaced x positions as page columns and can hold text just as long, so
+  // neither the gap nor the amount in it tells them apart — see
+  // ROW_PAIRED_SHARE.
+  const sides = new Map<number, { left: boolean; right: boolean }>();
+  for (const item of narrow) {
+    const y = Math.round(item.y);
+    const seen = sides.get(y) ?? { left: false, right: false };
+    if (item.x + item.width <= best.at) seen.left = true;
+    else if (item.x >= best.at) seen.right = true;
+    sides.set(y, seen);
+  }
+  const baselines = [...sides.values()];
+  const paired = baselines.filter((s) => s.left && s.right).length;
+  if (baselines.length === 0) return null;
+  return paired / baselines.length <= ROW_PAIRED_SHARE ? best.at : null;
 }
 
 /**

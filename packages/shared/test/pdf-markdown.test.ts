@@ -435,8 +435,15 @@ describe("pdfMarkdown columns", () => {
         ...line(`Left line ${i} of the column`, 760 - i * 20),
         x: 72,
       });
+      // Offset by half a line, and that is not decoration: two columns are
+      // typeset independently and drift apart within a page — measured at 16%,
+      // 23% and 34% shared baselines across three pages of a real paper — and
+      // it is exactly that drift which separates a page of columns from a
+      // table, where every baseline carries a cell on each side by
+      // construction. Columns pinned to identical baselines, as this helper
+      // first had them, are a shape real documents do not have.
       right.push({
-        ...line(`Right line ${i} of the column`, 760 - i * 20),
+        ...line(`Right line ${i} of the column`, 750 - i * 20),
         x: 320,
       });
     }
@@ -500,12 +507,35 @@ describe("pdfMarkdown columns versus tables", () => {
       layout([
         { ...line("A Page Title Spanning Both Columns Here", 760), x: 72 },
         { ...line("Left 1 of the column text", 700), x: 72 },
-        { ...line("Right 1 of the column text", 700), x: 320 },
+        { ...line("Right 1 of the column text", 690), x: 320 },
         { ...line("Left 2 of the column text", 680), x: 72 },
-        { ...line("Right 2 of the column text", 680), x: 320 },
+        { ...line("Right 2 of the column text", 670), x: 320 },
       ]),
     );
     expect(md).toContain("Left 1 of the column text Left 2 of the column text");
     expect(md).not.toContain("Left 1 of the column text Right 1");
+  });
+
+  test("reads perfectly aligned columns as rows, and that is the trade", () => {
+    // The edge this rule leaves, recorded rather than hidden. A page whose two
+    // columns share every baseline is indistinguishable from a table by any
+    // geometry, so it is read as rows and fenced. Real two-column prose does
+    // not do this — it drifts, measured at 16-34% shared baselines — but a
+    // document that did would come out as a table rather than as two columns.
+    const items: PdfTextItem[] = [];
+    for (let i = 1; i <= 6; i += 1) {
+      items.push({
+        ...line(`Left line ${i} of the column`, 760 - i * 20),
+        x: 72,
+      });
+      items.push({
+        ...line(`Right line ${i} of the column`, 760 - i * 20),
+        x: 320,
+      });
+    }
+    const md = pdfMarkdown(layout(items));
+    // Kept in rows, so nothing is lost even though the reading is wrong.
+    const row = md.split("\n").find((l) => l.includes("Left line 1"));
+    expect(row).toContain("Right line 1");
   });
 });
