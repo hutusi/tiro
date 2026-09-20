@@ -142,8 +142,9 @@ What is different from a clipped one:
   (ADR 0017) — so rename a file before importing if its name says more than
   the document should.
 - It starts **unlisted**. Unhiding one by hand survives a re-import.
-- `--force` re-restructures rather than re-extracts, because the bytes are not
-  in the vault and CI cannot reach them. **Re-import the file** to start over.
+- `--force` keeps the converted body and redoes only the summary, tags and
+  translation — there is nothing to re-extract, because the bytes are not in the
+  vault. **Re-import the file** to rebuild the text itself.
 - A CJK filename slugs to a bare hash. Not local-specific — `slugify` drops CJK
   for every article — but a `local:` identity has no hostname to soften it. The
   title still carries the name.

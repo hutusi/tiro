@@ -32,6 +32,43 @@ describe("localDocumentUrl", () => {
     );
   });
 
+  test("escapes URL syntax, so two names cannot become one identity", async () => {
+    // The bug this replaced: encodeURI leaves `#` alone because in a URL it is
+    // syntax, so `C# Notes.pdf` became `local:C#%20Notes.pdf` — a fragment —
+    // and normalizeUrl stripped it to `local:C`. Every filename with a `#`
+    // collapsed onto that one identity and silently overwrote the last.
+    const notes = localDocumentUrl("C# Notes.pdf");
+    const guide = localDocumentUrl("C# Guide.pdf");
+    expect(notes).not.toBe(guide);
+    expect(await slugForUrl(notes)).not.toBe(await slugForUrl(guide));
+    expect(normalizeUrl(notes)).toBe(notes);
+  });
+
+  test("escapes a query delimiter too", async () => {
+    const url = localDocumentUrl("report?v2.pdf");
+    expect(normalizeUrl(url)).toBe(url);
+    expect(await slugForUrl(url)).toContain("v2");
+  });
+
+  test("leaves the characters a filename is actually made of", () => {
+    // The reason originally given for the unsafe encoder was that the safe one
+    // escapes dots and hyphens. It does not.
+    expect(localDocumentUrl("a-b_c.d~e!.pdf")).toBe("local:a-b_c.d~e!.pdf");
+  });
+
+  test("round-trips every one of those back to the name", () => {
+    for (const name of [
+      "C# Notes.pdf",
+      "report?v2.pdf",
+      "a-b_c.d~e!.pdf",
+      "Q3 Report (final).pdf",
+      "同步设计.pdf",
+      "100% done.pdf",
+    ]) {
+      expect(localDocumentName(localDocumentUrl(name))).toBe(name);
+    }
+  });
+
   test("trims, so a dragged name does not change the identity", () => {
     expect(localDocumentUrl("  report.pdf  ")).toBe("local:report.pdf");
   });

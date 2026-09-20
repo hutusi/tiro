@@ -34,9 +34,8 @@ versions follow the `0.x` line while Tiro is a personal system.
   the document should.
 
   Scanned PDFs are refused while you are still looking at the page rather than
-  hours later in a run log, and `--force` re-restructures rather than
-  re-extracting — the bytes are not in the vault, so re-import the file to
-  genuinely start over.
+  hours later in a run log, and `--force` keeps the converted text — there is
+  nothing to re-extract, so re-import the file to rebuild it.
 
 - **PDFs can be clipped.** Until now a PDF tab was a dead end: Chrome renders
   the document in a plugin the DOM cannot see, so the extension refused it

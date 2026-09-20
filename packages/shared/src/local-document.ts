@@ -36,10 +36,17 @@ export const LOCAL_DOCUMENT_DOMAIN = "local";
  */
 export function localDocumentUrl(filename: string): string {
   const base = filename.split(/[\\/]/).pop() ?? filename;
-  // encodeURI rather than encodeURIComponent: the latter escapes the dot and
-  // the hyphen a filename is mostly made of, and the slug is built from the
-  // decoded pathname either way.
-  return `${LOCAL_SCHEME}${encodeURI(base.trim())}`;
+  // Every reserved character, which means encodeURIComponent and not
+  // encodeURI. The difference is not cosmetic: encodeURI leaves `#` and `?`
+  // alone because in a URL they *are* syntax, so `C# Notes.pdf` became
+  // `local:C#%20Notes.pdf` — a fragment — and `normalizeUrl` stripped it to
+  // `local:C`. Every filename containing a `#` collapsed onto that one
+  // identity, and the second import silently overwrote the first.
+  //
+  // The reason originally given for encodeURI — that the alternative escapes
+  // the dots and hyphens a filename is made of — was simply untrue:
+  // encodeURIComponent leaves `. - _ ~ ! * ' ( )` alone.
+  return `${LOCAL_SCHEME}${encodeURIComponent(base.trim())}`;
 }
 
 /**
@@ -64,7 +71,7 @@ export function localDocumentName(url: string): string | null {
   if (!isLocalDocument(url)) return null;
   const raw = url.slice(LOCAL_SCHEME.length);
   try {
-    return decodeURI(raw);
+    return decodeURIComponent(raw);
   } catch {
     // A malformed escape is not worth failing a render over; the raw form is
     // still the name, just uglier.

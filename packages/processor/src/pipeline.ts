@@ -677,9 +677,23 @@ async function pdfBody(
   };
 
   if (isLocalDocument(url)) {
-    // The body already holds the extracted text, so there is nothing to
-    // download and nothing to gate — the import applied the page cap and both
-    // scan gates while it still had a person to tell.
+    // An imported document that has already been processed has nothing left to
+    // re-derive: its bytes were never in the vault, so the body is the
+    // finished article rather than the extracted text it was built from. Only
+    // --force arrives here in that state, and restructuring again would not
+    // merely be redundant — the page separators are gone from a converted
+    // body, so the whole document would be sent as one batch, since batching
+    // never splits a page. Re-importing the file is how to genuinely start
+    // over (ADR 0027); everything else --force redoes still gets redone.
+    if (frontmatter.tiro.processed_at !== undefined) {
+      log(
+        `${article.slug}: imported document kept as it is — re-import the file to rebuild it`,
+      );
+      return article.parsed.body;
+    }
+    // Otherwise the body still holds the extracted text, with its pages
+    // separated. Nothing to download and nothing to gate: the import applied
+    // the page cap and both scan gates while it still had a person to tell.
     const { markdown } = await restructurePdfText(article.parsed.body, shared);
     return markdown;
   }

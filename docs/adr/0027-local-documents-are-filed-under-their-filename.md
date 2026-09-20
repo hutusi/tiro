@@ -45,7 +45,12 @@ with the processor. A subpath rather than the barrel, because invariant 6 keeps
 the root browser-safe and 1.7 MB of pdf.js reachable from the root would land
 in the clipper (ADR 0005).
 
-**2. Identity is a `local:` URL built from the filename.** No rule changes to
+**2. Identity is a `local:` URL built from the filename**, with every reserved
+character escaped. That last clause is load-bearing rather than pedantic: `#`
+and `?` are URL *syntax*, so a filename carrying one has to be encoded as a
+component and not merely as a URI, or `C# Notes.pdf` becomes a fragment,
+`normalizeUrl` strips it to `local:C`, and every such name collapses onto one
+identity that silently overwrites the last. No rule changes to
 get it: `local:stacked-prs-guide.pdf` has an empty hostname and a pathname of
 the filename, so `slugForUrl` produces `stacked-prs-guide-pdf-<8hex>` by the
 existing rules, deterministic and stable across re-imports of the same name.
@@ -91,12 +96,14 @@ admit.
 
 ## Consequences
 
-- **Reprocessing a local document cannot re-read its source.** The download
-  path re-fetches and re-extracts; this one restructures whatever body is
-  there, so a `--force` re-runs the model over already-structured Markdown.
-  Harmless and idempotent in practice, but it is the half of ADR 0026's
-  "reprocessing re-downloads" that does not hold here. Re-importing the file is
-  the way to genuinely start over.
+- **Reprocessing a local document cannot re-read its source, so it does not
+  try.** The download path re-fetches and re-extracts; there is nothing here to
+  re-derive, because the bytes were never in the vault. A `--force` therefore
+  keeps the converted body and redoes only what it still can — summary, tags,
+  translation. Restructuring again would not merely be redundant: a converted
+  body has no page separators left, and batching never splits a page, so the
+  whole document would go out as a single request. Re-importing the file is the
+  way to genuinely start over.
 - **The filename becomes a public slug.** `unlisted` keeps it out of every
   index, and the address remains derivable by anyone who knows the name. A file
   named for something sensitive should be renamed before importing, or not

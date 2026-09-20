@@ -1659,6 +1659,45 @@ describe("runPipeline with an imported local document", () => {
     expect(frontmatter.tiro.source_media).toBe("pdf");
   });
 
+  test("a forced redo keeps the converted body instead of restructuring it", async () => {
+    // A converted body has no page separators left, and batching never splits
+    // a page — so restructuring again would send the whole document as one
+    // request. There is also nothing to re-derive: the bytes were never in the
+    // vault. Re-importing the file is how to start over (ADR 0027).
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const converted = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    ).body;
+    expect(converted).toContain("## Section 1");
+
+    let structureCalls = 0;
+    await runPipeline({ vaultDir: dir, slug, force: true }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: async (request) => {
+        const system =
+          request.messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("restore structure to text extracted from a PDF")) {
+          structureCalls += 1;
+        }
+        return makeFakeChat()(request);
+      },
+    });
+
+    const after = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(structureCalls).toBe(0);
+    expect(after.body).toBe(converted);
+    // And --force still did everything it can still do.
+    expect(needsProcessing(after.frontmatter)).toBe(false);
+  });
+
   test("batches by the pages the import preserved", async () => {
     // A body flattened to one string would be sent as a single enormous
     // request, which is why the separators travel with the text.
