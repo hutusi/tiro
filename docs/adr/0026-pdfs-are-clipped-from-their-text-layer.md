@@ -131,7 +131,9 @@ time the article is processed.
   0008's failure by a third route. A batch that spent every attempt has reached
   its verdict, so it is stored, marked so a resumed run still reports the
   article as partly unformatted. `--force` invalidates the checkpoint, which is
-  what makes asking again possible — by deletion, or by emptying it in place
+  what makes asking again possible — for a PDF fetched from a URL, which is
+  every PDF this ADR knew about; ADR 0027 adds imported documents, where
+  re-importing the file is what asks again — by deletion, or by emptying it in place
   when the file cannot be removed, and refusing the article outright when
   neither works. A `--force` that silently replayed what it was invoked to
   discard would be worse than one that failed.
