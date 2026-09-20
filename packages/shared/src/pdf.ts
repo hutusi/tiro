@@ -1,5 +1,11 @@
 import { extractText, getDocumentProxy } from "unpdf";
 
+// One import for every consumer: the subpath is where anything touching pdf.js
+// lives, and splitting it across three specifiers would only invite the barrel
+// to grow a re-export that invariant 6 forbids.
+export * from "./pdf-layout.ts";
+export * from "./pdf-markdown.ts";
+
 /**
  * Reading a PDF's text layer, and judging whether it has one.
  *
