@@ -121,6 +121,13 @@ up as columns, so the text was fenced as tabular — and `code` is verbatim by
 contract (invariant 4), so a whole paper would have been excluded from
 translation as well as scrambled.
 
+And the mistake has a mirror image, which the first version of this rule walked
+straight into: a two-field **table** is the same shape as a two-column page, and
+reading one as columns moves every left cell above every right one and loses
+every row. What separates them is not the gap but what surrounds it — prose is
+set to the measure and reaches the gutter, while cells are short and leave their
+column mostly empty. Measured at 97% against 31%, which is not a close call.
+
 **7b. Running headers are dropped on this path too.** The rule is ADR 0026's,
 applied to lines rather than page strings, because that is what this path has.
 Without it a document repeated its journal header into the Markdown once per

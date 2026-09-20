@@ -473,3 +473,39 @@ describe("pdfMarkdown columns", () => {
     expect(md.split("\n\n").length).toBeLessThan(4);
   });
 });
+
+describe("pdfMarkdown columns versus tables", () => {
+  test("does not read a two-field table as two page columns", () => {
+    // The mirror of the failure column detection was added to fix. A table's
+    // fields are as widely spaced as page columns; what tells them apart is
+    // that prose fills its column and cells do not. Read as columns, every
+    // left cell moved above every right one and the rows were lost.
+    const items: PdfTextItem[] = [];
+    for (let i = 1; i <= 10; i += 1) {
+      items.push({ ...line(`Metric ${i}`, 700 - i * 18), x: 72 });
+      items.push({ ...line(`${i * 11}`, 700 - i * 18), x: 320 });
+    }
+    const md = pdfMarkdown(layout(items));
+    expect(md).toContain("Metric 1");
+    // Each value stays on the row it belongs to.
+    const row = md.split("\n").find((l) => l.includes("Metric 3"));
+    expect(row).toContain("33");
+    expect(md).not.toContain("Metric 9 Metric 10");
+  });
+
+  test("still separates columns on a short page", () => {
+    // Requiring eight runs before looking missed a page holding a title and
+    // two lines of each column, which then interleaved.
+    const md = pdfMarkdown(
+      layout([
+        { ...line("A Page Title Spanning Both Columns Here", 760), x: 72 },
+        { ...line("Left 1 of the column text", 700), x: 72 },
+        { ...line("Right 1 of the column text", 700), x: 320 },
+        { ...line("Left 2 of the column text", 680), x: 72 },
+        { ...line("Right 2 of the column text", 680), x: 320 },
+      ]),
+    );
+    expect(md).toContain("Left 1 of the column text Left 2 of the column text");
+    expect(md).not.toContain("Left 1 of the column text Right 1");
+  });
+});

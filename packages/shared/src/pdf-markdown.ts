@@ -82,6 +82,21 @@ const GUTTER_MIN = 2.5;
  * block does not read as a column. */
 const COLUMN_MIN_SHARE = 0.25;
 
+/**
+ * How much of its own width a column of prose fills.
+ *
+ * The line between a two-column *page* and a two-column *table*, which are
+ * otherwise the same shape: prose is set to the measure and reaches the
+ * gutter, while cells are short and leave the rest of the column empty.
+ * Measured — a table of ten metrics filled 31% of its column, while a
+ * two-column paper's lines reach 97% of the way across.
+ *
+ * Getting this wrong reorders a table's cells into two lists and loses every
+ * row association, which is the mirror of the failure column detection was
+ * added to fix.
+ */
+const COLUMN_MIN_FILL = 0.6;
+
 /** A run this much of the page wide spans the columns rather than sitting in
  * one — a banner title, a full-width figure caption. It cannot help locate the
  * gutter, and it must not be allowed to hide one. */
@@ -108,10 +123,13 @@ function pageGutter(
   const narrow = items.filter(
     (item) => item.text.trim() !== "" && item.width > 0,
   );
-  if (narrow.length < 8) return null;
+  // Four is enough to see a gutter once the fill test below is doing the work
+  // of telling prose from cells. Eight missed a page holding a title and two
+  // lines of each column, which then interleaved.
+  if (narrow.length < 4) return null;
   const pageWidth = Math.max(...narrow.map((i) => i.x + i.width));
   const spans = narrow.filter((i) => i.width < pageWidth * SPANNING_WIDTH);
-  if (spans.length < 8) return null;
+  if (spans.length < 4) return null;
 
   const ranges = spans
     .map((i) => [i.x, i.x + i.width] as const)
@@ -126,10 +144,25 @@ function pageGutter(
   }
   if (best === null || best.width < bodySize * GUTTER_MIN) return null;
 
-  const left = narrow.filter((i) => i.x + i.width <= best.at).length;
-  const right = narrow.filter((i) => i.x >= best.at).length;
+  const left = narrow.filter((i) => i.x + i.width <= best.at);
+  const right = narrow.filter((i) => i.x >= best.at);
   const share = narrow.length * COLUMN_MIN_SHARE;
-  return left >= share && right >= share ? best.at : null;
+  if (left.length < share || right.length < share) return null;
+
+  // And both sides have to read like columns of prose rather than like the two
+  // fields of a table — see COLUMN_MIN_FILL.
+  const fills = (side: readonly PdfTextItem[], from: number, to: number) => {
+    const span = to - from;
+    if (span <= 0) return false;
+    const reach =
+      Math.max(...side.map((i) => i.x + i.width)) -
+      Math.min(...side.map((i) => i.x));
+    return reach / span >= COLUMN_MIN_FILL;
+  };
+  const pageLeft = Math.min(...narrow.map((i) => i.x));
+  return fills(left, pageLeft, best.at) && fills(right, best.at, pageWidth)
+    ? best.at
+    : null;
 }
 
 /**
