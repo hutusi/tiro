@@ -9,6 +9,35 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **A PDF on your own computer can be imported.** Clipping only ever worked on
+  a URL, so a document that was never published — a report, something a tool
+  generated — had nowhere to go. The extension's Settings page now has an
+  **Import a PDF** button: it reads the text layer on your machine and commits
+  it, and the processor restructures it on the next run exactly as it does a
+  clipped one (ADR 0027).
+
+  This was ruled out when PDF clipping shipped, on the grounds that the
+  processor fetches the document and CI cannot reach your disk. That still
+  holds — nothing binary enters the vault — but the other half of the argument
+  turned out to be narrower than it sounded. "The extension cannot read a PDF"
+  is true of one in a *tab*, where Chrome renders it in a plugin the DOM does
+  not see; it says nothing about a file you hand it. A file picker needs no
+  permission at all, and pdf.js is loaded only when you pick something, so
+  Settings does not pay 1.6 MB to be opened.
+
+  **An imported document is filed under its filename** — `local:report.pdf` —
+  and **starts unlisted**. The site shows the name rather than a link, since
+  there is nothing to open, and says "imported from" rather than claiming it
+  was published somewhere. Worth knowing before you import: the filename
+  becomes the public address, and unlisted removes an article from every index
+  without putting it out of reach, so rename a file whose name says more than
+  the document should.
+
+  Scanned PDFs are refused while you are still looking at the page rather than
+  hours later in a run log, and `--force` re-restructures rather than
+  re-extracting — the bytes are not in the vault, so re-import the file to
+  genuinely start over.
+
 - **PDFs can be clipped.** Until now a PDF tab was a dead end: Chrome renders
   the document in a plugin the DOM cannot see, so the extension refused it
   rather than commit an empty article. It now clips a **stub** — the URL and

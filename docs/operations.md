@@ -127,6 +127,27 @@ reconstructed tables. That last one is deliberate rather than missing: a blank
 cell and an absent cell are identical in a text layer, so a rebuilt row would be
 a guess that reads as data.
 
+### Importing a PDF from this computer
+
+A document with no web address — a report, something a tool generated — is
+imported from the extension's **options page** rather than clipped: open
+Settings, then **Import a PDF**. The extension reads the text layer there and
+commits it; the processor restructures it on the next run like any other PDF.
+
+What is different from a clipped one:
+
+- It is filed under `local:<filename>`, so the slug is the filename and the
+  site shows that name rather than a link. **The filename becomes a public
+  address** — `unlisted` keeps it out of every index but not out of reach
+  (ADR 0017) — so rename a file before importing if its name says more than
+  the document should.
+- It starts **unlisted**. Unhiding one by hand survives a re-import.
+- `--force` re-restructures rather than re-extracts, because the bytes are not
+  in the vault and CI cannot reach them. **Re-import the file** to start over.
+- A CJK filename slugs to a bare hash. Not local-specific — `slugify` drops CJK
+  for every article — but a `local:` identity has no hostname to soften it. The
+  title still carries the name.
+
 Nothing binary is stored. Reprocessing re-downloads, so a source that has since
 404'd cannot be reprocessed — the article keeps the Markdown it has.
 
@@ -296,6 +317,7 @@ in the original is a formula in the translation.
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |
+| Import refused in the options page with `no usable text layer` or `covers only N of M` | a scanned PDF, or one that is mostly scans. The gates run in the extension so this is said while you are there | nothing to clean up — nothing was committed. OCR is out of scope |
 | PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever. Clip the HTML version if one exists, or delete the stub |
 | PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
 | PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
