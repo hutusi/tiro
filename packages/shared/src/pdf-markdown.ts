@@ -73,6 +73,96 @@ function lineText(items: readonly PdfTextItem[], bodySize: number): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
+/** A gutter has to be at least this many body widths of empty page. Narrower
+ * than that is the space between words or table columns, not between columns
+ * of prose. */
+const GUTTER_MIN = 2.5;
+
+/** And each side has to hold this share of the page's runs, so one indented
+ * block does not read as a column. */
+const COLUMN_MIN_SHARE = 0.25;
+
+/** A run this much of the page wide spans the columns rather than sitting in
+ * one — a banner title, a full-width figure caption. It cannot help locate the
+ * gutter, and it must not be allowed to hide one. */
+const SPANNING_WIDTH = 0.6;
+
+/**
+ * Where a page's columns divide, or null if it has one.
+ *
+ * Found from the geometry rather than assumed from the draw order. Content
+ * order is *usually* reading order — a two-column paper emits the left column
+ * and then the right — but nothing requires it, and a generator that draws row
+ * by row produced "Left 1 Right 1" on one line, which then read as a table and
+ * was fenced. Fencing prose is worse than merely reordering it: `code` is
+ * verbatim by contract, so the text would never be translated either.
+ *
+ * A gutter is a vertical band of page that no run crosses. Runs wide enough to
+ * span the columns are excluded from the search, or a banner title would close
+ * the gap under itself and hide the division below.
+ */
+function pageGutter(
+  items: readonly PdfTextItem[],
+  bodySize: number,
+): number | null {
+  const narrow = items.filter(
+    (item) => item.text.trim() !== "" && item.width > 0,
+  );
+  if (narrow.length < 8) return null;
+  const pageWidth = Math.max(...narrow.map((i) => i.x + i.width));
+  const spans = narrow.filter((i) => i.width < pageWidth * SPANNING_WIDTH);
+  if (spans.length < 8) return null;
+
+  const ranges = spans
+    .map((i) => [i.x, i.x + i.width] as const)
+    .sort((a, b) => a[0] - b[0]);
+  let reach = ranges[0]?.[1] ?? 0;
+  let best: { at: number; width: number } | null = null;
+  for (const [start, end] of ranges) {
+    if (start - reach > (best?.width ?? 0)) {
+      best = { at: (reach + start) / 2, width: start - reach };
+    }
+    reach = Math.max(reach, end);
+  }
+  if (best === null || best.width < bodySize * GUTTER_MIN) return null;
+
+  const left = narrow.filter((i) => i.x + i.width <= best.at).length;
+  const right = narrow.filter((i) => i.x >= best.at).length;
+  const share = narrow.length * COLUMN_MIN_SHARE;
+  return left >= share && right >= share ? best.at : null;
+}
+
+/**
+ * Runs in reading order: each page's columns, left to right, and each column
+ * in the order the document emits it.
+ *
+ * A run crossing the gutter — the title over a two-column paper — belongs with
+ * the left column, which is where it is read.
+ */
+function inReadingOrder(
+  items: readonly PdfTextItem[],
+  bodySize: number,
+): PdfTextItem[] {
+  const pages = new Map<number, PdfTextItem[]>();
+  for (const item of items) {
+    const page = pages.get(item.page) ?? [];
+    page.push(item);
+    pages.set(item.page, page);
+  }
+  const out: PdfTextItem[] = [];
+  for (const page of [...pages.keys()].sort((a, b) => a - b)) {
+    const runs = pages.get(page) ?? [];
+    const gutter = pageGutter(runs, bodySize);
+    if (gutter === null) {
+      out.push(...runs);
+      continue;
+    }
+    out.push(...runs.filter((i) => i.x < gutter));
+    out.push(...runs.filter((i) => i.x >= gutter));
+  }
+  return out;
+}
+
 /**
  * Runs into lines, in the order the document emits them.
  *
@@ -87,7 +177,7 @@ function lineText(items: readonly PdfTextItem[], bodySize: number): string {
  * emitted out of order when the font changes mid-sentence.
  */
 function toLines(layout: PdfLayout): Line[] {
-  const sorted = layout.items;
+  const sorted = inReadingOrder(layout.items, layout.bodySize);
   const lines: Line[] = [];
   let current: PdfTextItem[] = [];
   const flush = (): void => {
@@ -314,12 +404,25 @@ function fence(block: readonly Line[], bodySize: number): string {
   // neither a table nor an improvement on one.
   const lines = block.map((line) => {
     let out = "";
+    let previous: PdfTextItem | undefined;
     for (const item of line.items) {
       if (item.text.trim() === "") continue;
       const column = Math.max(0, Math.round((item.x - left) / step));
-      if (column > out.length) out += " ".repeat(column - out.length);
-      else if (out !== "" && !out.endsWith(" ")) out += " ";
+      if (column > out.length) {
+        out += " ".repeat(column - out.length);
+      } else if (
+        previous !== undefined &&
+        item.x - (previous.x + previous.width) > 0.1 &&
+        !out.endsWith(" ")
+      ) {
+        // Only where the page actually left a gap. Padding unconditionally put
+        // a space between runs that touch, so `foo` in Courier followed by
+        // `Bar` in Courier-Bold — one word split by a font change — came out as
+        // `foo Bar`.
+        out += " ";
+      }
       out += item.text.trim();
+      previous = item;
     }
     return out.replace(/\s+$/, "");
   });
@@ -347,7 +450,7 @@ function fence(block: readonly Line[], bodySize: number): string {
  * Returns null where there is nothing to make a list from, so an ordinary
  * paragraph is not put through this at all.
  */
-function toList(block: readonly Line[]): string | null {
+function toList(block: readonly Line[], bodySize: number): string | null {
   const firstBullet = block.findIndex((line) => BULLET.test(line.text));
   if (firstBullet === -1) return null;
 
@@ -355,18 +458,33 @@ function toList(block: readonly Line[]): string | null {
   const lead = block.slice(0, firstBullet);
   if (lead.length > 0) parts.push(joinWrapped(lead));
 
+  const margin = block[firstBullet]?.x ?? 0;
   const items: Line[][] = [];
+  const after: Line[] = [];
   for (const line of block.slice(firstBullet)) {
-    // A line with no bullet continues the item above it: the page wrapped it,
-    // the author did not start a new one.
-    if (BULLET.test(line.text) || items.length === 0) items.push([line]);
-    else items[items.length - 1]?.push(line);
+    if (after.length > 0) {
+      after.push(line);
+      continue;
+    }
+    if (BULLET.test(line.text) || items.length === 0) {
+      items.push([line]);
+      continue;
+    }
+    // A wrapped item hangs under its bullet; a line back at the margin has
+    // left the list. Without that, a sentence closing the section was absorbed
+    // into the final bullet — "- Second point Conclusion after the list."
+    if (line.x > margin + bodySize * 0.5) {
+      items[items.length - 1]?.push(line);
+    } else {
+      after.push(line);
+    }
   }
   parts.push(
     items
       .map((item) => `- ${joinWrapped(item).replace(BULLET, "")}`)
       .join("\n"),
   );
+  if (after.length > 0) parts.push(joinWrapped(after));
   return parts.join("\n\n");
 }
 
@@ -407,7 +525,7 @@ export function pdfMarkdown(layout: PdfLayout): string {
       continue;
     }
 
-    const list = toList(block);
+    const list = toList(block, bodySize);
     if (list !== null) {
       out.push(list);
       continue;

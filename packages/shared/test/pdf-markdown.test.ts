@@ -339,10 +339,12 @@ describe("pdfMarkdown fences", () => {
 
 describe("pdfMarkdown lists that wrap", () => {
   test("keeps a list whose item runs onto a second line", () => {
+    // A wrapped item hangs: its continuation aligns with the item's text, not
+    // with the bullet. That indent is what tells it from a new paragraph.
     const md = pdfMarkdown(
       layout([
         line("• First item that is long enough to", 700),
-        line("wrap onto a second line", 680),
+        { ...line("wrap onto a second line", 680), x: 86 },
         line("• Second item", 660),
       ]),
     );
@@ -363,5 +365,111 @@ describe("pdfMarkdown lists that wrap", () => {
     expect(md).toContain("Each PR does one thing well:");
     expect(md).toContain("- First\n- Second");
     expect(md).not.toContain("• ");
+  });
+});
+
+describe("pdfMarkdown list boundaries", () => {
+  test("does not swallow the prose that follows a list", () => {
+    // A line back at the margin has left the list. Treating every unbulleted
+    // line as a continuation produced "- Second point Conclusion after the
+    // list."
+    const md = pdfMarkdown(
+      layout([
+        line("• First point", 700),
+        line("• Second point", 680),
+        line("Conclusion after the list.", 660),
+      ]),
+    );
+    expect(md).toContain("- First point\n- Second point");
+    expect(md).toContain("\n\nConclusion after the list.");
+    expect(md).not.toContain("Second point Conclusion");
+  });
+
+  test("still hangs a genuine continuation under its bullet", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("• A point that wraps", 700),
+        { ...line("onto the next line", 680), x: 86 },
+        line("Prose at the margin.", 660),
+      ]),
+    );
+    expect(md).toContain("- A point that wraps onto the next line");
+    expect(md).toContain("\n\nProse at the margin.");
+  });
+});
+
+describe("pdfMarkdown fence spacing", () => {
+  test("does not insert a space where the page left none", () => {
+    // `foo` in Courier followed by `Bar` in Courier-Bold is one word split by
+    // a font change, not two.
+    const md = pdfMarkdown(
+      layout([
+        {
+          ...line("foo", 700),
+          x: 72,
+          width: 18,
+          font: "Courier",
+          mono: true,
+        },
+        {
+          ...line("Bar", 700),
+          x: 90,
+          width: 18,
+          font: "Courier-Bold",
+          mono: true,
+        },
+      ]),
+    );
+    expect(md).toContain("fooBar");
+    expect(md).not.toContain("foo Bar");
+  });
+});
+
+describe("pdfMarkdown columns", () => {
+  /** Twelve runs so the gutter has enough on each side to be believed. */
+  function twoColumns(alternating: boolean): PdfTextItem[] {
+    const left: PdfTextItem[] = [];
+    const right: PdfTextItem[] = [];
+    for (let i = 1; i <= 6; i += 1) {
+      left.push({
+        ...line(`Left line ${i} of the column`, 760 - i * 20),
+        x: 72,
+      });
+      right.push({
+        ...line(`Right line ${i} of the column`, 760 - i * 20),
+        x: 320,
+      });
+    }
+    if (!alternating) return [...left, ...right];
+    return left.flatMap((l, i) => [l, right[i] as PdfTextItem]);
+  }
+
+  test("reads a column at a time when the page is drawn that way", () => {
+    const md = pdfMarkdown(layout(twoColumns(false)));
+    expect(md).toContain("Left line 1 of the column Left line 2");
+    expect(md).not.toContain("Left line 1 of the column Right line 1");
+  });
+
+  test("and when the page is drawn row by row", () => {
+    // Content order is usually reading order, and nothing requires it. A
+    // generator drawing row by row produced "Left 1 Right 1" on one line,
+    // which then read as a table and was fenced — and fenced prose is never
+    // translated, because `code` is verbatim by contract.
+    const md = pdfMarkdown(layout(twoColumns(true)));
+    expect(md).toContain("Left line 1 of the column Left line 2");
+    expect(md).not.toContain("Left line 1 of the column Right line 1");
+    expect(md).not.toContain("```");
+  });
+
+  test("leaves a single-column page alone", () => {
+    const items = Array.from({ length: 10 }, (_, i) =>
+      line(
+        `A line of ordinary prose, number ${i}, set across the page.`,
+        700 - i * 20,
+      ),
+    );
+    const md = pdfMarkdown(layout(items));
+    expect(md).not.toContain("```");
+    expect(md.split("\n\n").length).toBeLessThan(4);
   });
 });

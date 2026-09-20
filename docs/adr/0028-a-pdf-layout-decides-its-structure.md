@@ -103,12 +103,23 @@ now be revisited. It is not being revisited here: a mis-read column corrupts
 data while a fenced block merely looks plain, and alignment preserved inside a
 fence recovers most of what was actually lost.
 
-**7a. Reading order comes from the document, not from height.** A PDF's content
-stream already carries it — a two-column paper emits the left column top to
-bottom and then the right, which is why pdf.js's own `extractText` gets those
-right by leaving the order alone. Sorting runs by `y` interleaves the columns
-line by line and turns a paper into nonsense, so runs are ordered only *within*
-a line, where a font change can emit pieces out of sequence.
+**7a. Reading order comes from the geometry, not from height and not from the
+draw order.** Sorting runs by `y` interleaves two columns line by line and turns
+a paper into nonsense. Content order does better — a two-column paper usually
+emits the left column top to bottom and then the right, which is why pdf.js's
+own `extractText` gets those right by leaving it alone — but *usually* is not a
+rule, and a generator drawing row by row lands back in the same mess.
+
+So columns are found on the page: a vertical band no run crosses, wide enough
+not to be a word space, with a real share of the page's runs on each side. Runs
+wide enough to span the columns are excluded from the search, or a banner title
+would close the gutter under itself and hide the division below; one that spans
+it is read with the left column, which is where it is read.
+
+Getting this wrong is worse than it first looks. Interleaved columns also line
+up as columns, so the text was fenced as tabular — and `code` is verbatim by
+contract (invariant 4), so a whole paper would have been excluded from
+translation as well as scrambled.
 
 **7b. Running headers are dropped on this path too.** The rule is ADR 0026's,
 applied to lines rather than page strings, because that is what this path has.
