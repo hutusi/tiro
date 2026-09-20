@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./pdf": "./src/pdf.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -15,6 +16,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
+    "unpdf": "^1.8.1",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },

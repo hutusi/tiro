@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@tiro/shared": "workspace:*",
-    "unpdf": "^1.8.1",
     "zod": "^4.4.3"
   }
 }
