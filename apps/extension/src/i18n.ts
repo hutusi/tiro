@@ -310,15 +310,15 @@ const zh: Messages = {
 
   importHeading: "导入 PDF",
   importHint:
-    "读取本机 PDF 中的文字并存入 vault，默认不公开列出。没有插图，公式会变成普通文本，扫描件无法读取。",
+    "读取本机 PDF 中的文字并存入你的仓库，默认不公开列出。没有插图，公式会变成普通文本，扫描件无法读取。",
   importButton: "选择 PDF…",
   importReading: (name: string) => `正在读取 ${name}…`,
-  importSaving: (name: string) => `正在保存 ${name} 到 vault…`,
+  importSaving: (name: string) => `正在保存 ${name} 到你的仓库…`,
   importSaved: (name: string) => `已导入 ${name}，处理完成后即可查看。`,
   importUpdated: (name: string) => `已重新导入 ${name}，覆盖了原有内容。`,
   importNotPdf: "该文件不是 PDF。",
   importFailed: (detail: string) => `导入失败：${detail}`,
-  importNeedsSettings: "请先填写并保存 vault 设置。",
+  importNeedsSettings: "请先填写并保存仓库设置。",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

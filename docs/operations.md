@@ -136,11 +136,14 @@ commits it; the processor restructures it on the next run like any other PDF.
 
 What is different from a clipped one:
 
-- It is filed under `local:<filename>`, so the slug is the filename and the
-  site shows that name rather than a link. **The filename becomes a public
-  address** — `unlisted` keeps it out of every index but not out of reach
-  (ADR 0017) — so rename a file before importing if its name says more than
-  the document should.
+- It is filed under `local:<filename>`, and the article slug is derived from
+  that the way every other slug is derived from its URL — `report.pdf` becomes
+  `report-pdf-<8hex>`. That derived slug, not the filename, is what `--force
+  --slug` and `articles/<slug>/` want; `tiro-process validate` prints it, and
+  it is the directory name in the vault. The site shows the filename rather
+  than a link. **The filename is legible in a public address** — `unlisted`
+  keeps it out of every index but not out of reach (ADR 0017) — so rename a
+  file before importing if its name says more than the document should.
 - It starts **unlisted**. Unhiding one by hand survives a re-import.
 - `--force` keeps the converted body and redoes only the summary, tags and
   translation — there is nothing to re-extract, because the bytes are not in

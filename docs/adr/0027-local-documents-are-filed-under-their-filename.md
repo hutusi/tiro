@@ -77,7 +77,9 @@ and a lie.
 web, and a document nobody published should not walk into the library. Stated
 as a default rather than a guarantee, because ADR 0017 is explicit that
 unlisted is enumeration removed, not access control: the slug is derivable, and
-for these articles it *is the filename*. The owner sees the name before
+for these articles it *carries the filename* — `report.pdf` becomes
+`report-pdf-<8hex>`, so the name is legible in the address even though the
+address is not the name. The owner sees the name before
 importing, and that is the whole of the protection.
 
 **6. The processor infers the branch from the scheme.** `source_media` stays
