@@ -1,7 +1,7 @@
 import {
   extractPdfText,
-  type PdfText,
   type PdfTextOptions,
+  splitPdfPages,
   stripRunningFurniture,
 } from "@tiro/shared/pdf";
 import { type Deadline, StageTimeoutError } from "./deadline.ts";
@@ -106,6 +106,21 @@ export async function fetchPdf(options: PdfFetchOptions): Promise<Uint8Array> {
     throw new Error(`not a PDF: begins ${JSON.stringify(magic)}`);
   }
   return bytes;
+}
+
+/** What the structure pass needs, with nothing about fetching bytes. */
+export interface PdfRestructureOptions {
+  chat: ChatFn;
+  model: string;
+  batchChars?: number;
+  /** Bounds this stage: `pdf.stage_timeout_ms`. */
+  stageTimeoutMs: number;
+  /** The run's budget. Separate from the stage's, because the two mean
+   * different things when they expire — see `stageGuard`. */
+  deadline: Deadline;
+  cache?: PdfStructureOptions["cache"];
+  requestMs?: number;
+  log?: (message: string) => void;
 }
 
 export interface PdfConversionOptions
@@ -215,10 +230,51 @@ export async function convertPdf(
   const { pages, totalPages, chars } = await extractPdfText(bytes, rest);
   log(`pdf: ${totalPages} page(s), ${chars} chars of text layer`);
 
+  return restructure(stripRunningFurniture(pages), { ...options, guard });
+}
+
+/**
+ * Build an article body from text that was extracted somewhere else.
+ *
+ * The import path (ADR 0027). A document read off the owner's disk cannot be
+ * fetched from CI, so the extension extracts it, applies the gates while it
+ * still has a person to tell, strips the furniture while it still has pages,
+ * and commits the text. Only the structure pass is left, and it is the same
+ * one — the difference between the two paths is where the text came from, and
+ * nothing after this point can tell.
+ *
+ * Pages are recovered from the separators the import wrote, because batching
+ * is page-aware and a body flattened to one string would be sent as a single
+ * enormous request.
+ */
+export async function restructurePdfText(
+  body: string,
+  options: PdfRestructureOptions,
+): Promise<PdfConversion> {
+  const guard = stageGuard(options.stageTimeoutMs, options.deadline);
+  const pages = splitPdfPages(body);
+  options.log?.(`pdf: restructuring ${pages.length} extracted page(s)`);
+  return restructure(pages, { ...options, guard });
+}
+
+/** The half both paths share: the model pass, and the clocks around it. */
+async function restructure(
+  pages: string[],
+  options: PdfRestructureOptions & { guard: ReturnType<typeof stageGuard> },
+): Promise<PdfConversion> {
+  const {
+    chat,
+    model,
+    batchChars,
+    cache,
+    requestMs,
+    guard,
+    log = () => {},
+  } = options;
   const { markdown, batches, fallbacks } = await restorePdfStructure({
     chat,
     model,
-    pages: stripRunningFurniture(pages),
+    pages,
     ...(batchChars !== undefined ? { batchChars } : {}),
     check: guard.check,
     // The cap has to reach inside a single chat() call as well. The client
@@ -233,5 +289,5 @@ export async function convertPdf(
   log(
     `pdf: ${batches} batch(es) restored, ${fallbacks} kept as extracted text`,
   );
-  return { markdown, totalPages, fallbacks };
+  return { markdown, totalPages: pages.length, fallbacks };
 }

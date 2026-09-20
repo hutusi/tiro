@@ -22,6 +22,29 @@ import { extractText, getDocumentProxy } from "unpdf";
  * network, and the guards that make that safe.
  */
 
+/**
+ * How a document's pages survive the trip through the vault.
+ *
+ * An import extracts on one machine and restructures on another, so the page
+ * boundaries have to travel with the text — `stripRunningFurniture` and the
+ * batching are both page-aware, and a body flattened to one string has thrown
+ * that away. A form feed is the character that already means this, it does not
+ * occur in prose, and markdown treats it as whitespace, so a body that is
+ * never converted still reads correctly.
+ */
+export const PDF_PAGE_SEPARATOR = "\f";
+
+/** Pages back out of a body that was stored with separators. Text with none is
+ * one page, which is the right answer for a document of one. */
+export function splitPdfPages(body: string): string[] {
+  return body.split(PDF_PAGE_SEPARATOR);
+}
+
+/** Pages into a body, ready to be committed. */
+export function joinPdfPages(pages: readonly string[]): string {
+  return pages.join(PDF_PAGE_SEPARATOR);
+}
+
 export interface PdfTextOptions {
   maxPages: number;
   /** The scanned-PDF gate. Averaged across the document rather than demanded of
