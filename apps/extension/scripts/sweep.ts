@@ -145,6 +145,25 @@ interface Counts {
 /** Our own emission, matched exactly (ADR 0024). */
 const ANCHOR_SPAN = /<span id="([^"]+)"><\/span>/g;
 
+/**
+ * Can the sweep replay this article's clip?
+ *
+ * No, for a PDF. Its body was never clipped from HTML at all — the processor
+ * built it from the document's text layer (ADR 0026) — so replaying it would
+ * fetch the PDF's bytes, read them through `response.text()`, and diff the
+ * article against mojibake. That is not a finding, it is a permanent phantom
+ * one on every run, which is the failure `plainTextShell` exists to have
+ * avoided for `text/plain`.
+ *
+ * Only the replaying modes ask. `--recanonicalize` reads URLs and never
+ * fetches, so it keeps every article including these.
+ */
+export function isReplayable(article: {
+  frontmatter: { tiro: { source_media?: "pdf" | undefined } };
+}): boolean {
+  return article.frontmatter.tiro.source_media !== "pdf";
+}
+
 export function countMarkdown(markdown: string): Counts {
   // Inline HTML reaches mdast as one node per *tag*, so an anchor is two
   // adjacent nodes and no single range holds all of it. Matching the emission
@@ -954,6 +973,20 @@ async function main() {
     const { failed } = await recanonicalizeAll(articles, args);
     if (failed > 0) process.exit(1);
     return;
+  }
+
+  // Past this point every mode replays a clip, so the articles that cannot be
+  // replayed drop out here rather than failing one by one below.
+  const unreplayable = articles.length - articles.filter(isReplayable).length;
+  if (unreplayable > 0) {
+    articles = articles.filter(isReplayable);
+    console.log(
+      `Skipping ${unreplayable} PDF article(s): their bodies were built from a text layer, not clipped from HTML.`,
+    );
+    if (articles.length === 0) {
+      console.error("no replayable articles matched");
+      process.exit(2);
+    }
   }
 
   if (args.fillLanguages) {

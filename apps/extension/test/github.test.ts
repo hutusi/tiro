@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ArticleFrontmatterSchema, stringifyArticle } from "@tiro/shared";
 import {
   encodeBase64Utf8,
+  type FetchLike,
   findExistingIndex,
   GitHubHttpError,
   putFile,
@@ -108,6 +109,7 @@ describe("findExistingIndex", () => {
       path: "articles/slug-a1b2c3d4/index.md",
       sha: "abc123",
       unlisted: false,
+      body: "Body.\n",
     });
     expect(requested).toHaveLength(1);
   });
@@ -409,5 +411,46 @@ describe("putFile", () => {
       expect(error).toBeInstanceOf(GitHubHttpError);
       expect((error as GitHubHttpError).status).toBe(401);
     }
+  });
+});
+
+describe("findExistingIndex and the body it carries", () => {
+  test("returns the body of the article being overwritten", async () => {
+    // A PDF re-clip writes a stub, so this is the only thing standing between
+    // a converted article and being replaced by nothing (ADR 0026).
+    const fetchImpl: FetchLike = async () =>
+      json(200, {
+        sha: "abc123",
+        encoding: "base64",
+        content: base64(article({})),
+      });
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", fetchImpl);
+    expect(result?.body).toBe("Body.\n");
+  });
+
+  test("reads the body from a blob when the content is not inline", async () => {
+    // GitHub omits inline content above 1 MB, and a converted PDF is exactly
+    // the kind of article that gets large.
+    const fetchImpl: FetchLike = async (input) => {
+      const url = String(input);
+      if (url.includes("/git/blobs/"))
+        return json(200, { content: base64(article({})), encoding: "base64" });
+      return json(200, { sha: "abc123" });
+    };
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", fetchImpl);
+    expect(result?.body).toBe("Body.\n");
+  });
+
+  test("reads as empty when there is no frontmatter fence", async () => {
+    // Safe either way: the caller only uses it to avoid replacing something
+    // with nothing, and an unparseable article has nothing worth carrying.
+    const fetchImpl: FetchLike = async () =>
+      json(200, {
+        sha: "abc123",
+        encoding: "base64",
+        content: base64("no frontmatter here"),
+      });
+    const result = await findExistingIndex(config, "slug-a1b2c3d4", fetchImpl);
+    expect(result?.body).toBe("no frontmatter here");
   });
 });

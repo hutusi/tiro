@@ -4,6 +4,7 @@ import {
   backfill,
   countMarkdown,
   isPlainText,
+  isReplayable,
   plainTextShell,
 } from "../scripts/sweep.ts";
 import { clipPage } from "../src/clip-page.ts";
@@ -416,5 +417,21 @@ describe("countMarkdown, in-document links", () => {
     expect(countMarkdown('```html\n<span id="fn1"></span>\n```').anchors).toBe(
       0,
     );
+  });
+});
+
+describe("isReplayable", () => {
+  const article = (sourceMedia?: "pdf") => ({
+    frontmatter: { tiro: { source_media: sourceMedia } },
+  });
+
+  test("replays an ordinary clip", () => {
+    expect(isReplayable(article())).toBe(true);
+  });
+
+  test("skips a PDF article", () => {
+    // Its body came from a text layer, so re-fetching would diff it against
+    // the PDF's bytes read as text — a phantom finding on every run.
+    expect(isReplayable(article("pdf"))).toBe(false);
   });
 });

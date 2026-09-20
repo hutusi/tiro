@@ -87,7 +87,8 @@ endpoint works.
     marker-stripping commit for it. Its summary, tags and `zh.md` are untouched,
     so the site keeps rendering it meanwhile.
   - A checkpoint is dropped automatically when the article finishes, when its
-    translation misaligns, and when `llm.model` or `translation.target` changes.
+    translation misaligns, and when `translation.target` or the translating model
+    changes — that being `llm.translation_model`, or `llm.model` when unset.
     Delete the file by hand for a genuinely clean retranslation — `--force`
     deliberately reuses it, or an over-long article could never be retried.
 - **LLM request bounds**: `llm.timeout_ms` (default 120000) is per HTTP request,
@@ -101,6 +102,51 @@ endpoint works.
     -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
     -d '{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}]}'
   ```
+
+### PDFs
+
+A PDF is clipped as a stub and converted during processing (ADR 0026): the
+processor fetches the document, reads its text layer, and asks the model to
+restore Markdown structure. No extra provider capability is needed — it is text
+in, text out, on the same OpenAI-compatible endpoint everything else uses, which
+is why this route was chosen over sending page images to a vision model.
+
+The `pdf` block in `config/tiro.yml` bounds it: `max_bytes` and `timeout_ms` for
+the download, `stage_timeout_ms` for the whole stage, `max_pages` above which a
+document is refused rather than truncated, and the two halves of the gate that
+separates a born-digital PDF from a scan: `min_chars_per_page` (real papers
+measure 2600-2800, so the default of 100 sits well below anything carrying
+prose) and `min_page_coverage`, the fraction of pages that must carry text at
+all. Both are needed — an average is a sum, so one dense page among nine
+scanned ones clears the first on its own, and the article would be filed as a
+whole document while holding a tenth of it.
+
+What a converted article will not have: figures (they are not in the text
+layer — captions survive), equations as anything but flattened text, and
+reconstructed tables. That last one is deliberate rather than missing: a blank
+cell and an absent cell are identical in a text layer, so a rebuilt row would be
+a guess that reads as data.
+
+Nothing binary is stored. Reprocessing re-downloads, so a source that has since
+404'd cannot be reprocessed — the article keeps the Markdown it has.
+
+Conversion is checkpointed to `articles/<slug>/.tiro-pdf-cache.json`, one entry
+per batch, so a PDF too long for one run resumes rather than restarting. Batches
+that fell back to extracted text are recorded too — otherwise a document whose
+batches are slow *and* rejected stops at the same place every run and never
+finishes — which means a bad conversion will be replayed rather than retried.
+**`--force` invalidates the checkpoint first**, so it is the way to ask again;
+changing the model the conversion runs on — `llm.summary_model`, or `llm.model`
+when that is unset — invalidates it too. If the file cannot be removed it is
+emptied in place instead, and if neither works the article is refused rather
+than converted — `--force` never silently replays the results it was invoked to
+be rid of.
+
+`pdf.stage_timeout_ms` must be at least `llm.timeout_ms`, and the config is
+rejected otherwise: the stage refuses to begin a request it cannot finish
+inside its own cap, so a smaller cap would let no batch start at all and the
+article would sit pending every run under a timeout that read as a stall rather
+than a misconfiguration.
 
 ## Repairing clip-time markdown defects
 
@@ -191,8 +237,9 @@ so re-runs are always safe no-ops for finished articles.
   tags for every article. Translations are *reused* where the block's source
   text is unchanged — the checkpoint is content-addressed, so a reuse is only
   ever the same input translated by the same model (ADR 0008). To genuinely
-  re-translate, change `llm.model` or `translation.target` in `tiro.yml`, which
-  invalidates every checkpoint wholesale, or delete the article's
+  re-translate, change `translation.target` in `tiro.yml`, or the translating
+  model — `llm.translation_model`, or `llm.model` when that is unset — either of
+  which invalidates every checkpoint wholesale; or delete the article's
   `.tiro-zh-cache.json`.
 - **Redo one article's title only**:
   `backfill-titles --slug <slug> --force` (below). Far cheaper than a forced
@@ -249,6 +296,13 @@ in the original is a formula in the translation.
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |
+| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever. Clip the HTML version if one exists, or delete the stub |
+| PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
+| PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
+| PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |
+| PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/` | fix the permissions; the article keeps the body it had and stays pending |
+| PDF article stays unprocessed + run line `pdf stage timed out` | past `pdf.stage_timeout_ms` for this document — a slow server, or more batches than fit | nothing: the checkpoint holds what it finished and the next run resumes. Repeated on a very long PDF, raise `pdf.stage_timeout_ms` |
+| PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, so those kept the raw text layer | reprocess with `force` + slug, which discards the checkpoint and reconverts. Without `force` the run resumes those fallbacks as settled. If it repeats, the article is readable but unformatted in places |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys

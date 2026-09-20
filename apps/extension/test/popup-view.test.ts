@@ -39,6 +39,7 @@ function state(overrides: Partial<PopupState> = {}): PopupState {
     fetchOffered: false,
     fetching: false,
     note: null,
+    pdfStub: false,
     links: null,
     ...overrides,
   };
@@ -173,18 +174,31 @@ describe("popupView", () => {
     expect(v.preview).not.toBeNull();
   });
 
-  test("a PDF is blocked with Cannot clip and no preview", () => {
+  test("a PDF offers a stub clip with no preview", () => {
+    // There is nothing to preview — the text is behind a plugin — but there is
+    // something to commit, and the sentence has to say which (ADR 0026).
+    const v = popupView(state({ preview: null, pdfStub: true }), m);
+    expect(v.preview).toBeNull();
+    expect(v.clip.enabled).toBe(true);
+    expect(v.message).toBe(m.pdfWillBeConverted);
+  });
+
+  test("a PDF stub says what the article will be missing", () => {
+    // The reader is agreeing to something that will not look like a page clip,
+    // so the promise is made here rather than discovered on the site.
+    const v = popupView(state({ preview: null, pdfStub: true }), m);
+    expect(v.message).toMatch(/figures/);
+  });
+
+  test("a PDF with a publisher twin waits rather than offering a stub", () => {
+    // Stubbing an arXiv PDF would file the lesser body under the paper's own
+    // slug, which is the overwrite the fetch arbitration exists to prevent.
     const v = popupView(
-      state({
-        phase: "blocked",
-        preview: null,
-        problem: { text: m.cannotClipPdf, error: true },
-      }),
+      state({ preview: null, pdfStub: false, source: "arxiv", gated: true }),
       m,
     );
-    expect(v.label).toBe(m.labelCannotClip);
-    expect(v.preview).toBeNull();
     expect(v.clip.enabled).toBe(false);
+    expect(v.message).toBe(m.fetchSources.arxiv.offer);
   });
 
   test("an arXiv PDF is blocked but not an error: the fetch is offered", () => {
@@ -348,7 +362,7 @@ describe("popupView, a document that cannot be reached", () => {
     const v = popupView(
       state({
         phase: "blocked",
-        problem: { text: m.cannotClipPdf, error: true },
+        problem: { text: m.cannotClip, error: true },
         clippedOn: "Sep 2, 2026",
         links,
       }),

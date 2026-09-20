@@ -14,6 +14,30 @@ const input = {
 };
 
 describe("buildClipFile", () => {
+  test("records a PDF stub's source medium and keeps its body empty", async () => {
+    // The stub is identity and title; the processor builds the body from the
+    // document's text layer (ADR 0026). Nothing here could infer that later:
+    // an empty body is also what a failed clip looks like.
+    const file = await buildClipFile({
+      ...input,
+      url: "https://example.com/papers/method.pdf",
+      markdown: "",
+      sourceMedia: "pdf",
+    });
+    const { frontmatter, body } = parseArticle(file.content);
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+    expect(body).toBe("");
+    // A stub is filed by the same rules as any other article.
+    expect(file.path).toBe(`articles/${file.slug}/index.md`);
+  });
+
+  test("leaves an ordinary clip with no source medium", async () => {
+    // Presence must always mean "not an HTML page"; a default would make the
+    // field unable to say that.
+    const { frontmatter } = parseArticle((await buildClipFile(input)).content);
+    expect(frontmatter.tiro.source_media).toBeUndefined();
+  });
+
   test("produces a schema-valid index.md at the contract path", async () => {
     const file = await buildClipFile(input);
     expect(file.slug).toBe(await slugForUrl(input.url));

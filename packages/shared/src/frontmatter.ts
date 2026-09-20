@@ -74,6 +74,30 @@ const clipperCommit = z.string().optional();
 const sourceUrl = z.string().optional();
 
 /**
+ * What kind of document the body was made from, when it was not an HTML page.
+ *
+ * Absent means the ordinary path: Readability and Turndown over markup the tab
+ * held. `"pdf"` means the article was clipped as a stub and its body was built
+ * by the processor from the PDF's text layer (ADR 0026) — a body that is
+ * honestly worse than a clip, with no figures, flattened math and tables left
+ * as extracted lines.
+ *
+ * It has to be recorded rather than inferred. `url` ending in `.pdf` proves
+ * nothing either way — a publisher may serve a PDF from an extensionless route,
+ * and `readability_failed` already means something else. Downstream the marker
+ * is what tells the processor there is no body yet to summarize, and what lets a
+ * later audit find every article made this way when the extraction improves.
+ *
+ * A one-member union rather than a boolean, so a second non-HTML medium adds a
+ * value instead of a second flag, and narrower than an open string so an
+ * unknown medium is rejected at the boundary rather than carried. Optional and
+ * additive — no `tiro.schema` bump, on the precedent of `unlisted` (ADR 0017) —
+ * and named on both schemas, because a field the read side omits is deleted the
+ * first time the article is processed.
+ */
+const sourceMedia = z.literal("pdf").optional();
+
+/**
  * The article's title, translated into the vault's target language.
  *
  * `zh.md` is a bare body that must stay strictly 1:1 block-aligned with
@@ -166,6 +190,7 @@ export const ClipFrontmatterSchema = z.object({
     clipper_version: clipperVersion,
     clipper_commit: clipperCommit,
     source_url: sourceUrl,
+    source_media: sourceMedia,
   }),
 });
 export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
@@ -183,6 +208,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
     clipper_version: clipperVersion,
     clipper_commit: clipperCommit,
     source_url: sourceUrl,
+    source_media: sourceMedia,
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),

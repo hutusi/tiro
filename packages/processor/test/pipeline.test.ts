@@ -16,6 +16,7 @@ import {
   checkAlignment,
   needsProcessing,
   parseArticle,
+  slugForUrl,
   splitBlocks,
   stringifyArticle,
 } from "@tiro/shared";
@@ -23,7 +24,7 @@ import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
-import { makeFakeChat } from "./helpers.ts";
+import { makeFakeChat, makePdf } from "./helpers.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
@@ -1347,5 +1348,240 @@ describe("run budget", () => {
       m.includes("left pending for the next run"),
     );
     expect(summary).toContain(`${report.skipped.length} article(s)`);
+  });
+});
+
+describe("runPipeline with a PDF stub", () => {
+  const PDF_URL = "https://example.com/papers/method.pdf";
+
+  /** A clipped PDF as the extension writes it: identity and title, no body.
+   * The document itself is fetched at processing time (ADR 0026). */
+  async function stubVault(): Promise<{ dir: string; slug: string }> {
+    const dir = freshVault();
+    const slug = await slugForUrl(PDF_URL);
+    mkdirSync(join(dir, "articles", slug), { recursive: true });
+    writeFileSync(
+      join(dir, "articles", slug, "index.md"),
+      stringifyArticle(
+        {
+          url: PDF_URL,
+          title: "A Method For Something",
+          domain: "example.com",
+          clipped_at: "2026-09-19T10:00:00.000Z",
+          tiro: { schema: 1, source_media: "pdf" },
+        },
+        "",
+      ),
+    );
+    return { dir, slug };
+  }
+
+  const servePdf =
+    (bytes: Uint8Array): FetchLike =>
+    async (input) =>
+      String(input).endsWith(".pdf")
+        ? new Response(bytes, {
+            headers: { "content-type": "application/pdf" },
+          })
+        : new Response("offline", { status: 404 });
+
+  test("builds the body from the PDF and marks the article processed", async () => {
+    const { dir, slug } = await stubVault();
+    // Long enough to clear the density gate, which is what a real page is.
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+      "Section 2\nIt is invariant to diagonal rescaling of the gradients and well suited to problems large in data or in parameters.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(false);
+    // The stub had no body; this one came out of the PDF.
+    expect(article.body).toContain("## Section 1");
+    expect(article.body).toContain("little memory");
+    // The hyphenated line break was rejoined.
+    expect(article.body).toContain("implement");
+    // And the marker survived the round-trip, so a later audit can still find
+    // every article built this way.
+    expect(article.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("a forced redo reconverts rather than resuming the checkpoint", async () => {
+    // --force is how the runbook says to retry a conversion that came out
+    // badly. Resuming would make it a no-op: every batch is checkpointed,
+    // fallbacks included, so a forced run would replay the very results being
+    // complained about.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+
+    let structureCalls = 0;
+    const counting: ChatFn = async (request) => {
+      const system =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
+      if (system.includes("restore structure to text extracted from a PDF")) {
+        structureCalls += 1;
+      }
+      return makeFakeChat()(request);
+    };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      chat: counting,
+      fetchImpl: servePdf(pdf),
+    });
+    expect(structureCalls).toBeGreaterThan(0);
+    expect(
+      existsSync(join(dir, "articles", slug, ".tiro-pdf-cache.json")),
+    ).toBe(true);
+
+    structureCalls = 0;
+    await runPipeline({ vaultDir: dir, slug, force: true }, config, {
+      ...deps,
+      chat: counting,
+      fetchImpl: servePdf(pdf),
+    });
+    // Reconverted, not replayed: the checkpoint was discarded first.
+    expect(structureCalls).toBeGreaterThan(0);
+  });
+
+  test("refuses a forced redo it cannot invalidate the checkpoint for", async () => {
+    // --force must never silently become a no-op. If the checkpoint can be
+    // neither removed nor emptied, converting would either replay the stale
+    // results or drop this run's, and both end with the article marked
+    // processed over content nobody asked for.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+    });
+    const before = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    ).body;
+
+    const articleDir = join(dir, "articles", slug);
+    chmodSync(articleDir, 0o555); // no unlink, and no rename in either
+    try {
+      const report = await runPipeline(
+        { vaultDir: dir, slug, force: true },
+        config,
+        {
+          ...deps,
+          fetchImpl: servePdf(pdf),
+        },
+      );
+      expect(report.errored.length).toBe(1);
+      expect(report.errored[0]?.error).toMatch(/--force cannot reconvert/);
+    } finally {
+      chmodSync(articleDir, 0o755);
+    }
+
+    // The body it could not honour the flag for survives. The frontmatter does
+    // change: a forced article that fails is returned to pending, which is the
+    // pipeline's own markPending path and the reason it can be retried at all.
+    const after = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(after.body).toBe(before);
+    expect(needsProcessing(after.frontmatter)).toBe(true);
+  });
+
+  test("an ordinary reprocess resumes from the checkpoint", async () => {
+    // The other half: without --force a second run must not re-send batches it
+    // already has, which is what lets a long PDF finish across runs at all.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+    });
+
+    // Return it to pending the way a re-clip would, body and all.
+    const path = join(dir, "articles", slug, "index.md");
+    const done = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        { ...done.frontmatter, tiro: { schema: 1, source_media: "pdf" } },
+        "",
+      ),
+    );
+
+    // Counted by the structure pass's own system prompt: the summarize and
+    // translate stages call the model too, so a bare tally would prove nothing
+    // about which stage was answered from disk.
+    let structureCalls = 0;
+    const counting: ChatFn = async (request) => {
+      const system =
+        request.messages.find((m) => m.role === "system")?.content ?? "";
+      if (system.includes("restore structure to text extracted from a PDF")) {
+        structureCalls += 1;
+      }
+      return makeFakeChat()(request);
+    };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      chat: counting,
+      fetchImpl: servePdf(pdf),
+    });
+
+    // Nothing re-sent, and the body was still rebuilt — which is what lets a
+    // long PDF finish across runs at all.
+    expect(structureCalls).toBe(0);
+    const article = parseArticle(readFileSync(path, "utf8"));
+    expect(article.body).toContain("## Section 1");
+  });
+
+  test("leaves the article pending when the PDF cannot be read", async () => {
+    // Invariant 7: a hard failure leaves it pending and never fails the run, so
+    // a later run — or a later version of the extractor — retries it.
+    const { dir, slug } = await stubVault();
+    const scanned = makePdf(["", "", ""]);
+    const config = await loadVaultConfig(dir);
+    const report = await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(scanned),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(true);
+    expect(article.body).toBe("");
+    // Other articles in the vault still processed.
+    expect(report.errored.length).toBeGreaterThan(0);
+  });
+
+  test("leaves the article pending when the URL does not serve a PDF", async () => {
+    // A rate-limit interstitial or a login page must never be filed as the
+    // document: the magic-byte check is what refuses it.
+    const { dir, slug } = await stubVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: async () =>
+        new Response("<html>sign in</html>", {
+          headers: { "content-type": "application/pdf" },
+        }),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(true);
   });
 });

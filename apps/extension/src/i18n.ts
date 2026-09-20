@@ -46,8 +46,15 @@ const en = {
   // Popup static text
   warningReadability:
     "Readability could not extract an article; clipping the raw page instead.",
-  cannotClipPdf:
-    "This is a PDF, not a web page — its text is rendered by a plugin the extension cannot read.",
+  /**
+   * Shown where a PDF has no HTML twin to fetch, in place of the refusal
+   * this replaced.
+   * The clip is real but the body is not built yet, and saying so is the
+   * honest version: the reader is agreeing to an article that will look
+   * different from a page clip — no figures, flattened equations (ADR 0026).
+   */
+  pdfWillBeConverted:
+    "This is a PDF. Tiro will clip the link now and build the text when it processes — without figures, and with equations flattened.",
   /**
    * The one flow that reads a document instead of the tab, per publisher.
    * Grouped rather than prefixed so a third publisher adds a block instead of
@@ -195,7 +202,8 @@ const zh: Messages = {
   openHint: "处理完成后会出现在站点上，通常需要几分钟。",
 
   warningReadability: "Readability 未能提取正文，将剪藏原始页面。",
-  cannotClipPdf: "这是 PDF 而非网页，其正文由插件渲染，扩展无法读取。",
+  pdfWillBeConverted:
+    "这是 PDF。Tiro 先剪藏链接，正文在处理时生成——没有插图，公式会被压平。",
   fetchSources: {
     arxiv: {
       offer: "这是 arXiv 论文，Tiro 可以改为抓取其 HTML 全文。",

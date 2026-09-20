@@ -236,6 +236,51 @@ describe("parseArticle / stringifyArticle", () => {
     );
   });
 
+  test("preserves the source medium through a processor round-trip", () => {
+    // The same trap once more, and for this field it is the whole point: the
+    // marker is how the processor knows the body has to be built from a PDF
+    // rather than summarized as it stands (ADR 0026). Dropped on the first
+    // round-trip, a converted article would be indistinguishable from a clip.
+    const clipped = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      url: "https://example.com/report.pdf",
+      tiro: { schema: 1, source_media: "pdf" },
+    });
+    const processed = parseArticle(
+      stringifyArticle(
+        {
+          ...clipped,
+          tiro: {
+            ...clipped.tiro,
+            processed_at: "2026-09-19T11:00:00.000Z",
+            processor_version: "0.1.0",
+          },
+        },
+        "Body.\n",
+      ),
+    );
+    expect(processed.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("rejects a source medium it does not know", () => {
+    // Narrower than a string on purpose: an unknown medium means the body was
+    // built by something this version cannot describe, and carrying it would
+    // let the processor treat it as an ordinary clip.
+    expect(
+      ClipFrontmatterSchema.safeParse({
+        ...validClip,
+        tiro: { schema: 1, source_media: "epub" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("leaves an ordinary clip with no source medium", () => {
+    // Absence is the HTML path, so the field must not acquire a default.
+    expect(
+      ClipFrontmatterSchema.parse(validClip).tiro.source_media,
+    ).toBeUndefined();
+  });
+
   test("preserves an unlisted article's flag through a processor round-trip", () => {
     // Same trap as the two above, and the one with the worst failure mode: the
     // flag is set by hand and the loss is silent, so an article hidden on

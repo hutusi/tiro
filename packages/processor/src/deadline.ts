@@ -32,6 +32,23 @@ export class DeadlineExceededError extends Error {
   }
 }
 
+/**
+ * A stage's own cap ran out, as distinct from the run's budget.
+ *
+ * Its own class because the two want opposite handling and the pipeline sorts
+ * them by type: a `DeadlineExceededError` is an orderly end-of-run stop that
+ * defers the article with the run's work committed, while this is a fault about
+ * one document that leaves it pending as a failure. Both must also be
+ * distinguishable from an ordinary provider error, or a stage that timed out
+ * gets retried as though the request had merely failed.
+ */
+export class StageTimeoutError extends Error {
+  constructor(stage: string, what: string) {
+    super(`${stage} stage timed out before ${what}`);
+    this.name = "StageTimeoutError";
+  }
+}
+
 export interface Deadline {
   /** Milliseconds left; negative once the budget is blown. */
   remainingMs(): number;

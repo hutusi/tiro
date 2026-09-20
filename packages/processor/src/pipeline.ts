@@ -16,6 +16,7 @@ import { detectLang } from "./language.ts";
 import {
   discardTranslationCache,
   loadTranslationCache,
+  PDF_CACHE_FILE,
   TRANSLATION_CACHE_FILE,
   type TranslationCache,
 } from "./llm/cache.ts";
@@ -26,6 +27,7 @@ import {
   summaryIsFinished,
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
+import { convertPdf } from "./pdf.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -206,7 +208,15 @@ export async function runPipeline(
       break;
     }
     try {
-      await processOne(article, config, deps, report, log, deadline);
+      await processOne(
+        article,
+        config,
+        deps,
+        report,
+        log,
+        deadline,
+        options.force === true,
+      );
     } catch (error) {
       // Budget exhaustion is an orderly stop, not a fault: the article's
       // translation checkpoint is on disk, so the next run resumes it rather
@@ -293,6 +303,9 @@ async function processOne(
   report: PipelineReport,
   log: (message: string) => void,
   deadline: Deadline,
+  /** A forced redo asks for the work to be done again, which for a checkpoint
+   * means starting from nothing rather than resuming. */
+  force: boolean,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
@@ -300,12 +313,63 @@ async function processOne(
 
   const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
 
+  // A PDF stub carries no body of its own: the extension cannot read a PDF, so
+  // it records the URL and the document is fetched and converted here (ADR
+  // 0026). First, because everything below reads the body — language detection
+  // included, and a stub would detect as whatever an empty string is.
+  //
+  // A refusal throws, and that is the intended outcome rather than a tolerated
+  // one: the catch around processOne leaves tiro.processed_at absent, so the
+  // article stays pending and a later run — or a later version of this code —
+  // tries again without anything being re-clipped.
+  const sourceBody =
+    frontmatter.tiro.source_media === "pdf"
+      ? (
+          await convertPdf({
+            url: frontmatter.tiro.source_url ?? frontmatter.url,
+            maxBytes: config.pdf.max_bytes,
+            timeoutMs: config.pdf.timeout_ms,
+            // Both clocks, handed over whole rather than pre-combined: the
+            // stage bounds this document, the run's budget bounds the job, and
+            // the stage has to be able to tell which one stopped it — one
+            // leaves the article pending as a failure, the other defers it with
+            // the run's work committed (invariant 8).
+            stageTimeoutMs: config.pdf.stage_timeout_ms,
+            deadline,
+            maxPages: config.pdf.max_pages,
+            minCharsPerPage: config.pdf.min_chars_per_page,
+            minPageCoverage: config.pdf.min_page_coverage,
+            chat: deps.chat,
+            model: modelFor(config, "summary"),
+            requestMs: config.llm.timeout_ms,
+            // Its own checkpoint beside the translation one, so a long PDF
+            // resumes where the last run stopped instead of starting again at
+            // page one (ADR 0026, and ADR 0008's reasoning applied a second
+            // time). Gated on the same model the summary runs on, so
+            // changing that model reconverts rather than blending vintages.
+            cache: await loadPdfCheckpoint(
+              `${article.dirAbs}/${PDF_CACHE_FILE}`,
+              modelFor(config, "summary"),
+              force,
+              log,
+            ),
+            ...(deps.fetchImpl !== undefined
+              ? { fetchImpl: deps.fetchImpl }
+              : {}),
+            ...(deps.resolveHost !== undefined
+              ? { resolveHost: deps.resolveHost }
+              : {}),
+            log,
+          })
+        ).markdown
+      : article.parsed.body;
+
   const lang =
     frontmatter.lang ??
-    detectLang(article.parsed.body, config.translation.cjk_threshold);
+    detectLang(sourceBody, config.translation.cjk_threshold);
 
   const imageResult = await processImages({
-    body: article.parsed.body,
+    body: sourceBody,
     articleUrl: frontmatter.url,
     assetsDirAbs: `${article.dirAbs}/assets`,
     maxBytes: config.images.max_bytes,
@@ -598,6 +662,55 @@ async function discardCheckpointQuietly(
   } catch (error) {
     log(`could not remove checkpoint ${cacheAbs}: ${String(error)}`);
   }
+}
+
+/**
+ * The PDF conversion checkpoint, invalidated first on a forced redo.
+ *
+ * `--force` is how the runbook says to retry a conversion that came out badly,
+ * and resuming would make it a no-op: every batch is checkpointed, fallbacks
+ * included, so a forced run would replay the very results being complained
+ * about. Clearing it first is what makes the flag mean what it says, and it is
+ * what makes checkpointing a fallback safe in the first place.
+ *
+ * Deleting is the usual way and not the only one. When the file cannot be
+ * removed it is emptied in place instead, through the same atomic write every
+ * flush uses. Carrying on without a cache was worse than either: the stale file
+ * stayed where it was, so this run's batches had nowhere to checkpoint *and* a
+ * later ordinary run would reload exactly the results `--force` was invoked to
+ * be rid of.
+ *
+ * If neither works, the article is refused rather than converted. There is no
+ * honest third option — converting would either replay the stale results or
+ * silently drop this run's, and both end with the article marked processed over
+ * content nobody asked for. Refusing leaves it pending with the body it had.
+ */
+async function loadPdfCheckpoint(
+  pathAbs: string,
+  model: string,
+  force: boolean,
+  log: (message: string) => void,
+): Promise<TranslationCache> {
+  const header = { target: "pdf", model };
+  if (!force) return loadTranslationCache(pathAbs, header, log);
+
+  try {
+    await discardTranslationCache(pathAbs);
+    return await loadTranslationCache(pathAbs, header, log);
+  } catch (error) {
+    log(`could not remove the PDF checkpoint ${pathAbs}: ${String(error)}`);
+  }
+
+  const cache = await loadTranslationCache(pathAbs, header, log);
+  cache.retain([]);
+  await cache.flush();
+  if (cache.writeError !== undefined) {
+    throw new Error(
+      `the PDF checkpoint ${pathAbs} could not be removed or emptied ` +
+        `(${String(cache.writeError)}), so --force cannot reconvert this article`,
+    );
+  }
+  return cache;
 }
 
 /** Reconciliation is housekeeping and must never change an article's outcome,
