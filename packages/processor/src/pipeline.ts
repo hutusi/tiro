@@ -345,7 +345,8 @@ async function processOne(
             // Its own checkpoint beside the translation one, so a long PDF
             // resumes where the last run stopped instead of starting again at
             // page one (ADR 0026, and ADR 0008's reasoning applied a second
-            // time). Gated on the same model, so changing it reconverts.
+            // time). Gated on the same model the summary runs on, so
+            // changing that model reconverts rather than blending vintages.
             cache: await loadPdfCheckpoint(
               `${article.dirAbs}/${PDF_CACHE_FILE}`,
               modelFor(config, "summary"),

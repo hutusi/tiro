@@ -87,7 +87,8 @@ endpoint works.
     marker-stripping commit for it. Its summary, tags and `zh.md` are untouched,
     so the site keeps rendering it meanwhile.
   - A checkpoint is dropped automatically when the article finishes, when its
-    translation misaligns, and when `llm.model` or `translation.target` changes.
+    translation misaligns, and when `translation.target` or the translating model
+    changes — that being `llm.translation_model`, or `llm.model` when unset.
     Delete the file by hand for a genuinely clean retranslation — `--force`
     deliberately reuses it, or an over-long article could never be retried.
 - **LLM request bounds**: `llm.timeout_ms` (default 120000) is per HTTP request,
@@ -135,7 +136,8 @@ that fell back to extracted text are recorded too — otherwise a document whose
 batches are slow *and* rejected stops at the same place every run and never
 finishes — which means a bad conversion will be replayed rather than retried.
 **`--force` invalidates the checkpoint first**, so it is the way to ask again;
-changing `llm.model` invalidates it too. If the file cannot be removed it is
+changing the model the conversion runs on — `llm.summary_model`, or `llm.model`
+when that is unset — invalidates it too. If the file cannot be removed it is
 emptied in place instead, and if neither works the article is refused rather
 than converted — `--force` never silently replays the results it was invoked to
 be rid of.
@@ -235,8 +237,9 @@ so re-runs are always safe no-ops for finished articles.
   tags for every article. Translations are *reused* where the block's source
   text is unchanged — the checkpoint is content-addressed, so a reuse is only
   ever the same input translated by the same model (ADR 0008). To genuinely
-  re-translate, change `llm.model` or `translation.target` in `tiro.yml`, which
-  invalidates every checkpoint wholesale, or delete the article's
+  re-translate, change `translation.target` in `tiro.yml`, or the translating
+  model — `llm.translation_model`, or `llm.model` when that is unset — either of
+  which invalidates every checkpoint wholesale; or delete the article's
   `.tiro-zh-cache.json`.
 - **Redo one article's title only**:
   `backfill-titles --slug <slug> --force` (below). Far cheaper than a forced
