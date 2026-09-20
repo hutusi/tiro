@@ -9,6 +9,32 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **A PDF now keeps its headings, its code blocks and its lists.** It used to
+  arrive as unbroken prose: the extractor flattened every run of text to a
+  string, and a model was then asked to infer the structure back from the
+  wording. The structure was in the document all along — pdf.js reports the
+  font, the size and the position of every run, and `extractText` was throwing
+  all of it away (ADR 0028).
+
+  Headings now come from the size hierarchy, fenced code from fixed-width
+  faces, lists from bullets, and paragraphs from the gaps the document itself
+  put between its lines. Indentation inside a fence is preserved. Tabular
+  blocks are recognised by their column alignment and fenced rather than
+  rebuilt — a mis-read column corrupts data, while a fenced block only looks
+  plain.
+
+  **Most PDFs no longer reach the model at all**, which makes conversion
+  faster, free, and — for the first time — testable, since nothing about the
+  result depends on what a model happened to say. The structure pass stays for
+  documents with genuinely nothing to read: one size, one face. The run log
+  says which path was taken.
+
+  Still missing, and not fixable this way: figures are not in the text layer at
+  all, and equations remain flattened text.
+
+  **A PDF already in the vault keeps the body it was given** — extraction does
+  not re-run for an imported document. Re-import the file to pick this up.
+
 - **A PDF on your own computer can be imported.** Clipping only ever worked on
   a URL, so a document that was never published — a report, something a tool
   generated — had nowhere to go. The extension's Settings page now has an
