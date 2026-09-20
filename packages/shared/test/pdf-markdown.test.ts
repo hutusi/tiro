@@ -26,7 +26,10 @@ function line(
 function layout(items: PdfTextItem[], headings: number[] = []): PdfLayout {
   return {
     items,
-    totalPages: 1,
+    // Derived, not assumed: the furniture rule only applies to documents long
+    // enough for repetition to mean something, and a hardcoded 1 silently
+    // switched it off.
+    totalPages: Math.max(1, ...items.map((i) => i.page)),
     bodySize: 11,
     headingSizes: headings,
     monospaceFonts: new Set(items.filter((i) => i.mono).map((i) => i.font)),
@@ -240,5 +243,125 @@ describe("pdfMarkdown code indentation", () => {
       ]),
     );
     expect(md.trim()).toBe("```\na\nb\n```");
+  });
+});
+
+describe("pdfMarkdown reading order", () => {
+  test("keeps two columns apart instead of interleaving them", () => {
+    // A PDF's content stream carries reading order — a two-column paper emits
+    // the left column top to bottom and then the right. Sorting runs by height
+    // interleaved them and produced "Left column first Right column first" on
+    // one line, which is how a whole paper came out as nonsense.
+    const md = pdfMarkdown(
+      layout([
+        { ...line("Left column first", 700), x: 72 },
+        { ...line("left column second", 680), x: 72 },
+        { ...line("Right column first", 700), x: 320 },
+        { ...line("right column second", 680), x: 320 },
+      ]),
+    );
+    expect(md).toContain("Left column first left column second");
+    expect(md).toContain("Right column first right column second");
+    expect(md).not.toContain("Left column first Right column first");
+  });
+});
+
+describe("pdfMarkdown furniture", () => {
+  test("drops a header the document repeats on every page", () => {
+    // The flat-text path has done this since ADR 0026; this one put the same
+    // journal header into the Markdown once per page.
+    const head = "Journal of Irreproducible Results";
+    // Genuinely different per page, not merely differing by a number: digit
+    // runs are normalised, so "Body of page 1/2/3" would itself tally as one
+    // repeated line and be dropped as a footer. That is the rule working — it
+    // is how "Page 3 of 15" is matched — but it makes uniform bodies useless.
+    const bodies = [
+      "Gradients are estimated from the sampled minibatch.",
+      "Momentum accumulates across successive update steps.",
+      "Convergence follows from the bounded regret argument.",
+    ];
+    const items = [1, 2, 3].flatMap((page) => [
+      { ...line(head, 760), page },
+      { ...line(bodies[page - 1] ?? "", 700), page },
+    ]);
+    const md = pdfMarkdown(layout(items));
+    expect(md).not.toContain(head);
+    expect(md).toContain("Gradients are estimated");
+    expect(md).toContain("Convergence follows");
+  });
+
+  test("leaves a short document alone", () => {
+    const head = "A Heading Line";
+    const bodies = ["Gradients are estimated here.", "Momentum accumulates."];
+    const items = [1, 2].flatMap((page) => [
+      { ...line(head, 760), page },
+      { ...line(bodies[page - 1] ?? "", 700), page },
+    ]);
+    expect(pdfMarkdown(layout(items))).toContain(head);
+  });
+});
+
+describe("pdfMarkdown fences", () => {
+  test("uses a rail nothing inside can close", () => {
+    // A code block containing three backticks otherwise parsed as code, then a
+    // paragraph, then more code.
+    const mono = { font: "Courier", mono: true };
+    const md = pdfMarkdown(
+      layout([
+        { ...line("before", 700), ...mono },
+        { ...line("```", 680), ...mono },
+        { ...line("after", 660), ...mono },
+      ]),
+    );
+    expect(md.trim().startsWith("````")).toBe(true);
+    expect(md).toContain("```\n");
+    // One block, not three.
+    expect(md.split("````").length - 1).toBe(2);
+  });
+
+  test("keeps column alignment inside a fenced table", () => {
+    // Collapsing each gap to one space is what a fenced table loses everything
+    // to — the alignment is the only thing it had.
+    const row = (y: number, a: string, b: string): PdfTextItem[] => [
+      { ...line(a, y), x: 72, width: 40 },
+      { ...line(b, y), x: 300, width: 40 },
+    ];
+    const md = pdfMarkdown(
+      layout([...row(700, "Name", "Value"), ...row(680, "Longer name", "2")]),
+    );
+    const rows = md
+      .split("\n")
+      .filter((l) => l.includes("Value") || l.includes("2"));
+    // The second column starts at the same offset on both rows.
+    expect(rows[0]?.indexOf("Value")).toBe(rows[1]?.indexOf("2") ?? -1);
+  });
+});
+
+describe("pdfMarkdown lists that wrap", () => {
+  test("keeps a list whose item runs onto a second line", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("• First item that is long enough to", 700),
+        line("wrap onto a second line", 680),
+        line("• Second item", 660),
+      ]),
+    );
+    expect(md).toContain(
+      "- First item that is long enough to wrap onto a second line",
+    );
+    expect(md).toContain("- Second item");
+  });
+
+  test("keeps a list that follows a sentence introducing it", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("Each PR does one thing well:", 700),
+        line("• First", 680),
+        line("• Second", 660),
+      ]),
+    );
+    expect(md).toContain("Each PR does one thing well:");
+    expect(md).toContain("- First\n- Second");
+    expect(md).not.toContain("• ");
   });
 });

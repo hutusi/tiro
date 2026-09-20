@@ -103,6 +103,18 @@ now be revisited. It is not being revisited here: a mis-read column corrupts
 data while a fenced block merely looks plain, and alignment preserved inside a
 fence recovers most of what was actually lost.
 
+**7a. Reading order comes from the document, not from height.** A PDF's content
+stream already carries it — a two-column paper emits the left column top to
+bottom and then the right, which is why pdf.js's own `extractText` gets those
+right by leaving the order alone. Sorting runs by `y` interleaves the columns
+line by line and turns a paper into nonsense, so runs are ordered only *within*
+a line, where a font change can emit pieces out of sequence.
+
+**7b. Running headers are dropped on this path too.** The rule is ADR 0026's,
+applied to lines rather than page strings, because that is what this path has.
+Without it a document repeated its journal header into the Markdown once per
+page, while the flat-text path beside it removed all three.
+
 **8. What layout does not rescue.** Figures are not in the text layer at all and
 remain absent. Math remains flattened — the TeX math fonts are visible
 (`CMSY`, `CMMI`, `CMR`) and could mark where a formula was, but marking is not

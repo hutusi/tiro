@@ -73,10 +73,21 @@ function lineText(items: readonly PdfTextItem[], bodySize: number): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Runs into lines, in the order the document emits them.
+ *
+ * Deliberately *not* sorted by height. A PDF's content stream already carries
+ * reading order — for a two-column paper it emits the left column top to
+ * bottom and then the right — and sorting by `y` interleaves the two, which is
+ * exactly what pdf.js's own `extractText` avoids by leaving the order alone.
+ * Sorting produced "Left column first Right column first" on one line and made
+ * the page read as nonsense.
+ *
+ * Only the runs *within* a line are ordered, by x, since a line's pieces can be
+ * emitted out of order when the font changes mid-sentence.
+ */
 function toLines(layout: PdfLayout): Line[] {
-  const sorted = [...layout.items].sort(
-    (a, b) => a.page - b.page || b.y - a.y || a.x - b.x,
-  );
+  const sorted = layout.items;
   const lines: Line[] = [];
   let current: PdfTextItem[] = [];
   const flush = (): void => {
@@ -226,6 +237,63 @@ function looksTabular(lines: readonly Line[], bodySize: number): boolean {
   );
 }
 
+/** How much of a document a line must top or tail before it is furniture
+ * rather than content — the share `stripRunningFurniture` uses on flat text. */
+const FURNITURE_SHARE = 0.6;
+const FURNITURE_MAX_CHARS = 100;
+
+/** Page numbers differ by their number and nothing else. */
+function furnitureKey(text: string): string {
+  return text.replace(/\s+/g, " ").trim().replace(/\d+/g, "#");
+}
+
+/**
+ * Drop the running headers and footers a document repeats on every page.
+ *
+ * The flat-text path has done this since ADR 0026; the structured path did not,
+ * and a three-page document put the same journal header into the Markdown three
+ * times. Done on lines rather than page strings because that is what this path
+ * has, but by the same rule: only the first and last line of a page, only on a
+ * document long enough for repetition to mean something, and only when short.
+ */
+function stripFurnitureLines(lines: readonly Line[], pages: number): Line[] {
+  if (pages < 3) return [...lines];
+  const first = new Map<number, Line>();
+  const last = new Map<number, Line>();
+  for (const line of lines) {
+    if (!first.has(line.page)) first.set(line.page, line);
+    last.set(line.page, line);
+  }
+  const tally = (edge: Map<number, Line>): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const line of edge.values()) {
+      if (line.text.length > FURNITURE_MAX_CHARS) continue;
+      const key = furnitureKey(line.text);
+      if (key === "") continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const heads = tally(first);
+  const feet = tally(last);
+  const threshold = pages * FURNITURE_SHARE;
+  const drop = new Set<Line>();
+  for (const [page, line] of first) {
+    if ((heads.get(furnitureKey(line.text)) ?? 0) >= threshold) drop.add(line);
+    const foot = last.get(page);
+    // A one-line page is its own first and last; dropping it twice is still
+    // dropping the page.
+    if (
+      foot !== undefined &&
+      foot !== line &&
+      (feet.get(furnitureKey(foot.text)) ?? 0) >= threshold
+    ) {
+      drop.add(foot);
+    }
+  }
+  return lines.filter((line) => !drop.has(line));
+}
+
 /**
  * A fenced block that keeps its indentation.
  *
@@ -239,11 +307,67 @@ function fence(block: readonly Line[], bodySize: number): string {
   // A monospace character advances about six tenths of its size — the figure
   // both fixed-width faces in the measured documents came out at.
   const step = Math.max(1, bodySize * 0.6);
+
+  // Every run placed at its own column, not just the first. Collapsing the
+  // gaps to single spaces is what a fenced table loses everything to: two
+  // aligned columns came out as "Name Value" and "Longer name 2", which is
+  // neither a table nor an improvement on one.
   const lines = block.map((line) => {
-    const indent = Math.max(0, Math.round((line.x - left) / step));
-    return `${" ".repeat(indent)}${line.text}`;
+    let out = "";
+    for (const item of line.items) {
+      if (item.text.trim() === "") continue;
+      const column = Math.max(0, Math.round((item.x - left) / step));
+      if (column > out.length) out += " ".repeat(column - out.length);
+      else if (out !== "" && !out.endsWith(" ")) out += " ";
+      out += item.text.trim();
+    }
+    return out.replace(/\s+$/, "");
   });
-  return ["```", ...lines, "```"].join("\n");
+
+  // Long enough that nothing inside can close it. A code block containing a
+  // line of three backticks otherwise parsed as code, then a paragraph, then
+  // more code.
+  const longest = lines.reduce((n, line) => {
+    const run = line.match(/`+/g)?.reduce((m, r) => Math.max(m, r.length), 0);
+    return Math.max(n, run ?? 0);
+  }, 0);
+  const rail = "`".repeat(Math.max(3, longest + 1));
+  return [rail, ...lines, rail].join("\n");
+}
+
+/**
+ * A block containing bullets, rendered as a list.
+ *
+ * Split at the bullets rather than demanded of every line. Requiring all of
+ * them meant a list lost its formatting the moment one item wrapped onto a
+ * second line or the block opened with a sentence introducing it — which is
+ * most lists — and the bullets then arrived as literal characters inside a
+ * paragraph.
+ *
+ * Returns null where there is nothing to make a list from, so an ordinary
+ * paragraph is not put through this at all.
+ */
+function toList(block: readonly Line[]): string | null {
+  const firstBullet = block.findIndex((line) => BULLET.test(line.text));
+  if (firstBullet === -1) return null;
+
+  const parts: string[] = [];
+  const lead = block.slice(0, firstBullet);
+  if (lead.length > 0) parts.push(joinWrapped(lead));
+
+  const items: Line[][] = [];
+  for (const line of block.slice(firstBullet)) {
+    // A line with no bullet continues the item above it: the page wrapped it,
+    // the author did not start a new one.
+    if (BULLET.test(line.text) || items.length === 0) items.push([line]);
+    else items[items.length - 1]?.push(line);
+  }
+  parts.push(
+    items
+      .map((item) => `- ${joinWrapped(item).replace(BULLET, "")}`)
+      .join("\n"),
+  );
+  return parts.join("\n\n");
 }
 
 /**
@@ -260,7 +384,8 @@ export function pdfMarkdown(layout: PdfLayout): string {
   };
 
   const out: string[] = [];
-  for (const block of toBlocks(toLines(layout), bodySize)) {
+  const lines = stripFurnitureLines(toLines(layout), layout.totalPages);
+  for (const block of toBlocks(lines, bodySize)) {
     const first = block[0];
     if (first === undefined) continue;
 
@@ -282,10 +407,9 @@ export function pdfMarkdown(layout: PdfLayout): string {
       continue;
     }
 
-    if (block.every((line) => BULLET.test(line.text))) {
-      out.push(
-        block.map((line) => `- ${line.text.replace(BULLET, "")}`).join("\n"),
-      );
+    const list = toList(block);
+    if (list !== null) {
+      out.push(list);
       continue;
     }
 
