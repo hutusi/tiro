@@ -1610,7 +1610,7 @@ describe("runPipeline with an imported local document", () => {
           domain: LOCAL_DOCUMENT_DOMAIN,
           clipped_at: "2026-09-20T10:00:00.000Z",
           unlisted: true,
-          tiro: { schema: 1, source_media: "pdf" },
+          tiro: { schema: 1, source_media: "pdf", pdf_unstructured: true },
         },
         joinPdfPages([PAGE(1), PAGE(2)]),
       ),
@@ -1696,6 +1696,46 @@ describe("runPipeline with an imported local document", () => {
     expect(after.body).toBe(converted);
     // And --force still did everything it can still do.
     expect(needsProcessing(after.frontmatter)).toBe(false);
+  });
+
+  test("a deferred forced run does not leave the body looking unconverted", async () => {
+    // The trap the flag exists for. markPending strips processed_at when a
+    // forced run is deferred and keeps the finished body, so a marker-based
+    // check saw "unconverted" over Markdown — and the next ordinary run fed it
+    // back through the structure pass as one batch.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const path = join(dir, "articles", slug, "index.md");
+    const converted = parseArticle(readFileSync(path, "utf8"));
+    expect(converted.frontmatter.tiro.pdf_unstructured).toBeUndefined();
+
+    // Exactly what a deferred --force leaves behind: no marker, finished body.
+    const { processed_at: _gone, ...tiro } = converted.frontmatter.tiro;
+    writeFileSync(
+      path,
+      stringifyArticle({ ...converted.frontmatter, tiro }, converted.body),
+    );
+
+    let structureCalls = 0;
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: async (request) => {
+        const system =
+          request.messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("restore structure to text extracted from a PDF")) {
+          structureCalls += 1;
+        }
+        return makeFakeChat()(request);
+      },
+    });
+
+    expect(structureCalls).toBe(0);
+    expect(parseArticle(readFileSync(path, "utf8")).body).toBe(converted.body);
   });
 
   test("batches by the pages the import preserved", async () => {

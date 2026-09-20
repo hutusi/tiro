@@ -54,6 +54,26 @@ describe("buildClipFile", () => {
     expect(frontmatter.tiro.source_media).toBe("pdf");
   });
 
+  test("marks an import's body as extracted text", async () => {
+    // The processor has to be told; a body that looks like prose is not
+    // evidence either way (ADR 0027).
+    const file = await buildClipFile({
+      ...input,
+      url: localDocumentUrl("a.pdf"),
+      markdown: "Some extracted text.",
+      sourceMedia: "pdf",
+      pdfUnstructured: true,
+    });
+    expect(parseArticle(file.content).frontmatter.tiro.pdf_unstructured).toBe(
+      true,
+    );
+  });
+
+  test("leaves a clipped article unmarked", async () => {
+    const { frontmatter } = parseArticle((await buildClipFile(input)).content);
+    expect(frontmatter.tiro.pdf_unstructured).toBeUndefined();
+  });
+
   test("files an import at the contract path like any other article", async () => {
     const file = await buildClipFile({
       ...input,

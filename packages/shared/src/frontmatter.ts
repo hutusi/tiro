@@ -98,6 +98,24 @@ const sourceUrl = z.string().optional();
 const sourceMedia = z.literal("pdf").optional();
 
 /**
+ * The body is a PDF's extracted text, not the finished article.
+ *
+ * Set by an import, which reads the text on the owner's machine because the
+ * processor cannot reach the file (ADR 0027), and removed the moment the
+ * processor writes the converted body.
+ *
+ * Recorded rather than inferred, and the second attempt at that. `processed_at`
+ * looked like it carried the same information — a converted article has one —
+ * but it is cleared by `markPending` when a forced run is deferred, which
+ * leaves a *finished* body looking unconverted. The next run would then feed
+ * Markdown back through the structure pass as though it were raw text, as one
+ * batch, because the page separators are long gone. A fact about the body has
+ * to be stored beside the body, not deduced from a marker that means something
+ * else and moves for its own reasons.
+ */
+const pdfUnstructured = z.boolean().optional();
+
+/**
  * The article's title, translated into the vault's target language.
  *
  * `zh.md` is a bare body that must stay strictly 1:1 block-aligned with
@@ -201,6 +219,7 @@ export const ClipFrontmatterSchema = z.object({
     clipper_commit: clipperCommit,
     source_url: sourceUrl,
     source_media: sourceMedia,
+    pdf_unstructured: pdfUnstructured,
   }),
 });
 export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
@@ -219,6 +238,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
     clipper_commit: clipperCommit,
     source_url: sourceUrl,
     source_media: sourceMedia,
+    pdf_unstructured: pdfUnstructured,
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),

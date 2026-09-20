@@ -436,6 +436,10 @@ async function importPdf(file: File): Promise<void> {
       clipperVersion: chrome.runtime.getManifest().version,
       clipperCommit: __CLIPPER_COMMIT__,
       sourceMedia: "pdf" as const,
+      // The body is the text, not the article: the processor still has to
+      // restructure it, and says so beside the body rather than working it out
+      // (ADR 0027).
+      pdfUnstructured: true,
       unlisted: existing?.unlisted ?? true,
     };
     const built = await buildClipFile(clip);

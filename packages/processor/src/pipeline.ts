@@ -459,6 +459,11 @@ async function processOne(
   const {
     summary_failed: _staleSummaryFailed,
     translation_failed: _staleTranslationFailed,
+    // Dropped here and nowhere else: this write is the moment the body stops
+    // being extracted text and becomes the article (ADR 0027). Clearing it
+    // earlier would lose the flag if a later stage threw; later, and a
+    // deferred run would find it still set over a finished body.
+    pdf_unstructured: _convertedNow,
     ...previousTiro
   } = frontmatter.tiro;
   const updated = {
@@ -677,15 +682,18 @@ async function pdfBody(
   };
 
   if (isLocalDocument(url)) {
-    // An imported document that has already been processed has nothing left to
-    // re-derive: its bytes were never in the vault, so the body is the
-    // finished article rather than the extracted text it was built from. Only
-    // --force arrives here in that state, and restructuring again would not
-    // merely be redundant — the page separators are gone from a converted
-    // body, so the whole document would be sent as one batch, since batching
-    // never splits a page. Re-importing the file is how to genuinely start
-    // over (ADR 0027); everything else --force redoes still gets redone.
-    if (frontmatter.tiro.processed_at !== undefined) {
+    // An imported document whose body is already the article has nothing left
+    // to re-derive: its bytes were never in the vault. Restructuring again
+    // would not merely be redundant — the page separators are gone from a
+    // converted body, so the whole document would go out as one batch, since
+    // batching never splits a page. Re-importing the file is how to genuinely
+    // start over (ADR 0027); everything else --force redoes still gets redone.
+    //
+    // Read from the flag rather than from `processed_at`, which looked like
+    // the same question and is not: a deferred forced run clears that marker
+    // and leaves the finished body, so the next ordinary run would have fed
+    // Markdown back through the structure pass.
+    if (frontmatter.tiro.pdf_unstructured !== true) {
       log(
         `${article.slug}: imported document kept as it is — re-import the file to rebuild it`,
       );

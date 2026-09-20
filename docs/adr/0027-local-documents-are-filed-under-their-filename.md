@@ -90,9 +90,23 @@ This codebase normally refuses inference — `source_media` itself exists becaus
 at fetchability, it decides it: `fetchPdf` speaks http(s) and nothing else, so
 a second field would record a fact already stated, and could contradict it.
 
-**7. `tiro.schema` stays at 1.** Nothing is added to the document format. The
-`"local"` domain and the `local:` scheme are values the existing fields already
-admit.
+**7. The body says whether it is the article yet.** An import writes
+`tiro.pdf_unstructured`, and the processor removes it in the same write that
+lays down the converted body.
+
+Recorded rather than inferred, which took two attempts to get right.
+`processed_at` looks like it carries the same information — a converted article
+has one — and it does not: `markPending` clears it when a forced run is
+deferred, leaving a *finished* body that reads as unconverted, so the next
+ordinary run would feed Markdown back through the structure pass as a single
+batch with its page separators long gone. A fact about the body belongs beside
+the body, not deduced from a marker that means something else and moves for its
+own reasons. This is ADR 0026's own rule about `source_media`, applied a second
+time after being forgotten once.
+
+**8. `tiro.schema` stays at 1.** `pdf_unstructured` is additive and optional,
+on the precedent of `unlisted` (ADR 0017), and the `"local"` domain and scheme
+are values the existing fields already admit.
 
 ## Consequences
 

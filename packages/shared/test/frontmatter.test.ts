@@ -283,6 +283,20 @@ describe("parseArticle / stringifyArticle", () => {
     expect(parsed.unlisted).toBe(true);
   });
 
+  test("preserves the unconverted marker through a processor round-trip", () => {
+    // The usual trap — Zod strips unnamed keys — and for this field it is the
+    // whole feature: dropped, the processor cannot tell extracted text from a
+    // finished article, and would restructure Markdown as though it were raw.
+    const clipped = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      url: localDocumentUrl("a.pdf"),
+      domain: LOCAL_DOCUMENT_DOMAIN,
+      tiro: { schema: 1, source_media: "pdf", pdf_unstructured: true },
+    });
+    const again = parseArticle(stringifyArticle(clipped, "Body.\n"));
+    expect(again.frontmatter.tiro.pdf_unstructured).toBe(true);
+  });
+
   test("still refuses an empty domain", () => {
     // The sentinel exists because the field may not be blank; an import that
     // forgot it must fail rather than quietly file a sourceless article.
