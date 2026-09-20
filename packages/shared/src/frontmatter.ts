@@ -168,6 +168,16 @@ const unlisted = z.boolean().optional();
 export const ClipFrontmatterSchema = z.object({
   url: z.url(),
   title: z.string().min(1),
+
+  /**
+   * The article's source, as a reader would name it.
+   *
+   * A hostname for anything clipped from the web. For a document imported off
+   * disk there is none, so it carries the `LOCAL_DOCUMENT_DOMAIN` sentinel —
+   * see `local-document.ts` and ADR 0027. Required and non-empty either way,
+   * because the site prints it as the source label and an article that cannot
+   * say where it came from is worse than one that says "local".
+   */
   domain: z.string().min(1),
   clipped_at: isoDatetime,
   excerpt: z.string().optional(),
