@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
 import { convertPdf, fetchPdf, pdfSource } from "../src/pdf.ts";
-import { makePdf } from "./helpers.ts";
+import { makePdf, makeStyledPdf } from "./helpers.ts";
 
 const PROSE =
   "The method is straightforward to implement, is computationally efficient, has little memory requirements, and is invariant to diagonal rescaling of the gradients.";
@@ -158,23 +158,46 @@ describe("convertPdf and its two clocks", () => {
     // is woken per page — so a document that entered with budget can leave
     // without it. Returning a finished body then reports a run that overran as
     // one that did not.
+    //
+    // The clock is advanced by extraction *finishing*, not by the fetch. An
+    // earlier version moved it during `fetchImpl`, so the call rejected at the
+    // check before extraction and passed just as happily with the check after
+    // it deleted — a test for a line that it never reached.
     let now = 0;
     const deadline = createDeadline(100, () => now);
-    const fetchImpl: FetchLike = async () => {
-      // The clock moves while the bytes are read, as a long document's does.
-      now = 200;
-      return new Response(makePdf([PROSE, PROSE]), {
-        headers: { "content-type": "application/pdf" },
-      });
+    const logs: string[] = [];
+    const log = (message: string): void => {
+      logs.push(message);
+      if (message.includes("chars of text layer")) now = 200;
     };
+    // A *legible* document, deliberately. A uniform one takes the fallback
+    // path, where the structure pass checks the clock itself and throws
+    // whatever this branch does — so the test passed with the line under test
+    // deleted. Only a readable layout returns straight after extraction, which
+    // is the path this guard exists on.
+    const fetchImpl: FetchLike = async () =>
+      new Response(
+        makeStyledPdf([
+          [
+            { text: "A Document Title", size: 20, face: "bold" },
+            { text: PROSE },
+            { text: PROSE },
+          ],
+        ]),
+        { headers: { "content-type": "application/pdf" } },
+      );
+
     await expect(
       convertPdf({
         ...options(),
         fetchImpl,
         stageTimeoutMs: 300_000,
         deadline,
+        log,
       }),
     ).rejects.toThrow(DeadlineExceededError);
+    // And it got that far: the budget went during extraction, not before it.
+    expect(logs.some((m) => m.includes("chars of text layer"))).toBe(true);
   });
 
   test("a blown stage cap is a fault about this document, not the run", async () => {
