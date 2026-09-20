@@ -2,6 +2,8 @@ import {
   ArticleFrontmatterSchema,
   canonicalizeUrl,
   indexPath,
+  isLocalDocument,
+  LOCAL_DOCUMENT_DOMAIN,
   normalizeUrl,
   slugForUrl,
   stringifyArticle,
@@ -51,6 +53,15 @@ export interface ClipInput {
    * what a failed clip looks like, and a `.pdf` URL proves nothing either way.
    */
   sourceMedia?: "pdf";
+  /**
+   * The markdown being committed is a PDF's extracted text, not an article.
+   *
+   * Only an import sets this: a clipped PDF has no body at all, and a clipped
+   * page has a finished one. The processor reads it to know the body still
+   * needs the structure pass, and clears it when it writes the result
+   * (ADR 0027).
+   */
+  pdfUnstructured?: boolean;
   /** Carried over from the article this clip overwrites, when it was unlisted
    * (ADR 0017). Nothing here originates it — a re-clip rebuilds the file, and
    * without this the flag would be dropped and a deliberately hidden article
@@ -75,7 +86,13 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
   // keeping it identical to the slug's input means re-clips from any URL
   // variant produce byte-identical frontmatter.
   const url = normalizeUrl(input.url);
-  const domain = new URL(url).hostname;
+  // A document imported off disk has no hostname to take this from, so it
+  // carries the sentinel instead (ADR 0027). Not left to `new URL().hostname`,
+  // which answers "" for a `local:` URL and would fail the contract's
+  // non-empty rule with an error naming the wrong thing.
+  const domain = isLocalDocument(url)
+    ? LOCAL_DOCUMENT_DOMAIN
+    : new URL(url).hostname;
   const title = input.title.trim() || domain;
   const frontmatter = ArticleFrontmatterSchema.parse({
     url,
@@ -110,6 +127,7 @@ export async function buildClipFile(input: ClipInput): Promise<ClipFile> {
       ...(input.sourceMedia !== undefined
         ? { source_media: input.sourceMedia }
         : {}),
+      ...(input.pdfUnstructured === true ? { pdf_unstructured: true } : {}),
     },
   });
 

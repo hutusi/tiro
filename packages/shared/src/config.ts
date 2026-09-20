@@ -1,5 +1,10 @@
 import { parse } from "yaml";
 import { z } from "zod";
+import {
+  PDF_MAX_PAGES,
+  PDF_MIN_CHARS_PER_PAGE,
+  PDF_MIN_PAGE_COVERAGE,
+} from "./pdf-limits.ts";
 
 /**
  * Schema for the vault's `config/tiro.yml`. Subpath export
@@ -84,20 +89,28 @@ export const TiroConfigSchema = z
         // not, and a 600-page book would spend a whole run's budget on one
         // article. Past this the PDF is refused rather than truncated: half a
         // document filed as the whole one is the silent kind of wrong.
-        max_pages: z.number().int().positive().default(200),
+        max_pages: z.number().int().positive().default(PDF_MAX_PAGES),
         // The scanned-PDF gate (ADR 0026 clause 4). A page image carries no text
         // layer, so a scan extracts to roughly nothing, and an empty body is the
         // empty article the clipper already refuses. Measured against real
         // papers, which run 2600-2800 chars/page, so this sits an order of
         // magnitude below anything with prose on it and still clears a document
         // that is mostly figures.
-        min_chars_per_page: z.number().int().positive().default(100),
+        min_chars_per_page: z
+          .number()
+          .int()
+          .positive()
+          .default(PDF_MIN_CHARS_PER_PAGE),
         // The other half of that gate. An average is a sum, so one dense page
         // among nine scanned ones clears min_chars_per_page comfortably and the
         // article would be filed as a whole document while holding a tenth of
         // it. This asks that the text be spread across the document, while
         // staying loose enough for the full-page figures a real paper carries.
-        min_page_coverage: z.number().min(0).max(1).default(0.5),
+        min_page_coverage: z
+          .number()
+          .min(0)
+          .max(1)
+          .default(PDF_MIN_PAGE_COVERAGE),
       })
       .prefault({}),
     processing: z

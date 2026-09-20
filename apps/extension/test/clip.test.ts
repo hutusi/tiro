@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseArticle, slugForUrl } from "@tiro/shared";
+import {
+  LOCAL_DOCUMENT_DOMAIN,
+  localDocumentUrl,
+  parseArticle,
+  slugForUrl,
+} from "@tiro/shared";
 import { buildClipFile, tabSourceUrl } from "../src/clip.ts";
 
 const input = {
@@ -29,6 +34,60 @@ describe("buildClipFile", () => {
     expect(body).toBe("");
     // A stub is filed by the same rules as any other article.
     expect(file.path).toBe(`articles/${file.slug}/index.md`);
+  });
+
+  test("gives an imported document the domain sentinel", async () => {
+    // `new URL("local:x.pdf").hostname` is "", which the contract rejects for
+    // being empty — with an error naming the wrong thing. The sentinel is what
+    // the field carries when there is no host (ADR 0027).
+    const file = await buildClipFile({
+      ...input,
+      url: localDocumentUrl("stacked-prs-guide.pdf"),
+      markdown: "Section 1\nSome text.",
+      sourceMedia: "pdf",
+      unlisted: true,
+    });
+    const { frontmatter } = parseArticle(file.content);
+    expect(frontmatter.domain).toBe(LOCAL_DOCUMENT_DOMAIN);
+    expect(frontmatter.url).toBe("local:stacked-prs-guide.pdf");
+    expect(frontmatter.unlisted).toBe(true);
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("marks an import's body as extracted text", async () => {
+    // The processor has to be told; a body that looks like prose is not
+    // evidence either way (ADR 0027).
+    const file = await buildClipFile({
+      ...input,
+      url: localDocumentUrl("a.pdf"),
+      markdown: "Some extracted text.",
+      sourceMedia: "pdf",
+      pdfUnstructured: true,
+    });
+    expect(parseArticle(file.content).frontmatter.tiro.pdf_unstructured).toBe(
+      true,
+    );
+  });
+
+  test("leaves a clipped article unmarked", async () => {
+    const { frontmatter } = parseArticle((await buildClipFile(input)).content);
+    expect(frontmatter.tiro.pdf_unstructured).toBeUndefined();
+  });
+
+  test("files an import at the contract path like any other article", async () => {
+    const file = await buildClipFile({
+      ...input,
+      url: localDocumentUrl("stacked-prs-guide.pdf"),
+      sourceMedia: "pdf",
+    });
+    expect(file.slug).toBe("stacked-prs-guide-pdf-6ae040b1");
+    expect(file.path).toBe(`articles/${file.slug}/index.md`);
+  });
+
+  test("still takes the hostname for a web article", async () => {
+    // The sentinel must not leak into the ordinary path.
+    const { frontmatter } = parseArticle((await buildClipFile(input)).content);
+    expect(frontmatter.domain).toBe("example.com");
   });
 
   test("leaves an ordinary clip with no source medium", async () => {

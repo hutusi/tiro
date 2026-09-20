@@ -58,6 +58,14 @@ flowchart LR
      (ADR 0023). Nothing is fetched when the reader is already on the raw URL:
      the tab holds the file and `activeTab` covers reading it.
 
+   A PDF on this computer is imported from the **options page** instead
+   (ADR 0027). The extension reads its text layer there — a file picker needs
+   no permission, and pdf.js is loaded lazily so Settings does not pay 1.6 MB
+   to be opened — applies the page and scan gates while there is still a person
+   to tell, and commits the text with its pages separated. The document is
+   filed under `local:<filename>`, carries the `"local"` domain sentinel, and
+   starts unlisted. Nothing binary enters the vault on either path.
+
    A PDF served to the tab itself is clipped as a **stub** — identity and title,
    no body — and the body is built later by the processor from the document's
    text layer (ADR 0026). The extension never reads the PDF: Chrome renders it
@@ -116,10 +124,12 @@ flowchart LR
    `<figure hidden>` became a plain `<p>` and its hidden image was published.
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
-   - for a PDF stub (`tiro.source_media: "pdf"`), build the body first: fetch
-     the document under the same guards the image stage uses, read its text
-     layer, drop the running headers and footers it repeats, and ask the model
-     to restore Markdown structure — checking each reply kept its content and
+   - for a PDF (`tiro.source_media: "pdf"`), build the body first. A web PDF is
+     fetched under the same guards the image stage uses, its text layer read
+     and its running headers dropped; an imported one arrives with all of that
+     already done and only the model pass left — the branch is taken from the
+     URL scheme, since `local:` cannot be fetched (ADR 0027). Either way the
+     model is asked to restore Markdown structure — checking each reply kept its content and
      rebuilt no tables, and keeping the extracted text where it did not
      (ADR 0026). A refusal leaves the article pending, so nothing is re-clipped,
    - detect language (CJK-codepoint ratio, no LLM call),
@@ -295,6 +305,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   content layer measured every image an article referenced. The site reads the
   vault itself now and serves assets as plain copies, so a bad one costs its own
   image and nothing else (ADR 0020); a fixture holds the line.
+- **An imported document cannot be re-read at all.** Its bytes were never in
+  the vault and CI cannot reach the disk they came from, so `--force`
+  re-restructures the body rather than re-extracting it. Re-importing the file
+  is the way to genuinely start over (ADR 0027).
 - **A PDF whose source disappears** cannot be reprocessed: unlike a clip, a PDF
   article's body is derived from bytes the vault never stored, so a 404 later
   means the article keeps the Markdown it already has. The same position a

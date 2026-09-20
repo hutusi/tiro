@@ -127,20 +127,53 @@ reconstructed tables. That last one is deliberate rather than missing: a blank
 cell and an absent cell are identical in a text layer, so a rebuilt row would be
 a guess that reads as data.
 
-Nothing binary is stored. Reprocessing re-downloads, so a source that has since
-404'd cannot be reprocessed — the article keeps the Markdown it has.
+### Importing a PDF from this computer
+
+A document with no web address — a report, something a tool generated — is
+imported from the extension's **options page** rather than clipped: open
+Settings, then **Import a PDF**. The extension reads the text layer there and
+commits it; the processor restructures it on the next run like any other PDF.
+
+What is different from a clipped one:
+
+- It is filed under `local:<filename>`, and the article slug is derived from
+  that the way every other slug is derived from its URL — `report.pdf` becomes
+  `report-pdf-<8hex>`. That derived slug, not the filename, is what `--force
+  --slug` and `articles/<slug>/` want; `tiro-process validate` prints it, and
+  it is the directory name in the vault. The site shows the filename rather
+  than a link. **The filename is legible in a public address** — `unlisted`
+  keeps it out of every index but not out of reach (ADR 0017) — so rename a
+  file before importing if its name says more than the document should.
+- It starts **unlisted**. Unhiding one by hand survives a re-import.
+- `--force` keeps the converted body and redoes only the summary, tags and
+  translation — there is nothing to re-extract, because the bytes are not in
+  the vault. **Re-import the file** to rebuild the text itself; see the retry
+  table below, which is the one place that rule is written down.
+- A CJK filename slugs to a bare hash. Not local-specific — `slugify` drops CJK
+  for every article — but a `local:` identity has no hostname to soften it. The
+  title still carries the name.
+
+Nothing binary is stored either way, and neither kind can be reprocessed from
+a source that has gone: a clipped PDF whose URL now 404s, and every imported
+one, keep the Markdown they have.
 
 Conversion is checkpointed to `articles/<slug>/.tiro-pdf-cache.json`, one entry
-per batch, so a PDF too long for one run resumes rather than restarting. Batches
-that fell back to extracted text are recorded too — otherwise a document whose
-batches are slow *and* rejected stops at the same place every run and never
-finishes — which means a bad conversion will be replayed rather than retried.
-**`--force` invalidates the checkpoint first**, so it is the way to ask again;
-changing the model the conversion runs on — `llm.summary_model`, or `llm.model`
-when that is unset — invalidates it too. If the file cannot be removed it is
-emptied in place instead, and if neither works the article is refused rather
-than converted — `--force` never silently replays the results it was invoked to
-be rid of.
+per batch, so a PDF too long for one run resumes rather than restarting.
+Batches that fell back to extracted text are recorded too — otherwise a
+document whose batches are slow *and* rejected stops at the same place every
+run and never finishes — which means **a bad conversion is replayed rather than
+retried, and asking for a retry differs by kind:**
+
+| | Retry a bad conversion | What invalidates the checkpoint |
+| --- | --- | --- |
+| **Clipped from a URL** | `--force` + slug | `--force`, or changing the model the conversion runs on (`llm.summary_model`, or `llm.model` when that is unset) |
+| **Imported from disk** | **re-import the file** — `--force` keeps the converted body and cannot rebuild it | the import itself, which stamps the article afresh |
+
+`--force` never silently replays what it was invoked to be rid of: where it
+does clear the checkpoint and the file can be neither removed nor emptied, the
+article is refused rather than converted. On an imported document that is
+already converted it clears nothing, because nothing is going to be
+reconverted.
 
 `pdf.stage_timeout_ms` must be at least `llm.timeout_ms`, and the config is
 rejected otherwise: the stage refuses to begin a request it cannot finish
@@ -296,13 +329,14 @@ in the original is a formula in the translation.
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |
+| Import refused in the options page with `no usable text layer` or `covers only N of M` | a scanned PDF, or one that is mostly scans. The gates run in the extension so this is said while you are there | nothing to clean up — nothing was committed. OCR is out of scope |
 | PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever. Clip the HTML version if one exists, or delete the stub |
 | PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
 | PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
 | PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |
-| PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/` | fix the permissions; the article keeps the body it had and stays pending |
+| PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/`. Only on a path that was going to reconvert; a converted import never reaches it | fix the permissions; the article keeps the body it had and stays pending |
 | PDF article stays unprocessed + run line `pdf stage timed out` | past `pdf.stage_timeout_ms` for this document — a slow server, or more batches than fit | nothing: the checkpoint holds what it finished and the next run resumes. Repeated on a very long PDF, raise `pdf.stage_timeout_ms` |
-| PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, so those kept the raw text layer | reprocess with `force` + slug, which discards the checkpoint and reconverts. Without `force` the run resumes those fallbacks as settled. If it repeats, the article is readable but unformatted in places |
+| PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, so those kept the raw text layer | **clipped:** reprocess with `force` + slug, which discards the checkpoint and reconverts. **Imported:** re-import the file — `--force` keeps the converted body and would change nothing. Either way an ordinary run resumes those fallbacks as settled; if it repeats, the article is readable but unformatted in places |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys

@@ -26,6 +26,9 @@ export const STRINGS = {
     layoutLabel: "阅读布局",
     clippedAt: "剪藏于",
     publishedAt: "原文发布于",
+    // A document imported off disk was never published, so the line above
+    // would be a claim about it that is simply untrue (ADR 0027).
+    importedFrom: "导入自",
     translatedDone: "全文已翻译完毕",
     noTranslation: "中文原文，无需翻译",
     misaligned: "译文与原文段落未对齐，以上下排列显示",

@@ -166,6 +166,27 @@ const en = {
   connUnauthorized: "Token rejected (401)",
   connHttp: (status: number) => `GitHub returned ${status}`,
   connNetwork: (detail: string) => `Network error: ${detail}`,
+
+  /**
+   * Importing a PDF from disk (ADR 0027).
+   *
+   * The hint says what the article will be missing before anything is
+   * committed, for the same reason the popup does on a web PDF: the reader is
+   * agreeing to something that will not look like a page clip.
+   */
+  importHeading: "Import a PDF",
+  importHint:
+    "Reads the text out of a PDF on this computer and files it in your vault, unlisted. No figures, equations come through as plain text, and a scanned PDF cannot be read at all.",
+  importButton: "Choose a PDF…",
+  importReading: (name: string) => `Reading ${name}…`,
+  importSaving: (name: string) => `Saving ${name} to your vault…`,
+  importSaved: (name: string) =>
+    `Imported ${name}. It appears once processing finishes.`,
+  importUpdated: (name: string) =>
+    `Re-imported ${name}, replacing what was there.`,
+  importNotPdf: "That file is not a PDF.",
+  importFailed: (detail: string) => `Could not import it: ${detail}`,
+  importNeedsSettings: "Fill in your vault settings and save them first.",
 };
 
 export type Messages = typeof en;
@@ -286,6 +307,18 @@ const zh: Messages = {
   connUnauthorized: "令牌被拒绝（401）",
   connHttp: (status: number) => `GitHub 返回了 ${status}`,
   connNetwork: (detail: string) => `网络错误：${detail}`,
+
+  importHeading: "导入 PDF",
+  importHint:
+    "读取本机 PDF 中的文字并存入你的仓库，默认不公开列出。没有插图，公式会变成普通文本，扫描件无法读取。",
+  importButton: "选择 PDF…",
+  importReading: (name: string) => `正在读取 ${name}…`,
+  importSaving: (name: string) => `正在保存 ${name} 到你的仓库…`,
+  importSaved: (name: string) => `已导入 ${name}，处理完成后即可查看。`,
+  importUpdated: (name: string) => `已重新导入 ${name}，覆盖了原有内容。`,
+  importNotPdf: "该文件不是 PDF。",
+  importFailed: (detail: string) => `导入失败：${detail}`,
+  importNeedsSettings: "请先填写并保存仓库设置。",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

@@ -62,12 +62,29 @@ interface CacheFile {
   version: number;
   target: string;
   model: string;
+  stamp?: string;
   blocks: Record<string, string>;
 }
 
 export interface CacheHeader {
   target: string;
   model: string;
+  /**
+   * A vintage for the input, when the caller has one.
+   *
+   * The content addressing already makes reuse *safe* — an entry is only ever
+   * returned for the text that produced it — but safe is not the same as
+   * wanted. A PDF re-imported unchanged produces byte-identical batches, so
+   * every entry hits, including the fallbacks the re-import was asking to have
+   * another go at; the person is told to re-import to rebuild and nothing
+   * rebuilds. Stamping with the article's `clipped_at` separates the two cases
+   * exactly: a resumed run carries the same stamp and keeps its work, a fresh
+   * import carries a new one and starts over.
+   *
+   * Optional because translation wants the opposite — ADR 0010 keeps its
+   * checkpoint precisely so a re-clip reuses every unchanged block.
+   */
+  stamp?: string;
 }
 
 export interface TranslationCache {
@@ -122,6 +139,7 @@ export async function loadTranslationCache(
       raw.version === CACHE_VERSION &&
       raw.target === header.target &&
       raw.model === header.model &&
+      raw.stamp === header.stamp &&
       typeof raw.blocks === "object" &&
       raw.blocks !== null &&
       // Values too, not just the shape. `{"<hash>": 42}` is valid JSON and
@@ -180,6 +198,7 @@ export async function loadTranslationCache(
         version: CACHE_VERSION,
         target: header.target,
         model: header.model,
+        ...(header.stamp !== undefined ? { stamp: header.stamp } : {}),
         blocks,
       };
       // Write-then-rename, not write-in-place. `timeout-minutes` kills the job

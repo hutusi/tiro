@@ -65,3 +65,32 @@ body {
 #result.warn {
   color: var(--warn);
 }
+
+/* Import (ADR 0027). A second section under the same card rather than a page
+ * of its own: it needs the vault settings above it to be filled in, and
+ * putting it elsewhere would hide that dependency. */
+.rule {
+  margin: 26px 0 22px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+.subhead {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Shares every state with #result above; the two never speak at once, but
+ * they say different things and each keeps its own line. */
+#import-result {
+  margin: 12px 0 0;
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+#import-result.ok {
+  color: var(--ok);
+}
+#import-result.error {
+  color: var(--accent);
+}

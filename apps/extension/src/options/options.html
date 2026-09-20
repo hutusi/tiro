@@ -65,6 +65,28 @@
         </button>
       </div>
       <p id="result" role="status"></p>
+
+      <hr class="rule" />
+
+      <h2 id="import-heading" class="subhead">Import a PDF</h2>
+      <p id="import-hint" class="note hint">
+        Reads the text out of a PDF on this computer and files it in your vault,
+        unlisted.
+      </p>
+      <div class="actions row">
+        <!-- The input is driven by the button so it can be styled like every
+             other control; a bare file input cannot be. -->
+        <input
+          id="pdf-file"
+          type="file"
+          accept="application/pdf,.pdf"
+          hidden
+        />
+        <button id="import" type="button" class="btn btn-secondary">
+          Choose a PDF…
+        </button>
+      </div>
+      <p id="import-result" role="status"></p>
     </main>
     <script type="module" src="./options.ts"></script>
   </body>

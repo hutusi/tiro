@@ -14,12 +14,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   checkAlignment,
+  LOCAL_DOCUMENT_DOMAIN,
+  localDocumentUrl,
   needsProcessing,
   parseArticle,
   slugForUrl,
   splitBlocks,
   stringifyArticle,
 } from "@tiro/shared";
+import { joinPdfPages } from "@tiro/shared/pdf";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
@@ -1351,6 +1354,18 @@ describe("run budget", () => {
   });
 });
 
+/** Count only the structure pass; summarize and translate call out too. */
+function countingChat(seen: { calls: number }): ChatFn {
+  return async (request) => {
+    const system =
+      request.messages.find((m) => m.role === "system")?.content ?? "";
+    if (system.includes("restore structure to text extracted from a PDF")) {
+      seen.calls += 1;
+    }
+    return makeFakeChat()(request);
+  };
+}
+
 describe("runPipeline with a PDF stub", () => {
   const PDF_URL = "https://example.com/papers/method.pdf";
 
@@ -1410,6 +1425,49 @@ describe("runPipeline with a PDF stub", () => {
     // And the marker survived the round-trip, so a later audit can still find
     // every article built this way.
     expect(article.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("an unchanged re-clip reuses the conversion it already paid for", async () => {
+    // A web re-clip re-downloads the document, so unchanged bytes give
+    // unchanged batches and reuse is the whole point of the checkpoint — for
+    // a long PDF this is a great many model calls. A document that really
+    // changed misses the cache on its own, by content.
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to imple-\nment, is computationally efficient, and has little memory requirement to speak of.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    const first = { calls: 0 };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+      chat: countingChat(first),
+    });
+    expect(first.calls).toBeGreaterThan(0);
+
+    // A re-clip: same URL and bytes, a fresh clip time, back to a bodyless
+    // stub. The clip time moving must not throw the conversion away.
+    const path = join(dir, "articles", slug, "index.md");
+    const clipped = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...clipped.frontmatter,
+          clipped_at: "2026-09-21T09:00:00.000Z",
+          tiro: { schema: 1 as const, source_media: "pdf" as const },
+        },
+        "",
+      ),
+    );
+
+    const again = { calls: 0 };
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: servePdf(pdf),
+      chat: countingChat(again),
+    });
+    expect(again.calls).toBe(0);
   });
 
   test("a forced redo reconverts rather than resuming the checkpoint", async () => {
@@ -1583,5 +1641,323 @@ describe("runPipeline with a PDF stub", () => {
       readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
     );
     expect(needsProcessing(article.frontmatter)).toBe(true);
+  });
+});
+
+describe("runPipeline with an imported local document", () => {
+  const NAME = "stacked-prs-guide.pdf";
+  const PAGE = (n: number) =>
+    `Section ${n}\nThe method is straightforward to imple-\nment, is computationally efficient, and needs little memory to speak of.`;
+
+  /** A local import as the extension writes it: the text already extracted,
+   * pages separated, filed under a `local:` identity (ADR 0027). */
+  async function importedVault(): Promise<{ dir: string; slug: string }> {
+    const dir = freshVault();
+    const url = localDocumentUrl(NAME);
+    const slug = await slugForUrl(url);
+    mkdirSync(join(dir, "articles", slug), { recursive: true });
+    writeFileSync(
+      join(dir, "articles", slug, "index.md"),
+      stringifyArticle(
+        {
+          url,
+          title: "Stacked PRs",
+          domain: LOCAL_DOCUMENT_DOMAIN,
+          clipped_at: "2026-09-20T10:00:00.000Z",
+          unlisted: true,
+          tiro: { schema: 1, source_media: "pdf", pdf_unstructured: true },
+        },
+        joinPdfPages([PAGE(1), PAGE(2)]),
+      ),
+    );
+    return { dir, slug };
+  }
+
+  /** Fails the test if anything tries to reach the network for this article.
+   * The whole point is that the bytes are unreachable from CI. */
+  const noFetch: FetchLike = async (input) => {
+    throw new Error(`unexpected fetch: ${String(input)}`);
+  };
+
+  test("restructures the extracted text without fetching anything", async () => {
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(false);
+    expect(article.body).toContain("## Section 1");
+    expect(article.body).toContain("## Section 2");
+    // The hyphenated break was rejoined, and the separators are gone.
+    expect(article.body).toContain("implement");
+    expect(article.body).not.toContain("\f");
+  });
+
+  test("keeps the local identity and the unlisted flag", async () => {
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const { frontmatter } = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(frontmatter.url).toBe(localDocumentUrl(NAME));
+    expect(frontmatter.domain).toBe(LOCAL_DOCUMENT_DOMAIN);
+    expect(frontmatter.unlisted).toBe(true);
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("a forced redo keeps the converted body instead of restructuring it", async () => {
+    // A converted body has no page separators left, and batching never splits
+    // a page — so restructuring again would send the whole document as one
+    // request. There is also nothing to re-derive: the bytes were never in the
+    // vault. Re-importing the file is how to start over (ADR 0027).
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const converted = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    ).body;
+    expect(converted).toContain("## Section 1");
+
+    let structureCalls = 0;
+    await runPipeline({ vaultDir: dir, slug, force: true }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: async (request) => {
+        const system =
+          request.messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("restore structure to text extracted from a PDF")) {
+          structureCalls += 1;
+        }
+        return makeFakeChat()(request);
+      },
+    });
+
+    const after = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(structureCalls).toBe(0);
+    expect(after.body).toBe(converted);
+    // And --force still did everything it can still do.
+    expect(needsProcessing(after.frontmatter)).toBe(false);
+  });
+
+  test("a deferred forced run does not leave the body looking unconverted", async () => {
+    // The trap the flag exists for. markPending strips processed_at when a
+    // forced run is deferred and keeps the finished body, so a marker-based
+    // check saw "unconverted" over Markdown — and the next ordinary run fed it
+    // back through the structure pass as one batch.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const path = join(dir, "articles", slug, "index.md");
+    const converted = parseArticle(readFileSync(path, "utf8"));
+    expect(converted.frontmatter.tiro.pdf_unstructured).toBeUndefined();
+
+    // Exactly what a deferred --force leaves behind: no marker, finished body.
+    const { processed_at: _gone, ...tiro } = converted.frontmatter.tiro;
+    writeFileSync(
+      path,
+      stringifyArticle({ ...converted.frontmatter, tiro }, converted.body),
+    );
+
+    let structureCalls = 0;
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: async (request) => {
+        const system =
+          request.messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("restore structure to text extracted from a PDF")) {
+          structureCalls += 1;
+        }
+        return makeFakeChat()(request);
+      },
+    });
+
+    expect(structureCalls).toBe(0);
+    expect(parseArticle(readFileSync(path, "utf8")).body).toBe(converted.body);
+  });
+
+  /** Overwrite the article the way a fresh import does: the same extracted
+   * text, unconverted again, and a new clip time. */
+  function reimport(dir: string, slug: string, clippedAt: string): void {
+    const path = join(dir, "articles", slug, "index.md");
+    const existing = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...existing.frontmatter,
+          clipped_at: clippedAt,
+          tiro: {
+            schema: 1 as const,
+            source_media: "pdf" as const,
+            pdf_unstructured: true,
+          },
+        },
+        joinPdfPages([PAGE(1), PAGE(2)]),
+      ),
+    );
+  }
+
+  test("a forced redo leaves the checkpoint of a converted import alone", async () => {
+    // It is not going to convert, so it has no business discarding the
+    // checkpoint. Loading it before deciding meant --force destroyed work it
+    // never looked at.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const cacheAbs = join(dir, "articles", slug, ".tiro-pdf-cache.json");
+    expect(existsSync(cacheAbs)).toBe(true);
+    const before = readFileSync(cacheAbs, "utf8");
+
+    await runPipeline({ vaultDir: dir, slug, force: true }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    expect(readFileSync(cacheAbs, "utf8")).toBe(before);
+  });
+
+  test("and does not fail over a checkpoint it was never going to use", async () => {
+    // The sharper half. A checkpoint that can be neither removed nor emptied
+    // fails a forced conversion on purpose — but this article is not being
+    // converted, so refusing it would be a failure invented out of
+    // housekeeping.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const body = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    ).body;
+
+    const articleDir = join(dir, "articles", slug);
+    chmodSync(articleDir, 0o555); // no unlink, and no rename in either
+    try {
+      const report = await runPipeline(
+        { vaultDir: dir, slug, force: true },
+        config,
+        { ...deps, fetchImpl: noFetch },
+      );
+      expect(report.errored).toHaveLength(0);
+      expect(report.processed).toContain(slug);
+    } finally {
+      chmodSync(articleDir, 0o755);
+    }
+
+    expect(
+      parseArticle(
+        readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+      ).body,
+    ).toBe(body);
+  });
+
+  test("re-importing the same file actually reconverts it", async () => {
+    // The runbook says to re-import when a conversion came out badly. An
+    // unchanged file extracts to byte-identical batches, so the checkpoint hit
+    // every one of them — fallbacks included — and nothing was retried.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    const first = { calls: 0 };
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: countingChat(first),
+    });
+    expect(first.calls).toBeGreaterThan(0);
+
+    reimport(dir, slug, "2026-09-21T10:00:00.000Z");
+    const again = { calls: 0 };
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: countingChat(again),
+    });
+    expect(again.calls).toBe(first.calls);
+  });
+
+  test("but a run resuming the same import still reuses its work", async () => {
+    // The other half, and the reason this is stamped rather than simply
+    // discarded: a long document that stopped on budget must not start over.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+
+    // Back to unconverted with the *same* clip time — what a budget stop
+    // leaves, not what an import leaves.
+    const path = join(dir, "articles", slug, "index.md");
+    const done = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...done.frontmatter,
+          tiro: {
+            schema: 1 as const,
+            source_media: "pdf" as const,
+            pdf_unstructured: true,
+          },
+        },
+        joinPdfPages([PAGE(1), PAGE(2)]),
+      ),
+    );
+
+    const resumed = { calls: 0 };
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: countingChat(resumed),
+    });
+    expect(resumed.calls).toBe(0);
+  });
+
+  test("batches by the pages the import preserved", async () => {
+    // A body flattened to one string would be sent as a single enormous
+    // request, which is why the separators travel with the text.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    const seen: string[] = [];
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+      chat: async (request) => {
+        const system =
+          request.messages.find((m) => m.role === "system")?.content ?? "";
+        if (system.includes("restore structure to text extracted from a PDF")) {
+          seen.push(
+            request.messages.find((m) => m.role === "user")?.content ?? "",
+          );
+        }
+        return makeFakeChat()(request);
+      },
+    });
+    // Both pages reached the model, and neither carried a separator into the
+    // prompt.
+    expect(seen.join("\n")).toContain("Section 1");
+    expect(seen.join("\n")).toContain("Section 2");
+    expect(seen.every((batch) => !batch.includes("\f"))).toBe(true);
   });
 });

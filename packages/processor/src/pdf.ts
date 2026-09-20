@@ -1,4 +1,10 @@
-import { extractText, getDocumentProxy } from "unpdf";
+import { type ArticleFrontmatter, isLocalDocument } from "@tiro/shared";
+import {
+  extractPdfText,
+  type PdfTextOptions,
+  splitPdfPages,
+  stripRunningFurniture,
+} from "@tiro/shared/pdf";
 import { type Deadline, StageTimeoutError } from "./deadline.ts";
 import type { ChatFn, FetchLike } from "./llm/client.ts";
 import {
@@ -103,197 +109,63 @@ export async function fetchPdf(options: PdfFetchOptions): Promise<Uint8Array> {
   return bytes;
 }
 
-export interface PdfTextOptions {
-  maxPages: number;
-  /** The scanned-PDF gate. Averaged across the document rather than demanded of
-   * every page, so a paper carrying full-page figures still passes. */
-  minCharsPerPage: number;
-  /** Fraction of pages that must carry text at all — the other half of that
-   * gate. See `extractPdfText`. */
-  minPageCoverage: number;
-}
+/**
+ * Where a PDF article's body is going to come from.
+ *
+ * Three answers, and they are irreducible — the text is fetched, or it is
+ * already sitting in the body waiting to be structured, or the body *is* the
+ * article and there is nothing to do. Every question the stage asks about a
+ * PDF is one of these three wearing different clothes, and asking them
+ * separately is what let three rounds of review find the same class of bug:
+ * a marker read for something it does not mean, a stamp applied to both paths
+ * when it belonged to one, a checkpoint loaded before anyone knew it was
+ * needed.
+ *
+ * So it is decided once, by name, in front of the work.
+ */
+export type PdfSource =
+  /** A URL the processor can fetch. Content addressing alone tells an
+   * unchanged re-clip from a changed document, so the checkpoint needs no
+   * stamp. */
+  | { readonly kind: "download"; readonly url: string }
+  /** An import: the body holds extracted text with its pages separated. Its
+   * checkpoint is stamped, because a re-import writes byte-identical text and
+   * content addressing cannot tell "try again" from "carry on". */
+  | { readonly kind: "extracted"; readonly stamp: string }
+  /** An import that has already been converted. Its bytes were never in the
+   * vault, so there is nothing to re-derive and no checkpoint to consult. */
+  | { readonly kind: "converted" };
 
 /**
- * Characters below which a page carries nothing.
+ * Which of the three applies to this article.
  *
- * Not a fraction of `minCharsPerPage`: that knob is about how dense a document
- * is on average, and this one is the difference between a page with words on it
- * and a page with a stray running number. A scanned page extracts to nothing at
- * all, so the bar only has to clear debris.
+ * `pdf_unstructured` rather than `processed_at`: the second looks like it
+ * answers the same question and does not, because `markPending` clears it when
+ * a forced run is deferred and leaves the finished body behind (ADR 0027).
  */
-const PAGE_TEXT_FLOOR = 20;
-
-export interface PdfText {
-  /** One entry per page, in reading order. */
-  pages: string[];
-  totalPages: number;
-  /** Non-whitespace characters found, the number the gate was applied to. */
-  chars: number;
+export function pdfSource(
+  frontmatter: Pick<ArticleFrontmatter, "url" | "clipped_at" | "tiro">,
+): PdfSource {
+  const url = frontmatter.tiro.source_url ?? frontmatter.url;
+  if (!isLocalDocument(url)) return { kind: "download", url };
+  return frontmatter.tiro.pdf_unstructured === true
+    ? { kind: "extracted", stamp: frontmatter.clipped_at }
+    : { kind: "converted" };
 }
 
-/**
- * Read a PDF's text layer, or refuse the document.
- *
- * **Consumes `bytes`.** pdf.js takes ownership of the underlying ArrayBuffer
- * and detaches it, so after this returns the caller's view has length 0. That
- * is fine for the one flow there is — fetch, read, drop, keep the Markdown —
- * and copying 25 MB to defend a caller that does not exist would cost every
- * article. Anything that needs the bytes afterwards must pass a copy.
- *
- * Refuses rather than returns something thin, because every caller downstream
- * would have to make the same judgement with less information. The two
- * refusals are different failures wearing the same shape:
- *
- * - **Too many pages.** Extraction is cheap per page but the structure pass
- *   that follows is not, and a 600-page book would spend a whole run's budget
- *   on one article. Refused rather than truncated: half a document filed as the
- *   whole one is the silent kind of wrong, and nothing downstream could tell.
- * - **Too little text.** A scanned page is an image and carries no text layer,
- *   so it extracts to roughly nothing. Letting it through would produce an
- *   empty body — exactly the empty article the clipper refuses on a PDF tab
- *   today. OCR is out of scope (ADR 0026), so the honest answer is no.
- *
- * That second one is asked twice, because either question alone is wrong.
- * Density averaged over the document tolerates the full-page figures a real
- * paper carries — but an average is a sum, so one dense page among nine scanned
- * ones clears a per-page bar comfortably, and the article would be filed as a
- * whole document while holding a tenth of it. Coverage alone would refuse the
- * figure-heavy paper the average exists to admit. Together they say what is
- * actually meant: enough text overall, spread across enough of the document.
- */
-export async function extractPdfText(
-  bytes: Uint8Array,
-  options: PdfTextOptions,
-): Promise<PdfText> {
-  const { maxPages, minCharsPerPage, minPageCoverage } = options;
-
-  let doc: Awaited<ReturnType<typeof getDocumentProxy>>;
-  try {
-    doc = await getDocumentProxy(bytes);
-  } catch (error) {
-    throw new Error(`cannot read the PDF: ${String(error)}`);
-  }
-  // Asked before any text is pulled: the page count is in the catalogue, so
-  // refusing here costs nothing, while extracting first would spend the work
-  // this gate exists to avoid.
-  if (doc.numPages > maxPages) {
-    throw new Error(`too many pages: ${doc.numPages} (cap ${maxPages})`);
-  }
-
-  const { totalPages, text } = await extractText(doc, { mergePages: false });
-  const pages = (text as string[]).map((page) => page ?? "");
-
-  // Whitespace collapsed before counting, so a page of hard-wrapped blanks
-  // cannot pass a gate meant to measure content.
-  const chars = pages.reduce(
-    (total, page) => total + page.replace(/\s+/g, " ").trim().length,
-    0,
-  );
-  const perPage = totalPages === 0 ? 0 : chars / totalPages;
-  if (perPage < minCharsPerPage) {
-    throw new Error(
-      `no usable text layer: ${Math.round(perPage)} chars/page across ${totalPages} page(s), below ${minCharsPerPage} — a scanned PDF needs OCR, which Tiro does not do`,
-    );
-  }
-
-  const withText = pages.filter(
-    (page) => page.replace(/\s+/g, " ").trim().length >= PAGE_TEXT_FLOOR,
-  ).length;
-  const coverage = totalPages === 0 ? 0 : withText / totalPages;
-  if (coverage < minPageCoverage) {
-    throw new Error(
-      `text layer covers only ${withText} of ${totalPages} page(s), below ${Math.round(minPageCoverage * 100)}% — the rest is probably scanned, and OCR is out of scope`,
-    );
-  }
-
-  return { pages, totalPages, chars };
-}
-
-/** A page's running header or footer, normalised so that "Page 3 of 15" and
- * "Page 4 of 15" are recognised as the same furniture. Digit runs become `#`
- * for that reason; nothing else about the line is touched, so two genuinely
- * different lines never collide. */
-function furnitureKey(line: string): string {
-  return line.replace(/\s+/g, " ").trim().replace(/\d+/g, "#");
-}
-
-/** How much of the document a line must appear on before it is furniture
- * rather than content. Below this a repeated line is more likely a section
- * label that happens to recur. */
-const FURNITURE_SHARE = 0.6;
-
-/** Longer than this and it is a sentence that repeated, not a running head. */
-const FURNITURE_MAX_CHARS = 100;
-
-/**
- * Drop the running headers and footers a PDF repeats on every page.
- *
- * Done here, deterministically, rather than asked of the model. The model
- * would have to be told to delete things, and a model licensed to delete
- * deletes more than furniture — whereas "this exact line, modulo its page
- * number, appears at the top of eleven of fifteen pages" is a fact the text
- * already contains. It is also the artifact that most reliably survives
- * extraction: `Published as a conference paper at ICLR 2015` on all fifteen.
- *
- * Deliberately narrow. Only the first and last non-empty line of a page are
- * candidates, only on documents long enough for repetition to mean something,
- * and only when the line is short. A false positive costs one line of content,
- * so the rule errs toward leaving things alone.
- */
-export function stripRunningFurniture(pages: string[]): string[] {
-  // Two pages repeating a line is a coincidence; the share below cannot
-  // distinguish furniture from content until there are a few pages.
-  if (pages.length < 3) return pages;
-
-  const split = pages.map((page) => page.split("\n"));
-  const firstIndex = split.map((lines) =>
-    lines.findIndex((line) => line.trim() !== ""),
-  );
-  const lastIndex = split.map((lines) => {
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      if ((lines[i] ?? "").trim() !== "") return i;
-    }
-    return -1;
-  });
-
-  const tally = (indexes: number[]): Map<string, number> => {
-    const counts = new Map<string, number>();
-    indexes.forEach((index, page) => {
-      if (index < 0) return;
-      const line = split[page]?.[index] ?? "";
-      if (line.trim().length > FURNITURE_MAX_CHARS) return;
-      const key = furnitureKey(line);
-      if (key === "") return;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    });
-    return counts;
-  };
-
-  const threshold = pages.length * FURNITURE_SHARE;
-  const headers = tally(firstIndex);
-  const footers = tally(lastIndex);
-
-  return split.map((lines, page) => {
-    const drop = new Set<number>();
-    const head = firstIndex[page] ?? -1;
-    const foot = lastIndex[page] ?? -1;
-    if (
-      head >= 0 &&
-      (headers.get(furnitureKey(lines[head] ?? "")) ?? 0) >= threshold
-    ) {
-      drop.add(head);
-    }
-    // A one-line page would otherwise have its only line counted as both a
-    // header and a footer, and dropping it twice is still dropping the page.
-    if (
-      foot >= 0 &&
-      foot !== head &&
-      (footers.get(furnitureKey(lines[foot] ?? "")) ?? 0) >= threshold
-    ) {
-      drop.add(foot);
-    }
-    return lines.filter((_, i) => !drop.has(i)).join("\n");
-  });
+/** What the structure pass needs, with nothing about fetching bytes. */
+export interface PdfRestructureOptions {
+  chat: ChatFn;
+  model: string;
+  batchChars?: number;
+  /** Bounds this stage: `pdf.stage_timeout_ms`. */
+  stageTimeoutMs: number;
+  /** The run's budget. Separate from the stage's, because the two mean
+   * different things when they expire — see `stageGuard`. */
+  deadline: Deadline;
+  cache?: PdfStructureOptions["cache"];
+  requestMs?: number;
+  log?: (message: string) => void;
 }
 
 export interface PdfConversionOptions
@@ -403,10 +275,51 @@ export async function convertPdf(
   const { pages, totalPages, chars } = await extractPdfText(bytes, rest);
   log(`pdf: ${totalPages} page(s), ${chars} chars of text layer`);
 
+  return restructure(stripRunningFurniture(pages), { ...options, guard });
+}
+
+/**
+ * Build an article body from text that was extracted somewhere else.
+ *
+ * The import path (ADR 0027). A document read off the owner's disk cannot be
+ * fetched from CI, so the extension extracts it, applies the gates while it
+ * still has a person to tell, strips the furniture while it still has pages,
+ * and commits the text. Only the structure pass is left, and it is the same
+ * one — the difference between the two paths is where the text came from, and
+ * nothing after this point can tell.
+ *
+ * Pages are recovered from the separators the import wrote, because batching
+ * is page-aware and a body flattened to one string would be sent as a single
+ * enormous request.
+ */
+export async function restructurePdfText(
+  body: string,
+  options: PdfRestructureOptions,
+): Promise<PdfConversion> {
+  const guard = stageGuard(options.stageTimeoutMs, options.deadline);
+  const pages = splitPdfPages(body);
+  options.log?.(`pdf: restructuring ${pages.length} extracted page(s)`);
+  return restructure(pages, { ...options, guard });
+}
+
+/** The half both paths share: the model pass, and the clocks around it. */
+async function restructure(
+  pages: string[],
+  options: PdfRestructureOptions & { guard: ReturnType<typeof stageGuard> },
+): Promise<PdfConversion> {
+  const {
+    chat,
+    model,
+    batchChars,
+    cache,
+    requestMs,
+    guard,
+    log = () => {},
+  } = options;
   const { markdown, batches, fallbacks } = await restorePdfStructure({
     chat,
     model,
-    pages: stripRunningFurniture(pages),
+    pages,
     ...(batchChars !== undefined ? { batchChars } : {}),
     check: guard.check,
     // The cap has to reach inside a single chat() call as well. The client
@@ -421,5 +334,5 @@ export async function convertPdf(
   log(
     `pdf: ${batches} batch(es) restored, ${fallbacks} kept as extracted text`,
   );
-  return { markdown, totalPages, fallbacks };
+  return { markdown, totalPages: pages.length, fallbacks };
 }

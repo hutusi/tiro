@@ -11,6 +11,7 @@ import {
   tagPageUrl,
 } from "../../lib/articles.ts";
 import { shortPathForSlug } from "../../lib/short-links.ts";
+import { sourceLabel } from "../../lib/source-label.ts";
 import { buildReaderView, skipsLiftedH1 } from "../../lib/reader.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../../lib/strings.ts";
 import { isUnlisted } from "../../lib/visibility.ts";
@@ -70,6 +71,9 @@ const shareUrl = new URL(
 // The title someone reading this site would recognise.
 const shareTitle = meta.titleZh ?? frontmatter.title;
 const date = dateLabel(frontmatter.clipped_at);
+
+// Named rather than linked when there is nothing to open — see sourceLabel.
+const source = sourceLabel(frontmatter);
 // An unlisted article drops the `data-pagefind-body` that would otherwise put
 // it in the search index. That alone is not enough: Pagefind restricts indexing
 // to `data-pagefind-body` elements only while at least one page on the site has
@@ -155,17 +159,27 @@ const tagLinks = await Promise.all(
           data-failed={t.copyFailed}
           aria-live="polite">{t.copyLink}</button
         >
-        <a
-          class="chip source"
-          href={frontmatter.url}
-          target="_blank"
-          rel="noopener"
-          aria-label={`${t.openSource}：${frontmatter.domain}`}
-          title={frontmatter.domain}
-          ><span class="source-name">{frontmatter.domain}</span><span
-            aria-hidden="true">↗</span
-          ></a
-        >
+        {
+          source.href !== null ? (
+            <a
+              class="chip source"
+              href={source.href}
+              target="_blank"
+              rel="noopener"
+              aria-label={`${t.openSource}：${source.name}`}
+              title={source.name}
+            >
+              <span class="source-name">{source.name}</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          ) : (
+            /* No arrow and no anchor: there is nothing to open, and a chip
+               that looks like a link and does nothing is worse than a label. */
+            <span class="chip source" title={source.name}>
+              <span class="source-name">{source.name}</span>
+            </span>
+          )
+        }
       </div>
     </div>
 
@@ -173,12 +187,20 @@ const tagLinks = await Promise.all(
       <div class="titles">
         <div class="orig">
           <p class="meta">
-            <a
-              href={frontmatter.url}
-              rel="noopener"
-              target="_blank"
-              data-pagefind-meta="domain">{frontmatter.domain}</a
-            >
+            {
+              source.href !== null ? (
+                <a
+                  href={source.href}
+                  rel="noopener"
+                  target="_blank"
+                  data-pagefind-meta="domain"
+                >
+                  {source.name}
+                </a>
+              ) : (
+                <span data-pagefind-meta="domain">{source.name}</span>
+              )
+            }
             {
               frontmatter.author !== undefined && (
                 <Fragment>
@@ -319,10 +341,16 @@ const tagLinks = await Promise.all(
       {t.clippedAt}
       <time datetime={frontmatter.clipped_at}>{date}</time>
       <span aria-hidden="true">·</span>
-      {t.publishedAt}
-      <a href={frontmatter.url} rel="noopener" target="_blank"
-        >{frontmatter.domain}</a
-      >
+      {source.href !== null ? t.publishedAt : t.importedFrom}
+      {
+        source.href !== null ? (
+          <a href={source.href} rel="noopener" target="_blank">
+            {source.name}
+          </a>
+        ) : (
+          <span>{source.name}</span>
+        )
+      }
       {
         view.kind === "paired" && (
           <Fragment>

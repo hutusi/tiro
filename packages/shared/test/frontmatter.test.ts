@@ -7,6 +7,10 @@ import {
   readFrontmatterLoose,
   stringifyArticle,
 } from "../src/frontmatter.ts";
+import {
+  LOCAL_DOCUMENT_DOMAIN,
+  localDocumentUrl,
+} from "../src/local-document.ts";
 
 const validClip = {
   url: "https://example.com/posts/hello-ai",
@@ -260,6 +264,49 @@ describe("parseArticle / stringifyArticle", () => {
       ),
     );
     expect(processed.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  test("accepts a document imported from disk", async () => {
+    // Identity is a local: URL and domain carries the sentinel, because there
+    // is no hostname to put there (ADR 0027). Both have to clear the contract
+    // as written — nothing in the schema was widened for them.
+    const url = localDocumentUrl("stacked-prs-guide.pdf");
+    const parsed = ClipFrontmatterSchema.parse({
+      ...validClip,
+      url,
+      domain: LOCAL_DOCUMENT_DOMAIN,
+      unlisted: true,
+      tiro: { schema: 1, source_media: "pdf" },
+    });
+    expect(parsed.url).toBe(url);
+    expect(parsed.domain).toBe("local");
+    expect(parsed.unlisted).toBe(true);
+  });
+
+  test("preserves the unconverted marker through a processor round-trip", () => {
+    // The usual trap — Zod strips unnamed keys — and for this field it is the
+    // whole feature: dropped, the processor cannot tell extracted text from a
+    // finished article, and would restructure Markdown as though it were raw.
+    const clipped = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      url: localDocumentUrl("a.pdf"),
+      domain: LOCAL_DOCUMENT_DOMAIN,
+      tiro: { schema: 1, source_media: "pdf", pdf_unstructured: true },
+    });
+    const again = parseArticle(stringifyArticle(clipped, "Body.\n"));
+    expect(again.frontmatter.tiro.pdf_unstructured).toBe(true);
+  });
+
+  test("still refuses an empty domain", () => {
+    // The sentinel exists because the field may not be blank; an import that
+    // forgot it must fail rather than quietly file a sourceless article.
+    expect(
+      ClipFrontmatterSchema.safeParse({
+        ...validClip,
+        url: localDocumentUrl("a.pdf"),
+        domain: "",
+      }).success,
+    ).toBe(false);
   });
 
   test("rejects a source medium it does not know", () => {

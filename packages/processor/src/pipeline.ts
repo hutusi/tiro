@@ -27,7 +27,7 @@ import {
   summaryIsFinished,
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
-import { convertPdf } from "./pdf.ts";
+import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -313,10 +313,9 @@ async function processOne(
 
   const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
 
-  // A PDF stub carries no body of its own: the extension cannot read a PDF, so
-  // it records the URL and the document is fetched and converted here (ADR
-  // 0026). First, because everything below reads the body — language detection
-  // included, and a stub would detect as whatever an empty string is.
+  // A PDF article's body is not in the vault yet, so it is built before
+  // anything reads one — language detection included, which on a stub would
+  // classify an empty string.
   //
   // A refusal throws, and that is the intended outcome rather than a tolerated
   // one: the catch around processOne leaves tiro.processed_at absent, so the
@@ -324,44 +323,7 @@ async function processOne(
   // tries again without anything being re-clipped.
   const sourceBody =
     frontmatter.tiro.source_media === "pdf"
-      ? (
-          await convertPdf({
-            url: frontmatter.tiro.source_url ?? frontmatter.url,
-            maxBytes: config.pdf.max_bytes,
-            timeoutMs: config.pdf.timeout_ms,
-            // Both clocks, handed over whole rather than pre-combined: the
-            // stage bounds this document, the run's budget bounds the job, and
-            // the stage has to be able to tell which one stopped it — one
-            // leaves the article pending as a failure, the other defers it with
-            // the run's work committed (invariant 8).
-            stageTimeoutMs: config.pdf.stage_timeout_ms,
-            deadline,
-            maxPages: config.pdf.max_pages,
-            minCharsPerPage: config.pdf.min_chars_per_page,
-            minPageCoverage: config.pdf.min_page_coverage,
-            chat: deps.chat,
-            model: modelFor(config, "summary"),
-            requestMs: config.llm.timeout_ms,
-            // Its own checkpoint beside the translation one, so a long PDF
-            // resumes where the last run stopped instead of starting again at
-            // page one (ADR 0026, and ADR 0008's reasoning applied a second
-            // time). Gated on the same model the summary runs on, so
-            // changing that model reconverts rather than blending vintages.
-            cache: await loadPdfCheckpoint(
-              `${article.dirAbs}/${PDF_CACHE_FILE}`,
-              modelFor(config, "summary"),
-              force,
-              log,
-            ),
-            ...(deps.fetchImpl !== undefined
-              ? { fetchImpl: deps.fetchImpl }
-              : {}),
-            ...(deps.resolveHost !== undefined
-              ? { resolveHost: deps.resolveHost }
-              : {}),
-            log,
-          })
-        ).markdown
+      ? await pdfBody(article, config, deps, log, deadline, force)
       : article.parsed.body;
 
   const lang =
@@ -497,6 +459,11 @@ async function processOne(
   const {
     summary_failed: _staleSummaryFailed,
     translation_failed: _staleTranslationFailed,
+    // Dropped here and nowhere else: this write is the moment the body stops
+    // being extracted text and becomes the article (ADR 0027). Clearing it
+    // earlier would lose the flag if a later stage threw; later, and a
+    // deferred run would find it still set over a finished body.
+    pdf_unstructured: _convertedNow,
     ...previousTiro
   } = frontmatter.tiro;
   const updated = {
@@ -665,6 +632,95 @@ async function discardCheckpointQuietly(
 }
 
 /**
+ * The body for a PDF article, however its bytes are reachable.
+ *
+ * Two ways in, one article. A clipped web PDF names a URL the processor can
+ * fetch; a document imported off disk cannot be fetched from CI at all, and
+ * arrives with its text already extracted (ADR 0027). Both then run the same
+ * structure pass, and nothing downstream can tell which happened.
+ *
+ * The branch is taken from the URL scheme rather than a field of its own.
+ * This codebase refuses inference as a rule — `source_media` exists because a
+ * `.pdf` URL proves nothing — and the exception is argued in ADR 0027: a
+ * scheme does not hint at fetchability, it decides it, since `fetchPdf` speaks
+ * http(s) and nothing else. A second field would restate that and could
+ * contradict it.
+ */
+async function pdfBody(
+  article: DiscoveredArticle,
+  config: TiroConfig,
+  deps: PipelineDeps,
+  log: (message: string) => void,
+  deadline: Deadline,
+  force: boolean,
+): Promise<string> {
+  const { frontmatter } = article.parsed;
+  const source = pdfSource(frontmatter);
+
+  // Answered before anything is loaded, because the answer decides whether
+  // anything needs loading. Taking the checkpoint first meant a forced run
+  // over an already-converted import discarded a checkpoint it was not going
+  // to use — and could fail the article outright when the file would not go,
+  // for a conversion that was never going to happen.
+  if (source.kind === "converted") {
+    log(
+      `${article.slug}: imported document kept as it is — re-import the file to rebuild it`,
+    );
+    return article.parsed.body;
+  }
+
+  const shared = {
+    // Both clocks, handed over whole rather than pre-combined: the stage
+    // bounds this document, the run's budget bounds the job, and the stage has
+    // to be able to tell which one stopped it — one leaves the article pending
+    // as a failure, the other defers it with the run's work committed
+    // (invariant 8).
+    stageTimeoutMs: config.pdf.stage_timeout_ms,
+    deadline,
+    chat: deps.chat,
+    model: modelFor(config, "summary"),
+    requestMs: config.llm.timeout_ms,
+    // Its own checkpoint beside the translation one, so a long PDF resumes
+    // where the last run stopped instead of starting again at page one (ADR
+    // 0026, and ADR 0008's reasoning applied a second time). Gated on the same
+    // model the summary runs on, so changing that model reconverts rather than
+    // blending vintages — and stamped only where the source says to, which is
+    // the import: see `PdfSource`.
+    cache: await loadPdfCheckpoint(
+      `${article.dirAbs}/${PDF_CACHE_FILE}`,
+      modelFor(config, "summary"),
+      source.kind === "extracted" ? source.stamp : undefined,
+      force,
+      log,
+    ),
+    log,
+  };
+
+  if (source.kind === "extracted") {
+    // The body holds the text, pages and all. Nothing to download and nothing
+    // to gate: the import applied the page cap and both scan gates while it
+    // still had a person to tell.
+    const { markdown } = await restructurePdfText(article.parsed.body, shared);
+    return markdown;
+  }
+
+  const { markdown } = await convertPdf({
+    ...shared,
+    url: source.url,
+    maxBytes: config.pdf.max_bytes,
+    timeoutMs: config.pdf.timeout_ms,
+    maxPages: config.pdf.max_pages,
+    minCharsPerPage: config.pdf.min_chars_per_page,
+    minPageCoverage: config.pdf.min_page_coverage,
+    ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+    ...(deps.resolveHost !== undefined
+      ? { resolveHost: deps.resolveHost }
+      : {}),
+  });
+  return markdown;
+}
+
+/**
  * The PDF conversion checkpoint, invalidated first on a forced redo.
  *
  * `--force` is how the runbook says to retry a conversion that came out badly,
@@ -688,10 +744,15 @@ async function discardCheckpointQuietly(
 async function loadPdfCheckpoint(
   pathAbs: string,
   model: string,
+  stamp: string | undefined,
   force: boolean,
   log: (message: string) => void,
 ): Promise<TranslationCache> {
-  const header = { target: "pdf", model };
+  const header = {
+    target: "pdf",
+    model,
+    ...(stamp !== undefined ? { stamp } : {}),
+  };
   if (!force) return loadTranslationCache(pathAbs, header, log);
 
   try {
