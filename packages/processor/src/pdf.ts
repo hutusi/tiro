@@ -1,3 +1,4 @@
+import { type ArticleFrontmatter, isLocalDocument } from "@tiro/shared";
 import {
   extractPdfText,
   type PdfTextOptions,
@@ -106,6 +107,50 @@ export async function fetchPdf(options: PdfFetchOptions): Promise<Uint8Array> {
     throw new Error(`not a PDF: begins ${JSON.stringify(magic)}`);
   }
   return bytes;
+}
+
+/**
+ * Where a PDF article's body is going to come from.
+ *
+ * Three answers, and they are irreducible — the text is fetched, or it is
+ * already sitting in the body waiting to be structured, or the body *is* the
+ * article and there is nothing to do. Every question the stage asks about a
+ * PDF is one of these three wearing different clothes, and asking them
+ * separately is what let three rounds of review find the same class of bug:
+ * a marker read for something it does not mean, a stamp applied to both paths
+ * when it belonged to one, a checkpoint loaded before anyone knew it was
+ * needed.
+ *
+ * So it is decided once, by name, in front of the work.
+ */
+export type PdfSource =
+  /** A URL the processor can fetch. Content addressing alone tells an
+   * unchanged re-clip from a changed document, so the checkpoint needs no
+   * stamp. */
+  | { readonly kind: "download"; readonly url: string }
+  /** An import: the body holds extracted text with its pages separated. Its
+   * checkpoint is stamped, because a re-import writes byte-identical text and
+   * content addressing cannot tell "try again" from "carry on". */
+  | { readonly kind: "extracted"; readonly stamp: string }
+  /** An import that has already been converted. Its bytes were never in the
+   * vault, so there is nothing to re-derive and no checkpoint to consult. */
+  | { readonly kind: "converted" };
+
+/**
+ * Which of the three applies to this article.
+ *
+ * `pdf_unstructured` rather than `processed_at`: the second looks like it
+ * answers the same question and does not, because `markPending` clears it when
+ * a forced run is deferred and leaves the finished body behind (ADR 0027).
+ */
+export function pdfSource(
+  frontmatter: Pick<ArticleFrontmatter, "url" | "clipped_at" | "tiro">,
+): PdfSource {
+  const url = frontmatter.tiro.source_url ?? frontmatter.url;
+  if (!isLocalDocument(url)) return { kind: "download", url };
+  return frontmatter.tiro.pdf_unstructured === true
+    ? { kind: "extracted", stamp: frontmatter.clipped_at }
+    : { kind: "converted" };
 }
 
 /** What the structure pass needs, with nothing about fetching bytes. */

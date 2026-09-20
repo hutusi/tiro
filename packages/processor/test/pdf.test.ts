@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
-import { convertPdf, fetchPdf } from "../src/pdf.ts";
+import { convertPdf, fetchPdf, pdfSource } from "../src/pdf.ts";
 import { makePdf } from "./helpers.ts";
 
 const PROSE =
   "The method is straightforward to implement, is computationally efficient, has little memory requirements, and is invariant to diagonal rescaling of the gradients.";
-const limits = { maxPages: 200, minCharsPerPage: 100, minPageCoverage: 0.5 };
 
 const fetchOptions = {
   url: "https://example.com/paper.pdf",
@@ -227,5 +226,79 @@ describe("convertPdf when a clock runs out mid-download", () => {
     }).catch((e: unknown) => e);
     expect(error).not.toBeInstanceOf(DeadlineExceededError);
     expect(String(error)).toMatch(/HTTP 500/);
+  });
+});
+
+describe("pdfSource", () => {
+  const base = {
+    url: "https://example.com/paper.pdf",
+    clipped_at: "2026-09-20T10:00:00.000Z",
+  };
+
+  test("a web PDF is downloaded", () => {
+    expect(pdfSource({ ...base, tiro: { schema: 1 } })).toEqual({
+      kind: "download",
+      url: "https://example.com/paper.pdf",
+    });
+  });
+
+  test("follows source_url when the article is filed elsewhere", () => {
+    // A canonicalized publisher files an article under a URL nobody visited
+    // (ADR 0013), and the bytes are at the other one.
+    expect(
+      pdfSource({
+        ...base,
+        url: "https://arxiv.org/abs/2404.19756",
+        tiro: { schema: 1, source_url: "https://arxiv.org/pdf/2404.19756v1" },
+      }),
+    ).toEqual({
+      kind: "download",
+      url: "https://arxiv.org/pdf/2404.19756v1",
+    });
+  });
+
+  test("an import awaiting conversion carries its stamp", () => {
+    // The stamp is the import's, and only an import gets one: a re-import
+    // writes byte-identical text, so content addressing cannot tell it from a
+    // resumed run.
+    expect(
+      pdfSource({
+        ...base,
+        url: "local:report.pdf",
+        tiro: { schema: 1, pdf_unstructured: true },
+      }),
+    ).toEqual({ kind: "extracted", stamp: "2026-09-20T10:00:00.000Z" });
+  });
+
+  test("a converted import is done", () => {
+    expect(
+      pdfSource({ ...base, url: "local:report.pdf", tiro: { schema: 1 } }),
+    ).toEqual({ kind: "converted" });
+  });
+
+  test("reads the flag, not processed_at", () => {
+    // markPending strips processed_at when a forced run is deferred and leaves
+    // the finished body, so the marker says "unconverted" over Markdown. The
+    // flag is the fact about the body; this is the whole reason it exists.
+    expect(
+      pdfSource({
+        ...base,
+        url: "local:report.pdf",
+        tiro: { schema: 1 },
+      }).kind,
+    ).toBe("converted");
+    expect(
+      pdfSource({
+        ...base,
+        url: "local:report.pdf",
+        tiro: { schema: 1, processed_at: "2026-09-20T11:00:00.000Z" },
+      }).kind,
+    ).toBe("converted");
+  });
+
+  test("never stamps a download", () => {
+    // Stamping those discarded every batch of every re-clip.
+    const source = pdfSource({ ...base, tiro: { schema: 1 } });
+    expect("stamp" in source).toBe(false);
   });
 });

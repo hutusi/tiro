@@ -108,6 +108,15 @@ time after being forgotten once.
 on the precedent of `unlisted` (ADR 0017), and the `"local"` domain and scheme
 are values the existing fields already admit.
 
+**9. The three sources are named, and decided before any work.** A PDF
+article's text is fetched, or already in the body awaiting structure, or the
+body is the article and there is nothing to do. Every question the stage asks
+is one of those three wearing different clothes, and asking them separately —
+a marker read for something it does not mean, a stamp applied to both paths
+when it belonged to one, a checkpoint loaded before anyone knew it was needed
+— is what produced three consecutive rounds of the same class of defect.
+`pdfSource` answers once, by name, in front of the work.
+
 ## Consequences
 
 - **Reprocessing a local document cannot re-read its source, so it does not
@@ -144,6 +153,11 @@ are values the existing fields already admit.
   predefined CJK CMap or non-embedded base-14 fonts extracts poorly. The
   density gate catches the worst of it by refusing the import. Shipping them is
   possible later and needs no new permission.
+- **A forced redo of a converted import touches nothing it will not use.**
+  Deciding the source first is what makes that true: the checkpoint is loaded
+  only where a conversion is going to run, so `--force` over a finished import
+  no longer discards work it never reads, and can no longer fail the article
+  over a checkpoint it had no need of.
 - **Two ways in now produce one kind of article.** A clipped web PDF and an
   imported local one differ only in where the bytes came from, and downstream
   cannot tell beyond the scheme — which is the point.

@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { isLocalDocument, splitBlocks, stringifyArticle } from "@tiro/shared";
+import { splitBlocks, stringifyArticle } from "@tiro/shared";
 import {
   modelFor,
   parseTiroConfig,
@@ -27,7 +27,7 @@ import {
   summaryIsFinished,
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
-import { convertPdf, restructurePdfText } from "./pdf.ts";
+import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -655,8 +655,20 @@ async function pdfBody(
   force: boolean,
 ): Promise<string> {
   const { frontmatter } = article.parsed;
-  const url = frontmatter.tiro.source_url ?? frontmatter.url;
-  const local = isLocalDocument(url);
+  const source = pdfSource(frontmatter);
+
+  // Answered before anything is loaded, because the answer decides whether
+  // anything needs loading. Taking the checkpoint first meant a forced run
+  // over an already-converted import discarded a checkpoint it was not going
+  // to use — and could fail the article outright when the file would not go,
+  // for a conversion that was never going to happen.
+  if (source.kind === "converted") {
+    log(
+      `${article.slug}: imported document kept as it is — re-import the file to rebuild it`,
+    );
+    return article.parsed.body;
+  }
+
   const shared = {
     // Both clocks, handed over whole rather than pre-combined: the stage
     // bounds this document, the run's budget bounds the job, and the stage has
@@ -672,56 +684,29 @@ async function pdfBody(
     // where the last run stopped instead of starting again at page one (ADR
     // 0026, and ADR 0008's reasoning applied a second time). Gated on the same
     // model the summary runs on, so changing that model reconverts rather than
-    // blending vintages.
+    // blending vintages — and stamped only where the source says to, which is
+    // the import: see `PdfSource`.
     cache: await loadPdfCheckpoint(
       `${article.dirAbs}/${PDF_CACHE_FILE}`,
       modelFor(config, "summary"),
-      // Stamped for an import and only for one. A re-import is a request to
-      // convert again, and the text it writes is byte-identical, so content
-      // addressing cannot tell it from a resumed run — the stamp can.
-      //
-      // A web re-clip is the opposite case and must not be stamped: it
-      // re-downloads the document, so unchanged bytes give unchanged batches
-      // and reuse is exactly what is wanted, while a document that really
-      // changed misses the cache on its own. Stamping those too discarded
-      // every batch of every re-clip, which for a long PDF is a great many
-      // model calls to rediscover the same answers. `--force` remains the way
-      // to retry one of those, and it still clears the checkpoint outright.
-      local ? frontmatter.clipped_at : undefined,
+      source.kind === "extracted" ? source.stamp : undefined,
       force,
       log,
     ),
     log,
   };
 
-  if (local) {
-    // An imported document whose body is already the article has nothing left
-    // to re-derive: its bytes were never in the vault. Restructuring again
-    // would not merely be redundant — the page separators are gone from a
-    // converted body, so the whole document would go out as one batch, since
-    // batching never splits a page. Re-importing the file is how to genuinely
-    // start over (ADR 0027); everything else --force redoes still gets redone.
-    //
-    // Read from the flag rather than from `processed_at`, which looked like
-    // the same question and is not: a deferred forced run clears that marker
-    // and leaves the finished body, so the next ordinary run would have fed
-    // Markdown back through the structure pass.
-    if (frontmatter.tiro.pdf_unstructured !== true) {
-      log(
-        `${article.slug}: imported document kept as it is — re-import the file to rebuild it`,
-      );
-      return article.parsed.body;
-    }
-    // Otherwise the body still holds the extracted text, with its pages
-    // separated. Nothing to download and nothing to gate: the import applied
-    // the page cap and both scan gates while it still had a person to tell.
+  if (source.kind === "extracted") {
+    // The body holds the text, pages and all. Nothing to download and nothing
+    // to gate: the import applied the page cap and both scan gates while it
+    // still had a person to tell.
     const { markdown } = await restructurePdfText(article.parsed.body, shared);
     return markdown;
   }
 
   const { markdown } = await convertPdf({
     ...shared,
-    url,
+    url: source.url,
     maxBytes: config.pdf.max_bytes,
     timeoutMs: config.pdf.timeout_ms,
     maxPages: config.pdf.max_pages,

@@ -1815,6 +1815,63 @@ describe("runPipeline with an imported local document", () => {
     );
   }
 
+  test("a forced redo leaves the checkpoint of a converted import alone", async () => {
+    // It is not going to convert, so it has no business discarding the
+    // checkpoint. Loading it before deciding meant --force destroyed work it
+    // never looked at.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const cacheAbs = join(dir, "articles", slug, ".tiro-pdf-cache.json");
+    expect(existsSync(cacheAbs)).toBe(true);
+    const before = readFileSync(cacheAbs, "utf8");
+
+    await runPipeline({ vaultDir: dir, slug, force: true }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    expect(readFileSync(cacheAbs, "utf8")).toBe(before);
+  });
+
+  test("and does not fail over a checkpoint it was never going to use", async () => {
+    // The sharper half. A checkpoint that can be neither removed nor emptied
+    // fails a forced conversion on purpose — but this article is not being
+    // converted, so refusing it would be a failure invented out of
+    // housekeeping.
+    const { dir, slug } = await importedVault();
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir, slug }, config, {
+      ...deps,
+      fetchImpl: noFetch,
+    });
+    const body = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    ).body;
+
+    const articleDir = join(dir, "articles", slug);
+    chmodSync(articleDir, 0o555); // no unlink, and no rename in either
+    try {
+      const report = await runPipeline(
+        { vaultDir: dir, slug, force: true },
+        config,
+        { ...deps, fetchImpl: noFetch },
+      );
+      expect(report.errored).toHaveLength(0);
+      expect(report.processed).toContain(slug);
+    } finally {
+      chmodSync(articleDir, 0o755);
+    }
+
+    expect(
+      parseArticle(
+        readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+      ).body,
+    ).toBe(body);
+  });
+
   test("re-importing the same file actually reconverts it", async () => {
     // The runbook says to re-import when a conversion came out badly. An
     // unchanged file extracts to byte-identical batches, so the checkpoint hit
