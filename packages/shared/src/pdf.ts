@@ -1,4 +1,14 @@
-import { extractText, getDocumentProxy } from "unpdf";
+import {
+  type PdfLayout,
+  type PdfTextItem,
+  readPdfLayout,
+} from "./pdf-layout.ts";
+
+// One import for every consumer: the subpath is where anything touching pdf.js
+// lives, and splitting it across three specifiers would only invite the barrel
+// to grow a re-export that invariant 6 forbids.
+export * from "./pdf-layout.ts";
+export * from "./pdf-markdown.ts";
 
 /**
  * Reading a PDF's text layer, and judging whether it has one.
@@ -68,6 +78,10 @@ const PAGE_TEXT_FLOOR = 20;
 export interface PdfText {
   /** One entry per page, in reading order. */
   pages: string[];
+  /** The same document read structurally — fonts, sizes, positions. Carried so
+   * a caller can build Markdown from it without parsing the bytes again, which
+   * is impossible anyway once pdf.js has detached them. */
+  layout: PdfLayout;
   totalPages: number;
   /** Non-whitespace characters found, the number the gate was applied to. */
   chars: number;
@@ -107,23 +121,15 @@ export async function extractPdfText(
   bytes: Uint8Array,
   options: PdfTextOptions,
 ): Promise<PdfText> {
-  const { maxPages, minCharsPerPage, minPageCoverage } = options;
+  const { minCharsPerPage, minPageCoverage } = options;
 
-  let doc: Awaited<ReturnType<typeof getDocumentProxy>>;
-  try {
-    doc = await getDocumentProxy(bytes);
-  } catch (error) {
-    throw new Error(`cannot read the PDF: ${String(error)}`);
-  }
-  // Asked before any text is pulled: the page count is in the catalogue, so
-  // refusing here costs nothing, while extracting first would spend the work
-  // this gate exists to avoid.
-  if (doc.numPages > maxPages) {
-    throw new Error(`too many pages: ${doc.numPages} (cap ${maxPages})`);
-  }
-
-  const { totalPages, text } = await extractText(doc, { mergePages: false });
-  const pages = (text as string[]).map((page) => page ?? "");
+  // One parse, not two. pdf.js detaches the buffer it is handed, so reading
+  // the layout and then extracting text would need a copy of every byte — and
+  // the flat text is derivable from the layout anyway, which keeps the two
+  // paths reading the same document rather than two parses of it.
+  const layout = await readPdfLayout(bytes, options);
+  const { totalPages } = layout;
+  const pages = pdfPages(layout);
 
   // Whitespace collapsed before counting, so a page of hard-wrapped blanks
   // cannot pass a gate meant to measure content.
@@ -148,7 +154,29 @@ export async function extractPdfText(
     );
   }
 
-  return { pages, totalPages, chars };
+  return { pages, totalPages, chars, layout };
+}
+
+/**
+ * The flat, one-string-per-page reading of a layout.
+ *
+ * What `extractText` would have produced, rebuilt from the runs so that a
+ * document is parsed once. Lines are broken where the page broke them, which
+ * is what the furniture strip and the density gates both expect to see.
+ */
+export function pdfPages(layout: PdfLayout): string[] {
+  const pages: string[] = Array.from({ length: layout.totalPages }, () => "");
+  let previous: PdfTextItem | undefined;
+  for (const item of layout.items) {
+    const index = item.page - 1;
+    if (previous !== undefined && previous.page === item.page) {
+      const sameLine = Math.abs(previous.y - item.y) <= 2;
+      pages[index] += sameLine ? "" : "\n";
+    }
+    pages[index] += item.text;
+    previous = item;
+  }
+  return pages;
 }
 
 /** A page's running header or footer, normalised so that "Page 3 of 15" and

@@ -2,6 +2,7 @@ import { type ArticleFrontmatter, isLocalDocument } from "@tiro/shared";
 import {
   extractPdfText,
   type PdfTextOptions,
+  pdfMarkdown,
   splitPdfPages,
   stripRunningFurniture,
 } from "@tiro/shared/pdf";
@@ -272,9 +273,29 @@ export async function convertPdf(
   // Extraction is the one CPU-bound step here and a long document is not free,
   // so the clock is read across it too rather than only around the network.
   guard.check(0, "reading the text layer");
-  const { pages, totalPages, chars } = await extractPdfText(bytes, rest);
+  const { pages, totalPages, chars, layout } = await extractPdfText(
+    bytes,
+    rest,
+  );
   log(`pdf: ${totalPages} page(s), ${chars} chars of text layer`);
 
+  // Read again on the way out, not only on the way in. Extraction is the one
+  // step here that can spend real time on its own — pdf.js is woken per page —
+  // so a document that entered with budget can leave without it, and returning
+  // a finished body then reports a run that overran as one that did not.
+  guard.check(0, "building the article");
+
+  // Where the document's own typography says what its structure is, that is
+  // the answer — and a better one than a model inferring it from wording
+  // (ADR 0028). It also costs nothing and cannot invent anything.
+  if (layout.legible) {
+    log(
+      `pdf: structure read from the layout (${layout.headingSizes.length} heading level(s)); no model call`,
+    );
+    return { markdown: pdfMarkdown(layout), totalPages, fallbacks: 0 };
+  }
+
+  log("pdf: no legible layout; restoring structure with the model");
   return restructure(stripRunningFurniture(pages), { ...options, guard });
 }
 

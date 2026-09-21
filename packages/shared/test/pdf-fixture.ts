@@ -29,6 +29,66 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
+/** One line of a styled page: text, the size it is set in, and which of the
+ * three base-14 faces below. Enough to build a heading hierarchy and a
+ * monospace run without committing a binary (ADR 0028). */
+export interface StyledLine {
+  text: string;
+  /** Points. Omitted means body. */
+  size?: number;
+  /** `helvetica` (default), `bold`, or `courier` — the fixed-width one. */
+  face?: "helvetica" | "bold" | "courier";
+}
+
+const FACES = {
+  helvetica: { id: "F1", base: "Helvetica" },
+  bold: { id: "F2", base: "Helvetica-Bold" },
+  courier: { id: "F3", base: "Courier" },
+} as const;
+
+/**
+ * A PDF whose lines carry real sizes and faces.
+ *
+ * `makePdf` sets everything in 12pt Helvetica, which is exactly the document
+ * the layout reader cannot tell anything about — useful for asserting it says
+ * so, useless for asserting what it finds.
+ */
+export function makeStyledPdf(pages: StyledLine[][]): Uint8Array {
+  const objs: string[] = [];
+  const kids = pages.map((_, i) => `${7 + i * 2} 0 R`).join(" ");
+  objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
+  objs[2] = `<</Type/Pages/Kids[${kids}]/Count ${pages.length}>>`;
+  objs[3] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>";
+  objs[4] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold>>";
+  objs[5] = "<</Type/Font/Subtype/Type1/BaseFont/Courier>>";
+  objs[6] = "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"; // spacer
+  const resources = "<</Font<</F1 3 0 R/F2 4 0 R/F3 5 0 R>>>>";
+
+  pages.forEach((lines, i) => {
+    const pageNo = 7 + i * 2;
+    const contentNo = pageNo + 1;
+    objs[pageNo] =
+      `<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]${`/Resources${resources}`}/Contents ${contentNo} 0 R>>`;
+    let y = 740;
+    const runs = lines
+      .map((line) => {
+        const face = FACES[line.face ?? "helvetica"];
+        const size = line.size ?? 11;
+        // Absolute placement per line: leading varies with size, and a relative
+        // Td would drift a tall heading into the line above it.
+        y -= Math.max(14, size + 4);
+        const text = line.text.replace(/([()\\])/g, "\\$1");
+        return `/${face.id} ${size} Tf 1 0 0 1 72 ${y} Tm (${text}) Tj `;
+      })
+      .join("");
+    const stream = `BT ${runs}ET`;
+    objs[contentNo] =
+      `<</Length ${stream.length}>>\nstream\n${stream}\nendstream`;
+  });
+
+  return assemble(objs);
+}
+
 export function makePdf(pageTexts: string[]): Uint8Array {
   const objs: string[] = [];
   const kids = pageTexts.map((_, i) => `${4 + i * 2} 0 R`).join(" ");
@@ -56,6 +116,11 @@ export function makePdf(pageTexts: string[]): Uint8Array {
       `<</Length ${stream.length}>>\nstream\n${stream}\nendstream`;
   });
 
+  return assemble(objs);
+}
+
+/** xref table, trailer and the bytes — the half neither builder cares about. */
+function assemble(objs: string[]): Uint8Array {
   let out = "%PDF-1.4\n";
   const offsets: number[] = [];
   for (let i = 1; i < objs.length; i += 1) {

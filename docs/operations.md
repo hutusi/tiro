@@ -121,11 +121,19 @@ all. Both are needed — an average is a sum, so one dense page among nine
 scanned ones clears the first on its own, and the article would be filed as a
 whole document while holding a tenth of it.
 
-What a converted article will not have: figures (they are not in the text
-layer — captions survive), equations as anything but flattened text, and
-reconstructed tables. That last one is deliberate rather than missing: a blank
-cell and an absent cell are identical in a text layer, so a rebuilt row would be
-a guess that reads as data.
+**Most PDFs never reach the model.** A document whose typography carries a
+heading hierarchy or a fixed-width face has its structure read straight off the
+page — headings from the size rank, fenced code from the monospace runs, lists
+from the bullets, paragraphs from the gaps the document itself put between its
+lines (ADR 0028). The run log says which happened: `structure read from the
+layout … no model call`, or `no legible layout; restoring structure with the
+model`.
+
+What a converted article will not have, either way: figures (they are not in
+the text layer — captions survive), equations as anything but flattened text,
+and reconstructed tables. Tabular blocks are recognised by their column
+alignment and fenced rather than rebuilt, which is deliberate: a mis-read
+column corrupts data while a fenced block only looks plain.
 
 ### Importing a PDF from this computer
 

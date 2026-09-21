@@ -59,12 +59,15 @@ flowchart LR
      the tab holds the file and `activeTab` covers reading it.
 
    A PDF on this computer is imported from the **options page** instead
-   (ADR 0027). The extension reads its text layer there — a file picker needs
+   (ADR 0027). The extension reads its layout there — font, size and position
+   per run of text, not merely the characters — a file picker needs
    no permission, and pdf.js is loaded lazily so Settings does not pay 1.6 MB
    to be opened — applies the page and scan gates while there is still a person
    to tell, and commits the text with its pages separated. The document is
    filed under `local:<filename>`, carries the `"local"` domain sentinel, and
-   starts unlisted. Nothing binary enters the vault on either path.
+   starts unlisted. Where the layout reads cleanly the import commits finished
+   Markdown and no model is ever involved (ADR 0028). Nothing binary enters the
+   vault on either path.
 
    A PDF served to the tab itself is clipped as a **stub** — identity and title,
    no body — and the body is built later by the processor from the document's
@@ -125,11 +128,15 @@ flowchart LR
 2. **Process.** A push to `articles/**` triggers the vault's workflow, which
    checks out this repo and runs `tiro-process`:
    - for a PDF (`tiro.source_media: "pdf"`), build the body first. A web PDF is
-     fetched under the same guards the image stage uses, its text layer read
-     and its running headers dropped; an imported one arrives with all of that
-     already done and only the model pass left — the branch is taken from the
-     URL scheme, since `local:` cannot be fetched (ADR 0027). Either way the
-     model is asked to restore Markdown structure — checking each reply kept its content and
+     fetched under the same guards the image stage uses and read structurally:
+     where its typography carries a heading hierarchy or a fixed-width face,
+     the Markdown is built from that and **no model is called at all** (ADR
+     0028). Only a document with nothing to read falls back to the flat text
+     and the structure pass. An imported one arrives with all of this already
+     done, or, where it did not read cleanly, with the flat text and the pass
+     still owed — the branch is taken from the URL scheme, since `local:`
+     cannot be fetched (ADR 0027). Where the model does run it is asked to
+     restore Markdown structure — checking each reply kept its content and
      rebuilt no tables, and keeping the extracted text where it did not
      (ADR 0026). A refusal leaves the article pending, so nothing is re-clipped,
    - detect language (CJK-codepoint ratio, no LLM call),

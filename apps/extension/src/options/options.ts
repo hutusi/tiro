@@ -409,15 +409,25 @@ async function importPdf(file: File): Promise<void> {
     // Lazy, and load-bearing: pdf.js is 1.7 MB and this page must not pay for
     // it until someone actually picks a file. A static import would put it on
     // every open of Settings.
-    const { extractPdfText, joinPdfPages, stripRunningFurniture } =
+    const { extractPdfText, joinPdfPages, pdfMarkdown, stripRunningFurniture } =
       await import("@tiro/shared/pdf");
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const { pages, totalPages } = await extractPdfText(bytes, {
+    const { pages, totalPages, layout } = await extractPdfText(bytes, {
       maxPages: PDF_MAX_PAGES,
       minCharsPerPage: PDF_MIN_CHARS_PER_PAGE,
       minPageCoverage: PDF_MIN_PAGE_COVERAGE,
     });
+
+    // Where the document's typography says what its structure is, the import
+    // has already finished the job and commits Markdown (ADR 0028). It then
+    // leaves `pdfUnstructured` unset, which is how the processor knows there is
+    // nothing left to restructure — no new field, and no LLM needed for the
+    // article to be readable.
+    //
+    // Where it does not, the flat text and its page separators go as before
+    // and the structure pass runs in the processor.
+    const structured = layout.legible;
 
     const url = localDocumentUrl(name);
     const slug = await slugForUrl(url);
@@ -431,15 +441,16 @@ async function importPdf(file: File): Promise<void> {
     const clip = {
       url,
       title: name.replace(/\.pdf$/i, ""),
-      markdown: joinPdfPages(stripRunningFurniture(pages)),
+      markdown: structured
+        ? pdfMarkdown(layout)
+        : joinPdfPages(stripRunningFurniture(pages)),
       clippedAt: new Date().toISOString(),
       clipperVersion: chrome.runtime.getManifest().version,
       clipperCommit: __CLIPPER_COMMIT__,
       sourceMedia: "pdf" as const,
-      // The body is the text, not the article: the processor still has to
-      // restructure it, and says so beside the body rather than working it out
-      // (ADR 0027).
-      pdfUnstructured: true,
+      // Said beside the body rather than worked out later (ADR 0027), and only
+      // where it is true.
+      pdfUnstructured: !structured,
       unlisted: existing?.unlisted ?? true,
     };
     const built = await buildClipFile(clip);
