@@ -11,6 +11,7 @@ import {
   loadLanguage,
   loadSyncEnabled,
   mirrorSyncedChange,
+  missingConfigFields,
   needsDisclosure,
   pruneClipHistory,
   reconcileDisabledSync,
@@ -193,6 +194,66 @@ describe("config", () => {
     expect(isConfigComplete({ ...config, owner: "" })).toBe(false);
     expect(isConfigComplete({ ...config, repo: "" })).toBe(false);
     expect(isConfigComplete({ ...config, token: "" })).toBe(false);
+  });
+
+  test("names the fields a config is missing, and never the branch", () => {
+    expect(missingConfigFields(config)).toEqual([]);
+    // Same exemption as above, from the other direction: an absent branch is
+    // not something to ask the user for.
+    expect(missingConfigFields({ ...config, branch: "" })).toEqual([]);
+    expect(missingConfigFields({ ...config, owner: "" })).toEqual(["owner"]);
+    expect(
+      missingConfigFields({ owner: "", repo: "", branch: "", token: "" }),
+    ).toEqual(["owner", "repo", "token"]);
+  });
+});
+
+describe("config — a config that cannot clip is refused", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const good: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+  const empty: TiroExtensionConfig = {
+    owner: "",
+    repo: "",
+    branch: "main",
+    token: "",
+  };
+
+  test("an empty save leaves every copy of a good config alone", async () => {
+    // The incident this guards: a machine whose Chrome Sync carries nothing
+    // shows the same empty form a first run shows, and saving it published
+    // the emptiness everywhere — sync took it, and every other machine's
+    // worker mirrored it down over the copy that still worked.
+    await setSyncEnabled(true);
+    await saveConfig(good);
+
+    await expect(saveConfig(empty)).rejects.toThrow();
+
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+    expect(await loadConfig()).toEqual(good);
+
+    // The positive control belongs in this test rather than a neighbour: it
+    // is what rules out a guard that simply refuses everything.
+    await saveConfig({ ...good, repo: "second" });
+    expect(chrome.sync.data.tiroConfig).toEqual({ ...good, repo: "second" });
+  });
+
+  test("a config missing only the token is refused too", async () => {
+    // Pins the shape of the guard. "Refuse only a wholly empty form" would
+    // pass the test above and let this one through, and a config with no
+    // token cannot clip any more than one with no fields can.
+    await saveConfig(good);
+    await expect(saveConfig({ ...good, token: "" })).rejects.toThrow();
+    expect(await loadConfig()).toEqual(good);
   });
 });
 

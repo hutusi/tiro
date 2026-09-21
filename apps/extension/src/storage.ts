@@ -257,11 +257,36 @@ export async function loadConfig(): Promise<TiroExtensionConfig> {
 }
 
 export async function saveConfig(config: TiroExtensionConfig): Promise<void> {
+  // Refused rather than stored, and the reason is not local to this machine.
+  // With sync on, this write replaces the profile-wide copy, and every other
+  // machine's worker mirrors the replacement down — `mirrorSyncedChange` takes
+  // any change carrying a real `newValue`, and an empty config object is one.
+  // So an empty save leaves no survivor: not the synced copy, not the mirror
+  // that exists to stop settings being lost. And the form it came from is
+  // indistinguishable from a first run, because that is exactly what a machine
+  // whose Chrome Sync is not carrying extension data shows. `isConfigComplete`
+  // is already the line the popup uses to decide this extension is set up;
+  // nothing below it is worth storing, let alone publishing (ADR 0022).
+  if (!isConfigComplete(config)) {
+    throw new Error("refusing to store a config that cannot clip");
+  }
   await writeSynced(KEY, config);
 }
 
+/** The fields a config needs before it can be used, in the order the form
+ * shows them. `branch` is not one of them: it has a usable default. */
+export type ConfigField = "owner" | "repo" | "token";
+
+export function missingConfigFields(
+  config: TiroExtensionConfig,
+): ConfigField[] {
+  return (["owner", "repo", "token"] as const).filter(
+    (field) => config[field] === "",
+  );
+}
+
 export function isConfigComplete(config: TiroExtensionConfig): boolean {
-  return config.owner !== "" && config.repo !== "" && config.token !== "";
+  return missingConfigFields(config).length === 0;
 }
 
 /** Kept under its own key, not nested in the config object: the options page
