@@ -752,6 +752,32 @@ machine, and configure that one by hand with **its own** fine-grained PAT —
 which is the per-machine-token recommendation above, now applying to one
 machine rather than none.
 
+#### Clearing an empty config out of the synced area
+
+A different fault with the same symptom, and the giveaway is that it is only
+ever the **freshly installed** machines that come up empty while every
+configured one is fine. Versions before 0.15.0 let an empty Save reach the
+synced area; from 0.15.0 nothing publishes one, but a machine still on the
+older build can, and a value already sitting there is not cleaned up on its
+own. Configured machines never notice — they keep their own copy by design —
+so the profile can stay in this state indefinitely while only new machines
+suffer.
+
+Confirm it from a configured machine: `chrome://extensions` → Details →
+Inspect views: **service worker** → `await chrome.storage.sync.get(null)`. An
+empty or partial `tiroConfig` there, while that machine's Settings page shows
+the right values, is this.
+
+To clear it, from a machine whose settings are correct, either:
+
+- open Settings and press **Save** — the write replaces the synced copy; or
+- untick **Sync settings across my devices**, then tick it again. Unticking
+  keeps the better of the two copies, so nothing is lost, and re-ticking
+  republishes the good one.
+
+Then reopen Settings on the fresh machine. Upgrading every machine on the
+profile past 0.15.0 stops it recurring.
+
 ### Sweeping the corpus for clip damage
 
 A clipper failure is silent by construction: an image Readability deleted leaves

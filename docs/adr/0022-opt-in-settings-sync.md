@@ -144,6 +144,27 @@ vouched for, while half its callers pass raw `chrome.storage`, and
 `loadConfig` deliberately tolerates a partial object from an older version, so
 a legacy `{owner, repo}` read as complete and travelled without a token.
 
+**A profile whose sync is already on is not healed automatically.** If an
+older machine publishes an incomplete config while `tiroSyncEnabled` is
+already `true`, no configured machine calls `setSyncEnabled(true)` again, so
+the repair above never fires: every machine that has settings of its own is
+shielded by the ingress guard and notices nothing, while a machine arriving
+fresh adopts the incomplete value and has to be set up by hand. Any Save from
+a configured machine overwrites it, and so does switching sync off and on
+again — the copy-down is safe now, since it keeps the better copy — so the
+state is recoverable, and it stops being reachable at all once no machine on
+the profile predates the refusal. `docs/operations.md` carries the procedure.
+
+Repairing it on observation was considered and rejected. Doing it in the
+service worker would make the worker a writer of these keys, and "the options
+page is the only writer" is the premise the per-page mutation queue above
+rests on — breaking it silently invalidates that accepted trade rather than
+re-deciding it. Doing it in `readSynced` would put a write to the synced area
+on the most frequent path in the extension, widening the write-racing-a-
+disable hazard exactly where it is hardest to reason about. Both are a poor
+trade against a transitional fault whose worst outcome is one machine
+configured by hand, which is what every machine did before sync existed.
+
 Neither guard can adjudicate a *complete* config that is merely wrong, and
 nothing here makes sync work where the profile forbids it; what they remove is
 the one-click path from "sync did not arrive" to "settings are gone
@@ -169,6 +190,15 @@ Enabling never overwrites a value `sync` already holds. On a second machine,
 sync already carries the settings and the form on screen is empty or stale;
 flipping the toggle must adopt the shared settings, not push a local copy over
 them.
+
+**One exception, added later: a synced config that cannot clip counts as
+absent** when the enabling machine's own copy can. That is not settings anyone
+chose but the residue of an older machine's empty save, and "adopt, never
+clobber" is otherwise exactly what preserves it forever. The rule is the
+ingress rule read backwards — if an incomplete config may never displace a
+complete one, a complete one may replace an incomplete one — and it is
+deliberately no wider than that: republishing a local copy over any *complete*
+synced value would break the headline case this paragraph exists to protect.
 
 **Two keys stay in `local` unconditionally.**
 

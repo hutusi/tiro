@@ -300,6 +300,26 @@ describe("settings sync — an incomplete config never displaces a complete one"
     expect(chrome.sync.data.tiroConfig).toEqual(good);
   });
 
+  test("the documented off-then-on recovery clears a poisoned synced copy", async () => {
+    // A profile whose sync is already on is not healed automatically: no
+    // configured machine calls setSyncEnabled(true) again, so nothing
+    // republishes. ADR 0022 accepts that and points at this procedure, which
+    // means the procedure has to keep working — it is the recovery
+    // docs/operations.md tells the owner to run.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+
+    await setSyncEnabled(false);
+    // Unticking keeps the better copy — before the ingress guard this step
+    // was itself the wipe.
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+    expect(await loadConfig()).toEqual(good);
+  });
+
   test("but a machine with nothing of its own still takes what sync has", async () => {
     // The guard only ever holds local back when local is the better copy.
     // Turned into "never adopt an incomplete config" it would strand a

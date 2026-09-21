@@ -192,6 +192,12 @@ async function writeSynced(key: string, value: unknown): Promise<void> {
  * settings, so flipping the toggle joins them rather than clobbering them with
  * the empty form the user is looking at. Only keys `sync` lacks are pushed up.
  *
+ * **With one exception: a synced config that cannot clip is treated as
+ * absent** when this machine's copy can. Such a value is not settings anyone
+ * chose but the residue of an older machine's empty save, and it is the one
+ * thing "adopt, never clobber" would otherwise preserve forever — see
+ * `keepsLocalConfig`, which is the same rule read in the other direction.
+ *
  * Disabling copies `sync` down before removing anything, so no device is left
  * without settings, then clears the keys from `sync` — that removal is what
  * actually takes the token off Google's servers, so it is the point of the
