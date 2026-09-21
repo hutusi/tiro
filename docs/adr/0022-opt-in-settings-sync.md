@@ -134,7 +134,11 @@ down before removing is itself a guard against leaving a machine with nothing.
 So an incomplete config never displaces a complete one, whichever direction it
 arrives from. It is still adopted by a machine whose own copy is incomplete:
 the guard protects the better copy, and refusing outright would strand exactly
-the machine sync exists to configure. This also fixes what the rule is judged
+the machine sync exists to configure. Read in the other direction the same
+rule says a complete config may *replace* an incomplete one, which is what
+enabling does — otherwise the residue is permanent and invisible, since every
+configured machine is shielded from it and only the machines arriving fresh,
+having no copy to be shielded by, take it. This also fixes what the rule is judged
 by — the check compared fields to `""` against a value the type system had
 vouched for, while half its callers pass raw `chrome.storage`, and
 `loadConfig` deliberately tolerates a partial object from an older version, so

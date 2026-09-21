@@ -283,6 +283,23 @@ describe("settings sync — an incomplete config never displaces a complete one"
     expect(chrome.local.data.tiroConfig).toEqual(good);
   });
 
+  test("enabling repairs an incomplete config left in sync by an older machine", async () => {
+    // Reachable through the write-racing-a-disable residue ADR 0022 records
+    // as narrowed rather than closed: a 0.14 machine's late empty save lands
+    // after the flag has already gone false everywhere, so no machine
+    // re-runs the reconcile that would have removed it.
+    //
+    // Nothing else ever repairs it. The ingress guard shields every
+    // configured machine, which is exactly what hides the problem — the
+    // residue sits in the profile emptying only the machines that arrive
+    // fresh, because those have no local copy to be shielded by.
+    chrome.sync.data.tiroSyncEnabled = false;
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.local.data.tiroConfig = { ...good };
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+  });
+
   test("but a machine with nothing of its own still takes what sync has", async () => {
     // The guard only ever holds local back when local is the better copy.
     // Turned into "never adopt an incomplete config" it would strand a

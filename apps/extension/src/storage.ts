@@ -205,7 +205,19 @@ export async function setSyncEnabled(enabled: boolean): Promise<void> {
       ]);
       const push: Record<string, unknown> = {};
       for (const key of SYNCED_KEYS) {
-        if (key in sync || !(key in local)) continue;
+        if (!(key in local)) continue;
+        // Enabling adopts what `sync` already holds rather than clobbering
+        // it — except when what it holds cannot clip and this machine's copy
+        // can. `keepsLocalConfig` is the same rule read in the other
+        // direction: an incomplete config never displaces a complete one, so
+        // a complete one may replace it. Without this the residue is
+        // permanent, and invisibly so — every configured machine is shielded
+        // from it by the ingress guard, so it sits in the profile wiping
+        // only the machines that arrive fresh, which have nothing of their
+        // own to be shielded by.
+        if (key in sync && !keepsLocalConfig(key, sync[key], local[key])) {
+          continue;
+        }
         // A leftover from before `saveConfig` refused these: an install that
         // once saved an empty form still holds one, and enabling must not be
         // what finally publishes it to the profile. Skipped rather than
