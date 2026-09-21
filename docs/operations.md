@@ -537,6 +537,13 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
+- **An unpacked build does not share synced settings with the store install**,
+  because `chrome.storage.sync` is keyed by extension ID and an unpacked ID
+  comes from the folder path (see "Installing on another computer"). So a dev
+  build always needs its own configuration, and turning sync on in one says
+  nothing about the other. Adding the listing's `key` to `manifest.json` would
+  pin the two together; that is deliberately not done, because a dev build
+  would then be writing the settings every real machine reads.
 
 ### The publisher-fetch permissions
 
@@ -683,10 +690,15 @@ Two things follow from how the extension stores its config (see
   knowingly.
 
 An unpacked extension's ID is derived from its folder path, so it differs per
-machine; a store install carries the one permanent ID everywhere. Nothing here
-depends on a stable ID either way — no OAuth redirect, no
-`externally_connectable` — so the difference matters only when reading
-`chrome://extensions` to tell two installs apart.
+machine; a store install carries the one permanent ID everywhere. **One thing
+does depend on that:** `chrome.storage.sync` is namespaced per extension ID, so
+settings sync only ever joins installs that share one. Two store installs do. An
+unpacked build and a store install do not — with Chrome Sync working perfectly
+the unpacked one reads an empty synced area and has to be configured by hand —
+and two unpacked copies should be assumed not to either, since the paths differ.
+Nothing else does: no OAuth redirect, no `externally_connectable`, so otherwise
+the ID matters only when reading `chrome://extensions` to tell two installs
+apart.
 
 ### Sweeping the corpus for clip damage
 
