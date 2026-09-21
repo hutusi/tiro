@@ -22,7 +22,11 @@ import {
   setSyncEnabled,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
-import { type ChromeStorageMock, installChromeStorage } from "./helpers.ts";
+import {
+  type ChromeStorageMock,
+  installChromeStorage,
+  type StorageAreaMock,
+} from "./helpers.ts";
 
 const accepted = (version: number): DisclosureState => ({
   version,
@@ -217,6 +221,13 @@ describe("config", () => {
     expect(missingConfigFields({ owner: "o", repo: "r" })).toEqual(["token"]);
     expect(isConfigComplete({ owner: "o", repo: "r" })).toBe(false);
     expect(missingConfigFields({})).toEqual(["owner", "repo", "token"]);
+    // A field of spaces is not a field. Nothing in the product produces one
+    // — the form trims — but this validator's whole job is values that
+    // reached storage by some other route, and a blank token would pass as
+    // usable and go into a GitHub URL verbatim.
+    expect(missingConfigFields({ owner: "o", repo: " ", token: "\t" })).toEqual(
+      ["repo", "token"],
+    );
   });
 
   test("answers rather than throws for a value that is not a config", () => {
@@ -331,6 +342,48 @@ describe("settings sync — an incomplete config never displaces a complete one"
     chrome.sync.data.tiroSyncEnabled = true;
     expect(await repairSyncedConfig()).toBe(true);
     expect(chrome.sync.data.tiroConfig).toEqual(good);
+  });
+
+  test("a save landing inside the repair is not reverted by it", async () => {
+    // The page enables the form immediately before calling the repair, so
+    // this window is open exactly when someone is most likely to press Save.
+    // Deciding outside the queue would republish the pre-save snapshot over
+    // the save, on every machine.
+    const v1 = { ...good, token: "OLD" };
+    const v2 = { ...good, token: "NEW" };
+    chrome.local.data.tiroConfig = { ...v1 };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+
+    // Park the repair *after* it would have snapshotted: stalling before the
+    // snapshot tests nothing, which is how an earlier version of this race
+    // passed against the broken code.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realGet = chrome.sync.get.bind(chrome.sync);
+    let stalled = false;
+    (chrome.sync as { get: StorageAreaMock["get"] }).get = async (keys) => {
+      const out = await realGet(keys);
+      if (!stalled && keys === "tiroConfig") {
+        stalled = true;
+        await gate;
+      }
+      return out;
+    };
+
+    const repair = repairSyncedConfig();
+    await new Promise((r) => setTimeout(r, 5));
+    const saved = saveConfig(v2);
+    // Assert the race was actually constructed rather than assumed: with the
+    // whole repair queued, the save waits behind it, so both orderings have
+    // to be allowed here and only the end state is the claim.
+    release();
+    await Promise.all([repair, saved]);
+
+    expect(chrome.local.data.tiroConfig).toEqual(v2);
+    expect(chrome.sync.data.tiroConfig).toEqual(v2);
   });
 
   test("the repair never publishes while sync is off", async () => {

@@ -168,21 +168,27 @@ async function readSynced(key: string): Promise<unknown> {
  * Settles the flag before writing anything, so a flag that cannot be read
  * fails the whole save rather than quietly demoting it to local-only. */
 async function writeSynced(key: string, value: unknown): Promise<void> {
-  await serialize(async () => {
-    const enabled = await loadSyncEnabled();
-    await chrome.storage.local.set({ [key]: value });
-    if (!enabled) return;
-    await chrome.storage.sync.set({ [key]: value });
-    // Another machine may have switched sync off between the flag read and
-    // this write, and Chrome takes seconds to propagate that — long enough for
-    // a save here to put the token back after someone deliberately removed it.
-    // Checking again cannot close the race (their disable may still be in
-    // flight), but it does mean this machine never knowingly leaves a token in
-    // sync after seeing the flag go false. ADR 0022 records what is left.
-    if (!(await loadSyncEnabled())) {
-      await chrome.storage.sync.remove(key);
-    }
-  });
+  await serialize(() => writeSyncedUnqueued(key, value));
+}
+
+/** The body of that write with the queue left off, for callers already
+ * holding it. Nothing queued may await the queue — that deadlocks the chain
+ * — so a caller that has to decide *and* write as one unit takes the lock
+ * itself and publishes through this. */
+async function writeSyncedUnqueued(key: string, value: unknown): Promise<void> {
+  const enabled = await loadSyncEnabled();
+  await chrome.storage.local.set({ [key]: value });
+  if (!enabled) return;
+  await chrome.storage.sync.set({ [key]: value });
+  // Another machine may have switched sync off between the flag read and
+  // this write, and Chrome takes seconds to propagate that — long enough for
+  // a save here to put the token back after someone deliberately removed it.
+  // Checking again cannot close the race (their disable may still be in
+  // flight), but it does mean this machine never knowingly leaves a token in
+  // sync after seeing the flag go false. ADR 0022 records what is left.
+  if (!(await loadSyncEnabled())) {
+    await chrome.storage.sync.remove(key);
+  }
 }
 
 /** Turns settings sync on or off, moving the synced keys across.
@@ -287,18 +293,30 @@ export async function setSyncEnabled(enabled: boolean): Promise<void> {
  * Answers whether it published anything, so the page can say why the shared
  * settings changed under it. */
 export async function repairSyncedConfig(): Promise<boolean> {
-  // Strict, and load-bearing: with sync off this must never publish. Stale
-  // keys can linger in `sync` after a disable, and repairing one would put
-  // the token back on Google's servers after the user took it off.
-  if (!(await loadSyncEnabled())) return false;
-  const [local, sync] = await Promise.all([
-    chrome.storage.local.get(KEY),
-    chrome.storage.sync.get(KEY),
-  ]);
-  if (!(KEY in sync)) return false;
-  if (!keepsLocalConfig(KEY, sync[KEY], local[KEY])) return false;
-  await writeSynced(KEY, local[KEY]);
-  return true;
+  // The reads that decide and the write they decide on are one queued unit.
+  // Deciding outside the queue and only queuing the write is the same defect
+  // `readSynced` and `mirrorSyncedChange` were both fixed for: a Save landing
+  // in between is published first, and then this republishes the snapshot it
+  // took before that — reverting a config the user had just saved, on every
+  // machine. The page enables the form immediately before calling this, so
+  // the window is open exactly when someone is most likely to press Save.
+  //
+  // Publishing therefore goes through `writeSyncedUnqueued`: this already
+  // holds the lock, and `writeSynced` would await the chain it is holding.
+  return serialize(async () => {
+    // Strict, and load-bearing: with sync off this must never publish. Stale
+    // keys can linger in `sync` after a disable, and repairing one would put
+    // the token back on Google's servers after the user took it off.
+    if (!(await loadSyncEnabled())) return false;
+    const [local, sync] = await Promise.all([
+      chrome.storage.local.get(KEY),
+      chrome.storage.sync.get(KEY),
+    ]);
+    if (!(KEY in sync)) return false;
+    if (!keepsLocalConfig(KEY, sync[KEY], local[KEY])) return false;
+    await writeSyncedUnqueued(KEY, local[KEY]);
+    return true;
+  });
 }
 
 /** Copies synced values into the local mirror as Chrome delivers them, so the
@@ -410,7 +428,11 @@ export function missingConfigFields(config: unknown): ConfigField[] {
   ) as Record<string, unknown>;
   return (["owner", "repo", "token"] as const).filter((field) => {
     const value = stored[field];
-    return typeof value !== "string" || value === "";
+    // Trimmed for the check only, never for what gets stored — the form
+    // already trims on the way in, so this is about values that reached
+    // storage by some other route. A field of spaces is not a field: it
+    // would pass as usable and then go into a GitHub URL verbatim.
+    return typeof value !== "string" || value.trim() === "";
   });
 }
 
