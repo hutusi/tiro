@@ -26,9 +26,12 @@ import {
   messages,
 } from "../i18n.ts";
 import {
+  type ConfigField,
+  isConfigComplete,
   loadConfig,
   loadLanguage,
   loadSyncEnabled,
+  missingConfigFields,
   saveConfig,
   saveLanguage,
   setSyncEnabled,
@@ -106,6 +109,17 @@ function currentConfig() {
     branch: input.branch.value.trim() || "main",
     token: input.token.value.trim(),
   };
+}
+
+/** The labels for the fields a config is missing. Built at call time, not
+ * once: `m` is replaced whenever the language changes. */
+function fieldNames(fields: ConfigField[]): string[] {
+  const name: Record<ConfigField, string> = {
+    owner: m.fieldOwner,
+    repo: m.fieldRepo,
+    token: m.fieldToken,
+  };
+  return fields.map((field) => name[field]);
 }
 
 function show(message: string, tone: "ok" | "error" | "warn"): void {
@@ -327,6 +341,15 @@ languageSelect.addEventListener("change", () => {
 
 saveButton.addEventListener("click", () => {
   const config = currentConfig();
+  // Says which fields are missing rather than letting `saveConfig` refuse
+  // with a bare error. The refusal itself lives there, not here, because it
+  // is not about this form: with sync on, an empty save replaces the
+  // profile-wide copy and every other machine mirrors the blank down.
+  const missing = missingConfigFields(config);
+  if (missing.length > 0) {
+    show(m.fillFields(fieldNames(missing)), "error");
+    return;
+  }
   void saveConfig(config).then(
     () => {
       // The baseline moves with the save. Left behind, the form counted as
@@ -341,13 +364,9 @@ saveButton.addEventListener("click", () => {
 
 testButton.addEventListener("click", () => {
   const config = currentConfig();
-  const missing = [
-    config.owner === "" ? m.fieldOwner : null,
-    config.repo === "" ? m.fieldRepo : null,
-    config.token === "" ? m.fieldToken : null,
-  ].filter((f) => f !== null);
+  const missing = missingConfigFields(config);
   if (missing.length > 0) {
-    show(m.fillFields(missing), "error");
+    show(m.fillFields(fieldNames(missing)), "error");
     return;
   }
   show(m.testing, "ok");
@@ -367,7 +386,7 @@ importButton.addEventListener("click", () => {
   const config = currentConfig();
   // Checked here rather than after a file is chosen: asking someone to pick a
   // document and only then saying the vault is not set up wastes the pick.
-  if (config.owner === "" || config.repo === "" || config.token === "") {
+  if (!isConfigComplete(config)) {
     showImport(m.importNeedsSettings, "error");
     return;
   }
