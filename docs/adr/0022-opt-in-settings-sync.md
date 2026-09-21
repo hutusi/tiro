@@ -110,6 +110,26 @@ weaker and worth stating as such: no machine knowingly leaves a token in sync
 after seeing the flag go false, and any machine that later sees the disable
 removes what is there.
 
+**An empty form cannot be told from empty settings, so an incomplete config is
+refused.** Amended 2026-09, after the case arrived: a profile where Chrome Sync
+is off, paused, or excludes extension data — `SyncDisabled` or
+`SyncTypesListDisabled` on a managed machine — degrades `chrome.storage.sync`
+to a private local-only area, silently, and the options page then shows exactly
+the empty form a first run shows. Pressing Save there published the emptiness.
+The write reached the synced area, Chrome delivered it as a change carrying a
+real `newValue`, and every other machine's worker mirrored it down — the mirror
+three paragraphs above, the one that exists so no machine is left without
+settings, becoming what spread the loss, with no copy left anywhere. So
+`saveConfig` refuses any config `isConfigComplete` rejects, and enabling will
+not push one up. Neither guard can adjudicate a *complete* config that is
+merely wrong, and nothing here makes sync work where the profile forbids it;
+what they remove is the one-click path from "sync did not arrive" to "settings
+are gone everywhere". Chrome offers no way to ask whether sync is on or whether
+extension data is in it — `chrome.identity` answers a different question and
+would cost an install-time permission warning and a store re-review — so the
+product states the precondition and names `chrome://settings/syncSetup` rather
+than detecting it.
+
 **Mutations are serialised per page, not per profile.** The queue in
 `storage.ts` is module state, so each options tab and the worker hold their
 own. A save issued in one options tab at the same instant as a sync toggle in
