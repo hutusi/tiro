@@ -82,6 +82,27 @@ describe("messages", () => {
     },
   );
 
+  test.each(["en", "zh"] as const)(
+    "%s sync copy states the precondition and where to check it",
+    (locale) => {
+      // Sync silently degrades to a private local area when Chrome is not
+      // carrying extension data for the profile — a managed machine's policy,
+      // a paused sync, a profile that is not signed in. No API reports that,
+      // so the copy is the only place a user can learn the setting has a
+      // precondition at all. In both locales, because the owner reads the
+      // Chinese one, and a fix that lands in English only is this file's
+      // recurring failure.
+      const { syncHint, syncOn } = messages(locale);
+      expect(syncHint).toContain("chrome://settings/syncSetup");
+      expect(syncHint).toContain(
+        locale === "en" ? "Chrome Sync" : "Chrome 同步",
+      );
+      // And the tickbox is the canary worth teaching: on a machine that
+      // received nothing it arrives unticked.
+      expect(syncOn).toContain(locale === "en" ? "already ticked" : "勾上");
+    },
+  );
+
   test("the tables expose the same keys", () => {
     // The Messages type enforces this at compile time; the runtime check
     // guards against a key sneaking in through a cast.

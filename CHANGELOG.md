@@ -105,6 +105,15 @@ versions follow the `0.x` line while Tiro is a personal system.
   configuration that could not clip anyway, and turning sync on will not push
   one up.
 
+- **Settings sync now says what it needs in order to work.** It has always had
+  a precondition — Chrome Sync on for the profile, with extensions among the
+  synced data — and never mentioned it, while reporting a flat "Settings sync
+  is on." on machines where it could not possibly be. Chrome offers no way to
+  ask whether sync is running, so the hint states the condition and points at
+  `chrome://settings/syncSetup`, and the confirmation names the thing you can
+  actually check: your other computer should open Settings with the box
+  already ticked.
+
 ## [0.8.0] - 2026-09-19
 
 ### Fixed

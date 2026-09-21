@@ -140,8 +140,9 @@ const en = {
   labelLanguage: "Language",
   labelSync: "Sync settings across my devices",
   syncHint:
-    "Stores these settings, token included, in your Chrome profile, so another computer signed into it needs no setup. Chrome copies them through Google's servers. Off unless you turn it on.",
-  syncOn: "Settings sync is on.",
+    "Stores these settings, token included, in your Chrome profile, so another computer signed into it needs no setup. Chrome copies them through Google's servers, and only while Chrome Sync is on for this profile and includes extensions — see chrome://settings/syncSetup, which a work or school profile can lock. Off unless you turn it on.",
+  syncOn:
+    "Settings sync is on. Your other computer should open Settings with this box already ticked; if it does not, Chrome is not syncing extension data there.",
   syncOff: "Settings sync is off — these settings stay on this computer.",
   syncedElsewhere:
     "These settings changed on another device. Reopen this page to load them.",
@@ -284,8 +285,9 @@ const zh: Messages = {
   labelLanguage: "语言",
   labelSync: "在我的设备间同步设置",
   syncHint:
-    "把这些设置（含令牌）保存到你的 Chrome 账户中，登录同一账户的另一台电脑便无需再次配置。同步由 Chrome 经 Google 的服务器完成。默认关闭，只有你亲自开启才会生效。",
-  syncOn: "设置同步已开启。",
+    "把这些设置（含令牌）保存到你的 Chrome 账户中，登录同一账户的另一台电脑便无需再次配置。同步由 Chrome 经 Google 的服务器完成，且只在该账户已开启 Chrome 同步、并且同步范围包含扩展程序时才会发生——可在 chrome://settings/syncSetup 查看，单位或学校管理的账户可能已将其锁定。默认关闭，只有你亲自开启才会生效。",
+  syncOn:
+    "设置同步已开启。在另一台电脑上打开设置时，这个勾选框应当已经是勾上的；若没有，说明 Chrome 并未在那台电脑上同步扩展数据。",
   syncOff: "设置同步已关闭——这些设置只保存在本机。",
   syncedElsewhere: "这些设置已在其他设备上更改。重新打开本页即可载入。",
   syncKeptEdits: "你未保存的修改仍保留在表单中——点击「保存」即可存下。",
