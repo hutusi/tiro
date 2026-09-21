@@ -206,6 +206,92 @@ describe("config", () => {
       missingConfigFields({ owner: "", repo: "", branch: "", token: "" }),
     ).toEqual(["owner", "repo", "token"]);
   });
+
+  test("treats an absent field as missing, not as present", () => {
+    // These run against raw chrome.storage values, and loadConfig above
+    // deliberately tolerates a partial object written by an older version.
+    // Asking `undefined === ""` answered no, so a legacy {owner, repo}
+    // counted as complete — and that is the one shape setSyncEnabled would
+    // then upload to the profile without a token.
+    expect(missingConfigFields({ owner: "o", repo: "r" })).toEqual(["token"]);
+    expect(isConfigComplete({ owner: "o", repo: "r" })).toBe(false);
+    expect(missingConfigFields({})).toEqual(["owner", "repo", "token"]);
+  });
+
+  test("answers rather than throws for a value that is not a config", () => {
+    // Reached through the same raw-storage callers; a throw there would
+    // reject a read that has a perfectly good local copy to fall back on.
+    expect(isConfigComplete(null)).toBe(false);
+    expect(isConfigComplete(undefined)).toBe(false);
+    expect(isConfigComplete("nonsense")).toBe(false);
+    expect(isConfigComplete({ owner: 1, repo: 2, token: 3 })).toBe(false);
+  });
+});
+
+describe("settings sync — an incomplete config never displaces a complete one", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const good: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+  const blank: TiroExtensionConfig = {
+    owner: "",
+    repo: "",
+    branch: "main",
+    token: "",
+  };
+
+  // saveConfig refusing to publish one of these only binds machines running
+  // that code. Every machine during a rollout, and any that never updates,
+  // can still put one into sync — so the rule is enforced on the way in too,
+  // at all three places a synced value comes back down.
+
+  test("a read keeps the good local copy and does not mirror over it", async () => {
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await loadConfig()).toEqual(good);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+  });
+
+  test("the worker's mirror skips it, and still takes the language beside it", async () => {
+    chrome.local.data.tiroConfig = { ...good };
+    await mirrorSyncedChange({
+      tiroConfig: { oldValue: good, newValue: blank },
+      tiroLanguage: { oldValue: "en", newValue: "zh" },
+    } as never);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+    // The skip must be the config's alone — bailing out of the whole mirror
+    // would silently stop tracking every other synced key.
+    expect(chrome.local.data.tiroLanguage).toBe("zh");
+  });
+
+  test("disabling copies down the good local copy, not the empty synced one", async () => {
+    // The least obvious of the three: disabling copies sync down before
+    // removing it, so a config an older machine published outlives the
+    // switch and lands on top of a working one.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    await setSyncEnabled(false);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+  });
+
+  test("but a machine with nothing of its own still takes what sync has", async () => {
+    // The guard only ever holds local back when local is the better copy.
+    // Turned into "never adopt an incomplete config" it would strand a
+    // machine that genuinely has none, which is the case sync exists for.
+    chrome.local.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroConfig = { ...blank, branch: "release" };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await loadConfig()).toEqual({ ...blank, branch: "release" });
+  });
 });
 
 describe("config — a config that cannot clip is refused", () => {

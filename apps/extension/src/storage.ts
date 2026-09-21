@@ -26,6 +26,30 @@ const SYNC_KEY = "tiroSyncEnabled";
  * fresh install skip the disclosure before it first reads anything. */
 const SYNCED_KEYS = [KEY, LANGUAGE_KEY];
 
+/** Whether a value arriving from `sync` must not be allowed to replace what
+ * `local` already holds.
+ *
+ * `saveConfig` refusing to publish a config that cannot clip only binds the
+ * machines running that code. An older install — every machine during a
+ * rollout, and any that never updates — can still put one into the synced
+ * area, and all three ways a synced value comes back down would copy it
+ * faithfully: the mirror inside `readSynced`, the worker's `onChanged`
+ * mirror, and the copy-down that disabling performs. That is the same
+ * profile-wide wipe the write guard exists to prevent, arriving from the
+ * other direction, so the rule is enforced on ingress as well as on egress.
+ *
+ * It holds `local` back only when `local` is the better copy. If that is
+ * incomplete too there is nothing to protect, and taking the remote value is
+ * what keeps a machine that has genuinely never been configured tracking the
+ * profile — the case the whole feature exists for. */
+function keepsLocalConfig(
+  key: string,
+  incoming: unknown,
+  local: unknown,
+): boolean {
+  return key === KEY && !isConfigComplete(incoming) && isConfigComplete(local);
+}
+
 /** Whether the user has opted settings into Chrome sync. Off unless they say
  * otherwise: turning it on uploads the PAT to Google's servers and pushes it
  * to every machine on the profile, which is the user's call to make and not a
@@ -124,6 +148,10 @@ async function readSynced(key: string): Promise<unknown> {
     }
     if (!(key in stored)) return local;
     const value = stored[key];
+    // Ingress: an older machine can still have published a config that
+    // cannot clip, and adopting it here would both answer this read wrongly
+    // and overwrite the good mirror below.
+    if (keepsLocalConfig(key, value, local)) return local;
     if (JSON.stringify(local) !== JSON.stringify(value)) {
       try {
         await chrome.storage.local.set({ [key]: value });
@@ -186,17 +214,25 @@ export async function setSyncEnabled(enabled: boolean): Promise<void> {
         // stay a per-key skip: refusing the whole enable would break the case
         // the feature exists for, a second machine with nothing of its own
         // joining the settings sync already holds.
-        if (key === KEY && !isConfigComplete(local[key] as TiroExtensionConfig))
-          continue;
+        if (key === KEY && !isConfigComplete(local[key])) continue;
         push[key] = local[key];
       }
       await chrome.storage.sync.set({ ...push, [SYNC_KEY]: true });
       return;
     }
-    const sync = await chrome.storage.sync.get(SYNCED_KEYS);
+    const [sync, local] = await Promise.all([
+      chrome.storage.sync.get(SYNCED_KEYS),
+      chrome.storage.local.get(SYNCED_KEYS),
+    ]);
     const keep: Record<string, unknown> = {};
     for (const key of SYNCED_KEYS) {
-      if (key in sync) keep[key] = sync[key];
+      if (!(key in sync)) continue;
+      // The third ingress, and the least obvious: disabling copies the
+      // synced values down, so a config an older machine published outlives
+      // the switch and lands on top of a good one. Keeping the better copy
+      // is the whole point of copying down before removing.
+      if (keepsLocalConfig(key, sync[key], local[key])) continue;
+      keep[key] = sync[key];
     }
     if (Object.keys(keep).length > 0) await chrome.storage.local.set(keep);
     await chrome.storage.sync.remove(SYNCED_KEYS);
@@ -229,7 +265,17 @@ export async function mirrorSyncedChange(changes: {
     if (change && change.newValue !== undefined) updates[key] = change.newValue;
   }
   if (Object.keys(updates).length === 0) return;
-  await serialize(() => chrome.storage.local.set(updates));
+  // The read that decides and the write it decides on are one queued unit.
+  // Queuing only the write would let a save land between them, exactly as it
+  // did in `readSynced` before that was fixed.
+  await serialize(async () => {
+    if (KEY in updates) {
+      const local = (await chrome.storage.local.get(KEY))[KEY];
+      if (keepsLocalConfig(KEY, updates[KEY], local)) delete updates[KEY];
+    }
+    if (Object.keys(updates).length === 0) return;
+    await chrome.storage.local.set(updates);
+  });
 }
 
 /** Clears synced settings that outlived the switch being turned off.
@@ -288,15 +334,26 @@ export async function saveConfig(config: TiroExtensionConfig): Promise<void> {
  * shows them. `branch` is not one of them: it has a usable default. */
 export type ConfigField = "owner" | "repo" | "token";
 
-export function missingConfigFields(
-  config: TiroExtensionConfig,
-): ConfigField[] {
-  return (["owner", "repo", "token"] as const).filter(
-    (field) => config[field] === "",
-  );
+/** Takes `unknown` deliberately, because half its callers hand it a raw
+ * `chrome.storage` value rather than something the type system has vouched
+ * for. `loadConfig` explicitly tolerates a partial object written by an older
+ * version, so an absent field is a real shape here — and typed as
+ * `TiroExtensionConfig` this asked `undefined === ""`, answered no, and
+ * counted a legacy `{owner, repo}` as complete. That is the one shape that
+ * then gets uploaded to sync without a token. A non-string, and a `config`
+ * that is null or not an object at all, have to answer the same way rather
+ * than throwing on the property access. */
+export function missingConfigFields(config: unknown): ConfigField[] {
+  const stored = (
+    typeof config === "object" && config !== null ? config : {}
+  ) as Record<string, unknown>;
+  return (["owner", "repo", "token"] as const).filter((field) => {
+    const value = stored[field];
+    return typeof value !== "string" || value === "";
+  });
 }
 
-export function isConfigComplete(config: TiroExtensionConfig): boolean {
+export function isConfigComplete(config: unknown): boolean {
   return missingConfigFields(config).length === 0;
 }
 
