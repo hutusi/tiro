@@ -319,6 +319,36 @@ describe("settings sync", () => {
     expect(await loadSyncEnabled()).toBe(true);
   });
 
+  test("does not push a leftover config that cannot clip", async () => {
+    // A 0.14.0 install that saved an empty form before that was refused still
+    // holds one in local. Enabling sync must not be what finally publishes it
+    // to the profile — on this machine it is dead weight, on every other one
+    // it is the wipe.
+    const unusable = { owner: "", repo: "", branch: "main", token: "" };
+    chrome.local.data.tiroConfig = unusable;
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+    // The enable itself still has to have happened...
+    expect(await loadSyncEnabled()).toBe(true);
+    // ...and the skip is a skip, not a deletion of this machine's own copy.
+    expect(chrome.local.data.tiroConfig).toEqual(unusable);
+  });
+
+  test("still adopts sync's settings when this machine's copy is unusable", async () => {
+    // The guard above must not turn into "refuse to enable without a complete
+    // local config", which would break the case the whole feature exists for:
+    // a second machine with nothing of its own joining the shared settings.
+    chrome.local.data.tiroConfig = {
+      owner: "",
+      repo: "",
+      branch: "main",
+      token: "",
+    };
+    chrome.sync.data.tiroConfig = config;
+    await setSyncEnabled(true);
+    expect(await loadConfig()).toEqual(config);
+  });
+
   test("joins settings already in sync instead of clobbering them", async () => {
     // The headline case: a second machine already holds settings of its own
     // and sync carries the shared ones. Flipping the toggle must adopt what

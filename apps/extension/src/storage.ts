@@ -177,7 +177,18 @@ export async function setSyncEnabled(enabled: boolean): Promise<void> {
       ]);
       const push: Record<string, unknown> = {};
       for (const key of SYNCED_KEYS) {
-        if (!(key in sync) && key in local) push[key] = local[key];
+        if (key in sync || !(key in local)) continue;
+        // A leftover from before `saveConfig` refused these: an install that
+        // once saved an empty form still holds one, and enabling must not be
+        // what finally publishes it to the profile. Skipped rather than
+        // deleted — the local copy is this machine's business, and the only
+        // claim being made here is about what reaches sync. Note this must
+        // stay a per-key skip: refusing the whole enable would break the case
+        // the feature exists for, a second machine with nothing of its own
+        // joining the settings sync already holds.
+        if (key === KEY && !isConfigComplete(local[key] as TiroExtensionConfig))
+          continue;
+        push[key] = local[key];
       }
       await chrome.storage.sync.set({ ...push, [SYNC_KEY]: true });
       return;
