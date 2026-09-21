@@ -146,6 +146,8 @@ const en = {
   syncOff: "Settings sync is off — these settings stay on this computer.",
   syncedElsewhere:
     "These settings changed on another device. Reopen this page to load them.",
+  syncRepaired:
+    "Another device had left empty settings in the synced copy; this computer's have replaced them.",
   syncKeptEdits:
     "Your unsaved changes are still here — press Save to store them.",
   langAuto: "Auto (browser language)",
@@ -290,6 +292,7 @@ const zh: Messages = {
     "设置同步已开启。在另一台电脑上打开设置时，这个勾选框应当已经是勾上的；若没有，说明 Chrome 并未在那台电脑上同步扩展数据。",
   syncOff: "设置同步已关闭——这些设置只保存在本机。",
   syncedElsewhere: "这些设置已在其他设备上更改。重新打开本页即可载入。",
+  syncRepaired: "其他设备在同步副本中留下了空的设置，已用本机的设置替换。",
   syncKeptEdits: "你未保存的修改仍保留在表单中——点击「保存」即可存下。",
   langAuto: "自动（跟随浏览器）",
   langEn: "English",

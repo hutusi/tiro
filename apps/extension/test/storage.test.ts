@@ -16,6 +16,7 @@ import {
   pruneClipHistory,
   reconcileDisabledSync,
   recordClip,
+  repairSyncedConfig,
   saveConfig,
   saveLanguage,
   setSyncEnabled,
@@ -318,6 +319,52 @@ describe("settings sync — an incomplete config never displaces a complete one"
     await setSyncEnabled(true);
     expect(chrome.sync.data.tiroConfig).toEqual(good);
     expect(await loadConfig()).toEqual(good);
+  });
+
+  test("opening Settings repairs a poisoned copy on an already-enabled profile", async () => {
+    // The gap the off/on recovery existed to work around: sync is already
+    // on, so no configured machine calls setSyncEnabled(true) again and the
+    // repair there never fires. Every configured machine is shielded by the
+    // ingress guard and notices nothing; only fresh ones adopt the blank.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await repairSyncedConfig()).toBe(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+  });
+
+  test("the repair never publishes while sync is off", async () => {
+    // The one way this could do real harm. Keys can linger in `sync` after a
+    // disable, and republishing one would put the token back on Google's
+    // servers after the user deliberately took it off.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = false;
+    expect(await repairSyncedConfig()).toBe(false);
+    expect(chrome.sync.data.tiroConfig).toEqual(blank);
+  });
+
+  test("the repair leaves a complete synced config alone", async () => {
+    // It must not become "republish mine whenever it differs" — that is the
+    // headline case, adopt-never-clobber, inverted.
+    const theirs = { ...good, repo: "elsewhere" };
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = theirs;
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await repairSyncedConfig()).toBe(false);
+    expect(chrome.sync.data.tiroConfig).toEqual(theirs);
+  });
+
+  test("the repair has nothing to say when this machine's copy is no better", async () => {
+    chrome.local.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await repairSyncedConfig()).toBe(false);
+    // And nothing at all in sync is not a thing to repair either.
+    delete chrome.sync.data.tiroConfig;
+    chrome.local.data.tiroConfig = { ...good };
+    expect(await repairSyncedConfig()).toBe(false);
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
   });
 
   test("but a machine with nothing of its own still takes what sync has", async () => {

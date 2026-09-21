@@ -258,6 +258,49 @@ export async function setSyncEnabled(enabled: boolean): Promise<void> {
   });
 }
 
+/** Republishes this machine's config when the synced copy cannot clip.
+ *
+ * `setSyncEnabled(true)` repairs such a value, but a profile whose sync is
+ * already on never calls it again: the machines that could repair it are the
+ * configured ones, and the ingress guard means they never notice anything is
+ * wrong. So the residue outlives every machine that could fix it, and empties
+ * only the ones arriving fresh, which have no copy of their own to be
+ * shielded by.
+ *
+ * **Called from the options page, deliberately, and from nowhere else.** The
+ * two places that would catch it automatically both cost more than the fault.
+ * The service worker would become a writer of these keys, and "the options
+ * page is the only writer" is the premise the per-page mutation queue's
+ * accepted race rests on (ADR 0022) — taking it away silently un-decides that
+ * trade. `readSynced` would put a write to the synced area on the most
+ * frequent path in the extension, widening the write-racing-a-disable hazard
+ * where it is hardest to reason about. Repairing when someone opens Settings
+ * is opportunistic rather than certain, and that is the right trade for a
+ * transitional fault whose cost is one machine set up by hand.
+ *
+ * Goes through `writeSynced` rather than writing `sync` directly, which is
+ * what makes it safe: it inherits the strict flag read, the mutation queue,
+ * and the withdrawal if the flag has gone false by the time the write lands.
+ * Not wrapped in `serialize` here — `writeSynced` queues, and queuing
+ * something that awaits the queue deadlocks the chain.
+ *
+ * Answers whether it published anything, so the page can say why the shared
+ * settings changed under it. */
+export async function repairSyncedConfig(): Promise<boolean> {
+  // Strict, and load-bearing: with sync off this must never publish. Stale
+  // keys can linger in `sync` after a disable, and repairing one would put
+  // the token back on Google's servers after the user took it off.
+  if (!(await loadSyncEnabled())) return false;
+  const [local, sync] = await Promise.all([
+    chrome.storage.local.get(KEY),
+    chrome.storage.sync.get(KEY),
+  ]);
+  if (!(KEY in sync)) return false;
+  if (!keepsLocalConfig(KEY, sync[KEY], local[KEY])) return false;
+  await writeSynced(KEY, local[KEY]);
+  return true;
+}
+
 /** Copies synced values into the local mirror as Chrome delivers them, so the
  * mirror tracks changes instead of lagging behind this machine's last read.
  *

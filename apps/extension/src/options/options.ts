@@ -32,6 +32,7 @@ import {
   loadLanguage,
   loadSyncEnabled,
   missingConfigFields,
+  repairSyncedConfig,
   saveConfig,
   saveLanguage,
   setSyncEnabled,
@@ -265,6 +266,18 @@ async function init(): Promise<void> {
     return;
   }
   setControlsEnabled(true);
+  // Opportunistic, and the only place it happens: a config an older machine
+  // left in sync that cannot clip is invisible to every configured machine
+  // and empties the ones arriving fresh, and nothing else ever clears it.
+  // Deliberately after the form is live rather than blocking the load — it
+  // changes nothing on screen, since what is painted is this machine's copy
+  // and that is exactly what gets published. A failure here leaves the
+  // residue for the next visit, which is no worse than not having looked.
+  void repairSyncedConfig()
+    .then((repaired) => {
+      if (repaired) show(m.syncRepaired, "warn");
+    })
+    .catch(() => {});
   // Registered here rather than at module scope: the ?preview path above
   // returns before this, and that build has no chrome to add a listener to.
   chrome.storage.onChanged.addListener((_changes, areaName) => {

@@ -144,26 +144,37 @@ vouched for, while half its callers pass raw `chrome.storage`, and
 `loadConfig` deliberately tolerates a partial object from an older version, so
 a legacy `{owner, repo}` read as complete and travelled without a token.
 
-**A profile whose sync is already on is not healed automatically.** If an
-older machine publishes an incomplete config while `tiroSyncEnabled` is
-already `true`, no configured machine calls `setSyncEnabled(true)` again, so
-the repair above never fires: every machine that has settings of its own is
-shielded by the ingress guard and notices nothing, while a machine arriving
-fresh adopts the incomplete value and has to be set up by hand. Any Save from
-a configured machine overwrites it, and so does switching sync off and on
-again — the copy-down is safe now, since it keeps the better copy — so the
-state is recoverable, and it stops being reachable at all once no machine on
-the profile predates the refusal. `docs/operations.md` carries the procedure.
+**A profile whose sync is already on is repaired when someone opens
+Settings, and not before.** If an older machine publishes an incomplete
+config while `tiroSyncEnabled` is already `true`, no configured machine calls
+`setSyncEnabled(true)` again, so the repair above never fires — and nothing
+raises the alarm either, because every machine with settings of its own is
+shielded by the ingress guard. Only a machine arriving fresh adopts the value
+and comes up empty. So `repairSyncedConfig` runs from the options page's
+`init`, republishing this machine's config over a synced one that cannot
+clip.
 
-Repairing it on observation was considered and rejected. Doing it in the
-service worker would make the worker a writer of these keys, and "the options
-page is the only writer" is the premise the per-page mutation queue above
-rests on — breaking it silently invalidates that accepted trade rather than
-re-deciding it. Doing it in `readSynced` would put a write to the synced area
-on the most frequent path in the extension, widening the write-racing-a-
-disable hazard exactly where it is hardest to reason about. Both are a poor
-trade against a transitional fault whose worst outcome is one machine
-configured by hand, which is what every machine did before sync existed.
+**Opening Settings, not observing the change.** The two places that would
+catch it automatically both cost more than the fault. In the service worker
+it would make the worker a writer of these keys, and "the options page is the
+only writer" is the premise the per-page mutation queue above rests on —
+taking it away silently invalidates that accepted trade rather than
+re-deciding it. In `readSynced` it would put a write to the synced area on
+the most frequent path in the extension, widening the write-racing-a-disable
+hazard exactly where it is hardest to reason about. Repairing on an explicit
+visit to Settings keeps the single-writer invariant intact and routes through
+`writeSynced`, inheriting its strict flag read and its withdrawal if the flag
+has gone false. With sync off it must never publish: stale keys can outlive a
+disable, and republishing one would put the token back after the user took it
+off.
+
+What remains is that the repair is **opportunistic, not certain** — a profile
+where nobody opens Settings stays poisoned, and a Save from any configured
+machine or an off-then-on cycle also clears it. That is the right trade for a
+transitional fault whose cost is one machine configured by hand, which is what
+every machine did before sync existed, and it stops being reachable at all
+once no machine on the profile predates the refusal. `docs/operations.md`
+carries the symptom and the procedures.
 
 Neither guard can adjudicate a *complete* config that is merely wrong, and
 nothing here makes sync work where the profile forbids it; what they remove is

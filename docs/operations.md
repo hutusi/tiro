@@ -768,15 +768,20 @@ Inspect views: **service worker** → `await chrome.storage.sync.get(null)`. An
 empty or partial `tiroConfig` there, while that machine's Settings page shows
 the right values, is this.
 
-To clear it, from a machine whose settings are correct, either:
+**Opening Settings on a machine whose settings are correct clears it** — from
+0.15.0 that page republishes its own config over a synced one that cannot
+clip, and says so when it does. That is the whole procedure; the two below
+are for a machine still on an older build, or if you want to force it:
 
-- open Settings and press **Save** — the write replaces the synced copy; or
+- press **Save** — the write replaces the synced copy; or
 - untick **Sync settings across my devices**, then tick it again. Unticking
   keeps the better of the two copies, so nothing is lost, and re-ticking
   republishes the good one.
 
-Then reopen Settings on the fresh machine. Upgrading every machine on the
-profile past 0.15.0 stops it recurring.
+Then reopen Settings on the fresh machine. The repair only runs when someone
+opens Settings, so a profile nobody visits stays poisoned — which is why the
+symptom is worth recognising rather than waiting out. Upgrading every machine
+on the profile past 0.15.0 stops it recurring.
 
 ### Sweeping the corpus for clip damage
 

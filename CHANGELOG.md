@@ -104,7 +104,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   without saying so, and the settings never arrive. Save now refuses a
   configuration that could not clip anyway, and turning sync on will not push
   one up. The same rule applies to configurations arriving *from* sync, so a
-  machine still on an older build cannot push the wipe onto an updated one.
+  machine still on an older build cannot push the wipe onto an updated one —
+  and opening Settings clears an empty configuration an older machine already
+  left there, which otherwise nothing would, since every configured machine
+  ignores it and only newly installed ones pick it up.
 
 - **Settings sync now says what it needs in order to work.** It has always had
   a precondition — Chrome Sync on for the profile, with extensions among the
