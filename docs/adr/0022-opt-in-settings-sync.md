@@ -121,10 +121,29 @@ real `newValue`, and every other machine's worker mirrored it down — the mirro
 three paragraphs above, the one that exists so no machine is left without
 settings, becoming what spread the loss, with no copy left anywhere. So
 `saveConfig` refuses any config `isConfigComplete` rejects, and enabling will
-not push one up. Neither guard can adjudicate a *complete* config that is
-merely wrong, and nothing here makes sync work where the profile forbids it;
-what they remove is the one-click path from "sync did not arrive" to "settings
-are gone everywhere". Chrome offers no way to ask whether sync is on or whether
+not push one up.
+
+**The same rule binds on ingress, and that is not redundant.** Refusing to
+publish only binds the machines running the refusal: every machine during a
+rollout is on the older build, and one that never updates stays there, so an
+incomplete config can still reach the synced area. All three ways a synced
+value comes back down would then copy it faithfully — the mirror inside
+`readSynced`, the worker's `onChanged` mirror, and the copy-down that
+disabling performs, the last being the one most easily missed, since copying
+down before removing is itself a guard against leaving a machine with nothing.
+So an incomplete config never displaces a complete one, whichever direction it
+arrives from. It is still adopted by a machine whose own copy is incomplete:
+the guard protects the better copy, and refusing outright would strand exactly
+the machine sync exists to configure. This also fixes what the rule is judged
+by — the check compared fields to `""` against a value the type system had
+vouched for, while half its callers pass raw `chrome.storage`, and
+`loadConfig` deliberately tolerates a partial object from an older version, so
+a legacy `{owner, repo}` read as complete and travelled without a token.
+
+Neither guard can adjudicate a *complete* config that is merely wrong, and
+nothing here makes sync work where the profile forbids it; what they remove is
+the one-click path from "sync did not arrive" to "settings are gone
+everywhere". Chrome offers no way to ask whether sync is on or whether
 extension data is in it — `chrome.identity` answers a different question and
 would cost an install-time permission warning and a store re-review — so the
 product states the precondition and names `chrome://settings/syncSetup` rather
