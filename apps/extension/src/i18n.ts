@@ -190,6 +190,28 @@ const en = {
   importNotPdf: "That file is not a PDF.",
   importFailed: (detail: string) => `Could not import it: ${detail}`,
   importNeedsSettings: "Fill in your vault settings and save them first.",
+
+  // Collections, on a Tiro page (ADR 0029)
+  labelTiroPage: "Your Tiro",
+  tiroArticleIntro:
+    "This article is already in your vault. Choose its collections.",
+  tiroSiteIntro:
+    "This is a Tiro site. Open an article on it to add it to a collection.",
+  /** Favorites before the vault has a `favorites.md` to title it. */
+  favorites: "Favorites",
+  collectionsLabel: "Collections",
+  newCollectionPlaceholder: "New collection…",
+  newCollectionAdd: "Add",
+  clipAnyway: "Clip this page anyway",
+  collectionsPending: (n: number) =>
+    `${n === 1 ? "1 change" : `${n} changes`} not yet saved — saved when you close this popup.`,
+  collectionsSaving: "Saving to your vault…",
+  collectionsSyncNow: "Save now",
+  collectionsSaved: "Saved to your vault. The site updates in a minute or two.",
+  collectionsRefused: (n: number) =>
+    `${n === 1 ? "1 change was" : `${n} changes were`} dropped: that article is not in your vault.`,
+  collectionsFailed: (reason: string) =>
+    `Could not save: ${reason} Your changes are kept and will be retried.`,
 };
 
 export type Messages = typeof en;
@@ -324,6 +346,24 @@ const zh: Messages = {
   importNotPdf: "该文件不是 PDF。",
   importFailed: (detail: string) => `导入失败：${detail}`,
   importNeedsSettings: "请先填写并保存仓库设置。",
+
+  labelTiroPage: "你的 Tiro",
+  tiroArticleIntro: "这篇文章已在你的仓库中。选择它所属的合集。",
+  tiroSiteIntro: "这是一个 Tiro 站点。打开其中一篇文章即可加入合集。",
+  favorites: "收藏",
+  collectionsLabel: "合集",
+  newCollectionPlaceholder: "新建合集…",
+  newCollectionAdd: "添加",
+  clipAnyway: "仍要剪藏此页",
+  collectionsPending: (n: number) =>
+    `${n} 处改动尚未保存，关闭弹窗时自动保存。`,
+  collectionsSaving: "正在保存到仓库…",
+  collectionsSyncNow: "立即保存",
+  collectionsSaved: "已保存到仓库，站点将在一两分钟内更新。",
+  collectionsRefused: (n: number) =>
+    `${n} 处改动已丢弃：你的仓库中没有这篇文章。`,
+  collectionsFailed: (reason: string) =>
+    `保存失败：${reason} 改动已保留，稍后会重试。`,
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

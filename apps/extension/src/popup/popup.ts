@@ -4,7 +4,7 @@ import "@fontsource/spectral/latin-600.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "../ui/tokens.css";
 import "./popup.css";
-import { readingMinutes, slugForUrl } from "@tiro/shared";
+import { collectionId, readingMinutes, slugForUrl } from "@tiro/shared";
 import { buildClipFile, tabSourceUrl } from "../clip.ts";
 import {
   type ClipCandidate,
@@ -15,6 +15,8 @@ import {
   NO_FETCH,
   prefersCandidate,
 } from "../clip-candidate.ts";
+import { enqueue, type QueuedOp } from "../collection-queue.ts";
+import type { FlushReport } from "../collections-worker.ts";
 import { describeClipError } from "../errors.ts";
 import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
@@ -25,17 +27,32 @@ import {
   type Messages,
   messages,
 } from "../i18n.ts";
-import { type ClipResultMessage, isClipResult } from "../messages.ts";
+import {
+  type ClipResultMessage,
+  type CollectionMessage,
+  isClipResult,
+  POPUP_PORT,
+} from "../messages.ts";
 import {
   acceptDisclosure,
+  type FlushStatus,
   isConfigComplete,
   lastClippedAt,
+  loadCollectionQueue,
   loadConfig,
   loadDisclosure,
+  loadFlushStatus,
   needsDisclosure,
   recordClip,
 } from "../storage.ts";
+import { parseTiroPage, readTiroMarker, type TiroPage } from "../tiro-page.ts";
 import { countWords } from "../words.ts";
+import {
+  type CollectionsFooter,
+  type CollectionsView,
+  collectionsFooter,
+  collectionsView,
+} from "./collections-view.ts";
 import {
   articleUrl,
   type Phase,
@@ -82,6 +99,26 @@ const el = {
   open: document.getElementById("open") as HTMLAnchorElement,
   openHint: document.getElementById("open-hint") as HTMLParagraphElement,
   options: document.getElementById("options") as HTMLButtonElement,
+  collections: document.getElementById("collections") as HTMLElement,
+  collectionsIntro: document.getElementById(
+    "collections-intro",
+  ) as HTMLParagraphElement,
+  collectionList: document.getElementById(
+    "collection-list",
+  ) as HTMLUListElement,
+  collectionNew: document.getElementById("collection-new") as HTMLFormElement,
+  collectionNewTitle: document.getElementById(
+    "collection-new-title",
+  ) as HTMLInputElement,
+  collectionNewAdd: document.getElementById(
+    "collection-new-add",
+  ) as HTMLButtonElement,
+  clipAnyway: document.getElementById("clip-anyway") as HTMLButtonElement,
+  collectionSync: document.getElementById("collection-sync") as HTMLDivElement,
+  collectionSyncText: document.getElementById(
+    "collection-sync-text",
+  ) as HTMLParagraphElement,
+  syncNow: document.getElementById("sync-now") as HTMLButtonElement,
 };
 
 /** Paint a view. The only place the DOM is written after startup. */
@@ -122,6 +159,47 @@ function apply(view: PopupView): void {
   }
 }
 
+/** Paint the queue's status line. Shown on any page while something is
+ * pending, not only on a Tiro page. */
+function applyCollectionFooter(footer: CollectionsFooter | null): void {
+  el.collectionSync.hidden = footer === null;
+  if (footer === null) return;
+  el.collectionSyncText.textContent = footer.text;
+  el.collectionSyncText.dataset.tone = footer.tone;
+  el.syncNow.hidden = !footer.sync.visible;
+  el.syncNow.disabled = !footer.sync.enabled;
+}
+
+/** Paint the collections panel. Rows are rebuilt from the view each time —
+ * a handful of elements — and every title goes in as text: it came from a
+ * page, and any page can claim to be a Tiro page. */
+function applyCollections(view: CollectionsView): void {
+  el.collections.hidden = false;
+  el.collectionsIntro.textContent = view.intro;
+  el.collectionList.hidden = view.rows === null;
+  el.collectionNew.hidden = view.rows === null;
+  el.collectionList.replaceChildren(
+    ...(view.rows ?? []).map((row) => {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = row.checked;
+      input.dataset.id = row.id;
+      input.dataset.title = row.title;
+      const title = document.createElement("span");
+      title.className = "title";
+      title.textContent = row.title;
+      const label = document.createElement("label");
+      label.classList.toggle("favorite", row.favorite);
+      label.classList.toggle("pending", row.pending);
+      label.append(input, title);
+      const item = document.createElement("li");
+      item.append(label);
+      return item;
+    }),
+  );
+  applyCollectionFooter(view.footer);
+}
+
 el.options.addEventListener("click", () => {
   void chrome.runtime.openOptionsPage();
 });
@@ -139,6 +217,11 @@ function localize(locale: Locale, m: Messages): void {
   el.open.textContent = m.openInTiro;
   el.openHint.textContent = m.openHint;
   el.options.textContent = m.settingsLink;
+  el.collectionNewTitle.placeholder = m.newCollectionPlaceholder;
+  el.collectionNewAdd.textContent = m.newCollectionAdd;
+  el.collectionList.setAttribute("aria-label", m.collectionsLabel);
+  el.clipAnyway.textContent = m.clipAnyway;
+  el.syncNow.textContent = m.collectionsSyncNow;
 }
 
 /**
@@ -173,6 +256,19 @@ async function main(): Promise<void> {
     // the define is `false` and this branch, and the import, are removed.
     const params = new URLSearchParams(location.search);
     const name = params.get("state");
+    const collectionsName = params.get("collections");
+    if (collectionsName !== null) {
+      const locale: Locale = params.get("lang") === "zh" ? "zh" : "en";
+      const m = messages(locale);
+      localize(locale, m);
+      const { collectionFixtures } = await import("./fixtures.ts");
+      const fixture = collectionFixtures(m)[collectionsName];
+      el.label.textContent = m.labelTiroPage;
+      el.clip.hidden = true;
+      if (fixture !== undefined) applyCollections(collectionsView(fixture, m));
+      else el.label.textContent = `no fixture "${collectionsName}"`;
+      return;
+    }
     if (name !== null) {
       const locale: Locale = params.get("lang") === "zh" ? "zh" : "en";
       const m = messages(locale);
@@ -191,6 +287,134 @@ async function main(): Promise<void> {
 
   const configured = isConfigComplete(config);
   const homepage = chrome.runtime.getManifest().homepage_url;
+
+  /* ---------------------------------------------- collections (ADR 0029) */
+
+  /** This vault's queue as the popup last read it, or as it has just changed
+   * it. The worker holds the truth and is the only writer; this is a copy. */
+  let queue: QueuedOp[] = [];
+  let flushStatus: FlushStatus | null = null;
+  let syncing = false;
+  let report: FlushReport | null = null;
+  /** Set when the tab is a Tiro page and the popup is showing collections. */
+  let tiroPage: TiroPage | null = null;
+  /** Toggles sent and not yet answered. Re-reading the queue while one is in
+   * flight would paint the worker's state from *before* it, and a checkbox the
+   * reader just ticked would flick back. */
+  let inFlight = 0;
+
+  async function refreshQueue(): Promise<void> {
+    [queue, flushStatus] = await Promise.all([
+      loadCollectionQueue(config),
+      loadFlushStatus(config),
+    ]);
+  }
+  function paintCollections(): void {
+    const s = { queue, status: flushStatus, syncing, report };
+    if (tiroPage !== null) {
+      applyCollections(collectionsView({ page: tiroPage, ...s }, m));
+    } else {
+      applyCollectionFooter(collectionsFooter(s, m));
+    }
+  }
+  async function send(
+    message: CollectionMessage,
+  ): Promise<{ ok: boolean; result?: unknown } | undefined> {
+    return chrome.runtime.sendMessage(message);
+  }
+
+  async function toggle(
+    op: Extract<CollectionMessage, { type: "tiro-collection-toggle" }>["op"],
+  ): Promise<void> {
+    if (tiroPage?.kind !== "article") return;
+    const page = tiroPage;
+    const published = page.member.includes(op.collection);
+    // Drawn now, from the same function the worker will run, so the tick moves
+    // under the reader's finger rather than after a round trip.
+    queue = enqueue(queue, op, published);
+    report = null;
+    paintCollections();
+    inFlight += 1;
+    try {
+      await send({
+        type: "tiro-collection-toggle",
+        op,
+        published,
+        member: page.member,
+      });
+    } finally {
+      inFlight -= 1;
+      if (inFlight === 0) {
+        await refreshQueue();
+        paintCollections();
+      }
+    }
+  }
+
+  el.collectionList.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || tiroPage?.kind !== "article") {
+      return;
+    }
+    const collection = input.dataset.id ?? "";
+    // A title travels only with an op that may have to create the file — one
+    // for a collection the site has not published. A catalog entry already
+    // has its file, and its title there is the owner's.
+    const listed = tiroPage.catalog.some((entry) => entry.id === collection);
+    void toggle({
+      id: crypto.randomUUID(),
+      collection,
+      slug: tiroPage.slug,
+      action: input.checked ? "add" : "remove",
+      at: new Date().toISOString(),
+      ...(listed ? {} : { title: input.dataset.title ?? collection }),
+    });
+  });
+
+  el.collectionNew.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const title = el.collectionNewTitle.value.trim();
+    if (title === "" || tiroPage?.kind !== "article") return;
+    el.collectionNewTitle.value = "";
+    // Named after the typed title, the way the site will route it. A name that
+    // folds onto an existing collection simply adds to that one.
+    const collection = collectionId(title);
+    const listed = tiroPage.catalog.some((entry) => entry.id === collection);
+    void toggle({
+      id: crypto.randomUUID(),
+      collection,
+      slug: tiroPage.slug,
+      action: "add",
+      at: new Date().toISOString(),
+      ...(listed ? {} : { title }),
+    });
+  });
+
+  el.syncNow.addEventListener("click", () => {
+    void (async () => {
+      syncing = true;
+      paintCollections();
+      try {
+        const response = await send({ type: "tiro-collection-flush" });
+        report =
+          response?.ok === true
+            ? ((response.result as FlushReport | null) ?? null)
+            : null;
+      } finally {
+        syncing = false;
+        await refreshQueue();
+        paintCollections();
+      }
+    })();
+  });
+
+  if (configured) {
+    // Held for the popup's lifetime and never used for messages: its
+    // disconnect, when the popup closes, is what tells the worker to flush.
+    chrome.runtime.connect({ name: POPUP_PORT });
+    await refreshQueue();
+    paintCollections();
+  }
 
   let result: ClipResultMessage["payload"] | null = null;
   let clippedAt: string | null = null;
@@ -611,7 +835,57 @@ async function main(): Promise<void> {
   // the popup does nothing at all before consent. Awaiting the lookup before
   // extraction means the clip-result listener always sees it settled. The
   // clip flow's own GitHub lookup stays the authority on overwrite-vs-create.
+  /** The reader chose "Clip this page anyway" on a Tiro page. */
+  let clipRequested = false;
+
+  /** The tab as a Tiro page, or null for an ordinary one — including any page
+   * the marker cannot be read from, which then clips exactly as before. */
+  async function detectTiroPage(): Promise<TiroPage | null> {
+    try {
+      const [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: readTiroMarker,
+      });
+      return parseTiroPage(injection?.result);
+    } catch {
+      return null;
+    }
+  }
+
+  function enterCollections(page: TiroPage): void {
+    tiroPage = page;
+    el.label.textContent = m.labelTiroPage;
+    el.label.dataset.tone = "neutral";
+    // The reader's own site: there is nothing here to clip, so the clip
+    // controls go rather than sit disabled beside the toggles.
+    el.clip.hidden = true;
+    el.sourceFetch.hidden = true;
+    el.loading.hidden = true;
+    el.message.hidden = true;
+    paintCollections();
+  }
+
+  el.clipAnyway.addEventListener("click", () => {
+    clipRequested = true;
+    tiroPage = null;
+    el.collections.hidden = true;
+    el.clip.hidden = false;
+    render();
+    paintCollections();
+    void prepare();
+  });
+
   async function prepare(): Promise<void> {
+    // Before anything is read for a preview. On a Tiro page the popup edits
+    // collections instead of clipping, and recognizing one takes two DOM reads
+    // in the tab — the same page read the disclosure already covers.
+    if (configured && !clipRequested) {
+      const page = await detectTiroPage();
+      if (page !== null) {
+        enterCollections(page);
+        return;
+      }
+    }
     try {
       const slug = await slugForUrl(tabUrl);
       clippedAt = await lastClippedAt(config, slug);

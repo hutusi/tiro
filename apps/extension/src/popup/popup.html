@@ -53,6 +53,28 @@
       </p>
     </section>
 
+    <!-- A Tiro page (ADR 0029): collections instead of a clip. Its rows are
+      built from the page's own catalog, so the list is empty in the markup. -->
+    <section id="collections" hidden>
+      <p id="collections-intro" class="note"></p>
+      <ul id="collection-list"></ul>
+      <form id="collection-new">
+        <input
+          id="collection-new-title"
+          type="text"
+          maxlength="80"
+          autocomplete="off"
+          placeholder="New collection…"
+        />
+        <button id="collection-new-add" type="submit" class="btn btn-secondary">
+          Add
+        </button>
+      </form>
+      <button id="clip-anyway" type="button" class="linklike">
+        Clip this page anyway
+      </button>
+    </section>
+
     <div id="progress" hidden aria-live="polite">
       <div class="track" aria-hidden="true"></div>
       <p id="progress-caption" class="note"></p>
@@ -90,6 +112,15 @@
       </button>
       <button id="clip" type="button" class="btn btn-primary" disabled>
         Clip to vault
+      </button>
+    </div>
+
+    <!-- Pending collection changes, on any page: a queue that could only be
+      seen from a Tiro page would be one the reader loses track of. -->
+    <div id="collection-sync" hidden aria-live="polite">
+      <p id="collection-sync-text" data-tone="neutral"></p>
+      <button id="sync-now" type="button" class="btn btn-secondary">
+        Save now
       </button>
     </div>
 

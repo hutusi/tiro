@@ -28,3 +28,28 @@ export function describeClipError(error: unknown, m: Messages): string {
   }
   return m.errClipFailed(String(error));
 }
+
+/**
+ * A failed collection flush, phrased the way a failed clip is.
+ *
+ * The worker records the failure as data — it has no locale — and the popup
+ * that next opens turns it into a sentence. Rebuilt into the error shapes
+ * `describeClipError` already knows, so a bad token reads the same whichever
+ * action ran into it.
+ */
+export function describeFlushError(
+  status: { error?: string; httpStatus?: number },
+  m: Messages,
+): string {
+  const detail = status.error ?? "";
+  if (status.httpStatus !== undefined) {
+    return describeClipError(new GitHubHttpError(status.httpStatus, detail), m);
+  }
+  if (detail === "Failed to fetch") {
+    return describeClipError(new TypeError(detail), m);
+  }
+  // Not the clip fallback, which would say the page could not be *clipped*.
+  // What is left is a collection file the vault holds and this cannot parse,
+  // or a branch that kept moving — both say what they are.
+  return `${detail}.`;
+}

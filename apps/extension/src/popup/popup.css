@@ -103,3 +103,107 @@ body {
   padding-top: 10px;
   border-top: 1px solid var(--rule);
 }
+
+/* ------------------------------------------------ collections (ADR 0029) */
+
+#collections {
+  margin-top: 12px;
+}
+#collection-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+#collection-list li {
+  border-bottom: 1px solid var(--rule);
+}
+#collection-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 2px;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  /* A collection title is the owner's own and may be long. */
+  overflow-wrap: anywhere;
+}
+/* tokens.css sizes every `input` as a full-width text field, which is right
+   for the options page and turns a checkbox into a 340px-wide box here. */
+#collection-list input {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+#collection-list .title {
+  flex: 1;
+}
+/* Favorites carries the one mark it has on the site: the star it is known by. */
+#collection-list .favorite .title::before {
+  content: "★ ";
+  color: var(--accent);
+}
+/* Changed here, not in the vault yet. A dot rather than a word: the footer
+   already says how many, and a label per row would crowd a 340px popup. */
+#collection-list .pending::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+#collection-new {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+#collection-new input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+/* `.btn` grows (`flex: 1`) so paired actions split the popup; beside a text
+   field the field should get the room. */
+#collection-new .btn,
+#collection-sync .btn {
+  flex: none;
+}
+#clip-anyway {
+  margin-top: 12px;
+  font-size: 12px;
+}
+#collection-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+/* `body [hidden]` in tokens.css is outranked by an id selector, so the two
+   flex containers here restate it. */
+#collection-new[hidden],
+#collection-sync[hidden] {
+  display: none;
+}
+#collection-sync-text {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+/* Only the neutral tone is set here. An id selector outranks tokens.css's
+   `[data-tone]` colours, so colouring the element outright painted a failed
+   save in the same grey as a pending one. */
+#collection-sync-text[data-tone="neutral"] {
+  color: var(--ink-soft);
+}
+/* Disabled while a save is in flight. Scoped here rather than added to
+   `.btn-secondary` in tokens.css, which the options page shares. */
+#sync-now:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
