@@ -273,7 +273,7 @@ const mainClass = [
         !isReader && "sticky top-0 z-20",
       ]}
     >
-      <div class="flex h-14 items-center gap-4 px-[var(--gutter)] sm:gap-7">
+      <div class="flex h-14 items-center gap-3 px-[var(--gutter)] sm:gap-7">
         <a href="/" class="inline-flex items-baseline gap-2 text-ink">
           <span class="logo-bars" aria-hidden="true"><i></i><i></i></span>
           <span class="text-[21px] font-semibold tracking-[-0.01em]"
@@ -290,7 +290,7 @@ const mainClass = [
                 href={item.href}
                 aria-current={item.active ? "page" : undefined}
                 class:list={[
-                  "rounded-md px-2.5 py-1.5 transition-colors sm:px-3",
+                  "whitespace-nowrap rounded-md px-2 py-1.5 transition-colors sm:px-3",
                   item.active
                     ? "bg-chip text-ink"
                     : "text-ink-soft hover:bg-wash hover:text-ink",
@@ -303,16 +303,27 @@ const mainClass = [
         </nav>
         {
           /* Hidden below 360px: the header is one non-wrapping flex row, and
-            measured against this nav (Tiro + 首页/搜索与标签/设置) the button
-            overflows under 355px, wrapping 搜索与标签 onto a second line.
-            360 keeps the button on every phone still in use and costs it only
-            on 320px-class screens; the alternative was shrinking the padding,
-            both gaps and the nav links to buy 35px, which taxes the real nav
-            for an outbound link. (That 355px was measured when the nav was
-            14px serif; the UI sans at 13.5px is narrower, so the guard is now
-            conservative rather than tight.) The paper switch inside is `sm`-gated anyway,
-            so the whole group goes — leaving an empty `ml-auto` box behind
-            would still cost a 16px gap. */
+            the button is what overflows it first. 360 keeps it on every phone
+            still in use and costs it only on 320px-class screens.
+
+            The nav's fourth item (合集) is what made the phone-only tightening
+            above necessary — `gap-3` on this bar and `px-2` on the links,
+            against `gap-4`/`px-2.5` before. Measured at 13.5px UI sans: four
+            no-wrap items plus the brand want 382px with this button and 334px
+            without, so at 360 and 375 the row was over by 22px and 7px. The
+            tightening buys 24px, which clears both and 320 as well, and it
+            keeps the button at 360 rather than pushing its breakpoint to 390
+            and losing it on every 375px-class phone.
+
+            `whitespace-nowrap` on the links is not an optimization: without it
+            nothing overflows, because each label breaks *per character*
+            instead — 搜索与标签 over two lines, which is how this went wrong
+            the first time. An overflow is visible in a measurement; a
+            character-wrapped nav is only visible in a screenshot.
+
+            The paper switch inside is `sm`-gated anyway, so the whole group
+            goes — leaving an empty `ml-auto` box behind would still cost a
+            16px gap. */
         }
         <div
           class="ml-auto hidden items-center gap-2 min-[360px]:flex sm:gap-4"
