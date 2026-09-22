@@ -7,8 +7,11 @@ export const TIRO_SCHEMA_VERSION = 1;
  * YAML 1.1 parsers (e.g. js-yaml) turn unquoted ISO timestamps into Date
  * objects; the `yaml` package keeps them strings. Accept both and normalize
  * to an ISO string so hand-edited vault files can't break the schema.
+ *
+ * Exported because the collection schema needs the same leniency for the same
+ * reason, and a second copy would be free to drift from this one.
  */
-const isoDatetime = z.preprocess(
+export const isoDatetime = z.preprocess(
   (v) => (v instanceof Date ? v.toISOString() : v),
   z.iso.datetime({ offset: true }),
 );
@@ -258,7 +261,15 @@ export interface ParsedArticle {
   body: string;
 }
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+/**
+ * The leading frontmatter fence, captured group 1 being the YAML inside.
+ *
+ * Exported for the collection reader, which is a different document with the
+ * same fence. `frontmatterLength`'s comment below says why there is exactly
+ * one of these: a second copy drifted on `\r\n`, and a repair then read an
+ * article's YAML as prose and refused the article as misaligned.
+ */
+export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
 /**
  * Length of the leading frontmatter block, delimiters included, or null when

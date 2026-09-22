@@ -6,6 +6,7 @@
  */
 export * from "./blocks.ts";
 export * from "./canonical-url.ts";
+export * from "./collections.ts";
 export * from "./detect-language.ts";
 export * from "./emphasis.ts";
 export * from "./frontmatter.ts";

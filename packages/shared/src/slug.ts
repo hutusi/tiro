@@ -184,3 +184,39 @@ function truncateUtf8(text: string, maxBytes: number): string {
   }
   return out;
 }
+
+/** Cap for the readable part of a collection id, before any hash suffix.
+ * ASCII-only, so characters and bytes are the same thing here. */
+const COLLECTION_ID_MAX = 60;
+
+/** A well-formed collection id: lowercase ASCII words joined by single
+ * dashes. Anchored, and it rejects the leading, trailing and doubled dashes
+ * `collectionId` never produces — a hand-made file is held to the same rule,
+ * because the id is a filename *and* a URL path segment. */
+const COLLECTION_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export function isValidCollectionId(id: string): boolean {
+  return id.length <= COLLECTION_ID_MAX + 9 && COLLECTION_ID_RE.test(id);
+}
+
+/**
+ * A collection's id, derived from the name the owner typed.
+ *
+ * ASCII-folded unlike `tagSlug`, which keeps non-ASCII on purpose. The
+ * difference is that a tag slug is only ever a URL path, while this is also a
+ * **filename** in a repository cloned onto macOS, Linux and CI alike — and a
+ * non-ASCII filename normalizes differently between them (NFD vs NFC), which
+ * turns one collection into two the first time a machine disagrees.
+ *
+ * So a Chinese name folds to nothing and falls back to a hash. That is not a
+ * degradation: the display name lives in the frontmatter `title`, and the id
+ * is only ever seen in a URL.
+ */
+export function collectionId(title: string): string {
+  const base = slugify(title);
+  if (base === "") return `collection-${shortHash(title)}`;
+  if (base.length <= COLLECTION_ID_MAX) return base;
+  // Same shape as slugForUrl and tagSlug: a readable base plus a hash of the
+  // whole input, so two long names sharing a prefix stay distinct.
+  return `${base.slice(0, COLLECTION_ID_MAX).replace(/-+$/, "")}-${shortHash(title)}`;
+}
