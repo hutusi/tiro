@@ -29,6 +29,7 @@ describe("validateVault", () => {
     const report = await validateVault(vault);
     expect(report.errors).toEqual([]);
     expect(report.articles).toBe(8);
+    expect(report.collections).toBe(3);
     rmSync(vault, { recursive: true, force: true });
   });
 
@@ -112,6 +113,90 @@ describe("validateVault", () => {
     // at it yet, so demanding a translation would fail every fresh vault.
     const report = await validateVault(vault);
     expect(report.errors.filter((e) => e.includes(RAW))).toEqual([]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+});
+
+describe("validateVault on collections", () => {
+  function withCollection(name: string, text: string): string {
+    const vault = freshVault();
+    writeFileSync(join(vault, "collections", name), text);
+    return vault;
+  }
+  const valid = (items: string) =>
+    `---\ntitle: "X"\nitems:\n${items}tiro:\n  schema: 1\n---\n`;
+
+  test("a vault that has never had a collection is fine", async () => {
+    const vault = freshVault();
+    rmSync(join(vault, "collections"), { recursive: true, force: true });
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([]);
+    expect(report.collections).toBe(0);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a member with no article behind it", async () => {
+    const vault = withCollection(
+      "reading.md",
+      valid(`  - slug: "${EN}"\n  - slug: "gone-deadbeef"\n`),
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([
+      "collections/reading.md: gone-deadbeef is not an article in this vault",
+    ]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("a member whose article failed to parse is still reported", async () => {
+    const vault = withCollection("reading.md", valid(`  - slug: "${RAW}"\n`));
+    writeFileSync(join(vault, "articles", RAW, "index.md"), "no frontmatter\n");
+    const report = await validateVault(vault);
+    expect(report.errors).toContain(
+      `collections/reading.md: ${RAW} is not an article in this vault`,
+    );
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a member listed twice", async () => {
+    const vault = withCollection(
+      "reading.md",
+      valid(`  - slug: "${EN}"\n  - slug: "${CN}"\n  - slug: "${EN}"\n`),
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([
+      `collections/reading.md: ${EN} is listed more than once`,
+    ]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a filename that cannot be an id", async () => {
+    const vault = withCollection("Reading List.md", valid(""));
+    const report = await validateVault(vault);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toContain("is not a usable collection id");
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a collection that does not parse", async () => {
+    const vault = withCollection(
+      "reading.md",
+      "---\ntiro:\n  schema: 1\n---\n",
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toStartWith("collections/reading.md:");
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a file the site would never read", async () => {
+    const vault = withCollection("reading.yml", "title: X\n");
+    mkdirSync(join(vault, "collections", "nested"));
+    writeFileSync(join(vault, "collections", "nested", "x.md"), valid(""));
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([
+      "collections/nested/x.md: not a collection, expected collections/<id>.md",
+      "collections/reading.yml: not a collection, expected collections/<id>.md",
+    ]);
     rmSync(vault, { recursive: true, force: true });
   });
 });

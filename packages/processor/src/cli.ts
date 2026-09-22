@@ -143,7 +143,7 @@ async function validate(vault: string): Promise<number> {
   const report = await validateVault(vault);
   for (const error of report.errors) console.error(error);
   console.log(
-    `validated ${report.articles} article(s), ${report.errors.length} error(s)`,
+    `validated ${report.articles} article(s), ${report.collections} collection(s), ${report.errors.length} error(s)`,
   );
   return report.errors.length > 0 ? 1 : 0;
 }
