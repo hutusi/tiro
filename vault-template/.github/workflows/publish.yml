@@ -1,0 +1,34 @@
+name: Publish collections
+
+# A collection edit changes nothing the processor reads — it has no LLM work to
+# do and must never start any (ADR 0029). But `process.yml` is otherwise the
+# only thing that tells the site to rebuild, and it neither runs on a push
+# outside `articles/**` nor dispatches when it commits nothing. Without this, a
+# favorite would sit in the vault and never reach the site.
+on:
+  push:
+    branches: [main]
+    paths: ["collections/**"]
+  workflow_dispatch:
+
+# A burst of edits collapses: the deploy only has to learn that *something*
+# changed, and the site's own `deploy` group already cancels a stale build in
+# favour of the newest. Nothing here is expensive to throw away.
+concurrency:
+  group: tiro-publish
+  cancel-in-progress: true
+
+# Reads nothing, writes nothing: the only credential used is the dispatch PAT.
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger site deploy
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
+          repository: hutusi/tiro
+          event-type: vault-updated

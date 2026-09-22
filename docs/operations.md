@@ -9,6 +9,7 @@ Day-2 operations for the running Tiro system.
 | Live site | <https://tiro.ainaive.com/> (Cloudflare Pages project `tiro`, direct upload) |
 | Content vault | <https://github.com/hutusi/tiro-vault> (private) |
 | Processing workflow | tiro-vault → Actions → "Process articles" |
+| Publish workflow | tiro-vault → Actions → "Publish collections" |
 | Deploy workflow | tiro → Actions → "Deploy site" |
 | LLM config | `config/tiro.yml` in the vault |
 
@@ -20,7 +21,7 @@ failing with 401/404, check these first and rotate.
 | Secret | Lives in | Scope | Purpose |
 | --- | --- | --- | --- |
 | `TIRO_LLM_API_KEY` | tiro-vault | Bailian API key | LLM calls |
-| `TIRO_DISPATCH_TOKEN` | tiro-vault | PAT: `tiro`, Contents RW | fire `repository_dispatch` after processing |
+| `TIRO_DISPATCH_TOKEN` | tiro-vault | PAT: `tiro`, Contents RW | fire `repository_dispatch` after processing, and on a collections push |
 | `VAULT_READ_TOKEN` | tiro | PAT: `tiro-vault`, Contents R | deploy checks out the private vault |
 | `CLOUDFLARE_API_TOKEN` | tiro | Account → Cloudflare Pages: Edit | `wrangler pages deploy` |
 | `CLOUDFLARE_ACCOUNT_ID` | tiro | (not sensitive) | wrangler target account |
@@ -358,13 +359,42 @@ devDependencies — the action must log "using pre-installed wrangler".
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something
   has to take effect even when it is the last listed thing.
-- **A vault push alone does not redeploy.** It starts the vault's
-  `process.yml`, but that workflow only dispatches `vault-updated` when its
-  commit step actually committed something (`steps.commit.outputs.committed ==
-  'true'`). An edit with nothing pending to process commits nothing, so the
-  site keeps serving the old build until a deploy is dispatched by hand
-  (Actions → Deploy site → Run workflow) or some push to `hutusi/tiro` main
-  triggers one. This applies to every vault-only edit below.
+- **A vault push alone does not redeploy — except under `collections/`.** It
+  starts the vault's `process.yml`, but that workflow only dispatches
+  `vault-updated` when its commit step actually committed something
+  (`steps.commit.outputs.committed == 'true'`). An edit with nothing pending to
+  process commits nothing, so the site keeps serving the old build until a
+  deploy is dispatched by hand (Actions → Deploy site → Run workflow) or some
+  push to `hutusi/tiro` main triggers one. This applies to every vault-only
+  edit below. A push touching `collections/**` is the exception: the vault's
+  `publish.yml` dispatches on it directly (ADR 0029).
+- **Collections** (ADR 0029): one file per collection at
+  `collections/<id>.md`, the filename being the id — lowercase ASCII words
+  joined by single dashes, because it is a filename and a URL. Favorites is
+  `collections/favorites.md`. The smallest valid one is a title and a list:
+
+  ```yaml
+  ---
+  title: "重读清单"
+  items:
+    - slug: "example-com-posts-hello-ai-e8446b12"
+  tiro:
+    schema: 1
+  ---
+  ```
+
+  Items render in file order, so reorder by moving lines. Push, and
+  `publish.yml` redeploys; `process.yml` never runs for it, so no model call is
+  spent. Run `validate` first — it catches an unusable filename, a member
+  listed twice, and a member with no article behind it, which the site would
+  otherwise skip in silence.
+  - **An unlisted member is left off the collection's page** (ADR 0017), though
+    the article's own page still shows the chip. Empty collections are listed.
+  - **Deleting an article now has a second step**: drop it from any collection
+    that names it. `validate` lists them.
+  - `publish.yml` ships in `vault-template/`, which does not propagate — copy it
+    into the live vault by hand. Without it a collections push stays unpublished
+    until the next deploy from anywhere else.
 - Deleting an article: remove its directory from the vault and push. The whole
   article is in that directory — `index.md`, `zh.md`, `assets/` and the
   `.tiro-zh-cache.json` checkpoint — and nothing outside it refers to the
@@ -508,6 +538,11 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
 - **An existing target is refused, not renamed onto** — `rename` nests the
   source inside an existing directory rather than failing. The run reports it
   and exits non-zero.
+- **Collections move with their members** (ADR 0029). Every collection naming a
+  moved slug is rewritten to the new one in the same write, keeping the
+  member's place and date; the report says `carries membership in …`. An
+  unreadable collection stops the run before anything moves — fix it first,
+  or its members would be stranded.
 
 ## Extension
 

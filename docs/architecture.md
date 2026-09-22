@@ -12,6 +12,8 @@ flowchart LR
         MD[articles/&lt;slug&gt;/index.md]
         ZH[zh.md + assets/]
         WF[process.yml\nGitHub Actions]
+        COL[collections/&lt;id&gt;.md]
+        PUB[publish.yml]
     end
     subgraph tiro
         PROC[packages/processor\nLLM pipeline]
@@ -24,6 +26,8 @@ flowchart LR
     WF -- "runs" --> PROC
     PROC -- "commit back" --> ZH
     WF -- "repository_dispatch" --> SITE
+    COL -- "push triggers" --> PUB
+    PUB -- "repository_dispatch" --> SITE
     SITE -- "wrangler pages deploy" --> CF
 ```
 
@@ -280,6 +284,19 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   and slugs are deterministic (ADR 0007), so this hides an article from anyone
   browsing, not from anyone who knows the source URL: it is not access control.
   Optional and additive, so no `tiro.schema` bump.
+- **Collections are the owner's, not the pipeline's** (ADR 0029). One file per
+  collection at `collections/<id>.md`, the filename stem being the id, holding
+  an ordered list of member slugs; favorites is the reserved id `favorites`.
+  They are the vault's only cross-reference — a collection names articles —
+  so `validate` checks every member exists and `sweep --recanonicalize`
+  rewrites memberships when it moves a slug. Nothing in the processor sees
+  them: every glob it runs is rooted at `articles/`, and a collections push
+  triggers the vault's `publish.yml`, which only dispatches a deploy. The site
+  joins members through the listed funnel, so an unlisted article stays off a
+  public collection page while its own page still shows its chips. Every page
+  carries a `tiro:site` meta and article pages a `#tiro-page` JSON island (slug,
+  memberships, catalog), which is how the clipper recognizes a Tiro page on any
+  domain.
 - **Math is declared, not guessed**: the optional `has_math` flag records that
   the clipper escaped every literal `$` in the article's prose, so every bare
   `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;
@@ -296,7 +313,7 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 | --- | --- | --- |
 | Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
 | tiro-vault Actions | `TIRO_LLM_API_KEY` | LLM calls |
-| tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch |
+| tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch, from `process.yml` and `publish.yml` |
 | tiro Actions | `VAULT_READ_TOKEN` (tiro-vault, Contents R; only if vault is private) | deploy checkout |
 | tiro Actions | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Pages deploy |
 

@@ -9,8 +9,10 @@ their Chinese translations, and the processing workflow.
 articles/<slug>/index.md   # original article + frontmatter
 articles/<slug>/zh.md      # paragraph-aligned Chinese translation
 articles/<slug>/assets/    # images downloaded by the workflow
+collections/<id>.md               # a hand-picked list of articles (favorites.md is one)
 config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
+.github/workflows/publish.yml     # redeploys the site when a collection changes
 ```
 
 Articles arrive via the Tiro Chrome extension; the workflow summarizes, tags,
@@ -29,6 +31,13 @@ misaligned — resuming from the blocks that broke alignment would make a
 recoverable fault permanent. Leave these files alone; expect them in `git log`,
 and expect them to come to roughly 1% of the vault's size.
 
+Collections are the one part of the vault a person writes rather than a
+machine. Each file is a title and an ordered list of article slugs; the
+filename is the id, so keep it to lowercase ASCII words joined by dashes. A
+push under `collections/` redeploys the site through `publish.yml` and never
+starts processing. Delete an article and you must also drop it from any
+collection that lists it — `tiro-process validate` reports which.
+
 ## Setup
 
 1. Create a new GitHub repository (e.g. `tiro-vault`) and copy the contents
@@ -44,7 +53,7 @@ and expect them to come to roughly 1% of the vault's size.
      `env:` key in `.github/workflows/process.yml` — the workflow exports one
      fixed name, while the processor reads whichever name the config gives, so
      changing only the first two fails with `missing API key`.
-   - `TIRO_DISPATCH_TOKEN` — a fine-grained PAT that lets the workflow ping
+   - `TIRO_DISPATCH_TOKEN` — a fine-grained PAT that lets both workflows ping
      the site repo to redeploy: token scoped to the `tiro` repository with
      **Contents: Read and write** permission.
 4. For the Chrome extension, create another fine-grained PAT scoped to
