@@ -21,7 +21,7 @@ across machines, not for an audience.
 
 **Short description** (132 char limit):
 
-> Clip the page you're reading as clean Markdown, committed straight to a GitHub repository you own. No server in the middle.
+> Clip the page you're reading, or a PDF, as clean Markdown, committed straight to a GitHub repository you own. No server in between.
 
 **Detailed description**:
 
@@ -41,6 +41,12 @@ across machines, not for an audience.
 >   permission for arxiv.org, which Chrome asks for the first time and never
 >   before. Papers arXiv could not convert to HTML are clipped from their
 >   abstract page instead.
+> - PDFs are not a dead end. Clip a PDF you are viewing and Tiro saves its
+>   address; the text is read from the document afterwards, by the open-source
+>   processor in your own repository, not by the extension. A PDF already on
+>   your computer can be imported straight from Settings without going through
+>   a web address at all. Where the document's own typography says what its
+>   structure is, the headings, code blocks and lists come from that.
 > - Nothing is read in the background. A page is read only when you open the
 >   Tiro popup on it, to build the preview — and on first run, only after you
 >   agree to the disclosure the popup shows you. Close it without clipping and
@@ -56,8 +62,9 @@ across machines, not for an audience.
 
 ## Single purpose
 
-> Save the current web page into a user-specified GitHub repository as a
-> Markdown file.
+> Save a document the user chooses — the web page they are on, or a PDF on
+> their own computer — into a user-specified GitHub repository as a Markdown
+> file.
 
 ## Permission justifications
 
@@ -108,19 +115,27 @@ repository — a declaration that reads narrower than the code is a rejection.
   in each case whether or not the user goes on to clip it. Google's definition
   covers "the domains or URLs the browser interacts with" and publishes no
   carve-out for a URL the user deliberately saves, nor for one fetched to build a
-  preview, so all of them are declared rather than argued.
+  preview, so all of them are declared rather than argued. An imported local
+  document has no URL; it is filed under a `local:` address built from the
+  filename, which is not browsing history but does become the article's public
+  name in the user's repository.
 - **Personal communications, location, user activity**: No
 - **Website content**: **Yes** — the text of a page, read when the user opens
   the popup on it, and transmitted only if they then clip it, only to their own
-  GitHub repository.
+  GitHub repository. The same declaration is stretched to cover a PDF the user
+  imports from their own computer, whose text the extension reads in the page
+  and commits the same way. That file is not website content and Google
+  publishes no category that fits it, so it is declared here rather than left
+  undeclared — the file is chosen by the user in a file picker, read in the
+  browser, and sent nowhere but their own repository.
 
 **How consent is obtained**: on first use the popup shows a disclosure panel
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 3, having been bumped when the disclosure
-gained the optional arxiv.org fetch and again when it gained opt-in settings
-sync.
+this disclosure ever changes; it is at 4, having been bumped when the disclosure
+gained the optional arxiv.org fetch, again when it gained opt-in settings sync,
+and again when it gained the raw.githubusercontent.com fetch.
 
 Required certifications, all true of this extension:
 
