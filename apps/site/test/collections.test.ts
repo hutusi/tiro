@@ -203,7 +203,7 @@ describe("a collection file the site cannot use", () => {
       resetVaultCache();
 
       // Skipping it silently would drop a curated list and report success.
-      expect(getCollections()).rejects.toThrow("broken.md");
+      await expect(getCollections()).rejects.toThrow("broken.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -216,7 +216,7 @@ describe("a collection file the site cannot use", () => {
       writeCollection(dir, "Favorites", 'title: "收藏"\n');
       resetVaultCache();
 
-      expect(getCollections()).rejects.toThrow("collection id");
+      await expect(getCollections()).rejects.toThrow("collection id");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
