@@ -1,0 +1,166 @@
+import { describe, expect, test } from "bun:test";
+import { commitFiles, GitHubHttpError } from "../src/github.ts";
+import type { TiroExtensionConfig } from "../src/storage.ts";
+import { fakeGitHub } from "./fake-github.ts";
+
+const config: TiroExtensionConfig = {
+  owner: "o",
+  repo: "r",
+  branch: "main",
+  token: "t",
+};
+
+describe("commitFiles", () => {
+  test("writes several files as one commit", async () => {
+    const gh = fakeGitHub({ "articles/a/index.md": "A" });
+    const result = await commitFiles(
+      config,
+      {
+        message: "collections: 2 changes",
+        build: async () => [
+          { path: "collections/favorites.md", content: "fav" },
+          { path: "collections/reading.md", content: "read" },
+        ],
+      },
+      gh.fetch,
+    );
+    expect(result.committed).not.toBeNull();
+    expect(gh.log()).toEqual(["root", "collections: 2 changes"]);
+    expect(gh.files().get("collections/favorites.md")).toBe("fav");
+    expect(gh.files().get("collections/reading.md")).toBe("read");
+    // Untouched files survive: the tree is built on the head's, not from scratch.
+    expect(gh.files().get("articles/a/index.md")).toBe("A");
+  });
+
+  test("builds against the head it parents on", async () => {
+    const gh = fakeGitHub({ "collections/favorites.md": "v1" });
+    let seen = null as string | null;
+    await commitFiles(
+      config,
+      {
+        message: "m",
+        build: async (reader) => {
+          seen = await reader.read("collections/favorites.md");
+          return [{ path: "collections/favorites.md", content: `${seen}+` }];
+        },
+      },
+      gh.fetch,
+    );
+    expect(seen).toBe("v1");
+    expect(gh.files().get("collections/favorites.md")).toBe("v1+");
+  });
+
+  test("nothing to write makes no commit at all", async () => {
+    const gh = fakeGitHub({});
+    const result = await commitFiles(
+      config,
+      { message: "m", build: async () => null },
+      gh.fetch,
+    );
+    expect(result.committed).toBeNull();
+    expect(gh.log()).toEqual(["root"]);
+    expect(gh.requests.some((r) => r.startsWith("POST"))).toBe(false);
+  });
+
+  // The processing workflow commits back on its own schedule. A write that
+  // raced it must rebuild from what it left, not overwrite it with a tree
+  // computed before it landed.
+  test("rebuilds on the new head when another commit lands first", async () => {
+    const gh = fakeGitHub({ "collections/favorites.md": "v1" });
+    let raced = false;
+    gh.onBeforePatch = () => {
+      if (raced) return;
+      raced = true;
+      gh.commitDirect(
+        { "collections/favorites.md": "v2", "articles/b/index.md": "B" },
+        "processor",
+      );
+    };
+    const builtFrom: (string | null)[] = [];
+    await commitFiles(
+      config,
+      {
+        message: "mine",
+        build: async (reader) => {
+          const current = await reader.read("collections/favorites.md");
+          builtFrom.push(current);
+          return [{ path: "collections/favorites.md", content: `${current}+` }];
+        },
+      },
+      gh.fetch,
+    );
+    expect(builtFrom).toEqual(["v1", "v2"]);
+    expect(gh.log()).toEqual(["root", "processor", "mine"]);
+    expect(gh.files().get("collections/favorites.md")).toBe("v2+");
+    expect(gh.files().get("articles/b/index.md")).toBe("B");
+  });
+
+  test("an empty list is nothing to write, too", async () => {
+    const gh = fakeGitHub({});
+    const result = await commitFiles(
+      config,
+      { message: "m", build: async () => [] },
+      gh.fetch,
+    );
+    expect(result.committed).toBeNull();
+    expect(gh.log()).toEqual(["root"]);
+  });
+
+  test("never forces the ref", async () => {
+    const gh = fakeGitHub({});
+    const bodies: unknown[] = [];
+    const spy: typeof gh.fetch = async (input, init) => {
+      if (init?.method === "PATCH") bodies.push(JSON.parse(String(init.body)));
+      return gh.fetch(input, init);
+    };
+    await commitFiles(
+      config,
+      { message: "m", build: async () => [{ path: "x", content: "y" }] },
+      spy,
+    );
+    expect(bodies).toEqual([expect.objectContaining({ force: false })]);
+  });
+
+  test("gives up on a branch that keeps moving, and says so", async () => {
+    const gh = fakeGitHub({});
+    gh.onBeforePatch = () => gh.commitDirect({ noise: String(Math.random()) });
+    const run = commitFiles(
+      config,
+      {
+        message: "m",
+        build: async () => [{ path: "x", content: "y" }],
+        attempts: 2,
+      },
+      gh.fetch,
+    );
+    await expect(run).rejects.toBeInstanceOf(GitHubHttpError);
+    expect(gh.files().has("x")).toBe(false);
+  });
+
+  test("a missing file reads as null and a directory as existing", async () => {
+    const gh = fakeGitHub({ "articles/a-1234abcd/index.md": "A" });
+    await commitFiles(
+      config,
+      {
+        message: "m",
+        build: async (reader) => {
+          expect(await reader.read("collections/nope.md")).toBeNull();
+          expect(await reader.exists("articles/a-1234abcd")).toBe(true);
+          expect(await reader.exists("articles/gone-1234abcd")).toBe(false);
+          return null;
+        },
+      },
+      gh.fetch,
+    );
+  });
+
+  test("a branch with a slash is addressed segment by segment", async () => {
+    const gh = fakeGitHub({}, "feature/x");
+    const result = await commitFiles(
+      { ...config, branch: "feature/x" },
+      { message: "m", build: async () => [{ path: "x", content: "y" }] },
+      gh.fetch,
+    );
+    expect(result.committed).not.toBeNull();
+  });
+});

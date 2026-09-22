@@ -301,3 +301,212 @@ async function freshSha(
     ? ((await res.json()) as { sha?: string }).sha
     : undefined;
 }
+
+/* ------------------------------------------------ multi-file commits (ADR 0029) */
+
+/** A branch as it appears in a ref path. Its slashes are structure — a branch
+ * `feature/x` is `heads/feature/x` — so each segment is encoded, not the whole. */
+function refPath(branch: string): string {
+  return branch.split("/").map(encodeURIComponent).join("/");
+}
+
+function contentsUrl(
+  config: TiroExtensionConfig,
+  path: string,
+  ref: string,
+): string {
+  return `${API}/repos/${config.owner}/${config.repo}/contents/${refPath(path)}?ref=${encodeURIComponent(ref)}`;
+}
+
+async function expectOk(res: Response, doing: string): Promise<Response> {
+  if (!res.ok) {
+    throw new GitHubHttpError(
+      res.status,
+      `${doing} failed: ${res.status} ${await res.text()}`,
+    );
+  }
+  return res;
+}
+
+/** The branch's head commit and that commit's tree. */
+async function branchHead(
+  config: TiroExtensionConfig,
+  fetchImpl: FetchLike,
+): Promise<{ commit: string; tree: string }> {
+  const repo = `${API}/repos/${config.owner}/${config.repo}`;
+  const ref = await expectOk(
+    await fetchImpl(`${repo}/git/ref/heads/${refPath(config.branch)}`, {
+      headers: headers(config),
+    }),
+    `reading branch ${config.branch}`,
+  );
+  const commit = ((await ref.json()) as { object: { sha: string } }).object.sha;
+  const detail = await expectOk(
+    await fetchImpl(`${repo}/git/commits/${commit}`, {
+      headers: headers(config),
+    }),
+    `reading commit ${commit}`,
+  );
+  const tree = ((await detail.json()) as { tree: { sha: string } }).tree.sha;
+  return { commit, tree };
+}
+
+/**
+ * A text file as it stands in one commit, or null when it does not exist.
+ *
+ * Pinned to a commit rather than the branch, so every read one build makes
+ * sees the same snapshot. Correctness does not rest on it — `commitFiles`
+ * never forces the ref, so a build computed from any state other than its
+ * parent's is refused at the ref update and redone — but reading the branch
+ * would let one build mix two states and then spend an attempt finding out.
+ * (A mutation test confirms it: reading the branch instead fails nothing.)
+ */
+async function readTextAt(
+  config: TiroExtensionConfig,
+  path: string,
+  commit: string,
+  fetchImpl: FetchLike,
+): Promise<string | null> {
+  const res = await fetchImpl(contentsUrl(config, path, commit), {
+    headers: headers(config),
+  });
+  if (res.status === 404) return null;
+  await expectOk(res, `reading ${path}`);
+  const file = (await res.json()) as
+    | { sha: string; content?: string; encoding?: string }
+    | unknown[];
+  if (Array.isArray(file)) {
+    throw new Error(`${path} is a directory, not a file`);
+  }
+  return decodeBase64Utf8(
+    file.encoding === "base64" && file.content !== undefined
+      ? file.content
+      : await fetchBlobContent(config, path, file.sha, fetchImpl),
+  );
+}
+
+/** Whether anything — file or directory — exists at `path` in one commit. A
+ * directory listing is cheap whatever the files inside it weigh, which is why
+ * an article is checked for by its directory rather than its `index.md`. */
+async function existsAt(
+  config: TiroExtensionConfig,
+  path: string,
+  commit: string,
+  fetchImpl: FetchLike,
+): Promise<boolean> {
+  const res = await fetchImpl(contentsUrl(config, path, commit), {
+    headers: headers(config),
+  });
+  if (res.status === 404) return false;
+  await expectOk(res, `checking ${path}`);
+  return true;
+}
+
+/** What `commitFiles` hands its builder: reads, all pinned to one commit. */
+export interface TreeReader {
+  read(path: string): Promise<string | null>;
+  exists(path: string): Promise<boolean>;
+}
+
+export interface CommitFilesOptions {
+  message: string;
+  /**
+   * Produce the files to write, against the tree the commit will be parented
+   * on. Returns null — or nothing — when there is nothing to write, and then no
+   * commit is made at all: an empty one would still cost a push, a workflow run
+   * and a build.
+   *
+   * Called again on every attempt, against the new head. That is the point of
+   * taking a builder rather than a list: after another commit lands, the files
+   * have to be recomputed from what it left, not re-sent as they were.
+   */
+  build(
+    reader: TreeReader,
+  ): Promise<readonly { path: string; content: string }[] | null>;
+  /** How many heads to try before giving up. Defaults to three. */
+  attempts?: number;
+}
+
+/**
+ * Write several files as one commit, through the Git Data API.
+ *
+ * The Contents API commits one file per request, so a flush touching two
+ * collections would be two commits, two pushes, two workflow runs and two
+ * builds. This makes it one (ADR 0029): read the head, build against it,
+ * create a tree carrying the files inline (which creates their blobs too, so
+ * there is no base64 and no blob round trip), commit that tree on the head,
+ * and move the branch to it.
+ *
+ * The ref update is never forced. If anything else committed in between —
+ * the vault's processing workflow commits back on its own schedule — GitHub
+ * refuses it as not a fast-forward, and the whole cycle runs again from the
+ * new head, rebuilding the files from what that commit left. Three attempts,
+ * where `putFile` allows one retry: a processing run can commit more than once
+ * in a burst, and a rebuild here costs a few small reads, not a re-clip.
+ */
+export async function commitFiles(
+  config: TiroExtensionConfig,
+  options: CommitFilesOptions,
+  fetchImpl: FetchLike = fetch,
+): Promise<{ committed: string | null }> {
+  const repo = `${API}/repos/${config.owner}/${config.repo}`;
+  const attempts = options.attempts ?? 3;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const head = await branchHead(config, fetchImpl);
+    const files = await options.build({
+      read: (path) => readTextAt(config, path, head.commit, fetchImpl),
+      exists: (path) => existsAt(config, path, head.commit, fetchImpl),
+    });
+    if (files === null || files.length === 0) return { committed: null };
+
+    const tree = await expectOk(
+      await fetchImpl(`${repo}/git/trees`, {
+        method: "POST",
+        headers: { ...headers(config), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_tree: head.tree,
+          tree: files.map(({ path, content }) => ({
+            path,
+            mode: "100644",
+            type: "blob",
+            content,
+          })),
+        }),
+      }),
+      "creating the tree",
+    );
+    const treeSha = ((await tree.json()) as { sha: string }).sha;
+
+    const commit = await expectOk(
+      await fetchImpl(`${repo}/git/commits`, {
+        method: "POST",
+        headers: { ...headers(config), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: options.message,
+          tree: treeSha,
+          parents: [head.commit],
+        }),
+      }),
+      "creating the commit",
+    );
+    const commitSha = ((await commit.json()) as { sha: string }).sha;
+
+    const moved = await fetchImpl(
+      `${repo}/git/refs/heads/${refPath(config.branch)}`,
+      {
+        method: "PATCH",
+        headers: { ...headers(config), "Content-Type": "application/json" },
+        body: JSON.stringify({ sha: commitSha, force: false }),
+      },
+    );
+    if (moved.ok) return { committed: commitSha };
+    // Not a fast-forward: the branch moved after we read it. The commit made
+    // above is left dangling, which GitHub collects; nothing points at it.
+    if (moved.status === 422 || moved.status === 409) continue;
+    await expectOk(moved, `updating ${config.branch}`);
+  }
+  throw new GitHubHttpError(
+    409,
+    `${config.branch} kept moving — gave up after ${attempts} attempts`,
+  );
+}
