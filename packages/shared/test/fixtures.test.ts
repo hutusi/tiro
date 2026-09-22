@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { checkAlignment, splitBlocks } from "../src/blocks.ts";
+import { parseCollection } from "../src/collections.ts";
 import { needsProcessing, parseArticle } from "../src/frontmatter.ts";
-import { slugForUrl } from "../src/slug.ts";
+import { isValidCollectionId, slugForUrl } from "../src/slug.ts";
 
 /**
  * The fixture vault anchors the content contract for the processor and site
  * test suites — every fixture article must itself honor the contract.
  */
-const articlesDir = `${import.meta.dir}/../../../fixtures/vault/articles`;
+const vaultDir = `${import.meta.dir}/../../../fixtures/vault`;
+const articlesDir = `${vaultDir}/articles`;
+const collectionsDir = `${vaultDir}/collections`;
 
 const indexFiles = Array.from(
   new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
@@ -91,4 +94,46 @@ describe("fixture vault", () => {
     );
     expect(needsProcessing(processed.frontmatter)).toBe(false);
   });
+});
+
+const collectionFiles = Array.from(
+  new Bun.Glob("*.md").scanSync({ cwd: collectionsDir }),
+).sort();
+
+describe("fixture collections", () => {
+  test("contains the expected collections", () => {
+    expect(collectionFiles).toEqual([
+      // No items. What a collection looks like the moment it is created, and
+      // the only fixture that renders a collection page's empty state.
+      "empty-shelf.md",
+      // Holds the unlisted fixture on purpose. A collection page joins through
+      // the listed funnel, so this is what proves an unlisted member stays out
+      // of a public list while its own page still renders.
+      "favorites.md",
+      // A prose body, a description, and one item with no `added_at` — the
+      // shape a hand-written collection has, which the extension never emits.
+      "reading-notes.md",
+    ]);
+  });
+
+  for (const relPath of collectionFiles) {
+    const id = relPath.replace(/\.md$/, "");
+
+    test(`${id} honors the collection contract`, async () => {
+      const parsed = parseCollection(
+        id,
+        await Bun.file(`${collectionsDir}/${relPath}`).text(),
+      );
+      expect(isValidCollectionId(id)).toBe(true);
+
+      const slugs = parsed.frontmatter.items.map((item) => item.slug);
+      expect(new Set(slugs).size).toBe(slugs.length);
+      for (const slug of slugs) {
+        // A dangling member would render as a missing row rather than an
+        // error, so the fixture vault has to be the one place it cannot
+        // happen — `validate` enforces the same rule on a real vault.
+        expect(indexFiles).toContain(`${slug}/index.md`);
+      }
+    });
+  }
 });
