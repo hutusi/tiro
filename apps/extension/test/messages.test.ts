@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { type ClipResultMessage, isClipResult } from "../src/messages.ts";
+import {
+  type ClipResultMessage,
+  isClipResult,
+  isCollectionMessage,
+} from "../src/messages.ts";
 
 const valid: ClipResultMessage = {
   type: "tiro-clip-result",
@@ -67,5 +71,40 @@ describe("isClipResult", () => {
         payload: { ...valid.payload, readabilityFailed: "yes" },
       }),
     ).toBe(false);
+  });
+});
+
+describe("isCollectionMessage", () => {
+  const toggle = {
+    type: "tiro-collection-toggle",
+    op: { id: "x", collection: "favorites", slug: "a", action: "add", at: "t" },
+    published: false,
+    member: [],
+  };
+
+  test("accepts a toggle and a flush", () => {
+    expect(isCollectionMessage(toggle)).toBe(true);
+    expect(
+      isCollectionMessage({ ...toggle, op: { ...toggle.op, title: "待读" } }),
+    ).toBe(true);
+    expect(isCollectionMessage({ type: "tiro-collection-flush" })).toBe(true);
+  });
+
+  // The worker writes what these carry into storage and then into the vault,
+  // so every field is checked, not just the tag.
+  test("refuses anything malformed", () => {
+    for (const bad of [
+      null,
+      "tiro-collection-flush",
+      { type: "tiro-collection-toggle" },
+      { ...toggle, published: "no" },
+      { ...toggle, member: [1] },
+      { ...toggle, op: { ...toggle.op, action: "toggle" } },
+      { ...toggle, op: { ...toggle.op, slug: 3 } },
+      { ...toggle, op: { ...toggle.op, title: 5 } },
+      { ...toggle, op: null },
+    ]) {
+      expect(isCollectionMessage(bad)).toBe(false);
+    }
   });
 });
