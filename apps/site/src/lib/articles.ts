@@ -104,9 +104,14 @@ export async function getAllArticles(): Promise<Article[]> {
  * `Library.astro`'s empty state carries the `data-pagefind-body` that keeps the
  * search index narrow in exactly this case — see the comment there. */
 export async function getArticles(): Promise<Article[]> {
-  listedCache ??= (await getAllArticles()).filter(
-    (article) => !isUnlisted(article.frontmatter),
-  );
+  // Asked unconditionally, and before the memo is consulted, because
+  // `getAllArticles` is what drops `listedCache` when the vault has moved on.
+  // Written as `listedCache ??= (await getAllArticles())…` it short-circuits
+  // on the stale value and never runs the invalidation it depends on — so in
+  // dev, a vault edit showed up only if some reader page happened to render
+  // before the next listing page, and otherwise never.
+  const all = await getAllArticles();
+  listedCache ??= all.filter((article) => !isUnlisted(article.frontmatter));
   return listedCache;
 }
 
@@ -163,6 +168,10 @@ export async function tagIndex(): Promise<ArticleGroup[]> {
 }
 
 let termPageCache: { tags: Set<string>; categories: Set<string> } | null = null;
+/** The listed articles `termPageCache` was built from — same identity check as
+ * `cacheSource`, for the same reason: without one it survived a vault edit and
+ * kept answering about the terms of articles that had since changed. */
+let termPageSource: unknown = null;
 
 /** The term slugs that actually have a page.
  *
@@ -175,10 +184,14 @@ async function termPages(): Promise<{
   tags: Set<string>;
   categories: Set<string>;
 }> {
-  termPageCache ??= {
-    tags: new Set((await tagIndex()).map((group) => group.slug)),
-    categories: new Set((await categoryIndex()).map((group) => group.slug)),
-  };
+  const articles = await getArticles();
+  if (termPageCache === null || termPageSource !== articles) {
+    termPageSource = articles;
+    termPageCache = {
+      tags: new Set((await tagIndex()).map((group) => group.slug)),
+      categories: new Set((await categoryIndex()).map((group) => group.slug)),
+    };
+  }
   return termPageCache;
 }
 
