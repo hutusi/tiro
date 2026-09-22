@@ -1,0 +1,81 @@
+---
+import Library from "../../components/Library.astro";
+import Base from "../../layouts/Base.astro";
+import { getCollections } from "../../lib/collections.ts";
+import { renderBlockHtml } from "../../lib/render.ts";
+import { STRINGS } from "../../lib/strings.ts";
+
+export async function getStaticPaths() {
+  // Every collection, including the empty ones: an empty collection is what
+  // you get the moment you create one, and a route that does not exist yet
+  // would make a just-created list look like it failed to save.
+  return (await getCollections()).map((collection) => ({
+    params: { id: collection.id },
+    props: { collection },
+  }));
+}
+
+const { collection } = Astro.props;
+const t = STRINGS.collections;
+// Through the shared renderer, so the owner's own prose is sanitized by the
+// same pass everything else is (invariant 5). A second rendering path is how
+// an allowlist ends up with two definitions.
+//
+// The slug argument rewrites "./assets/" image references, which belong to an
+// article; a collection has no assets directory, so nothing can match and the
+// id is only ever a key for anchor scoping.
+const intro =
+  collection.body.trim() === ""
+    ? null
+    : renderBlockHtml(collection.body, collection.id);
+---
+
+<Base
+  title={collection.title}
+  description={collection.description ?? undefined}
+>
+  <Library
+    articles={collection.articles}
+    heading={collection.title}
+    count={collection.articles.length}
+    emptyText={null}
+  >
+    {
+      collection.description !== null && (
+        <p class="lede">{collection.description}</p>
+      )
+    }
+    {intro !== null && <div class="prose intro max-w-none" set:html={intro} />}
+    {
+      /* Its own line rather than `Library`'s, because `Library`'s carries the
+        `data-pagefind-body` that keeps the search index narrow — and only the
+        library may declare one. Passing the text through put every empty
+        collection page into the index as a result reading "this collection has
+        no articles yet". */
+    }
+    {
+      collection.articles.length === 0 && (
+        <p class="empty text-ink-soft">{t.emptyCollection}</p>
+      )
+    }
+  </Library>
+</Base>
+
+<style>
+  .lede {
+    margin: -12px 0 0;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    color: var(--ink-mute);
+  }
+  .intro {
+    margin: 16px 0 0;
+    font-size: 15px;
+  }
+  .lede + .intro {
+    margin-top: 12px;
+  }
+  .empty {
+    margin: 16px 0 0;
+  }
+</style>

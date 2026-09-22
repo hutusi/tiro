@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectionsOf, getCollections } from "../src/lib/collections.ts";
+import {
+  collectionsOf,
+  getCollections,
+  tiroPagePayload,
+} from "../src/lib/collections.ts";
 import { resetVaultCache } from "../src/lib/vault-read.ts";
 
 function writeArticle(dir: string, slug: string, unlisted = false): void {
@@ -243,6 +247,80 @@ describe("caches derived from a vault read", () => {
       resetVaultCache();
 
       expect(await collectionsOf("a")).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the #tiro-page payload", () => {
+  test("carries the catalog, not just this article's membership", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeCollection(
+        dir,
+        "favorites",
+        'title: "收藏"\nitems:\n  - slug: "a"\n',
+      );
+      writeCollection(dir, "reading", 'title: "重读"\n');
+      resetVaultCache();
+
+      const payload = JSON.parse(await tiroPagePayload("a"));
+      expect(payload.v).toBe(1);
+      expect(payload.slug).toBe("a");
+      expect(payload.member).toEqual(["favorites"]);
+      // The whole catalog, so the popup can draw every tick from the DOM and
+      // ask nothing over the network until the reader toggles something.
+      expect(payload.collections.map((c: { id: string }) => c.id)).toEqual([
+        "favorites",
+        "reading",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unlisted article still reports what it is a member of", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "hidden-one", true);
+      writeArticle(dir, "public-one");
+      writeCollection(
+        dir,
+        "favorites",
+        'title: "收藏"\nitems:\n  - slug: "hidden-one"\n',
+      );
+      resetVaultCache();
+
+      // The tick says what is true of the vault, not what this site publishes.
+      expect(JSON.parse(await tiroPagePayload("hidden-one")).member).toEqual([
+        "favorites",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a title holding </script> cannot close the island", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeCollection(
+        dir,
+        "hostile",
+        "title: 'x</script><img src=y onerror=alert(1)>'\n",
+      );
+      resetVaultCache();
+
+      const payload = await tiroPagePayload("a");
+      expect(payload).not.toContain("</script>");
+      expect(payload).not.toContain("<img");
+      // Still one JSON document, and `\u003c` is still `<` to any parser, so
+      // nothing downstream has to know about the escape.
+      expect(
+        JSON.parse(payload).collections.map((c: { title: string }) => c.title),
+      ).toContain("x</script><img src=y onerror=alert(1)>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

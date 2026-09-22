@@ -121,3 +121,35 @@ export async function collectionsOf(slug: string): Promise<Collection[]> {
   }
   return membershipCache.get(slug) ?? [];
 }
+
+/**
+ * What the clipper reads off an article page: the `#tiro-page` JSON island
+ * (ADR 0029), already serialized.
+ *
+ * It carries the whole catalog, not just this article's membership, so the
+ * popup can draw its full tick-list from the DOM and make no network request
+ * until the reader actually toggles something.
+ *
+ * Membership rather than listing, so an unlisted article still reports the
+ * collections it is in — the tick has to say what is true of the vault, not
+ * what this site chose to publish.
+ *
+ * `<` is escaped because a collection title containing `</script>` would
+ * otherwise close the element and spill the rest of the payload into the
+ * document as markup. JSON's `<` is still `<` to any parser, so nothing
+ * downstream has to know. Built here rather than in the template so the escape
+ * is one testable function and not a regex in an `.astro` file.
+ */
+export async function tiroPagePayload(slug: string): Promise<string> {
+  const member = await collectionsOf(slug);
+  const catalog = await getCollections();
+  return JSON.stringify({
+    v: 1,
+    slug,
+    member: member.map((collection) => collection.id),
+    collections: catalog.map((collection) => ({
+      id: collection.id,
+      title: collection.title,
+    })),
+  }).replaceAll("<", "\\u003c");
+}

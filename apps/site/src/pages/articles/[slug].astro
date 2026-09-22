@@ -10,6 +10,11 @@ import {
   shortLinks,
   tagPageUrl,
 } from "../../lib/articles.ts";
+import {
+  collectionUrl,
+  collectionsOf,
+  tiroPagePayload,
+} from "../../lib/collections.ts";
 import { shortPathForSlug } from "../../lib/short-links.ts";
 import { sourceLabel } from "../../lib/source-label.ts";
 import { buildReaderView, skipsLiftedH1 } from "../../lib/reader.ts";
@@ -28,6 +33,14 @@ export async function getStaticPaths() {
 
 const { article } = Astro.props;
 const { frontmatter } = article;
+// Membership, not listing: an unlisted article is kept out of a collection's
+// public page but is still in the collection, and the clipper's tick has to
+// say so.
+const memberCollections = await collectionsOf(article.slug);
+// What the clipper reads off this page (ADR 0029) — the catalog and this
+// article's membership, so the popup needs no network request to draw its
+// tick-list.
+const tiroPage = await tiroPagePayload(article.slug);
 const view = buildReaderView(article.body, article.zhBody, article.slug, {
   inlineMath: frontmatter.has_math === true,
 });
@@ -106,6 +119,13 @@ const tagLinks = await Promise.all(
   paired={paired}
   noindex={unlisted}
 >
+  <script
+    slot="head"
+    id="tiro-page"
+    type="application/json"
+    is:inline
+    set:html={tiroPage}
+  />
   <article
     data-pagefind-body={unlisted ? undefined : true}
     class="reader"
@@ -253,8 +273,23 @@ const tagLinks = await Promise.all(
       </div>
       {
         (frontmatter.category !== undefined ||
-          (frontmatter.tags ?? []).length > 0) && (
+          (frontmatter.tags ?? []).length > 0 ||
+          memberCollections.length > 0) && (
           <p class="terms">
+            {memberCollections.length > 0 && (
+              <Fragment>
+                <span>{STRINGS.collections.memberOf}</span>
+                {memberCollections.map((collection) => (
+                  <a
+                    href={collectionUrl(collection.id)}
+                    class="pill collection"
+                    data-pagefind-meta={`collection:${collection.id}`}
+                  >
+                    {collection.title}
+                  </a>
+                ))}
+              </Fragment>
+            )}
             {frontmatter.category !== undefined &&
               (categoryHref === null ? (
                 <span
@@ -566,6 +601,13 @@ const tagLinks = await Promise.all(
   }
   .terms .pill {
     font-size: 11px;
+  }
+  /* Curation, not model output. The tags and the category beside it are
+     written by the pipeline; these are the one thing on the page the owner
+     chose by hand, so they carry the accent and the others do not. */
+  .terms .pill.collection {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .title-rule {
     margin: 36px 0 8px;
