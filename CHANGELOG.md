@@ -24,9 +24,13 @@ versions follow the `0.x` line while Tiro is a personal system.
   exists, and `sweep --recanonicalize` carries memberships across a slug
   change.
 
-  Every page now carries a `tiro:site` marker and every article page its
-  collection state, which is what the clipper will read to offer collection
-  toggles instead of a clip button on a Tiro page, on any domain.
+  On a Tiro page — recognized by a marker the site publishes, on any domain —
+  the clipper offers a tick-list of collections instead of a clip button.
+  Ticks are queued and committed as one commit when the popup closes, so a
+  burst of edits is one push and one build. An add is checked against the vault
+  first, since any page can claim to be a Tiro site. The data disclosure moves
+  to version 5: it used to promise that closing the popup discards everything,
+  and a kept tick is the one thing that is not discarded.
 
 ### Fixed
 

@@ -5,7 +5,7 @@
 // read English.
 import Base from "../layouts/Base.astro";
 
-const updated = "2026-09-15";
+const updated = "2026-09-23";
 ---
 
 <Base title="隐私政策">
@@ -20,8 +20,10 @@ const updated = "2026-09-15";
       两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
       所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库；扩展本身也不会把你的令牌发往
       GitHub 以外的任何地方。
-      两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；令牌则出现在扩展
-      发出的每个 GitHub API 请求的授权头里，也就是那次上传，以及你在设置页点击
+      两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；在你自己的
+      Tiro
+      站点上勾选的合集改动，在你关闭弹窗或点击「立即保存」时上传；令牌则出现在扩展
+      发出的每个 GitHub API 请求的授权头里，也就是这些上传，以及你在设置页点击
       「测试连接」的时候。此外还有几方可能参与，且都只在你自己选择之后：一是
       arxiv.org，它会知道你在看哪一篇论文；二是
       raw.githubusercontent.com，它会知道你在看 哪一个文件；三是
@@ -74,6 +76,11 @@ const updated = "2026-09-15";
         <code>chrome.storage.local</code> 中（最多保留 500 条），即使开启同步也不会同步，
         也不会发送到任何地方。
       </li>
+      <li>
+        尚未保存的合集改动：每一项记录文章标识（slug）、合集名称、加入还是移出，以及时间；
+        另有上一次保存的结果（成功，或失败的原因）。它们只存在
+        <code>chrome.storage.local</code> 中，从不同步；保存后仍会短暂保留， 直到站点重新部署、显示出同样的结果为止，最长一周。
+      </li>
     </ul>
 
     <h3>扩展何时读取页面</h3>
@@ -91,7 +98,13 @@ const updated = "2026-09-15";
         不会发送、也不会保存。
       </li>
       <li>
+        在你自己的 Tiro 站点上，弹窗不做预览，只读取站点为扩展准备的一小段数据：
+        这篇文章的标识、它所在的合集，以及全部合集的名称。你勾选的改动不会被丢弃，
+        而是保留下来，在关闭弹窗或点击「立即保存」时提交。
+      </li>
+      <li>
         扩展不会在后台浏览、读取或上传任何页面；没打开弹窗的页面它碰不到。
+        弹窗关闭后它唯一会发出的，是你刚在弹窗里做出的合集改动。
       </li>
     </ul>
 
@@ -126,6 +139,11 @@ const updated = "2026-09-15";
         Markdown、标题、原文网址、域名和剪藏时间。标题还会出现在提交信息里，
         网址会体现在文章目录名中。
       </li>
+      <li>
+        保存合集改动时，扩展用同一个令牌，把所有改动作为一次提交写入你的仓库中
+        <code>collections/</code> 下的合集文件：文章标识、合集名称和时间。 加入一篇文章之前，扩展会先向
+        GitHub 确认你的仓库里确有这篇文章—— 因为任何网页都可以自称是 Tiro 站点。
+      </li>
       <li>扩展不加载远程代码：全部逻辑都打包在扩展内部。</li>
     </ul>
 
@@ -133,7 +151,7 @@ const updated = "2026-09-15";
     <ul>
       <li>
         在设置页清空各字段可移除保存的配置；卸载扩展则会删除全部本地数据，
-        包括剪藏记录。
+        包括剪藏记录和尚未保存的合集改动。
       </li>
       <li>在 GitHub 的设置中撤销该令牌，即可立即失效。</li>
       <li>剪藏的文章保存在你自己的仓库里，由你自行删除。</li>
@@ -155,16 +173,17 @@ const updated = "2026-09-15";
       Everything the extension clips goes to exactly one third party — GitHub — into
       the repository you name, and the extension itself sends your token nowhere but
       GitHub. The timing differs between the two: what you clip is uploaded only when
-      you press Clip, while the token travels in the <code>Authorization</code> header
-      of every GitHub API request the extension makes — that upload, and the "Test
-      connection" button on the options page. A few other parties can be involved,
-      all only if you choose it: arxiv.org, which learns which paper you are looking
-      at; raw.githubusercontent.com, which learns which file you are looking at; and
-      — if you turn on settings sync — Google, through whose servers Chrome then carries
-      your settings and token to your other devices. That last one is a transfer the
-      browser makes rather than the extension — a distinction about who is doing it,
-      not about where the token ends up. The sections below say exactly what each
-      involves.
+      you press Clip, and a collection change you make on your own Tiro site when
+      you close the popup or press "Save now", while the token travels in the
+      <code>Authorization</code> header of every GitHub API request the extension
+      makes — those uploads, and the "Test connection" button on the options page.
+      A few other parties can be involved, all only if you choose it: arxiv.org, which
+      learns which paper you are looking at; raw.githubusercontent.com, which learns
+      which file you are looking at; and — if you turn on settings sync — Google,
+      through whose servers Chrome then carries your settings and token to your other
+      devices. That last one is a transfer the browser makes rather than the extension
+      — a distinction about who is doing it, not about where the token ends up. The
+      sections below say exactly what each involves.
     </p>
 
     <p>
@@ -225,6 +244,14 @@ const updated = "2026-09-15";
         always lives only in <code>chrome.storage.local</code> (at most 500 entries),
         is never synced even with the option above on, and is never sent anywhere.
       </li>
+      <li>
+        Collection changes not yet saved: for each, the article's identifier
+        (slug), the collection's name, whether it was added or removed, and
+        when; plus the outcome of the last save (success, or why it failed).
+        They live only in <code>chrome.storage.local</code> and are never synced.
+        After a save they are kept briefly, until the redeployed site shows the same
+        thing, and never longer than a week.
+      </li>
     </ul>
 
     <h3>When it reads a page</h3>
@@ -243,8 +270,16 @@ const updated = "2026-09-15";
         is discarded — not sent, not stored.
       </li>
       <li>
+        On your own Tiro site the popup builds no preview. It reads only a small
+        block of data the site publishes for it: the article's identifier, the
+        collections it is in, and the names of all collections. A box you tick
+        there is not discarded: it is kept, and committed when you close the
+        popup or press "Save now".
+      </li>
+      <li>
         The extension never reads or uploads pages in the background, and cannot
-        touch a page you have not opened the popup on.
+        touch a page you have not opened the popup on. The one thing it sends
+        after the popup closes is the collection changes you just made in it.
       </li>
     </ul>
 
@@ -286,6 +321,14 @@ const updated = "2026-09-15";
         and the time you clipped it. The title also appears in the commit
         message, and the URL is reflected in the article's directory name.
       </li>
+      <li>
+        When it saves collection changes, it commits them all as one commit,
+        with the same token, to the collection files under <code
+          >collections/</code
+        > in your repository: the article's identifier, the collection's name, and
+        the time. Before adding an article it first asks GitHub whether your repository
+        has that article — any web page can claim to be a Tiro site.
+      </li>
       <li>No remote code is loaded; all logic is bundled in the extension.</li>
     </ul>
 
@@ -294,7 +337,7 @@ const updated = "2026-09-15";
       <li>
         Clear the fields on the options page to remove the stored settings;
         uninstalling the extension deletes all local data, including the clip
-        record.
+        record and any collection changes not yet saved.
       </li>
       <li>
         Revoke the token in your GitHub settings to cut off access at once.

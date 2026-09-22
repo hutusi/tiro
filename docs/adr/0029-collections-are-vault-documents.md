@@ -2,8 +2,8 @@
 
 Status: accepted (2026-09). The site half — contract, pages, validation,
 migration, and the vault's publish workflow — ships first; the clipper that
-edits collections from a Tiro page ships separately and is described here so
-the two halves are one decision.
+edits collections from a Tiro page ships on top of it. Both are described here
+so the two halves are one decision.
 
 ## Context
 
@@ -110,6 +110,24 @@ one workflow run and one build, however many collections it touches. Applying
 the queue is `applyCollectionOps`, which is pure and idempotent and applies a
 delta to the file as it now stands — so an edit made on another machine
 survives, and replaying a flush that already landed changes nothing.
+
+### The service worker is the queue's only writer
+
+The popup and the worker are two JavaScript realms and `chrome.storage` has no
+transactions, so two writers of one key lose writes. ADR 0022 recorded that
+race as open for settings and named routing mutations through the worker as
+the fix; the collection queue takes it from the start. The popup draws a tick
+at once and messages it to the worker, which runs toggles and flushes strictly
+in turn. Closing the popup — its port disconnecting — is the cue to flush.
+
+A saved toggle is kept as an overlay on the page until the redeployed page
+agrees with it (or a week passes), because between the commit and the deploy
+the page still shows the old membership, and a popup drawn from it alone would
+invite the reader to undo what they just did.
+
+The disclosure moved to version 5. It had promised that closing the popup
+without clipping discards everything, and a kept collection tick is exactly
+what that sentence ruled out.
 
 ### A collection push publishes and never processes
 

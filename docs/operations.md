@@ -564,7 +564,25 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   `github-offer`, `github-fetching`, `github-refused`, `github-retrying`,
   `reading`, `ready-zh`, `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
-  `build` before packaging.
+  `build` before packaging. The collections panel has its own set at
+  `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
+  `created`, `saving`, `saved`, `refused`, `failed`, `site`.
+- **On a Tiro page the popup offers collections, not a clip** (ADR 0029). It
+  recognizes the page by the site's `tiro:site` meta and `#tiro-page` island,
+  on any domain, and shows a tick-list drawn from the page itself. Ticks queue
+  in `chrome.storage.local` (`tiroCollectionQueue`, per vault) and are
+  committed as **one** commit when the popup closes or on "Save now"; the
+  service worker is the queue's only writer. "Clip this page anyway" falls
+  back to the ordinary clip. A pending count shows on any page while something
+  is queued.
+  - A save that fails keeps the queue and says why in the next popup; the next
+    close or "Save now" retries, and retrying is always safe.
+  - An add for an article the vault does not have is **dropped**, with a note
+    ("that article is not in your vault") — the marker proves a Tiro site, not
+    *your* Tiro site, so every add is checked against the vault first.
+  - After a save, the page keeps showing the old membership until the deploy
+    finishes (a minute or two). The popup lays what it saved over the page
+    until the page agrees, so reopening it shows the truth, not the stale site.
 - **What the popup shows** (ADR 0015): a short label beside the wordmark —
   Reading…, Ready, Saved ✓ / Updated ✓, "Saved <date>" for a page clipped
   before from this machine, Failed, Cannot clip, Set up — and the full
@@ -1108,4 +1126,7 @@ permanent extension ID, unrelated to the unpacked one.
 | A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |
 | A price renders as a formula | `has_math: true` on an article whose literal dollars are not escaped | escape them as `\$`, or clear the flag |
 | The search page shows "搜索索引在构建后生成" in production | `pagefind --site dist` did not run after `astro build`, so `dist/pagefind/` is missing | check the deploy log for the pagefind step; the results UI imports `/pagefind/pagefind.js` and shows the notice when that import fails |
+| The popup says a collection save failed: "… cannot parse …" | a hand-edited `collections/<id>.md` no longer validates, and the extension refuses to overwrite what it cannot read | run `validate` on the vault, fix the file, then "Save now" — the queued changes were kept |
+| The popup says a collection save failed: "… kept moving" | three commits landed on the branch during one save — a processing run committing back in a burst | "Save now" again once processing settles; nothing was lost |
+| A collection change is saved but the site still shows the old list | the vault's `publish.yml` is missing or failed, so no deploy was dispatched | copy `vault-template/.github/workflows/publish.yml` into the vault, or dispatch "Deploy site" by hand |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |

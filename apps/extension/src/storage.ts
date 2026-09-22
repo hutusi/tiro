@@ -470,8 +470,14 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * 4: the disclosure names raw.githubusercontent.com, which the extension may
  * now fetch a markdown file from (ADR 0023). Exactly the case 2 was, and
  * bumped for the same reason: a second outbound destination is a practice
- * change whichever way its optional permission is answered. */
-export const DISCLOSURE_VERSION = 4;
+ * change whichever way its optional permission is answered.
+ *
+ * 5: collections (ADR 0029). On a Tiro page a ticked box is kept after the
+ * popup closes and committed then — which falsified "close this popup without
+ * clipping and the result is discarded", the sentence version 4 ended on. No
+ * new destination and no new permission, but a promise the text made stopped
+ * being true, and that is what this number tracks. */
+export const DISCLOSURE_VERSION = 5;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */
