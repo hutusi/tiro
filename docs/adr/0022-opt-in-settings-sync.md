@@ -110,6 +110,81 @@ weaker and worth stating as such: no machine knowingly leaves a token in sync
 after seeing the flag go false, and any machine that later sees the disable
 removes what is there.
 
+**An empty form cannot be told from empty settings, so an incomplete config is
+refused.** Amended 2026-09, after the case arrived: a profile where Chrome Sync
+is off, paused, or excludes extension data — `SyncDisabled` or
+`SyncTypesListDisabled` on a managed machine — degrades `chrome.storage.sync`
+to a private local-only area, silently, and the options page then shows exactly
+the empty form a first run shows. Pressing Save there published the emptiness.
+The write reached the synced area, Chrome delivered it as a change carrying a
+real `newValue`, and every other machine's worker mirrored it down — the mirror
+three paragraphs above, the one that exists so no machine is left without
+settings, becoming what spread the loss, with no copy left anywhere. So
+`saveConfig` refuses any config `isConfigComplete` rejects, and enabling will
+not push one up.
+
+**The same rule binds on ingress, and that is not redundant.** Refusing to
+publish only binds the machines running the refusal: every machine during a
+rollout is on the older build, and one that never updates stays there, so an
+incomplete config can still reach the synced area. All three ways a synced
+value comes back down would then copy it faithfully — the mirror inside
+`readSynced`, the worker's `onChanged` mirror, and the copy-down that
+disabling performs, the last being the one most easily missed, since copying
+down before removing is itself a guard against leaving a machine with nothing.
+So an incomplete config never displaces a complete one, whichever direction it
+arrives from. It is still adopted by a machine whose own copy is incomplete:
+the guard protects the better copy, and refusing outright would strand exactly
+the machine sync exists to configure. Read in the other direction the same
+rule says a complete config may *replace* an incomplete one, which is what
+enabling does — otherwise the residue is permanent and invisible, since every
+configured machine is shielded from it and only the machines arriving fresh,
+having no copy to be shielded by, take it. This also fixes what the rule is judged
+by — the check compared fields to `""` against a value the type system had
+vouched for, while half its callers pass raw `chrome.storage`, and
+`loadConfig` deliberately tolerates a partial object from an older version, so
+a legacy `{owner, repo}` read as complete and travelled without a token.
+
+**A profile whose sync is already on is repaired when someone opens
+Settings, and not before.** If an older machine publishes an incomplete
+config while `tiroSyncEnabled` is already `true`, no configured machine calls
+`setSyncEnabled(true)` again, so the repair above never fires — and nothing
+raises the alarm either, because every machine with settings of its own is
+shielded by the ingress guard. Only a machine arriving fresh adopts the value
+and comes up empty. So `repairSyncedConfig` runs from the options page's
+`init`, republishing this machine's config over a synced one that cannot
+clip.
+
+**Opening Settings, not observing the change.** The two places that would
+catch it automatically both cost more than the fault. In the service worker
+it would make the worker a writer of these keys, and "the options page is the
+only writer" is the premise the per-page mutation queue above rests on —
+taking it away silently invalidates that accepted trade rather than
+re-deciding it. In `readSynced` it would put a write to the synced area on
+the most frequent path in the extension, widening the write-racing-a-disable
+hazard exactly where it is hardest to reason about. Repairing on an explicit
+visit to Settings keeps the single-writer invariant intact and routes through
+`writeSynced`, inheriting its strict flag read and its withdrawal if the flag
+has gone false. With sync off it must never publish: stale keys can outlive a
+disable, and republishing one would put the token back after the user took it
+off.
+
+What remains is that the repair is **opportunistic, not certain** — a profile
+where nobody opens Settings stays poisoned, and a Save from any configured
+machine or an off-then-on cycle also clears it. That is the right trade for a
+transitional fault whose cost is one machine configured by hand, which is what
+every machine did before sync existed, and it stops being reachable at all
+once no machine on the profile predates the refusal. `docs/operations.md`
+carries the symptom and the procedures.
+
+Neither guard can adjudicate a *complete* config that is merely wrong, and
+nothing here makes sync work where the profile forbids it; what they remove is
+the one-click path from "sync did not arrive" to "settings are gone
+everywhere". Chrome offers no way to ask whether sync is on or whether
+extension data is in it — `chrome.identity` answers a different question and
+would cost an install-time permission warning and a store re-review — so the
+product states the precondition and names `chrome://settings/syncSetup` rather
+than detecting it.
+
 **Mutations are serialised per page, not per profile.** The queue in
 `storage.ts` is module state, so each options tab and the worker hold their
 own. A save issued in one options tab at the same instant as a sync toggle in
@@ -126,6 +201,15 @@ Enabling never overwrites a value `sync` already holds. On a second machine,
 sync already carries the settings and the form on screen is empty or stale;
 flipping the toggle must adopt the shared settings, not push a local copy over
 them.
+
+**One exception, added later: a synced config that cannot clip counts as
+absent** when the enabling machine's own copy can. That is not settings anyone
+chose but the residue of an older machine's empty save, and "adopt, never
+clobber" is otherwise exactly what preserves it forever. The rule is the
+ingress rule read backwards — if an incomplete config may never displace a
+complete one, a complete one may replace an incomplete one — and it is
+deliberately no wider than that: republishing a local copy over any *complete*
+synced value would break the headline case this paragraph exists to protect.
 
 **Two keys stay in `local` unconditionally.**
 

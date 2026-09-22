@@ -537,6 +537,13 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
+- **An unpacked build does not share synced settings with the store install**,
+  because `chrome.storage.sync` is keyed by extension ID and an unpacked ID
+  comes from the folder path (see "Installing on another computer"). So a dev
+  build always needs its own configuration, and turning sync on in one says
+  nothing about the other. Adding the listing's `key` to `manifest.json` would
+  pin the two together; that is deliberately not done, because a dev build
+  would then be writing the settings every real machine reads.
 
 ### The publisher-fetch permissions
 
@@ -683,10 +690,98 @@ Two things follow from how the extension stores its config (see
   knowingly.
 
 An unpacked extension's ID is derived from its folder path, so it differs per
-machine; a store install carries the one permanent ID everywhere. Nothing here
-depends on a stable ID either way — no OAuth redirect, no
-`externally_connectable` — so the difference matters only when reading
-`chrome://extensions` to tell two installs apart.
+machine; a store install carries the one permanent ID everywhere. **One thing
+does depend on that:** `chrome.storage.sync` is namespaced per extension ID, so
+settings sync only ever joins installs that share one. Two store installs do. An
+unpacked build and a store install do not — with Chrome Sync working perfectly
+the unpacked one reads an empty synced area and has to be configured by hand —
+and two unpacked copies should be assumed not to either, since the paths differ.
+Nothing else does: no OAuth redirect, no `externally_connectable`, so otherwise
+the ID matters only when reading `chrome://extensions` to tell two installs
+apart.
+
+#### When the second machine's settings stay empty
+
+Sync is on, the first machine is configured, the second one's Settings page is
+blank. Almost always this is Chrome not carrying extension data to that profile
+rather than anything in Tiro. Check in this order; the first question is both
+the cheapest and the most decisive.
+
+1. **Was "Sync settings across my devices" already ticked the first time you
+   opened Settings there?** `tiroSyncEnabled` lives in the synced area
+   precisely so it travels, so a box that arrives *unticked* proves nothing
+   synced at all — stop here and look at Chrome, not at the settings. Ask this
+   first because ticking the box destroys the evidence.
+2. **`chrome://settings/syncSetup` on the empty machine** — signed in, sync
+   actually running, and **Extensions** among the types under "Manage what you
+   sync → Customize".
+3. **Sync paused.** A "Verify it's you" prompt or an unentered passphrase
+   leaves sync looking on while it carries nothing.
+4. **A managed profile.** `chrome://policy` → `SyncDisabled`, and
+   `SyncTypesListDisabled` (an entry covering extensions removes exactly this
+   datatype). A work or school profile commonly sets one, and Chrome then
+   degrades `chrome.storage.sync` to a private local-only area **silently** —
+   no error, nothing an extension can detect. This was the answer the one time
+   it came up.
+5. **The same extension ID on both** (`chrome://extensions`, Developer mode
+   shows it) — see the paragraph above. An unpacked build never shares with a
+   store install.
+6. **0.14.0 or later on both.** Settings sync does not exist before it.
+
+To see what sync actually holds: `chrome://extensions` → Details → Inspect
+views: **service worker** → `await chrome.storage.sync.get(null)`. That prints
+the token, so do it on your own screen.
+
+**Two things not to do on the empty machine** — both make it worse, and both
+are one click away:
+
+- **Do not press Save.** With the flag set, Save publishes the form to the
+  synced area, and every other machine's worker mirrors that down into its own
+  local copy: the mirror that exists so no machine is left without settings is
+  what spreads the emptiness, and no copy survives. 0.15.0 refuses a
+  configuration that cannot clip; 0.14.0 does not.
+- **Do not untick the box.** Disabling calls `chrome.storage.sync.remove` on
+  the synced keys, which withdraws the shared copy for the whole profile while
+  copying down only what *this* machine can see — nothing. Other machines keep
+  whatever they last observed; one that has never read is left with defaults.
+
+Instead: fix Chrome Sync on the second machine, reopen Settings, and confirm
+the box is now ticked with the fields filled. If the policy is not yours to
+change, leave sync on where it works, leave the box **unticked** on the managed
+machine, and configure that one by hand with **its own** fine-grained PAT —
+which is the per-machine-token recommendation above, now applying to one
+machine rather than none.
+
+#### Clearing an empty config out of the synced area
+
+A different fault with the same symptom, and the giveaway is that it is only
+ever the **freshly installed** machines that come up empty while every
+configured one is fine. Versions before 0.15.0 let an empty Save reach the
+synced area; from 0.15.0 nothing publishes one, but a machine still on the
+older build can, and a value already sitting there is not cleaned up on its
+own. Configured machines never notice — they keep their own copy by design —
+so the profile can stay in this state indefinitely while only new machines
+suffer.
+
+Confirm it from a configured machine: `chrome://extensions` → Details →
+Inspect views: **service worker** → `await chrome.storage.sync.get(null)`. An
+empty or partial `tiroConfig` there, while that machine's Settings page shows
+the right values, is this.
+
+**Opening Settings on a machine whose settings are correct clears it** — from
+0.15.0 that page republishes its own config over a synced one that cannot
+clip, and says so when it does. That is the whole procedure; the two below
+are for a machine still on an older build, or if you want to force it:
+
+- press **Save** — the write replaces the synced copy; or
+- untick **Sync settings across my devices**, then tick it again. Unticking
+  keeps the better of the two copies, so nothing is lost, and re-ticking
+  republishes the good one.
+
+Then reopen Settings on the fresh machine. The repair only runs when someone
+opens Settings, so a profile nobody visits stays poisoned — which is why the
+symptom is worth recognising rather than waiting out. Upgrading every machine
+on the profile past 0.15.0 stops it recurring.
 
 ### Sweeping the corpus for clip damage
 
@@ -963,6 +1058,7 @@ permanent extension ID, unrelated to the unpacked one.
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
+| Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |

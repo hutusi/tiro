@@ -92,6 +92,32 @@ versions follow the `0.x` line while Tiro is a personal system.
   and a batch that fails keeps the raw extracted text, because a summary
   wearing clean Markdown is otherwise indistinguishable from success.
 
+### Fixed
+
+- **Saving an empty settings form can no longer wipe every machine.** With
+  settings sync on, Save published whatever was in the form to the whole Chrome
+  profile, and every other machine's service worker mirrored it down — so an
+  empty form replaced a working configuration everywhere, including the local
+  copies kept precisely so nothing is ever lost. The form is empty for an
+  ordinary reason: on a machine where Chrome Sync is off, paused, or excludes
+  extension data, `chrome.storage.sync` degrades to a private local area
+  without saying so, and the settings never arrive. Save now refuses a
+  configuration that could not clip anyway, and turning sync on will not push
+  one up. The same rule applies to configurations arriving *from* sync, so a
+  machine still on an older build cannot push the wipe onto an updated one —
+  and opening Settings clears an empty configuration an older machine already
+  left there, which otherwise nothing would, since every configured machine
+  ignores it and only newly installed ones pick it up.
+
+- **Settings sync now says what it needs in order to work.** It has always had
+  a precondition — Chrome Sync on for the profile, with extensions among the
+  synced data — and never mentioned it, while reporting a flat "Settings sync
+  is on." on machines where it could not possibly be. Chrome offers no way to
+  ask whether sync is running, so the hint states the condition and points at
+  `chrome://settings/syncSetup`, and the confirmation names the thing you can
+  actually check: your other computer should open Settings with the box
+  already ticked.
+
 ## [0.8.0] - 2026-09-19
 
 ### Fixed

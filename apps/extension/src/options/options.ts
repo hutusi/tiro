@@ -26,9 +26,13 @@ import {
   messages,
 } from "../i18n.ts";
 import {
+  type ConfigField,
+  isConfigComplete,
   loadConfig,
   loadLanguage,
   loadSyncEnabled,
+  missingConfigFields,
+  repairSyncedConfig,
   saveConfig,
   saveLanguage,
   setSyncEnabled,
@@ -106,6 +110,17 @@ function currentConfig() {
     branch: input.branch.value.trim() || "main",
     token: input.token.value.trim(),
   };
+}
+
+/** The labels for the fields a config is missing. Built at call time, not
+ * once: `m` is replaced whenever the language changes. */
+function fieldNames(fields: ConfigField[]): string[] {
+  const name: Record<ConfigField, string> = {
+    owner: m.fieldOwner,
+    repo: m.fieldRepo,
+    token: m.fieldToken,
+  };
+  return fields.map((field) => name[field]);
 }
 
 function show(message: string, tone: "ok" | "error" | "warn"): void {
@@ -251,6 +266,18 @@ async function init(): Promise<void> {
     return;
   }
   setControlsEnabled(true);
+  // Opportunistic, and the only place it happens: a config an older machine
+  // left in sync that cannot clip is invisible to every configured machine
+  // and empties the ones arriving fresh, and nothing else ever clears it.
+  // Deliberately after the form is live rather than blocking the load — it
+  // changes nothing on screen, since what is painted is this machine's copy
+  // and that is exactly what gets published. A failure here leaves the
+  // residue for the next visit, which is no worse than not having looked.
+  void repairSyncedConfig()
+    .then((repaired) => {
+      if (repaired) show(m.syncRepaired, "warn");
+    })
+    .catch(() => {});
   // Registered here rather than at module scope: the ?preview path above
   // returns before this, and that build has no chrome to add a listener to.
   chrome.storage.onChanged.addListener((_changes, areaName) => {
@@ -327,6 +354,15 @@ languageSelect.addEventListener("change", () => {
 
 saveButton.addEventListener("click", () => {
   const config = currentConfig();
+  // Says which fields are missing rather than letting `saveConfig` refuse
+  // with a bare error. The refusal itself lives there, not here, because it
+  // is not about this form: with sync on, an empty save replaces the
+  // profile-wide copy and every other machine mirrors the blank down.
+  const missing = missingConfigFields(config);
+  if (missing.length > 0) {
+    show(m.fillFields(fieldNames(missing)), "error");
+    return;
+  }
   void saveConfig(config).then(
     () => {
       // The baseline moves with the save. Left behind, the form counted as
@@ -341,13 +377,9 @@ saveButton.addEventListener("click", () => {
 
 testButton.addEventListener("click", () => {
   const config = currentConfig();
-  const missing = [
-    config.owner === "" ? m.fieldOwner : null,
-    config.repo === "" ? m.fieldRepo : null,
-    config.token === "" ? m.fieldToken : null,
-  ].filter((f) => f !== null);
+  const missing = missingConfigFields(config);
   if (missing.length > 0) {
-    show(m.fillFields(missing), "error");
+    show(m.fillFields(fieldNames(missing)), "error");
     return;
   }
   show(m.testing, "ok");
@@ -367,7 +399,7 @@ importButton.addEventListener("click", () => {
   const config = currentConfig();
   // Checked here rather than after a file is chosen: asking someone to pick a
   // document and only then saying the vault is not set up wastes the pick.
-  if (config.owner === "" || config.repo === "" || config.token === "") {
+  if (!isConfigComplete(config)) {
     showImport(m.importNeedsSettings, "error");
     return;
   }

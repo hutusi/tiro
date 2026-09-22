@@ -11,16 +11,22 @@ import {
   loadLanguage,
   loadSyncEnabled,
   mirrorSyncedChange,
+  missingConfigFields,
   needsDisclosure,
   pruneClipHistory,
   reconcileDisabledSync,
   recordClip,
+  repairSyncedConfig,
   saveConfig,
   saveLanguage,
   setSyncEnabled,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
-import { type ChromeStorageMock, installChromeStorage } from "./helpers.ts";
+import {
+  type ChromeStorageMock,
+  installChromeStorage,
+  type StorageAreaMock,
+} from "./helpers.ts";
 
 const accepted = (version: number): DisclosureState => ({
   version,
@@ -194,6 +200,284 @@ describe("config", () => {
     expect(isConfigComplete({ ...config, repo: "" })).toBe(false);
     expect(isConfigComplete({ ...config, token: "" })).toBe(false);
   });
+
+  test("names the fields a config is missing, and never the branch", () => {
+    expect(missingConfigFields(config)).toEqual([]);
+    // Same exemption as above, from the other direction: an absent branch is
+    // not something to ask the user for.
+    expect(missingConfigFields({ ...config, branch: "" })).toEqual([]);
+    expect(missingConfigFields({ ...config, owner: "" })).toEqual(["owner"]);
+    expect(
+      missingConfigFields({ owner: "", repo: "", branch: "", token: "" }),
+    ).toEqual(["owner", "repo", "token"]);
+  });
+
+  test("treats an absent field as missing, not as present", () => {
+    // These run against raw chrome.storage values, and loadConfig above
+    // deliberately tolerates a partial object written by an older version.
+    // Asking `undefined === ""` answered no, so a legacy {owner, repo}
+    // counted as complete — and that is the one shape setSyncEnabled would
+    // then upload to the profile without a token.
+    expect(missingConfigFields({ owner: "o", repo: "r" })).toEqual(["token"]);
+    expect(isConfigComplete({ owner: "o", repo: "r" })).toBe(false);
+    expect(missingConfigFields({})).toEqual(["owner", "repo", "token"]);
+    // A field of spaces is not a field. Nothing in the product produces one
+    // — the form trims — but this validator's whole job is values that
+    // reached storage by some other route, and a blank token would pass as
+    // usable and go into a GitHub URL verbatim.
+    expect(missingConfigFields({ owner: "o", repo: " ", token: "\t" })).toEqual(
+      ["repo", "token"],
+    );
+  });
+
+  test("answers rather than throws for a value that is not a config", () => {
+    // Reached through the same raw-storage callers; a throw there would
+    // reject a read that has a perfectly good local copy to fall back on.
+    expect(isConfigComplete(null)).toBe(false);
+    expect(isConfigComplete(undefined)).toBe(false);
+    expect(isConfigComplete("nonsense")).toBe(false);
+    expect(isConfigComplete({ owner: 1, repo: 2, token: 3 })).toBe(false);
+  });
+});
+
+describe("settings sync — an incomplete config never displaces a complete one", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const good: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+  const blank: TiroExtensionConfig = {
+    owner: "",
+    repo: "",
+    branch: "main",
+    token: "",
+  };
+
+  // saveConfig refusing to publish one of these only binds machines running
+  // that code. Every machine during a rollout, and any that never updates,
+  // can still put one into sync — so the rule is enforced on the way in too,
+  // at all three places a synced value comes back down.
+
+  test("a read keeps the good local copy and does not mirror over it", async () => {
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await loadConfig()).toEqual(good);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+  });
+
+  test("the worker's mirror skips it, and still takes the language beside it", async () => {
+    chrome.local.data.tiroConfig = { ...good };
+    await mirrorSyncedChange({
+      tiroConfig: { oldValue: good, newValue: blank },
+      tiroLanguage: { oldValue: "en", newValue: "zh" },
+    } as never);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+    // The skip must be the config's alone — bailing out of the whole mirror
+    // would silently stop tracking every other synced key.
+    expect(chrome.local.data.tiroLanguage).toBe("zh");
+  });
+
+  test("disabling copies down the good local copy, not the empty synced one", async () => {
+    // The least obvious of the three: disabling copies sync down before
+    // removing it, so a config an older machine published outlives the
+    // switch and lands on top of a working one.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    await setSyncEnabled(false);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+  });
+
+  test("enabling repairs an incomplete config left in sync by an older machine", async () => {
+    // Reachable through the write-racing-a-disable residue ADR 0022 records
+    // as narrowed rather than closed: a 0.14 machine's late empty save lands
+    // after the flag has already gone false everywhere, so no machine
+    // re-runs the reconcile that would have removed it.
+    //
+    // Nothing else ever repairs it. The ingress guard shields every
+    // configured machine, which is exactly what hides the problem — the
+    // residue sits in the profile emptying only the machines that arrive
+    // fresh, because those have no local copy to be shielded by.
+    chrome.sync.data.tiroSyncEnabled = false;
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.local.data.tiroConfig = { ...good };
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+  });
+
+  test("the documented off-then-on recovery clears a poisoned synced copy", async () => {
+    // A profile whose sync is already on is not healed automatically: no
+    // configured machine calls setSyncEnabled(true) again, so nothing
+    // republishes. ADR 0022 accepts that and points at this procedure, which
+    // means the procedure has to keep working — it is the recovery
+    // docs/operations.md tells the owner to run.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+
+    await setSyncEnabled(false);
+    // Unticking keeps the better copy — before the ingress guard this step
+    // was itself the wipe.
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+    expect(await loadConfig()).toEqual(good);
+  });
+
+  test("opening Settings repairs a poisoned copy on an already-enabled profile", async () => {
+    // The gap the off/on recovery existed to work around: sync is already
+    // on, so no configured machine calls setSyncEnabled(true) again and the
+    // repair there never fires. Every configured machine is shielded by the
+    // ingress guard and notices nothing; only fresh ones adopt the blank.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await repairSyncedConfig()).toBe(true);
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+  });
+
+  test("a save landing inside the repair is not reverted by it", async () => {
+    // The page enables the form immediately before calling the repair, so
+    // this window is open exactly when someone is most likely to press Save.
+    // Deciding outside the queue would republish the pre-save snapshot over
+    // the save, on every machine.
+    const v1 = { ...good, token: "OLD" };
+    const v2 = { ...good, token: "NEW" };
+    chrome.local.data.tiroConfig = { ...v1 };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+
+    // Park the repair *after* it would have snapshotted: stalling before the
+    // snapshot tests nothing, which is how an earlier version of this race
+    // passed against the broken code.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realGet = chrome.sync.get.bind(chrome.sync);
+    let stalled = false;
+    (chrome.sync as { get: StorageAreaMock["get"] }).get = async (keys) => {
+      const out = await realGet(keys);
+      if (!stalled && keys === "tiroConfig") {
+        stalled = true;
+        await gate;
+      }
+      return out;
+    };
+
+    const repair = repairSyncedConfig();
+    await new Promise((r) => setTimeout(r, 5));
+    const saved = saveConfig(v2);
+    // Assert the race was actually constructed rather than assumed: with the
+    // whole repair queued, the save waits behind it, so both orderings have
+    // to be allowed here and only the end state is the claim.
+    release();
+    await Promise.all([repair, saved]);
+
+    expect(chrome.local.data.tiroConfig).toEqual(v2);
+    expect(chrome.sync.data.tiroConfig).toEqual(v2);
+  });
+
+  test("the repair never publishes while sync is off", async () => {
+    // The one way this could do real harm. Keys can linger in `sync` after a
+    // disable, and republishing one would put the token back on Google's
+    // servers after the user deliberately took it off.
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = false;
+    expect(await repairSyncedConfig()).toBe(false);
+    expect(chrome.sync.data.tiroConfig).toEqual(blank);
+  });
+
+  test("the repair leaves a complete synced config alone", async () => {
+    // It must not become "republish mine whenever it differs" — that is the
+    // headline case, adopt-never-clobber, inverted.
+    const theirs = { ...good, repo: "elsewhere" };
+    chrome.local.data.tiroConfig = { ...good };
+    chrome.sync.data.tiroConfig = theirs;
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await repairSyncedConfig()).toBe(false);
+    expect(chrome.sync.data.tiroConfig).toEqual(theirs);
+  });
+
+  test("the repair has nothing to say when this machine's copy is no better", async () => {
+    chrome.local.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await repairSyncedConfig()).toBe(false);
+    // And nothing at all in sync is not a thing to repair either.
+    delete chrome.sync.data.tiroConfig;
+    chrome.local.data.tiroConfig = { ...good };
+    expect(await repairSyncedConfig()).toBe(false);
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+  });
+
+  test("but a machine with nothing of its own still takes what sync has", async () => {
+    // The guard only ever holds local back when local is the better copy.
+    // Turned into "never adopt an incomplete config" it would strand a
+    // machine that genuinely has none, which is the case sync exists for.
+    chrome.local.data.tiroConfig = { ...blank };
+    chrome.sync.data.tiroConfig = { ...blank, branch: "release" };
+    chrome.sync.data.tiroSyncEnabled = true;
+    expect(await loadConfig()).toEqual({ ...blank, branch: "release" });
+  });
+});
+
+describe("config — a config that cannot clip is refused", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  const good: TiroExtensionConfig = {
+    owner: "o",
+    repo: "r",
+    branch: "main",
+    token: "t",
+  };
+  const empty: TiroExtensionConfig = {
+    owner: "",
+    repo: "",
+    branch: "main",
+    token: "",
+  };
+
+  test("an empty save leaves every copy of a good config alone", async () => {
+    // The incident this guards: a machine whose Chrome Sync carries nothing
+    // shows the same empty form a first run shows, and saving it published
+    // the emptiness everywhere — sync took it, and every other machine's
+    // worker mirrored it down over the copy that still worked.
+    await setSyncEnabled(true);
+    await saveConfig(good);
+
+    await expect(saveConfig(empty)).rejects.toThrow();
+
+    expect(chrome.sync.data.tiroConfig).toEqual(good);
+    expect(chrome.local.data.tiroConfig).toEqual(good);
+    expect(await loadConfig()).toEqual(good);
+
+    // The positive control belongs in this test rather than a neighbour: it
+    // is what rules out a guard that simply refuses everything.
+    await saveConfig({ ...good, repo: "second" });
+    expect(chrome.sync.data.tiroConfig).toEqual({ ...good, repo: "second" });
+  });
+
+  test("a config missing only the token is refused too", async () => {
+    // Pins the shape of the guard. "Refuse only a wholly empty form" would
+    // pass the test above and let this one through, and a config with no
+    // token cannot clip any more than one with no fields can.
+    await saveConfig(good);
+    await expect(saveConfig({ ...good, token: "" })).rejects.toThrow();
+    expect(await loadConfig()).toEqual(good);
+  });
 });
 
 describe("disclosure record", () => {
@@ -256,6 +540,36 @@ describe("settings sync", () => {
     expect(chrome.sync.data.tiroConfig).toEqual(config);
     expect(chrome.sync.data.tiroLanguage).toBe("zh");
     expect(await loadSyncEnabled()).toBe(true);
+  });
+
+  test("does not push a leftover config that cannot clip", async () => {
+    // A 0.14.0 install that saved an empty form before that was refused still
+    // holds one in local. Enabling sync must not be what finally publishes it
+    // to the profile — on this machine it is dead weight, on every other one
+    // it is the wipe.
+    const unusable = { owner: "", repo: "", branch: "main", token: "" };
+    chrome.local.data.tiroConfig = unusable;
+    await setSyncEnabled(true);
+    expect(chrome.sync.data.tiroConfig).toBeUndefined();
+    // The enable itself still has to have happened...
+    expect(await loadSyncEnabled()).toBe(true);
+    // ...and the skip is a skip, not a deletion of this machine's own copy.
+    expect(chrome.local.data.tiroConfig).toEqual(unusable);
+  });
+
+  test("still adopts sync's settings when this machine's copy is unusable", async () => {
+    // The guard above must not turn into "refuse to enable without a complete
+    // local config", which would break the case the whole feature exists for:
+    // a second machine with nothing of its own joining the shared settings.
+    chrome.local.data.tiroConfig = {
+      owner: "",
+      repo: "",
+      branch: "main",
+      token: "",
+    };
+    chrome.sync.data.tiroConfig = config;
+    await setSyncEnabled(true);
+    expect(await loadConfig()).toEqual(config);
   });
 
   test("joins settings already in sync instead of clobbering them", async () => {
