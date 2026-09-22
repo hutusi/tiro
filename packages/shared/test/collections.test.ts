@@ -5,6 +5,7 @@ import {
   FAVORITES_ID,
   type ParsedCollection,
   parseCollection,
+  renameCollectionMember,
   stringifyCollection,
 } from "../src/collections.ts";
 import { collectionPath } from "../src/paths.ts";
@@ -288,5 +289,50 @@ describe("applyCollectionOps", () => {
     const once = applyCollectionOps(FAVORITES_ID, collection([]), ops);
     expect(once).not.toBeNull();
     expect(applyCollectionOps(FAVORITES_ID, once, ops)).toBeNull();
+  });
+});
+
+describe("renameCollectionMember", () => {
+  test("keeps the member's place and date under its new slug", () => {
+    const existing = collection([
+      { slug: "first", added_at: T1 },
+      { slug: "old-slug", added_at: T2 },
+      { slug: "last", added_at: T3 },
+    ]);
+    const [renamed] = renameCollectionMember(
+      [existing],
+      "old-slug",
+      "new-slug",
+    );
+    expect(renamed?.frontmatter.items).toEqual([
+      { slug: "first", added_at: T1 },
+      { slug: "new-slug", added_at: T2 },
+      { slug: "last", added_at: T3 },
+    ]);
+    // Nothing the owner decided has changed.
+    expect(renamed?.frontmatter.updated_at).toBe(T1);
+  });
+
+  test("drops the old entry when the new slug is already a member", () => {
+    const existing = collection([{ slug: "new-slug" }, { slug: "old-slug" }]);
+    const [renamed] = renameCollectionMember(
+      [existing],
+      "old-slug",
+      "new-slug",
+    );
+    expect(renamed?.frontmatter.items).toEqual([{ slug: "new-slug" }]);
+  });
+
+  test("returns only the collections that changed", () => {
+    const holding = collection([{ slug: "old-slug" }]);
+    const other = { ...collection([{ slug: "x" }]), id: "other" };
+    const changed = renameCollectionMember([holding, other], "old-slug", "new");
+    expect(changed.map((c) => c.id)).toEqual([FAVORITES_ID]);
+  });
+
+  test("leaves the input alone", () => {
+    const existing = collection([{ slug: "old-slug" }]);
+    renameCollectionMember([existing], "old-slug", "new-slug");
+    expect(existing.frontmatter.items).toEqual([{ slug: "old-slug" }]);
   });
 });

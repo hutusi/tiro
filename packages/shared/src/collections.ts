@@ -206,3 +206,44 @@ export function applyCollectionOps(
     body: "",
   };
 }
+
+/**
+ * Carry an article's memberships across a slug rename, purely.
+ *
+ * The rename happens when an identity rule changes (invariant 2) — `sweep
+ * --recanonicalize` moves the article's directory, and every collection that
+ * named the old slug would otherwise be left pointing at nothing. The site
+ * shows that as a missing row, not an error, so without this a rule change
+ * would quietly empty collections.
+ *
+ * The member keeps its place and its `added_at`: it is the same article, and
+ * the owner's ordering is not something a rename gets to reshuffle. If the new
+ * slug is already a member — two old URLs canonicalizing to one article — the
+ * old entry is dropped rather than listed twice. `updated_at` is left alone,
+ * because nothing the owner decided has changed.
+ *
+ * Returns only the collections that changed, so the caller writes nothing it
+ * does not have to.
+ */
+export function renameCollectionMember(
+  collections: readonly ParsedCollection[],
+  from: string,
+  to: string,
+): ParsedCollection[] {
+  const changed: ParsedCollection[] = [];
+  for (const collection of collections) {
+    const { items } = collection.frontmatter;
+    if (!items.some((item) => item.slug === from)) continue;
+    const already = items.some((item) => item.slug === to);
+    const renamed = already
+      ? items.filter((item) => item.slug !== from)
+      : items.map((item) =>
+          item.slug === from ? { ...item, slug: to } : item,
+        );
+    changed.push({
+      ...collection,
+      frontmatter: { ...collection.frontmatter, items: renamed },
+    });
+  }
+  return changed;
+}
