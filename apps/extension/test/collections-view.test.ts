@@ -23,6 +23,8 @@ const article: TiroPage = {
   ],
 };
 const idle = { status: null, syncing: false, report: null };
+// Nothing stranded in the popup, and the last save reached the worker.
+const reached = { unrecorded: 0, saveUnreachable: false };
 let n = 0;
 const toggle = (action: "add" | "remove", collection: string, extra = {}) => {
   n += 1;
@@ -31,7 +33,10 @@ const toggle = (action: "add" | "remove", collection: string, extra = {}) => {
 
 describe("collectionsView", () => {
   test("favorites leads, then the catalog, ticked from the page", () => {
-    const view = collectionsView({ page: article, queue: [], ...idle }, m);
+    const view = collectionsView(
+      { ...reached, page: article, queue: [], ...idle },
+      m,
+    );
     expect(
       view.rows?.map((r) => [r.id, r.title, r.checked, r.favorite]),
     ).toEqual([
@@ -43,7 +48,12 @@ describe("collectionsView", () => {
 
   test("favorites is offered before the vault has one", () => {
     const view = collectionsView(
-      { page: { ...article, catalog: [], member: [] }, queue: [], ...idle },
+      {
+        ...reached,
+        page: { ...article, catalog: [], member: [] },
+        queue: [],
+        ...idle,
+      },
       m,
     );
     expect(view.rows?.map((r) => [r.id, r.title])).toEqual([
@@ -53,7 +63,10 @@ describe("collectionsView", () => {
 
   test("a pending toggle shows as ticked and pending, and counts", () => {
     const queue = enqueue([], toggle("add", "favorites"), false);
-    const view = collectionsView({ page: article, queue, ...idle }, m);
+    const view = collectionsView(
+      { ...reached, page: article, queue, ...idle },
+      m,
+    );
     expect(view.rows?.[0]).toMatchObject({
       id: "favorites",
       checked: true,
@@ -69,7 +82,10 @@ describe("collectionsView", () => {
   test("a sent toggle still shows as ticked while the page catches up", () => {
     const pending = enqueue([], toggle("add", "favorites"), false);
     const queue = settleFlush(pending, new Set([`op${n}`]), new Set(), T);
-    const view = collectionsView({ page: article, queue, ...idle }, m);
+    const view = collectionsView(
+      { ...reached, page: article, queue, ...idle },
+      m,
+    );
     expect(view.rows?.[0]).toMatchObject({ checked: true, pending: false });
     expect(view.footer).toBeNull();
   });
@@ -80,7 +96,10 @@ describe("collectionsView", () => {
       toggle("add", "collection-1a2b3c4d", { title: "待读" }),
       false,
     );
-    const view = collectionsView({ page: article, queue, ...idle }, m);
+    const view = collectionsView(
+      { ...reached, page: article, queue, ...idle },
+      m,
+    );
     expect(view.rows?.at(-1)).toMatchObject({
       id: "collection-1a2b3c4d",
       title: "待读",
@@ -90,7 +109,7 @@ describe("collectionsView", () => {
 
   test("a Tiro page that is not an article has nothing to toggle", () => {
     const view = collectionsView(
-      { page: { kind: "site" }, queue: [], ...idle },
+      { ...reached, page: { kind: "site" }, queue: [], ...idle },
       m,
     );
     expect(view.rows).toBeNull();
@@ -104,6 +123,7 @@ describe("the queue footer", () => {
   test("a failure is shown while there is still something to retry", () => {
     const view = collectionsView(
       {
+        ...reached,
         page: article,
         queue: pending,
         status: { at: T, ok: false, httpStatus: 401 },
@@ -119,6 +139,7 @@ describe("the queue footer", () => {
   test("an old failure with nothing left to retry is not news", () => {
     const view = collectionsView(
       {
+        ...reached,
         page: article,
         queue: [],
         status: { at: T, ok: false, httpStatus: 401 },
@@ -134,6 +155,7 @@ describe("the queue footer", () => {
     expect(
       collectionsView(
         {
+          ...reached,
           page: article,
           queue: pending,
           status: null,
@@ -147,6 +169,7 @@ describe("the queue footer", () => {
     expect(
       collectionsView(
         {
+          ...reached,
           page: article,
           queue: [],
           status: null,
@@ -159,6 +182,7 @@ describe("the queue footer", () => {
     expect(
       collectionsView(
         {
+          ...reached,
           page: article,
           queue: [],
           status: null,
@@ -189,7 +213,7 @@ describe("visibleQueue", () => {
     const page = { ...article, member: [] };
     const queue = visibleQueue([sent(8)], page, now);
     expect(queue).toEqual([]);
-    const view = collectionsView({ page, queue, ...idle }, m);
+    const view = collectionsView({ ...reached, page, queue, ...idle }, m);
     expect(view.rows?.find((r) => r.id === "favorites")?.checked).toBe(false);
   });
 
@@ -198,9 +222,63 @@ describe("visibleQueue", () => {
     const queue = visibleQueue([sent(1)], page, now);
     expect(queue).toHaveLength(1);
     expect(
-      collectionsView({ page, queue, ...idle }, m).rows?.find(
+      collectionsView({ ...reached, page, queue, ...idle }, m).rows?.find(
         (r) => r.id === "favorites",
       )?.checked,
     ).toBe(true);
+  });
+});
+
+describe("toggles the popup could not hand to the worker", () => {
+  const pending = enqueue([], toggle("add", "favorites"), false);
+
+  // The popup cannot write the queue, so an unrecorded toggle exists only
+  // here. Closing now would lose it; nothing may outrank saying so.
+  test("an unrecorded toggle is an error with Save now enabled", () => {
+    const view = collectionsView(
+      { ...reached, page: article, queue: pending, ...idle, unrecorded: 1 },
+      m,
+    );
+    expect(view.footer).toEqual({
+      text: m.collectionsNotRecorded,
+      tone: "error",
+      sync: { visible: true, enabled: true },
+    });
+  });
+
+  test("it outranks a pending count and an older save failure", () => {
+    const view = collectionsView(
+      {
+        ...reached,
+        ...reached,
+        page: article,
+        queue: pending,
+        status: { at: T, ok: false, httpStatus: 401 },
+        syncing: false,
+        report: null,
+        unrecorded: 2,
+      },
+      m,
+    );
+    expect(view.footer?.text).toBe(m.collectionsNotRecorded);
+  });
+
+  test("a save that could not reach the worker says so", () => {
+    const view = collectionsView(
+      {
+        ...reached,
+        ...reached,
+        page: article,
+        queue: pending,
+        ...idle,
+        saveUnreachable: true,
+      },
+      m,
+    );
+    expect(view.footer).toMatchObject({
+      text: m.collectionsSaveUnreachable,
+      tone: "error",
+      sync: { enabled: true },
+    });
   });
 });

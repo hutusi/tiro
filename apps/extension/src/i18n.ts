@@ -212,6 +212,13 @@ const en = {
     `${n === 1 ? "1 change was" : `${n} changes were`} dropped: that article is not in your vault.`,
   collectionsFailed: (reason: string) =>
     `Could not save: ${reason} Your changes are kept and will be retried.`,
+  /** A toggle the worker could not record, even after a retry. It lives only
+   * in this popup until Save now records it, which the sentence has to say. */
+  collectionsNotRecorded:
+    "A change could not be recorded. Press Save now to try again — it is lost if you close this popup first.",
+  /** Save now could not reach the extension's background worker. */
+  collectionsSaveUnreachable:
+    "Could not reach the extension to save. Your changes are kept; press Save now to try again.",
 };
 
 export type Messages = typeof en;
@@ -364,6 +371,10 @@ const zh: Messages = {
     `${n} 处改动已丢弃：你的仓库中没有这篇文章。`,
   collectionsFailed: (reason: string) =>
     `保存失败：${reason} 改动已保留，稍后会重试。`,
+  collectionsNotRecorded:
+    "有改动未能记下。请点击「立即保存」重试——若先关闭弹窗，这项改动将丢失。",
+  collectionsSaveUnreachable:
+    "无法连接扩展以保存。改动已保留，请点击「立即保存」重试。",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

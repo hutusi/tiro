@@ -209,11 +209,18 @@ export function collectionFixtures(
     ...(title === undefined ? {} : { title }),
   });
   const idle = { status: null, syncing: false, report: null };
+  // What every state has unless it says otherwise: nothing stranded in the
+  // popup, and the last save reached the worker.
+  const reached = { unrecorded: 0, saveUnreachable: false };
   const pending = [
     op("1", "favorites", "add", "pending"),
     op("2", "reading-notes", "remove", "pending"),
   ];
-  return {
+  const states: Record<
+    string,
+    Omit<CollectionsState, "unrecorded" | "saveUnreachable"> &
+      Partial<Pick<CollectionsState, "unrecorded" | "saveUnreachable">>
+  > = {
     article: { page: article, queue: [], ...idle },
     "no-favorites-yet": {
       page: { ...article, catalog: article.catalog.slice(1) },
@@ -255,5 +262,18 @@ export function collectionFixtures(
       report: null,
     },
     site: { page: { kind: "site" }, queue: [], ...idle },
+    "not-recorded": { page: article, queue: pending, ...idle, unrecorded: 1 },
+    "save-unreachable": {
+      page: article,
+      queue: pending,
+      ...idle,
+      saveUnreachable: true,
+    },
   };
+  return Object.fromEntries(
+    Object.entries(states).map(([name, state]) => [
+      name,
+      { ...reached, ...state },
+    ]),
+  );
 }

@@ -37,7 +37,11 @@ export function recordToggle(
 ): Promise<void> {
   return serial(async () => {
     const config = await loadConfig();
-    if (!isConfigComplete(config)) return;
+    // Thrown, not returned: returning answered the popup `{ ok: true }` for a
+    // toggle that was never recorded, which is the one reply it must not get.
+    if (!isConfigComplete(config)) {
+      throw new Error("the vault settings are incomplete");
+    }
     const page = { slug: message.op.slug, member: message.member };
     const queue = enqueue(
       pruneSent(await loadCollectionQueue(config), page, Date.now()),

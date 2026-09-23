@@ -303,52 +303,114 @@ async function main(): Promise<void> {
    * flight would paint the worker's state from *before* it, and a checkbox the
    * reader just ticked would flick back. */
   let inFlight = 0;
+  type ToggleOp = Extract<
+    CollectionMessage,
+    { type: "tiro-collection-toggle" }
+  >["op"];
+  /**
+   * Toggles the worker could not record, even after a retry — kept here, with
+   * what the page said at the time, because the popup cannot write the queue
+   * itself (the worker is its one writer). Laid back over every re-read of the
+   * queue so the reader's tick stays where they put it, and re-sent by Save
+   * now. Lost if the popup closes first, which the footer says in as many
+   * words.
+   */
+  let unrecorded: { op: ToggleOp; published: boolean; member: string[] }[] = [];
+  /** The last Save now could not reach the worker at all. */
+  let saveUnreachable = false;
 
   async function refreshQueue(): Promise<void> {
     const [loaded, status] = await Promise.all([
       loadCollectionQueue(config),
       loadFlushStatus(config),
     ]);
-    queue = visibleQueue(loaded, tiroPage, Date.now());
+    let next = visibleQueue(loaded, tiroPage, Date.now());
+    // Without this a re-read would draw the worker's queue, which lacks these
+    // toggles, and the tick would flick back with no word said — the silent
+    // revert this list exists to prevent.
+    for (const entry of unrecorded) {
+      next = enqueue(next, entry.op, entry.published);
+    }
+    queue = next;
     flushStatus = status;
   }
   function paintCollections(): void {
-    const s = { queue, status: flushStatus, syncing, report };
+    const s = {
+      queue,
+      status: flushStatus,
+      syncing,
+      report,
+      unrecorded: unrecorded.length,
+      saveUnreachable,
+    };
     if (tiroPage !== null) {
       applyCollections(collectionsView({ page: tiroPage, ...s }, m));
     } else {
       applyCollectionFooter(collectionsFooter(s, m));
     }
   }
+  /** One message to the worker. Any way it can fail — a rejected send, no
+   * answer, `ok: false` — comes back as null, so no caller can mistake a
+   * failure for a success or leave a rejection unhandled. */
   async function send(
     message: CollectionMessage,
-  ): Promise<{ ok: boolean; result?: unknown } | undefined> {
-    return chrome.runtime.sendMessage(message);
+  ): Promise<{ ok: true; result?: unknown } | null> {
+    try {
+      const response = (await chrome.runtime.sendMessage(message)) as
+        | { ok?: unknown; result?: unknown }
+        | undefined;
+      return response?.ok === true
+        ? { ok: true, result: response.result }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  /** Record one toggle with the worker, retrying once: a worker still waking
+   * is the likely cause of a first failure. */
+  async function record(entry: {
+    op: ToggleOp;
+    published: boolean;
+    member: string[];
+  }): Promise<boolean> {
+    const message: CollectionMessage = {
+      type: "tiro-collection-toggle",
+      ...entry,
+    };
+    return (await send(message)) !== null || (await send(message)) !== null;
+  }
+  function samePair(a: ToggleOp, b: ToggleOp): boolean {
+    return a.collection === b.collection && a.slug === b.slug;
   }
 
-  async function toggle(
-    op: Extract<CollectionMessage, { type: "tiro-collection-toggle" }>["op"],
-  ): Promise<void> {
+  async function toggle(op: ToggleOp): Promise<void> {
     if (tiroPage?.kind !== "article") return;
     const page = tiroPage;
-    const published = page.member.includes(op.collection);
+    const entry = {
+      op,
+      published: page.member.includes(op.collection),
+      member: page.member,
+    };
     // Drawn now, from the same function the worker will run, so the tick moves
     // under the reader's finger rather than after a round trip.
-    queue = enqueue(queue, op, published);
+    queue = enqueue(queue, op, entry.published);
     report = null;
     paintCollections();
     inFlight += 1;
     try {
-      await send({
-        type: "tiro-collection-toggle",
-        op,
-        published,
-        member: page.member,
-      });
+      const recorded = await record(entry);
+      // Either way this toggle supersedes any earlier unrecorded one for the
+      // same pair; it is kept only if it too failed.
+      unrecorded = unrecorded.filter((kept) => !samePair(kept.op, op));
+      if (!recorded) unrecorded.push(entry);
     } finally {
       inFlight -= 1;
       if (inFlight === 0) {
-        await refreshQueue();
+        try {
+          await refreshQueue();
+        } catch {
+          // The last drawn state stands; the next action re-reads.
+        }
         paintCollections();
       }
     }
@@ -396,16 +458,31 @@ async function main(): Promise<void> {
   el.syncNow.addEventListener("click", () => {
     void (async () => {
       syncing = true;
+      saveUnreachable = false;
       paintCollections();
       try {
+        // Anything this popup is still holding goes to the worker first; a
+        // flush now would save the queue without it and report success.
+        const retried = unrecorded;
+        unrecorded = [];
+        for (const entry of retried) {
+          if (!(await record(entry))) unrecorded.push(entry);
+        }
+        if (unrecorded.length > 0) return;
         const response = await send({ type: "tiro-collection-flush" });
-        report =
-          response?.ok === true
-            ? ((response.result as FlushReport | null) ?? null)
-            : null;
+        if (response === null) {
+          saveUnreachable = true;
+          report = null;
+        } else {
+          report = (response.result as FlushReport | null) ?? null;
+        }
       } finally {
         syncing = false;
-        await refreshQueue();
+        try {
+          await refreshQueue();
+        } catch {
+          // The last drawn state stands; the footer already says what failed.
+        }
         paintCollections();
       }
     })();

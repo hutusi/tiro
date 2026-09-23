@@ -27,6 +27,14 @@ export interface CollectionsState {
   syncing: boolean;
   /** What "Save now" reported, in this session. */
   report: FlushReport | null;
+  /**
+   * Toggles the worker could not record, even after a retry. They exist only
+   * in this popup — it cannot write the queue itself — so they outrank every
+   * other line: closing the popup now would lose them.
+   */
+  unrecorded: number;
+  /** The last "Save now" could not reach the worker at all. */
+  saveUnreachable: boolean;
 }
 
 export interface CollectionRow {
@@ -79,12 +87,22 @@ export function visibleQueue(
  * from a Tiro page would be a queue the reader can lose track of.
  */
 export function collectionsFooter(
-  s: Pick<CollectionsState, "queue" | "status" | "syncing" | "report">,
+  s: Pick<
+    CollectionsState,
+    "queue" | "status" | "syncing" | "report" | "unrecorded" | "saveUnreachable"
+  >,
   m: Messages,
 ): CollectionsFooter | null {
   const busy = { visible: true, enabled: false };
   if (s.syncing)
     return { text: m.collectionsSaving, tone: "neutral", sync: busy };
+  const retry = { visible: true, enabled: true };
+  if (s.unrecorded > 0) {
+    return { text: m.collectionsNotRecorded, tone: "error", sync: retry };
+  }
+  if (s.saveUnreachable) {
+    return { text: m.collectionsSaveUnreachable, tone: "error", sync: retry };
+  }
   const pending = pendingOps(s.queue).length;
   if (pending === 0) {
     if (s.report === null || !s.report.ok) return null;

@@ -566,7 +566,8 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging. The collections panel has its own set at
   `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
-  `created`, `saving`, `saved`, `refused`, `failed`, `site`.
+  `created`, `saving`, `saved`, `refused`, `failed`, `site`, `not-recorded`,
+  `save-unreachable`.
 - **On a Tiro page the popup offers collections, not a clip** (ADR 0029). It
   recognizes the page by the site's `tiro:site` meta and `#tiro-page` island,
   on any domain, and shows a tick-list drawn from the page itself. Ticks queue
@@ -1128,5 +1129,6 @@ permanent extension ID, unrelated to the unpacked one.
 | The search page shows "搜索索引在构建后生成" in production | `pagefind --site dist` did not run after `astro build`, so `dist/pagefind/` is missing | check the deploy log for the pagefind step; the results UI imports `/pagefind/pagefind.js` and shows the notice when that import fails |
 | The popup says a collection save failed: "… cannot parse …" | a hand-edited `collections/<id>.md` no longer validates, and the extension refuses to overwrite what it cannot read | run `validate` on the vault, fix the file, then "Save now" — the queued changes were kept |
 | The popup says a collection save failed: "… kept moving" | three commits landed on the branch during one save — a processing run committing back in a burst | "Save now" again once processing settles; nothing was lost |
+| The popup says "A change could not be recorded" | the extension's background worker did not answer a toggle, even on a retry — usually it was still starting, or the extension was just reloaded | press Save now, which re-sends the toggle before saving; if it keeps failing, reload the extension at `chrome://extensions` and tick again. Closing the popup first loses that one toggle, by design: the popup cannot write the queue itself |
 | A collection change is saved but the site still shows the old list | the vault's `publish.yml` is missing or failed, so no deploy was dispatched | copy `vault-template/.github/workflows/publish.yml` into the vault, or dispatch "Deploy site" by hand |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |

@@ -120,7 +120,7 @@ describe("the collection worker", () => {
 
   test("an unconfigured extension neither queues nor flushes", async () => {
     const { local } = installChromeStorage();
-    await recordToggle(toggle("add"));
+    await expect(recordToggle(toggle("add"))).rejects.toThrow();
     expect(await local.get("tiroCollectionQueue")).toEqual({});
     const report = await flushNow(async () => {
       throw new Error("must not be called");
@@ -178,5 +178,18 @@ describe("pruning on save", () => {
     expect((await loadCollectionQueue(config)).map((op) => op.id)).toEqual([
       "new",
     ]);
+  });
+});
+
+describe("no silent success", () => {
+  // Returning early answered the popup `{ ok: true }` for a toggle that was
+  // never recorded. It has to reject, so the popup keeps the tick and says so.
+  test("a toggle with incomplete settings is refused, not dropped", async () => {
+    const { local } = installChromeStorage();
+    await local.set({
+      tiroConfig: { owner: "o", repo: "", branch: "main", token: "" },
+    });
+    await expect(recordToggle(toggle("add"))).rejects.toThrow("incomplete");
+    expect(await local.get("tiroCollectionQueue")).toEqual({});
   });
 });
