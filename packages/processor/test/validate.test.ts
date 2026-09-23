@@ -188,6 +188,27 @@ describe("validateVault on collections", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
+  // The site reads the directory without Bun's glob and so sees hidden files;
+  // a hidden `.md` fails its build. Validate has to fail it first.
+  test("catches a hidden collection the site would refuse", async () => {
+    const vault = withCollection(".reading.md", valid(""));
+    const report = await validateVault(vault);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toContain(
+      '".reading" is not a usable collection id',
+    );
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("ignores filesystem litter nothing reads", async () => {
+    const vault = withCollection(".DS_Store", "\u0000\u0001");
+    writeFileSync(join(vault, "collections", ".gitkeep"), "");
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([]);
+    expect(report.collections).toBe(3);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
   test("catches a file the site would never read", async () => {
     const vault = withCollection("reading.yml", "title: X\n");
     mkdirSync(join(vault, "collections", "nested"));

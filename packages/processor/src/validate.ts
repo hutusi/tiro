@@ -154,9 +154,20 @@ async function validateCollections(
   // No directory is no collections — the state every vault starts in — and
   // Bun's glob throws on a missing root rather than yielding nothing.
   if (!existsSync(dir)) return 0;
+  // `dot: true` because the site reads the directory without Bun's glob, and
+  // so sees hidden files: a `.reading.md` fails the build as an unusable id,
+  // and a validator that skipped it would pass the very vault that build
+  // rejects. Other hidden files are ignored rather than refused — nothing
+  // reads them, and Finder drops a `.DS_Store` into any folder browsed in a
+  // local clone, which is where this runs during a migration.
   const entries = Array.from(
-    new Bun.Glob("**/*").scanSync({ cwd: dir, onlyFiles: true }),
-  ).sort();
+    new Bun.Glob("**/*").scanSync({ cwd: dir, onlyFiles: true, dot: true }),
+  )
+    .filter((relPath) => {
+      const name = relPath.split("/").at(-1) ?? relPath;
+      return !(name.startsWith(".") && !name.endsWith(".md"));
+    })
+    .sort();
   let collections = 0;
 
   for (const relPath of entries) {
