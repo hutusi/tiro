@@ -54,6 +54,7 @@ import {
   collectionsView,
   visibleQueue,
 } from "./collections-view.ts";
+import { createRecorder, type ToggleEntry, type ToggleOp } from "./recorder.ts";
 import {
   articleUrl,
   type Phase,
@@ -303,10 +304,6 @@ async function main(): Promise<void> {
    * flight would paint the worker's state from *before* it, and a checkbox the
    * reader just ticked would flick back. */
   let inFlight = 0;
-  type ToggleOp = Extract<
-    CollectionMessage,
-    { type: "tiro-collection-toggle" }
-  >["op"];
   /**
    * Toggles the worker could not record, even after a retry — kept here, with
    * what the page said at the time, because the popup cannot write the queue
@@ -315,7 +312,7 @@ async function main(): Promise<void> {
    * now. Lost if the popup closes first, which the footer says in as many
    * words.
    */
-  let unrecorded: { op: ToggleOp; published: boolean; member: string[] }[] = [];
+  let unrecorded: ToggleEntry[] = [];
   /** The last Save now could not reach the worker at all. */
   let saveUnreachable = false;
 
@@ -366,19 +363,10 @@ async function main(): Promise<void> {
       return null;
     }
   }
-  /** Record one toggle with the worker, retrying once: a worker still waking
-   * is the likely cause of a first failure. */
-  async function record(entry: {
-    op: ToggleOp;
-    published: boolean;
-    member: string[];
-  }): Promise<boolean> {
-    const message: CollectionMessage = {
-      type: "tiro-collection-toggle",
-      ...entry,
-    };
-    return (await send(message)) !== null || (await send(message)) !== null;
-  }
+  /** Records one toggle with the worker, in click order — see
+   * `createRecorder` for why the order is kept here. */
+  const record = createRecorder(send);
+
   function samePair(a: ToggleOp, b: ToggleOp): boolean {
     return a.collection === b.collection && a.slug === b.slug;
   }

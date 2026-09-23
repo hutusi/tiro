@@ -7,6 +7,7 @@ import {
 import { flushCollections } from "./collections-flush.ts";
 import { type FetchLike, GitHubHttpError } from "./github.ts";
 import type { CollectionMessage } from "./messages.ts";
+import { serializer } from "./serializer.ts";
 import {
   isConfigComplete,
   loadCollectionQueue,
@@ -25,12 +26,7 @@ import {
  * runs toggles and flushes strictly one after another. A toggle made during a
  * slow flush waits its turn; the popup has already drawn it.
  */
-let chain: Promise<unknown> = Promise.resolve();
-function serial<T>(work: () => Promise<T>): Promise<T> {
-  const next = chain.then(work, work);
-  chain = next.catch(() => {});
-  return next;
-}
+const serial = serializer();
 
 export function recordToggle(
   message: Extract<CollectionMessage, { type: "tiro-collection-toggle" }>,
