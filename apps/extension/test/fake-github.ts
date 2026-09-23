@@ -113,11 +113,18 @@ export function fakeGitHub(
             content: Buffer.from(text, "utf8").toString("base64"),
           });
         }
-        const listing = [...at.keys()].filter((p) => p.startsWith(`${file}/`));
+        // Direct children only, each with its `name`, as GitHub lists them.
+        const listing = [
+          ...new Set(
+            [...at.keys()]
+              .filter((p) => p.startsWith(`${file}/`))
+              .map((p) => p.slice(file.length + 1).split("/")[0] ?? ""),
+          ),
+        ];
         return listing.length > 0
           ? json(
               200,
-              listing.map((p) => ({ path: p })),
+              listing.map((name) => ({ name, path: `${file}/${name}` })),
             )
           : json(404, {});
       }

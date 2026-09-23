@@ -147,6 +147,12 @@ describe("commitFiles", () => {
           expect(await reader.read("collections/nope.md")).toBeNull();
           expect(await reader.exists("articles/a-1234abcd")).toBe(true);
           expect(await reader.exists("articles/gone-1234abcd")).toBe(false);
+          expect(await reader.list("articles/a-1234abcd")).toEqual([
+            "index.md",
+          ]);
+          expect(await reader.list("articles/gone-1234abcd")).toBeNull();
+          // A file is not a directory.
+          expect(await reader.list("articles/a-1234abcd/index.md")).toBeNull();
           return null;
         },
       },

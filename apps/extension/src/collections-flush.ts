@@ -86,9 +86,14 @@ export async function flushCollections(
         const added = new Set(
           pending.filter((op) => op.action === "add").map((op) => op.slug),
         );
+        // "An article" means what `validate` means: its `index.md` is there.
+        // A directory alone is not enough — one holding only an orphan `zh.md`
+        // would pass, and the collection would gain a member `validate` then
+        // refuses and the site silently skips.
         const missing = new Set<string>();
         for (const slug of added) {
-          if (!(await reader.exists(articleDir(slug)))) missing.add(slug);
+          const names = await reader.list(articleDir(slug));
+          if (!names?.includes("index.md")) missing.add(slug);
         }
         refused = pending.filter(
           (op) => op.action === "add" && missing.has(op.slug),

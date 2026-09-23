@@ -402,10 +402,35 @@ async function existsAt(
   return true;
 }
 
+/** The names directly inside a directory in one commit, or null when there is
+ * no directory there. One listing request whatever the files weigh — which is
+ * why a file is looked for in its directory's listing rather than fetched,
+ * since fetching an article's `index.md` would pull up to 1 MB to learn that it
+ * exists. */
+async function listAt(
+  config: TiroExtensionConfig,
+  path: string,
+  commit: string,
+  fetchImpl: FetchLike,
+): Promise<string[] | null> {
+  const res = await fetchImpl(contentsUrl(config, path, commit), {
+    headers: headers(config),
+  });
+  if (res.status === 404) return null;
+  await expectOk(res, `listing ${path}`);
+  const body = (await res.json()) as unknown;
+  // A file where a directory was expected is not a directory.
+  if (!Array.isArray(body)) return null;
+  return body
+    .map((entry) => (entry as { name?: unknown }).name)
+    .filter((name): name is string => typeof name === "string");
+}
+
 /** What `commitFiles` hands its builder: reads, all pinned to one commit. */
 export interface TreeReader {
   read(path: string): Promise<string | null>;
   exists(path: string): Promise<boolean>;
+  list(path: string): Promise<string[] | null>;
 }
 
 export interface CommitFilesOptions {
@@ -456,6 +481,7 @@ export async function commitFiles(
     const files = await options.build({
       read: (path) => readTextAt(config, path, head.commit, fetchImpl),
       exists: (path) => existsAt(config, path, head.commit, fetchImpl),
+      list: (path) => listAt(config, path, head.commit, fetchImpl),
     });
     if (files === null || files.length === 0) return { committed: null };
 

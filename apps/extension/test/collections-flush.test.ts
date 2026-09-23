@@ -90,6 +90,20 @@ describe("flushCollections", () => {
     expect(members(gh.files(), "favorites")).toEqual([A]);
   });
 
+  // `validate` counts an article only when its `index.md` is there. A
+  // directory holding nothing but an orphan translation is not an article.
+  test("refuses an add whose directory has no index.md", async () => {
+    const gh = fakeGitHub({
+      ...vault,
+      "articles/orphan-com-x-deadbeef/zh.md": "译文",
+    });
+    const orphan = op("add", "favorites", "orphan-com-x-deadbeef");
+    const outcome = await flushCollections(config, [orphan], gh.fetch);
+    expect(outcome.refused.map((r) => r.id)).toEqual([orphan.id]);
+    expect(outcome.committed).toBeNull();
+    expect(gh.files().has("collections/favorites.md")).toBe(false);
+  });
+
   test("an all-refused flush writes nothing", async () => {
     const gh = fakeGitHub(vault);
     const outcome = await flushCollections(

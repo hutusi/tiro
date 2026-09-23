@@ -98,7 +98,9 @@ anywhere until the reader toggles something.
 
 The marker says "a Tiro site", not "*your* Tiro site" — the price of not
 checking the host. It is settled at write time instead: adding an article checks
-that its slug exists in the configured vault first, which covers someone else's
+that the configured vault holds its `index.md` first — the file `validate`
+counts an article by, so a directory holding only an orphan `zh.md` does not
+pass — which covers someone else's
 deployment, a stale tab and a since-deleted article in one check.
 
 ### Edits are queued and flushed as one commit
