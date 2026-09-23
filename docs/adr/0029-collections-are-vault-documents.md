@@ -125,7 +125,9 @@ in turn. Closing the popup — its port disconnecting — is the cue to flush.
 A saved toggle is kept as an overlay on the page until the redeployed page
 agrees with it (or a week passes), because between the commit and the deploy
 the page still shows the old membership, and a popup drawn from it alone would
-invite the reader to undo what they just did.
+invite the reader to undo what they just did. The week is enforced when the
+popup draws the queue as well as when the worker writes it; enforced only on
+write, a popup that merely opened would show a stale tick indefinitely.
 
 The disclosure moved to version 5. It had promised that closing the popup
 without clipping discards everything, and a kept collection tick is exactly

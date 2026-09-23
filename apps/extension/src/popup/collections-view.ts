@@ -2,6 +2,7 @@ import { FAVORITES_ID } from "@tiro/shared";
 import {
   effectiveMembership,
   pendingOps,
+  pruneSent,
   type QueuedOp,
 } from "../collection-queue.ts";
 import type { FlushReport } from "../collections-worker.ts";
@@ -48,6 +49,28 @@ export interface CollectionsView {
   /** Null on a Tiro page that is not an article: nothing to toggle. */
   rows: CollectionRow[] | null;
   footer: CollectionsFooter | null;
+}
+
+/**
+ * The queue as the popup should draw it: expired and caught-up overlay
+ * dropped, the same rule the worker applies when it writes.
+ *
+ * Applied on every read, because the worker only prunes when it has a reason
+ * to write — a toggle or a save — and a popup that merely opened would
+ * otherwise go on showing a saved tick from weeks ago. In memory only: the
+ * popup never writes the queue (the worker is its one writer), and the next
+ * write catches storage up.
+ */
+export function visibleQueue(
+  queue: readonly QueuedOp[],
+  page: TiroPage | null,
+  now: number,
+): QueuedOp[] {
+  return pruneSent(
+    queue,
+    page?.kind === "article" ? { slug: page.slug, member: page.member } : null,
+    now,
+  );
 }
 
 /**

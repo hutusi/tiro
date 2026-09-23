@@ -52,6 +52,7 @@ import {
   type CollectionsView,
   collectionsFooter,
   collectionsView,
+  visibleQueue,
 } from "./collections-view.ts";
 import {
   articleUrl,
@@ -304,10 +305,12 @@ async function main(): Promise<void> {
   let inFlight = 0;
 
   async function refreshQueue(): Promise<void> {
-    [queue, flushStatus] = await Promise.all([
+    const [loaded, status] = await Promise.all([
       loadCollectionQueue(config),
       loadFlushStatus(config),
     ]);
+    queue = visibleQueue(loaded, tiroPage, Date.now());
+    flushStatus = status;
   }
   function paintCollections(): void {
     const s = { queue, status: flushStatus, syncing, report };

@@ -5,7 +5,10 @@ import {
   settleFlush,
 } from "../src/collection-queue.ts";
 import { messages } from "../src/i18n.ts";
-import { collectionsView } from "../src/popup/collections-view.ts";
+import {
+  collectionsView,
+  visibleQueue,
+} from "../src/popup/collections-view.ts";
 import type { TiroPage } from "../src/tiro-page.ts";
 
 const m = messages("en");
@@ -165,5 +168,39 @@ describe("the queue footer", () => {
         m,
       ).footer,
     ).toMatchObject({ text: m.collectionsRefused(2), tone: "error" });
+  });
+});
+
+describe("visibleQueue", () => {
+  const now = Date.parse("2026-10-01T00:00:00.000Z");
+  const sent = (daysAgo: number): QueuedOp => ({
+    id: `s${daysAgo}`,
+    collection: "favorites",
+    slug: "a",
+    action: "add",
+    at: T,
+    state: "sent",
+    sentAt: new Date(now - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  // Codex's repro: the worker prunes only when it writes, so a popup that just
+  // opened kept showing a week-old saved tick.
+  test("a saved tick past the overlay window is no longer drawn", () => {
+    const page = { ...article, member: [] };
+    const queue = visibleQueue([sent(8)], page, now);
+    expect(queue).toEqual([]);
+    const view = collectionsView({ page, queue, ...idle }, m);
+    expect(view.rows?.find((r) => r.id === "favorites")?.checked).toBe(false);
+  });
+
+  test("one inside the window is still drawn over a stale page", () => {
+    const page = { ...article, member: [] };
+    const queue = visibleQueue([sent(1)], page, now);
+    expect(queue).toHaveLength(1);
+    expect(
+      collectionsView({ page, queue, ...idle }, m).rows?.find(
+        (r) => r.id === "favorites",
+      )?.checked,
+    ).toBe(true);
   });
 });

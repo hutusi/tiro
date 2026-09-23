@@ -69,7 +69,13 @@ export function flushNow(fetchImpl: FetchLike = fetch): Promise<FlushReport> {
     if (!isConfigComplete(config)) {
       return { pending: 0, ok: true, committed: null, refused: 0 };
     }
-    const queue = await loadCollectionQueue(config);
+    // Expired overlay goes on every save, not only on the next toggle, so
+    // storage does not keep a saved tick the site caught up with long ago.
+    const queue = pruneSent(
+      await loadCollectionQueue(config),
+      null,
+      Date.now(),
+    );
     const pending = pendingOps(queue);
     if (pending.length === 0) {
       return { pending: 0, ok: true, committed: null, refused: 0 };

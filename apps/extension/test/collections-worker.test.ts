@@ -128,3 +128,55 @@ describe("the collection worker", () => {
     expect(report.pending).toBe(0);
   });
 });
+
+describe("pruning on save", () => {
+  test("a save drops a saved tick that has aged out", async () => {
+    const gh = fakeGitHub(vault);
+    const { local } = installChromeStorage();
+    await local.set({
+      tiroConfig: config,
+      tiroCollectionQueue: {
+        "o/r#main": [
+          {
+            id: "old",
+            collection: "favorites",
+            slug: A,
+            action: "add",
+            at: "2026-01-01T00:00:00.000Z",
+            state: "sent",
+            sentAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    await recordToggle(toggle("add", A, "reading"));
+    // recordToggle already prunes; start again from a queue it has not touched.
+    await local.set({
+      tiroCollectionQueue: {
+        "o/r#main": [
+          {
+            id: "old",
+            collection: "favorites",
+            slug: A,
+            action: "add",
+            at: "2026-01-01T00:00:00.000Z",
+            state: "sent",
+            sentAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            id: "new",
+            collection: "reading",
+            slug: A,
+            action: "add",
+            at: new Date().toISOString(),
+            state: "pending",
+          },
+        ],
+      },
+    });
+    await flushNow(gh.fetch);
+    expect((await loadCollectionQueue(config)).map((op) => op.id)).toEqual([
+      "new",
+    ]);
+  });
+});
