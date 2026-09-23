@@ -371,7 +371,7 @@ devDependencies — the action must log "using pre-installed wrangler".
 - **Collections** (ADR 0029): one file per collection at
   `collections/<id>.md`, the filename being the id — lowercase ASCII words
   joined by single dashes, because it is a filename and a URL. Favorites is
-  `collections/favorites.md`. The smallest valid one is a title and a list:
+  `collections/favorites.md`; its page exists even before that file does. The smallest valid one is a title and a list:
 
   ```yaml
   ---

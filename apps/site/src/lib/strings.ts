@@ -61,6 +61,8 @@ export const STRINGS = {
   list: { empty: "还没有剪藏任何文章" },
   collections: {
     title: "合集",
+    /** Favorites' title before the vault has a `favorites.md` to give it one. */
+    favorites: "收藏",
     // Says what a collection *is*, because nothing else on the site does:
     // tags and categories are written by the model, and this is the one list
     // that was chosen by hand.

@@ -69,6 +69,13 @@ Optional prose, rendered on the collection page.
 membership in it and nothing else, so there is no flag to keep in step with a
 list and no second mechanism to render.
 
+Its page exists before its file does. `/favorites/` redirects unconditionally
+and the clipper offers favorites first on every vault, so the site builds an
+empty favorites collection when the vault has none — otherwise the shortcut is
+a 404 until the first favorite. That stand-in is left out of the catalog the
+clipper reads: the clipper sends a title only for a collection missing from it,
+and that title is what `favorites.md` is born with.
+
 ### Membership is not listing
 
 The site builds collection pages from `getArticles()`, the listed funnel, so an

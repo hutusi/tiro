@@ -56,11 +56,38 @@ afterEach(() => {
 });
 
 describe("getCollections", () => {
-  test("a vault with no collections directory has no collections", async () => {
+  // `/favorites/` redirects unconditionally, so favorites needs a page even
+  // before the vault has a file for it — or the shortcut is a 404.
+  test("a vault with no collections still has favorites, virtually", async () => {
     const dir = vault();
     try {
       writeArticle(dir, "a");
-      expect(await getCollections()).toEqual([]);
+      const collections = await getCollections();
+      expect(collections.map((c) => [c.id, c.title, c.virtual])).toEqual([
+        ["favorites", "收藏", true],
+      ]);
+      expect(collections[0]?.articles).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a real favorites.md is used, not doubled", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeCollection(
+        dir,
+        "favorites",
+        'title: "My picks"\nitems:\n  - slug: "a"\n',
+      );
+      resetVaultCache();
+      const favorites = (await getCollections()).filter(
+        (c) => c.id === "favorites",
+      );
+      expect(favorites.map((c) => [c.title, c.virtual])).toEqual([
+        ["My picks", false],
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -192,7 +219,9 @@ describe("getCollections", () => {
       writeCollection(dir, "empty-shelf", 'title: "空书架"\nitems: []\n');
       resetVaultCache();
 
-      const [shelf] = await getCollections();
+      const shelf = (await getCollections()).find(
+        (c) => c.id === "empty-shelf",
+      );
       expect(shelf?.id).toBe("empty-shelf");
       expect(shelf?.articles).toEqual([]);
     } finally {
@@ -212,7 +241,7 @@ describe("getCollections", () => {
       );
       resetVaultCache();
 
-      const [reading] = await getCollections();
+      const reading = (await getCollections()).find((c) => c.id === "reading");
       expect(reading?.description).toBe("值得再读");
       expect(reading?.body.trim()).toBe("为什么留着这个列表。");
     } finally {
@@ -302,6 +331,25 @@ describe("the #tiro-page payload", () => {
       // ask nothing over the network until the reader toggles something.
       expect(payload.collections.map((c: { id: string }) => c.id)).toEqual([
         "favorites",
+        "reading",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The clipper names a collection only when it is missing from this
+  // catalog; listing virtual favorites would get `favorites.md` born titled
+  // "favorites" instead of whatever the clipper would have called it.
+  test("virtual favorites is not offered to the clipper as a real collection", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeCollection(dir, "reading", 'title: "重读"\n');
+      resetVaultCache();
+
+      const payload = JSON.parse(await tiroPagePayload("a"));
+      expect(payload.collections.map((c: { id: string }) => c.id)).toEqual([
         "reading",
       ]);
     } finally {

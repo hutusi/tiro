@@ -1,5 +1,6 @@
 import { compareInstants, FAVORITES_ID } from "@tiro/shared";
 import { type Article, getArticles } from "./articles.ts";
+import { STRINGS } from "./strings.ts";
 import { readCollections } from "./vault-read.ts";
 
 export interface Collection {
@@ -28,6 +29,16 @@ export interface Collection {
    * site degrades to not showing a row, and `validate` is what refuses it.
    */
   memberSlugs: string[];
+  /**
+   * Favorites standing in for a `favorites.md` the vault does not have yet.
+   *
+   * Favorites is the one collection every reader has — the clipper offers it
+   * first even before its file exists — and `/favorites/` redirects to it
+   * unconditionally, so its page has to exist too, or that shortcut is a 404
+   * on every vault that has not favorited anything. It is never offered to the
+   * clipper as a real collection: see `tiroPagePayload`.
+   */
+  virtual: boolean;
 }
 
 let cache: Collection[] | null = null;
@@ -79,8 +90,21 @@ export async function getCollections(): Promise<Collection[]> {
         .map((slug) => bySlug.get(slug))
         .filter((article): article is Article => article !== undefined),
       memberSlugs,
+      virtual: false,
     };
   });
+  if (!collections.some((collection) => collection.id === FAVORITES_ID)) {
+    collections.push({
+      id: FAVORITES_ID,
+      title: STRINGS.collections.favorites,
+      description: null,
+      body: "",
+      updatedAt: null,
+      articles: [],
+      memberSlugs: [],
+      virtual: true,
+    });
+  }
 
   collections.sort((a, b) => {
     if (a.id !== b.id) {
@@ -149,9 +173,16 @@ export async function tiroPagePayload(slug: string): Promise<string> {
     v: 1,
     slug,
     member: member.map((collection) => collection.id),
-    collections: catalog.map((collection) => ({
-      id: collection.id,
-      title: collection.title,
-    })),
+    // Only collections with a file. The clipper sends a title with an op only
+    // for a collection missing from this catalog, and that title is what the
+    // file is born with — so listing virtual favorites here would make the
+    // first favorite create `favorites.md` titled "favorites". Left out, the
+    // clipper names it itself, as it always has.
+    collections: catalog
+      .filter((collection) => !collection.virtual)
+      .map((collection) => ({
+        id: collection.id,
+        title: collection.title,
+      })),
   }).replaceAll("<", "\\u003c");
 }
