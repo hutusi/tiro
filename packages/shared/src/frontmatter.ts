@@ -17,6 +17,33 @@ export const isoDatetime = z.preprocess(
 );
 
 /**
+ * Order two `isoDatetime` values by the instant they name, for `sort`.
+ *
+ * Never compare them as strings. The schema accepts offsets, and
+ * `2026-09-23T01:00:00+08:00` sorts after `2026-09-22T22:00:00Z` as text while
+ * naming a moment five hours earlier. Every writer emits `Z` today, so only a
+ * hand-edited value reaches that — which is exactly the value nobody tests.
+ *
+ * Nor normalize them on read to make string order work: the processor
+ * round-trips article frontmatter on every run, so that would rewrite the
+ * timestamp the owner wrote. The stored text stays as written; only ordering
+ * reads the instant.
+ *
+ * A missing value — absent, null, or empty — orders before every present one,
+ * so "newest first" puts undated entries last, deterministically.
+ */
+export function compareInstants(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const missingA = a === undefined || a === null || a === "";
+  const missingB = b === undefined || b === null || b === "";
+  if (missingA || missingB)
+    return missingA === missingB ? 0 : missingA ? -1 : 1;
+  return Date.parse(a) - Date.parse(b);
+}
+
+/**
  * Which clipper wrote the article, mirroring `processor_version` below.
  *
  * Declared on both schemas deliberately. Zod strips keys an object does not

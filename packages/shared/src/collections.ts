@@ -18,6 +18,7 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 import {
+  compareInstants,
   FRONTMATTER_RE,
   isoDatetime,
   TIRO_SCHEMA_VERSION,
@@ -154,7 +155,7 @@ export function applyCollectionOps(
 
   // Oldest first, so two toggles of the same article in one flush settle on
   // the last thing the user actually did.
-  const ordered = [...mine].sort((a, b) => a.at.localeCompare(b.at));
+  const ordered = [...mine].sort((a, b) => compareInstants(a.at, b.at));
 
   const before = existing === null ? [] : existing.frontmatter.items;
   let items = [...before];
@@ -170,7 +171,7 @@ export function applyCollectionOps(
       if (!member) continue;
       items = items.filter((item) => item.slug !== op.slug);
     }
-    if (op.at > latest) latest = op.at;
+    if (compareInstants(op.at, latest) > 0) latest = op.at;
   }
 
   // Compared against where we started, not counted as we went: a flush that

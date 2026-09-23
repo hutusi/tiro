@@ -157,6 +157,34 @@ describe("getCollections", () => {
     }
   });
 
+  // Codex's pair: the offset one is five hours earlier, and sorts first as text.
+  test("most recently updated is judged by instant, not by text", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeCollection(
+        dir,
+        "shanghai",
+        'title: "S"\nupdated_at: "2026-09-23T01:00:00+08:00"\n',
+      );
+      writeCollection(
+        dir,
+        "utc",
+        'title: "U"\nupdated_at: "2026-09-22T22:00:00Z"\n',
+      );
+      writeCollection(dir, "favorites", 'title: "收藏"\n');
+      resetVaultCache();
+
+      expect((await getCollections()).map((c) => c.id)).toEqual([
+        "favorites",
+        "utc",
+        "shanghai",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("an empty collection is still listed", async () => {
     const dir = vault();
     try {

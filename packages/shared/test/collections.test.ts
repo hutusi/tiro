@@ -8,6 +8,7 @@ import {
   renameCollectionMember,
   stringifyCollection,
 } from "../src/collections.ts";
+import { compareInstants } from "../src/frontmatter.ts";
 import { collectionPath } from "../src/paths.ts";
 import { collectionId, isValidCollectionId } from "../src/slug.ts";
 
@@ -334,5 +335,43 @@ describe("renameCollectionMember", () => {
     const existing = collection([{ slug: "old-slug" }]);
     renameCollectionMember([existing], "old-slug", "new-slug");
     expect(existing.frontmatter.items).toEqual([{ slug: "old-slug" }]);
+  });
+});
+
+describe("timestamps with offsets", () => {
+  // Five hours apart, and in the opposite order as text.
+  const EARLIER = "2026-09-23T01:00:00+08:00"; // 2026-09-22T17:00:00Z
+  const LATER = "2026-09-22T22:00:00Z";
+
+  test("compareInstants orders by the instant, not the digits", () => {
+    expect(EARLIER > LATER).toBe(true); // the trap
+    expect(compareInstants(EARLIER, LATER)).toBeLessThan(0);
+    expect(compareInstants(LATER, EARLIER)).toBeGreaterThan(0);
+    expect(compareInstants("2026-09-22T22:00:00+00:00", LATER)).toBe(0);
+  });
+
+  test("a missing value orders first, so newest-first puts it last", () => {
+    expect(compareInstants(undefined, LATER)).toBeLessThan(0);
+    expect(compareInstants(LATER, null)).toBeGreaterThan(0);
+    expect(compareInstants("", undefined)).toBe(0);
+  });
+
+  test("applyCollectionOps settles on the chronologically last toggle", () => {
+    // Added at 17:00Z, removed at 22:00Z: the article is out. By text the
+    // add would come last and put it back.
+    expect(
+      applyCollectionOps(FAVORITES_ID, collection([]), [
+        op("add", "a", EARLIER),
+        op("remove", "a", LATER),
+      ]),
+    ).toBeNull();
+  });
+
+  test("updated_at is the latest instant, not the largest string", () => {
+    const result = applyCollectionOps(FAVORITES_ID, collection([]), [
+      op("add", "a", EARLIER),
+      op("add", "b", LATER),
+    ]);
+    expect(result?.frontmatter.updated_at).toBe(LATER);
   });
 });

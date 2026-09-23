@@ -1,4 +1,8 @@
-import { type ArticleFrontmatter, tagSlug } from "@tiro/shared";
+import {
+  type ArticleFrontmatter,
+  compareInstants,
+  tagSlug,
+} from "@tiro/shared";
 import {
   buildShortLinks,
   reportShortLinks,
@@ -72,8 +76,10 @@ export async function getAllArticles(): Promise<Article[]> {
   // to answer misleadingly.
   const readable = articles.filter(hasReadableBody);
 
+  // Newest first by instant: `clipped_at` may carry an offset, and as text it
+  // would sort by its digits (see `compareInstants`).
   readable.sort((a, b) =>
-    b.frontmatter.clipped_at.localeCompare(a.frontmatter.clipped_at),
+    compareInstants(b.frontmatter.clipped_at, a.frontmatter.clipped_at),
   );
   cache = readable;
   return readable;

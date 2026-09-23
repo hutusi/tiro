@@ -1,4 +1,4 @@
-import { FAVORITES_ID } from "@tiro/shared";
+import { compareInstants, FAVORITES_ID } from "@tiro/shared";
 import { type Article, getArticles } from "./articles.ts";
 import { readCollections } from "./vault-read.ts";
 
@@ -87,7 +87,9 @@ export async function getCollections(): Promise<Collection[]> {
       if (a.id === FAVORITES_ID) return -1;
       if (b.id === FAVORITES_ID) return 1;
     }
-    const byUpdated = (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
+    // By instant, not by text — an `updated_at` written with an offset would
+    // otherwise sort by its digits (see `compareInstants`).
+    const byUpdated = compareInstants(b.updatedAt, a.updatedAt);
     return byUpdated !== 0 ? byUpdated : a.id.localeCompare(b.id);
   });
 

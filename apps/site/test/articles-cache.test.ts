@@ -205,3 +205,32 @@ Converted at last.
     }
   });
 });
+
+describe("library order", () => {
+  // `clipped_at` may carry an offset. The Shanghai clip is five hours earlier
+  // than the UTC one, and would lead the library if compared as text.
+  test("newest first, by instant rather than by text", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-order-"));
+    function clip(slug: string, at: string): void {
+      const articleDir = join(dir, "articles", slug);
+      mkdirSync(articleDir, { recursive: true });
+      writeFileSync(
+        join(articleDir, "index.md"),
+        `---\nurl: "https://example.com/${slug}"\ntitle: "${slug}"\ndomain: "example.com"\nclipped_at: "${at}"\ntiro:\n  schema: 1\n---\n\nBody.\n`,
+      );
+    }
+    try {
+      clip("shanghai", "2026-09-23T01:00:00+08:00");
+      clip("utc", "2026-09-22T22:00:00Z");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+
+      expect((await getAllArticles()).map((a) => a.slug)).toEqual([
+        "utc",
+        "shanghai",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
