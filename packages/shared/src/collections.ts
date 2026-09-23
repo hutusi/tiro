@@ -183,9 +183,18 @@ export function applyCollectionOps(
   if (sameMembers) return null;
 
   if (existing !== null) {
+    // Never earlier than what the file already says. Another machine may have
+    // saved after this one queued its ops — the reason this applies a delta at
+    // all — and taking the ops' time alone would move `updated_at` backwards,
+    // sinking a collection that just changed down the list.
+    const previous = existing.frontmatter.updated_at;
+    const updated =
+      previous !== undefined && compareInstants(previous, latest) > 0
+        ? previous
+        : latest;
     return {
       id,
-      frontmatter: { ...existing.frontmatter, items, updated_at: latest },
+      frontmatter: { ...existing.frontmatter, items, updated_at: updated },
       body: existing.body,
     };
   }

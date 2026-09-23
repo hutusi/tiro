@@ -367,6 +367,22 @@ describe("timestamps with offsets", () => {
     ).toBeNull();
   });
 
+  // Another machine saved after this one queued its toggle. The flush applies
+  // a delta so that save survives; its timestamp has to survive too.
+  test("updated_at never moves backwards past what the file says", () => {
+    const existing = collection([]);
+    existing.frontmatter.updated_at = "2026-09-23T12:00:00.000Z";
+    const result = applyCollectionOps(FAVORITES_ID, existing, [
+      op("add", "a", "2026-09-23T10:00:00.000Z"),
+    ]);
+    expect(result?.frontmatter.updated_at).toBe("2026-09-23T12:00:00.000Z");
+    // …and still advances when the ops are the newer ones.
+    const later = applyCollectionOps(FAVORITES_ID, existing, [
+      op("add", "a", "2026-09-23T14:00:00.000Z"),
+    ]);
+    expect(later?.frontmatter.updated_at).toBe("2026-09-23T14:00:00.000Z");
+  });
+
   test("updated_at is the latest instant, not the largest string", () => {
     const result = applyCollectionOps(FAVORITES_ID, collection([]), [
       op("add", "a", EARLIER),
