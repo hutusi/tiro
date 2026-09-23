@@ -647,11 +647,16 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **4**: 2 added the optional arxiv.org fetch, 3
+  policy also requires. It is at **5**: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
   for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
   fetch. Each is a new destination, and a new destination is a practice change
-  whichever way the separate opt-in is answered. Both language
+  whichever way the separate opt-in is answered. 5 is a different kind of
+  bump: collections (ADR 0029) keep a ticked box after the popup closes and
+  commit it then, which falsified the promise that closing the popup discards
+  everything. No new destination, no new permission — but the number tracks
+  what the text promises, so a sentence that stopped being true is a bump even
+  when the manifest is unchanged. Do not "correct" it back to 4. Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
   English copy and silently missed the Chinese one that this extension actually
