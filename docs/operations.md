@@ -395,10 +395,13 @@ devDependencies — the action must log "using pre-installed wrangler".
   - `publish.yml` ships in `vault-template/`, which does not propagate — copy it
     into the live vault by hand. Without it a collections push stays unpublished
     until the next deploy from anywhere else.
-- Deleting an article: remove its directory from the vault and push. The whole
-  article is in that directory — `index.md`, `zh.md`, `assets/` and the
-  `.tiro-zh-cache.json` checkpoint — and nothing outside it refers to the
-  article, so there is nothing else to clean up. Then dispatch a deploy.
+- Deleting an article: remove its directory from the vault. The whole article
+  is in that directory — `index.md`, `zh.md`, `assets/` and the
+  `.tiro-zh-cache.json` checkpoint — but since collections (ADR 0029) it is not
+  the only place that names it: drop the slug from every collection that lists
+  it, which `validate` names as `… is not an article in this vault`. Commit
+  both together and push, then dispatch a deploy. Left behind, a member is a
+  row the site silently skips and an error on every later `validate`.
 - Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
   frontmatter and push, then dispatch a deploy. It drops out of the library,
   the pager, the tag and category pages, search, RSS and the sitemap, and stays
