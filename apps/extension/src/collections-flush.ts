@@ -21,20 +21,30 @@ export interface FlushOutcome {
   refused: QueuedOp[];
 }
 
-/** `collections: favorites +2 −1, reading +1` — what changed, per collection,
- * so `git log` in the vault reads without opening the diff. */
-function commitMessage(ops: readonly QueuedOp[]): string {
-  const counts = new Map<string, { add: number; remove: number }>();
-  for (const op of ops) {
-    const count = counts.get(op.collection) ?? { add: 0, remove: 0 };
-    count[op.action] += 1;
-    counts.set(op.collection, count);
-  }
-  const parts = [...counts].map(([id, { add, remove }]) =>
-    [id, add > 0 ? `+${add}` : "", remove > 0 ? `−${remove}` : ""]
+/**
+ * `collections: favorites +2 −1, reading +1` — what this commit changes, per
+ * collection, so `git log` in the vault reads without opening the diff.
+ *
+ * Counted from the membership each file had and will have, not from the
+ * toggles that were queued: an add the vault refused, or a toggle that
+ * already landed, changes nothing and must not be counted. Built inside the
+ * builder for the same reason the files are — a retry against a newer head
+ * can change both.
+ */
+function commitMessage(
+  changes: readonly {
+    id: string;
+    before: readonly string[];
+    after: readonly string[];
+  }[],
+): string {
+  const parts = changes.map(({ id, before, after }) => {
+    const added = after.filter((slug) => !before.includes(slug)).length;
+    const removed = before.filter((slug) => !after.includes(slug)).length;
+    return [id, added > 0 ? `+${added}` : "", removed > 0 ? `−${removed}` : ""]
       .filter((part) => part !== "")
-      .join(" "),
-  );
+      .join(" ");
+  });
   return `collections: ${parts.join(", ")}`;
 }
 
@@ -81,7 +91,6 @@ export async function flushCollections(
   const { committed } = await commitFiles(
     config,
     {
-      message: commitMessage(pending),
       build: async (reader) => {
         const added = new Set(
           pending.filter((op) => op.action === "add").map((op) => op.slug),
@@ -102,6 +111,7 @@ export async function flushCollections(
 
         const ids = [...new Set(usable.map((op) => op.collection))].sort();
         const files: { path: string; content: string }[] = [];
+        const changes: { id: string; before: string[]; after: string[] }[] = [];
         for (const id of ids) {
           const path = collectionPath(id);
           const text = await reader.read(path);
@@ -112,8 +122,13 @@ export async function flushCollections(
             path,
             content: stringifyCollection(next.frontmatter, next.body),
           });
+          changes.push({
+            id,
+            before: existing?.frontmatter.items.map((item) => item.slug) ?? [],
+            after: next.frontmatter.items.map((item) => item.slug),
+          });
         }
-        return files;
+        return { message: commitMessage(changes), files };
       },
     },
     fetchImpl,

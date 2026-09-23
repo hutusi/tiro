@@ -433,21 +433,25 @@ export interface TreeReader {
   list(path: string): Promise<string[] | null>;
 }
 
-export interface CommitFilesOptions {
+export interface BuiltCommit {
+  /** Describes these files, so it is recomputed with them on every attempt. */
   message: string;
+  files: readonly { path: string; content: string }[];
+}
+
+export interface CommitFilesOptions {
   /**
-   * Produce the files to write, against the tree the commit will be parented
-   * on. Returns null — or nothing — when there is nothing to write, and then no
-   * commit is made at all: an empty one would still cost a push, a workflow run
-   * and a build.
+   * Produce the commit — its files and the message describing them — against
+   * the tree it will be parented on. Returns null, or no files, when there is
+   * nothing to write, and then no commit is made at all: an empty one would
+   * still cost a push, a workflow run and a build.
    *
    * Called again on every attempt, against the new head. That is the point of
    * taking a builder rather than a list: after another commit lands, the files
-   * have to be recomputed from what it left, not re-sent as they were.
+   * have to be recomputed from what it left, not re-sent as they were — and
+   * the message with them, or it describes an attempt that was never made.
    */
-  build(
-    reader: TreeReader,
-  ): Promise<readonly { path: string; content: string }[] | null>;
+  build(reader: TreeReader): Promise<BuiltCommit | null>;
   /** How many heads to try before giving up. Defaults to three. */
   attempts?: number;
 }
@@ -478,12 +482,13 @@ export async function commitFiles(
   const attempts = options.attempts ?? 3;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const head = await branchHead(config, fetchImpl);
-    const files = await options.build({
+    const built = await options.build({
       read: (path) => readTextAt(config, path, head.commit, fetchImpl),
       exists: (path) => existsAt(config, path, head.commit, fetchImpl),
       list: (path) => listAt(config, path, head.commit, fetchImpl),
     });
-    if (files === null || files.length === 0) return { committed: null };
+    if (built === null || built.files.length === 0) return { committed: null };
+    const { files, message } = built;
 
     const tree = await expectOk(
       await fetchImpl(`${repo}/git/trees`, {
@@ -508,7 +513,7 @@ export async function commitFiles(
         method: "POST",
         headers: { ...headers(config), "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: options.message,
+          message,
           tree: treeSha,
           parents: [head.commit],
         }),

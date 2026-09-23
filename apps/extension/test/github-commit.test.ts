@@ -16,11 +16,13 @@ describe("commitFiles", () => {
     const result = await commitFiles(
       config,
       {
-        message: "collections: 2 changes",
-        build: async () => [
-          { path: "collections/favorites.md", content: "fav" },
-          { path: "collections/reading.md", content: "read" },
-        ],
+        build: async () => ({
+          message: "collections: 2 changes",
+          files: [
+            { path: "collections/favorites.md", content: "fav" },
+            { path: "collections/reading.md", content: "read" },
+          ],
+        }),
       },
       gh.fetch,
     );
@@ -38,10 +40,12 @@ describe("commitFiles", () => {
     await commitFiles(
       config,
       {
-        message: "m",
         build: async (reader) => {
           seen = await reader.read("collections/favorites.md");
-          return [{ path: "collections/favorites.md", content: `${seen}+` }];
+          return {
+            message: "m",
+            files: [{ path: "collections/favorites.md", content: `${seen}+` }],
+          };
         },
       },
       gh.fetch,
@@ -54,7 +58,7 @@ describe("commitFiles", () => {
     const gh = fakeGitHub({});
     const result = await commitFiles(
       config,
-      { message: "m", build: async () => null },
+      { build: async () => null },
       gh.fetch,
     );
     expect(result.committed).toBeNull();
@@ -80,17 +84,23 @@ describe("commitFiles", () => {
     await commitFiles(
       config,
       {
-        message: "mine",
         build: async (reader) => {
           const current = await reader.read("collections/favorites.md");
           builtFrom.push(current);
-          return [{ path: "collections/favorites.md", content: `${current}+` }];
+          return {
+            // Describes this attempt's files, so a rebuild must carry its own.
+            message: `mine, on ${current}`,
+            files: [
+              { path: "collections/favorites.md", content: `${current}+` },
+            ],
+          };
         },
       },
       gh.fetch,
     );
     expect(builtFrom).toEqual(["v1", "v2"]);
-    expect(gh.log()).toEqual(["root", "processor", "mine"]);
+    // The message of the attempt that landed, not of the one that was refused.
+    expect(gh.log()).toEqual(["root", "processor", "mine, on v2"]);
     expect(gh.files().get("collections/favorites.md")).toBe("v2+");
     expect(gh.files().get("articles/b/index.md")).toBe("B");
   });
@@ -99,7 +109,7 @@ describe("commitFiles", () => {
     const gh = fakeGitHub({});
     const result = await commitFiles(
       config,
-      { message: "m", build: async () => [] },
+      { build: async () => ({ message: "m", files: [] }) },
       gh.fetch,
     );
     expect(result.committed).toBeNull();
@@ -115,7 +125,12 @@ describe("commitFiles", () => {
     };
     await commitFiles(
       config,
-      { message: "m", build: async () => [{ path: "x", content: "y" }] },
+      {
+        build: async () => ({
+          message: "m",
+          files: [{ path: "x", content: "y" }],
+        }),
+      },
       spy,
     );
     expect(bodies).toEqual([expect.objectContaining({ force: false })]);
@@ -127,8 +142,10 @@ describe("commitFiles", () => {
     const run = commitFiles(
       config,
       {
-        message: "m",
-        build: async () => [{ path: "x", content: "y" }],
+        build: async () => ({
+          message: "m",
+          files: [{ path: "x", content: "y" }],
+        }),
         attempts: 2,
       },
       gh.fetch,
@@ -142,7 +159,6 @@ describe("commitFiles", () => {
     await commitFiles(
       config,
       {
-        message: "m",
         build: async (reader) => {
           expect(await reader.read("collections/nope.md")).toBeNull();
           expect(await reader.exists("articles/a-1234abcd")).toBe(true);
@@ -164,7 +180,12 @@ describe("commitFiles", () => {
     const gh = fakeGitHub({}, "feature/x");
     const result = await commitFiles(
       { ...config, branch: "feature/x" },
-      { message: "m", build: async () => [{ path: "x", content: "y" }] },
+      {
+        build: async () => ({
+          message: "m",
+          files: [{ path: "x", content: "y" }],
+        }),
+      },
       gh.fetch,
     );
     expect(result.committed).not.toBeNull();

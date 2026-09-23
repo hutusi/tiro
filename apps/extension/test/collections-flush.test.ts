@@ -104,6 +104,39 @@ describe("flushCollections", () => {
     expect(gh.files().has("collections/favorites.md")).toBe(false);
   });
 
+  // CodeRabbit's case: counted from what the commit changes, not from what
+  // was queued — a refused add is not in it.
+  test("the message does not count an add the vault refused", async () => {
+    const gh = fakeGitHub(vault);
+    await flushCollections(
+      config,
+      [
+        op("add", "favorites", A),
+        op("add", "favorites", "elsewhere-com-x-deadbeef"),
+      ],
+      gh.fetch,
+    );
+    expect(gh.log().at(-1)).toBe("collections: favorites +1");
+  });
+
+  test("nor a toggle that had already landed", async () => {
+    const gh = fakeGitHub({
+      ...vault,
+      "collections/favorites.md": `---\ntitle: 收藏\nitems:\n  - slug: ${A}\ntiro:\n  schema: 1\n---\n`,
+    });
+    await flushCollections(
+      config,
+      [
+        op("add", "favorites", A),
+        op("add", "favorites", B),
+        op("remove", "reading", A),
+      ],
+      gh.fetch,
+    );
+    // A was already a favorite and `reading` never held it: one real change.
+    expect(gh.log().at(-1)).toBe("collections: favorites +1");
+  });
+
   test("an all-refused flush writes nothing", async () => {
     const gh = fakeGitHub(vault);
     const outcome = await flushCollections(
