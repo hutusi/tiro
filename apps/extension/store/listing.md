@@ -47,14 +47,15 @@ across machines, not for an audience.
 >   your computer can be imported straight from Settings without going through
 >   a web address at all. Where the document's own typography says what its
 >   structure is, the headings, code blocks and lists come from that.
-> - On your own Tiro site the button files an article into your collections
->   instead — favorites, or any list you name — and the change is committed to
->   the same repository when you close the popup.
+> - On a Tiro site — any page carrying Tiro's marker, on any domain — the
+>   button files an article into your collections instead: favorites, or any
+>   list you name. The change is committed to the same repository when you
+>   close the popup, and only for an article your repository already holds.
 > - Nothing is read in the background. A page is read only when you open the
 >   Tiro popup on it, to build the preview — and on first run, only after you
 >   agree to the disclosure the popup shows you. Close it without clipping and
->   the result is discarded; a collection you ticked on your own Tiro site is
->   the one thing kept, and it is saved when the popup closes.
+>   the result is discarded; a collection you ticked on a Tiro site is the one
+>   thing kept, and it is saved when the popup closes.
 > - No analytics, no tracking, no remote code.
 >
 > Setup takes a minute: open Settings, enter your GitHub username, the
@@ -113,10 +114,11 @@ repository — a declaration that reads narrower than the code is a rejection.
   committed to the user's repository. A slug derived from that URL is also kept
   locally (with a timestamp, at most 500 entries) so the popup can show an
   "already clipped" status; that record never leaves the device, and is excluded
-  from settings sync. On the user's own Tiro site, the slug of an article they
-  file into a collection is queued locally and then committed to a collection
-  file in their repository — a page they had already clipped, but a use of its
-  address all the same, so declared. The same
+  from settings sync. On a Tiro site — recognized by its marker, not by who
+  runs it — the slug of an article the user files into a collection is queued
+  locally and then committed to a collection file in their repository, only
+  for an article their repository already holds: a page they had already
+  clipped, but a use of its address all the same, so declared. The same
   declaration covers both optional fetches: requesting
   `arxiv.org/html/<id>` tells that site which paper is being read, and requesting
   a file from `raw.githubusercontent.com` tells GitHub which file is being read,

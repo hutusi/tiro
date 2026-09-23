@@ -108,7 +108,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On your own Tiro site the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -192,9 +192,11 @@ const en = {
   importNeedsSettings: "Fill in your vault settings and save them first.",
 
   // Collections, on a Tiro page (ADR 0029)
-  labelTiroPage: "Your Tiro",
+  // "Tiro site", not "Your Tiro": the popup knows the page by its marker and
+  // cannot tell whose site it is. Only a save checks that against the vault.
+  labelTiroPage: "Tiro site",
   tiroArticleIntro:
-    "This article is already in your vault. Choose its collections.",
+    "Choose the collections this article belongs in. Only an article already in your vault can be added.",
   tiroSiteIntro:
     "This is a Tiro site. Open an article on it to add it to a collection.",
   /** Favorites before the vault has a `favorites.md` to title it. */
@@ -288,7 +290,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在你自己的 Tiro 站点上，弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -354,8 +356,8 @@ const zh: Messages = {
   importFailed: (detail: string) => `导入失败：${detail}`,
   importNeedsSettings: "请先填写并保存仓库设置。",
 
-  labelTiroPage: "你的 Tiro",
-  tiroArticleIntro: "这篇文章已在你的仓库中。选择它所属的合集。",
+  labelTiroPage: "Tiro 站点",
+  tiroArticleIntro: "选择这篇文章所属的合集。只有你仓库中已有的文章才能加入。",
   tiroSiteIntro: "这是一个 Tiro 站点。打开其中一篇文章即可加入合集。",
   favorites: "收藏",
   collectionsLabel: "合集",

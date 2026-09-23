@@ -20,9 +20,9 @@ const updated = "2026-09-23";
       两者都不设置追踪 Cookie，不接入任何分析或广告服务，也不出售你的数据。
       所有被剪藏的内容只会发往一个第三方：GitHub——发到你自己指定的仓库；扩展本身也不会把你的令牌发往
       GitHub 以外的任何地方。
-      两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；在你自己的
-      Tiro
-      站点上勾选的合集改动，在你关闭弹窗或点击「立即保存」时上传；令牌则出现在扩展
+      两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；在 Tiro
+      站点（任何带有 Tiro
+      标记的页面）上勾选的合集改动，在你关闭弹窗或点击「立即保存」时上传；令牌则出现在扩展
       发出的每个 GitHub API 请求的授权头里，也就是这些上传，以及你在设置页点击
       「测试连接」的时候。此外还有几方可能参与，且都只在你自己选择之后：一是
       arxiv.org，它会知道你在看哪一篇论文；二是
@@ -98,7 +98,8 @@ const updated = "2026-09-23";
         不会发送、也不会保存。
       </li>
       <li>
-        在你自己的 Tiro 站点上，弹窗不做预览，只读取站点为扩展准备的一小段数据：
+        在 Tiro 站点上——即任何带有 Tiro
+        标记的页面，不论域名；扩展并不核实那是谁的站点——弹窗不做预览，只读取站点为扩展准备的一小段数据：
         这篇文章的标识、它所在的合集，以及全部合集的名称。你勾选的改动不会被丢弃，
         而是保留下来，在关闭弹窗或点击「立即保存」时提交。
       </li>
@@ -173,8 +174,8 @@ const updated = "2026-09-23";
       Everything the extension clips goes to exactly one third party — GitHub — into
       the repository you name, and the extension itself sends your token nowhere but
       GitHub. The timing differs between the two: what you clip is uploaded only when
-      you press Clip, and a collection change you make on your own Tiro site when
-      you close the popup or press "Save now", while the token travels in the
+      you press Clip, and a collection change you make on a Tiro site when you close
+      the popup or press "Save now", while the token travels in the
       <code>Authorization</code> header of every GitHub API request the extension
       makes — those uploads, and the "Test connection" button on the options page.
       A few other parties can be involved, all only if you choose it: arxiv.org, which
@@ -270,11 +271,12 @@ const updated = "2026-09-23";
         is discarded — not sent, not stored.
       </li>
       <li>
-        On your own Tiro site the popup builds no preview. It reads only a small
-        block of data the site publishes for it: the article's identifier, the
-        collections it is in, and the names of all collections. A box you tick
-        there is not discarded: it is kept, and committed when you close the
-        popup or press "Save now".
+        On a Tiro site — any page carrying Tiro's marker, on any domain; the
+        extension does not check whose site it is — the popup builds no preview.
+        It reads only a small block of data the site publishes for it: the
+        article's identifier, the collections it is in, and the names of all
+        collections. A box you tick there is not discarded: it is kept, and
+        committed when you close the popup or press "Save now".
       </li>
       <li>
         The extension never reads or uploads pages in the background, and cannot
