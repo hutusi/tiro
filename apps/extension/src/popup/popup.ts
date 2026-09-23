@@ -54,7 +54,7 @@ import {
   collectionsView,
   visibleQueue,
 } from "./collections-view.ts";
-import { createRecorder, type ToggleEntry, type ToggleOp } from "./recorder.ts";
+import { createToggleChannel, type ToggleOp } from "./recorder.ts";
 import {
   articleUrl,
   type Phase,
@@ -304,15 +304,7 @@ async function main(): Promise<void> {
    * flight would paint the worker's state from *before* it, and a checkbox the
    * reader just ticked would flick back. */
   let inFlight = 0;
-  /**
-   * Toggles the worker could not record, even after a retry — kept here, with
-   * what the page said at the time, because the popup cannot write the queue
-   * itself (the worker is its one writer). Laid back over every re-read of the
-   * queue so the reader's tick stays where they put it, and re-sent by Save
-   * now. Lost if the popup closes first, which the footer says in as many
-   * words.
-   */
-  let unrecorded: ToggleEntry[] = [];
+
   /** The last Save now could not reach the worker at all. */
   let saveUnreachable = false;
 
@@ -325,7 +317,7 @@ async function main(): Promise<void> {
     // Without this a re-read would draw the worker's queue, which lacks these
     // toggles, and the tick would flick back with no word said — the silent
     // revert this list exists to prevent.
-    for (const entry of unrecorded) {
+    for (const entry of channel.unrecorded()) {
       next = enqueue(next, entry.op, entry.published);
     }
     queue = next;
@@ -337,7 +329,7 @@ async function main(): Promise<void> {
       status: flushStatus,
       syncing,
       report,
-      unrecorded: unrecorded.length,
+      unrecorded: channel.unrecorded().length,
       saveUnreachable,
     };
     if (tiroPage !== null) {
@@ -363,13 +355,15 @@ async function main(): Promise<void> {
       return null;
     }
   }
-  /** Records one toggle with the worker, in click order — see
-   * `createRecorder` for why the order is kept here. */
-  const record = createRecorder(send);
-
-  function samePair(a: ToggleOp, b: ToggleOp): boolean {
-    return a.collection === b.collection && a.slug === b.slug;
-  }
+  /**
+   * Every toggle goes to the worker through this: in click order, newest per
+   * article and collection decided at click time, and failures held here —
+   * the popup cannot write the queue, the worker is its one writer — laid back
+   * over every re-read and re-sent by Save now. Lost if the popup closes
+   * first, which the footer says. See `createToggleChannel` for the races each
+   * rule closes.
+   */
+  const channel = createToggleChannel(send);
 
   async function toggle(op: ToggleOp): Promise<void> {
     if (tiroPage?.kind !== "article") return;
@@ -383,14 +377,14 @@ async function main(): Promise<void> {
     // under the reader's finger rather than after a round trip.
     queue = enqueue(queue, op, entry.published);
     report = null;
+    // Handed over before painting: the channel releases a held toggle for this
+    // pair at the click, and the footer should stop reporting it at once rather
+    // than after this click's round trip.
+    const recording = channel.toggle(entry);
     paintCollections();
     inFlight += 1;
     try {
-      const recorded = await record(entry);
-      // Either way this toggle supersedes any earlier unrecorded one for the
-      // same pair; it is kept only if it too failed.
-      unrecorded = unrecorded.filter((kept) => !samePair(kept.op, op));
-      if (!recorded) unrecorded.push(entry);
+      await recording;
     } finally {
       inFlight -= 1;
       if (inFlight === 0) {
@@ -449,14 +443,10 @@ async function main(): Promise<void> {
       saveUnreachable = false;
       paintCollections();
       try {
-        // Anything this popup is still holding goes to the worker first; a
+        // Anything this popup is still holding goes to the worker first — after
+        // every toggle clicked before this press has had its turn — and a
         // flush now would save the queue without it and report success.
-        const retried = unrecorded;
-        unrecorded = [];
-        for (const entry of retried) {
-          if (!(await record(entry))) unrecorded.push(entry);
-        }
-        if (unrecorded.length > 0) return;
+        if (!(await channel.retry())) return;
         const response = await send({ type: "tiro-collection-flush" });
         if (response === null) {
           saveUnreachable = true;
