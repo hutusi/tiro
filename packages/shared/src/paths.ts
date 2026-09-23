@@ -20,3 +20,11 @@ export function translationPath(slug: string): string {
 export function assetsDir(slug: string): string {
   return `${articleDir(slug)}/assets`;
 }
+/** Collections live beside `articles/`, one file per collection, the filename
+ * stem being the id (ADR 0029). The processor's globs are all rooted at
+ * `articles/`, so nothing here is ever mistaken for an article. */
+export const COLLECTIONS_DIR = "collections";
+
+export function collectionPath(id: string): string {
+  return `${COLLECTIONS_DIR}/${id}.md`;
+}

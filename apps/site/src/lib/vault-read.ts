@@ -1,6 +1,12 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { type ArticleFrontmatter, parseArticle } from "@tiro/shared";
+import { basename, join } from "node:path";
+import {
+  type ArticleFrontmatter,
+  isValidCollectionId,
+  type ParsedCollection,
+  parseArticle,
+  parseCollection,
+} from "@tiro/shared";
 import { vaultDir } from "./vault.ts";
 
 export interface VaultEntry {
@@ -14,6 +20,8 @@ export interface VaultEntry {
 
 let cache: VaultEntry[] | null = null;
 let cacheSignature: string | null = null;
+let collectionCache: ParsedCollection[] | null = null;
+let collectionCacheSignature: string | null = null;
 
 /** A build reads the vault once; `astro dev` has to notice edits. NODE_ENV is
  * "production" during `astro build` and "development" under `astro dev`, and is
@@ -21,23 +29,46 @@ let cacheSignature: string | null = null;
  * which does not exist when the config imports this module directly. */
 const REVALIDATE = process.env.NODE_ENV !== "production";
 
-/** Cheap proof the vault has not changed: every article's mtime and size, no
- * file contents. ~100 stats, only in dev. */
-function vaultSignature(articlesDir: string): string {
+function stamp(parts: string[], path: string): void {
+  try {
+    const stat = statSync(path);
+    parts.push(`${path}:${stat.mtimeMs}:${stat.size}`);
+  } catch {
+    // Absent is a state worth noticing too — a deleted zh.md changes it.
+  }
+}
+
+/**
+ * Cheap proof the vault has not changed: every article's and collection's
+ * mtime and size, no file contents. ~100 stats, only in dev.
+ *
+ * One signature covers both readers rather than one each. A collection edit
+ * then also invalidates the article memo, which costs a re-read in dev and
+ * nothing in a build — against the alternative of two signatures that can
+ * disagree about which vault they describe.
+ */
+function vaultSignature(base: string): string {
   const parts: string[] = [];
+  const articlesDir = join(base, "articles");
   for (const dirent of readdirSync(articlesDir, { withFileTypes: true })) {
     if (!dirent.isDirectory()) continue;
     for (const file of ["index.md", "zh.md"]) {
-      const path = join(articlesDir, dirent.name, file);
-      try {
-        const stat = statSync(path);
-        parts.push(`${path}:${stat.mtimeMs}:${stat.size}`);
-      } catch {
-        // Absent is a state worth noticing too — a deleted zh.md changes it.
-      }
+      stamp(parts, join(articlesDir, dirent.name, file));
     }
   }
+  for (const path of collectionFiles(base)) stamp(parts, path);
   return parts.join("\n");
+}
+
+/** Absolute paths of the vault's collection files, sorted, or none at all —
+ * a vault that has never had a collection simply has no directory. */
+function collectionFiles(base: string): string[] {
+  const dir = join(base, "collections");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((dirent) => dirent.isFile() && dirent.name.endsWith(".md"))
+    .map((dirent) => join(dir, dirent.name))
+    .sort();
 }
 
 /**
@@ -65,10 +96,11 @@ function vaultSignature(articlesDir: string): string {
  * it a moment later regardless; failing here with the path is the better error.
  */
 export function readVault(): VaultEntry[] {
-  const articlesDir = join(vaultDir(), "articles");
+  const base = vaultDir();
+  const articlesDir = join(base, "articles");
   let signature: string | null = null;
   if (REVALIDATE) {
-    signature = vaultSignature(articlesDir);
+    signature = vaultSignature(base);
     // Returning the *same array reference* is what lets callers memoize off it
     // without repeating this check — see `getAllArticles`.
     if (cache !== null && signature === cacheSignature) return cache;
@@ -112,10 +144,57 @@ export function readVault(): VaultEntry[] {
   return entries;
 }
 
+/**
+ * Every collection in the vault (ADR 0029), read the same way and from the
+ * same module, because ADR 0020's point is that the site has *one* reader of
+ * the vault — a second one would be a second place for the guards, the memo
+ * and the dev signature to drift.
+ *
+ * A vault with no `collections/` has no collections; that is the state every
+ * vault starts in, not an error. A collection file that cannot be parsed, or
+ * one named something that cannot be a route, does throw — the same call a
+ * malformed article gets. Skipping it silently would drop a curated list from
+ * the site and report success.
+ */
+export function readCollections(): ParsedCollection[] {
+  const base = vaultDir();
+  let signature: string | null = null;
+  if (REVALIDATE) {
+    signature = vaultSignature(base);
+    if (collectionCache !== null && signature === collectionCacheSignature) {
+      return collectionCache;
+    }
+  } else if (collectionCache !== null) {
+    return collectionCache;
+  }
+
+  const entries: ParsedCollection[] = [];
+  for (const path of collectionFiles(base)) {
+    const id = basename(path, ".md");
+    if (!isValidCollectionId(id)) {
+      throw new Error(
+        `${path}: not a usable collection id — expected lowercase ascii words joined by single dashes`,
+      );
+    }
+    try {
+      entries.push(parseCollection(id, readFileSync(path, "utf8")));
+    } catch (error) {
+      throw new Error(`${path}: ${(error as Error).message}`);
+    }
+  }
+
+  // Committed only after every file parsed, for the reason `readVault` gives.
+  collectionCacheSignature = signature;
+  collectionCache = entries;
+  return entries;
+}
+
 /** Drop the memo, for a test that writes a vault and reads it back. Dev picks
  * changes up through the signature above; nothing needs to call this to make
  * the dev server notice an edit. */
 export function resetVaultCache(): void {
   cache = null;
   cacheSignature = null;
+  collectionCache = null;
+  collectionCacheSignature = null;
 }

@@ -1,6 +1,10 @@
+import { existsSync } from "node:fs";
 import {
+  COLLECTIONS_DIR,
   checkAlignment,
+  isValidCollectionId,
   parseArticle,
+  parseCollection,
   slugForUrl,
   splitBlocks,
   translationPath,
@@ -13,6 +17,8 @@ const TRANSLATION_TARGET = "zh";
 export interface ValidationReport {
   /** Well-formed `articles/<slug>/index.md` files seen. */
   articles: number;
+  /** Well-formed `collections/<id>.md` files seen. */
+  collections: number;
   errors: string[];
 }
 
@@ -119,5 +125,87 @@ export async function validateVault(
     }
   }
 
-  return { articles, errors };
+  const collections = await validateCollections(vaultDir, slugs, errors);
+  return { articles, collections, errors };
+}
+
+/**
+ * Collections (ADR 0029): every file parses, is named something that can be a
+ * filename and a route, lists each member once, and names only articles that
+ * exist.
+ *
+ * The last is the one that matters most. The site skips a member with no
+ * article rather than failing — a missing row, not an error — so a dangling
+ * slug left behind by a deleted article or a canonicalization rename is silent
+ * everywhere else. Membership is checked against the articles that *parsed*:
+ * one that failed to is already reported above, and counting it as present
+ * would hide the collection half of the same problem.
+ *
+ * Anything else in the directory is an error too, not ignored: the site reads
+ * only `*.md`, so a stray `favorites.yml` is a collection the owner thinks they
+ * have and nothing publishes.
+ */
+async function validateCollections(
+  vaultDir: string,
+  slugs: ReadonlySet<string>,
+  errors: string[],
+): Promise<number> {
+  const dir = `${vaultDir}/${COLLECTIONS_DIR}`;
+  // No directory is no collections — the state every vault starts in — and
+  // Bun's glob throws on a missing root rather than yielding nothing.
+  if (!existsSync(dir)) return 0;
+  // `dot: true` because the site reads the directory without Bun's glob, and
+  // so sees hidden files: a `.reading.md` fails the build as an unusable id,
+  // and a validator that skipped it would pass the very vault that build
+  // rejects. Other hidden files are ignored rather than refused — nothing
+  // reads them, and Finder drops a `.DS_Store` into any folder browsed in a
+  // local clone, which is where this runs during a migration.
+  const entries = Array.from(
+    new Bun.Glob("**/*").scanSync({ cwd: dir, onlyFiles: true, dot: true }),
+  )
+    .filter((relPath) => {
+      const name = relPath.split("/").at(-1) ?? relPath;
+      return !(name.startsWith(".") && !name.endsWith(".md"));
+    })
+    .sort();
+  let collections = 0;
+
+  for (const relPath of entries) {
+    const where = `${COLLECTIONS_DIR}/${relPath}`;
+    if (relPath.includes("/") || !relPath.endsWith(".md")) {
+      errors.push(
+        `${where}: not a collection, expected ${COLLECTIONS_DIR}/<id>.md`,
+      );
+      continue;
+    }
+    const id = relPath.slice(0, -".md".length);
+    if (!isValidCollectionId(id)) {
+      errors.push(
+        `${where}: "${id}" is not a usable collection id — lowercase ascii words joined by single dashes`,
+      );
+      continue;
+    }
+
+    let parsed: ReturnType<typeof parseCollection>;
+    try {
+      parsed = parseCollection(id, await Bun.file(`${dir}/${relPath}`).text());
+    } catch (error) {
+      errors.push(`${where}: ${String(error)}`);
+      continue;
+    }
+    collections += 1;
+
+    const seen = new Set<string>();
+    for (const { slug } of parsed.frontmatter.items) {
+      if (seen.has(slug)) {
+        errors.push(`${where}: ${slug} is listed more than once`);
+        continue;
+      }
+      seen.add(slug);
+      if (!slugs.has(slug)) {
+        errors.push(`${where}: ${slug} is not an article in this vault`);
+      }
+    }
+  }
+  return collections;
 }

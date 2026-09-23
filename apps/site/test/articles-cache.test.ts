@@ -2,7 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getAllArticles, shortLinks } from "../src/lib/articles.ts";
+import {
+  getAllArticles,
+  getArticles,
+  shortLinks,
+  tagPageUrl,
+} from "../src/lib/articles.ts";
 import { resetVaultCache } from "../src/lib/vault-read.ts";
 
 /** `articles.ts` became unit-testable when it stopped importing
@@ -54,6 +59,57 @@ describe("caches derived from a vault read", () => {
       const links = await shortLinks();
       expect(links.byId.size).toBe(2);
       expect(links.bySlug.get("77d21b04")).toBe("example-com-b-77d21b04");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Every list, feed and index goes through `getArticles`, and the reader is
+  // the only caller of `getAllArticles` — so if the listed memo can only be
+  // dropped by a call the listing pages never make, a dev edit shows up on
+  // the article page and nowhere else. It short-circuited on the stale value
+  // and never ran the invalidation it depended on.
+  test("getArticles on its own notices a changed vault", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-listed-"));
+    try {
+      write(dir, "example-com-a-3a0f9c1e", "https://example.com/a");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+
+      expect(await getArticles()).toHaveLength(1);
+
+      write(dir, "example-com-b-77d21b04", "https://example.com/b");
+      resetVaultCache();
+
+      expect(await getArticles()).toHaveLength(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the term-page index falls with the articles it was built from", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-terms-"));
+    function tagged(slug: string, tag: string): void {
+      const articleDir = join(dir, "articles", slug);
+      mkdirSync(articleDir, { recursive: true });
+      writeFileSync(
+        join(articleDir, "index.md"),
+        `---\nurl: "https://example.com/${slug}"\ntitle: "${slug}"\ndomain: "example.com"\nclipped_at: "2026-08-22T08:00:00.000Z"\ntags:\n  - ${tag}\ntiro:\n  schema: 1\n---\n\nBody.\n`,
+      );
+    }
+    try {
+      tagged("example-com-a-3a0f9c1e", "alpha");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+
+      expect(await tagPageUrl("alpha")).toBe("/tags/alpha/");
+
+      // The tag is retagged in the vault, so its page stops existing.
+      tagged("example-com-a-3a0f9c1e", "beta");
+      resetVaultCache();
+
+      expect(await tagPageUrl("alpha")).toBeNull();
+      expect(await tagPageUrl("beta")).toBe("/tags/beta/");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -144,6 +200,35 @@ Converted at last.
       );
       resetVaultCache();
       expect(await getAllArticles()).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("library order", () => {
+  // `clipped_at` may carry an offset. The Shanghai clip is five hours earlier
+  // than the UTC one, and would lead the library if compared as text.
+  test("newest first, by instant rather than by text", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-order-"));
+    function clip(slug: string, at: string): void {
+      const articleDir = join(dir, "articles", slug);
+      mkdirSync(articleDir, { recursive: true });
+      writeFileSync(
+        join(articleDir, "index.md"),
+        `---\nurl: "https://example.com/${slug}"\ntitle: "${slug}"\ndomain: "example.com"\nclipped_at: "${at}"\ntiro:\n  schema: 1\n---\n\nBody.\n`,
+      );
+    }
+    try {
+      clip("shanghai", "2026-09-23T01:00:00+08:00");
+      clip("utc", "2026-09-22T22:00:00Z");
+      process.env.TIRO_VAULT_DIR = dir;
+      resetVaultCache();
+
+      expect((await getAllArticles()).map((a) => a.slug)).toEqual([
+        "utc",
+        "shanghai",
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

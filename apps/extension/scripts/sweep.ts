@@ -28,6 +28,8 @@
  *                          repair path for a changed identity rule, which
  *                          `validate` can detect but not fix. Bodies and
  *                          `zh.md` are untouched, so nothing is re-translated.
+ *                          Collections naming a moved article are rewritten
+ *                          to its new slug in the same write (ADR 0029).
  *                          Reports only, until `--write`.
  *
  *   (default)              Re-clip advisor. Compares a fresh clip against the
@@ -76,18 +78,24 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type ArticleFrontmatter,
+  COLLECTIONS_DIR,
   canonicalLanguage,
   checkAlignment,
+  collectionPath,
   detectLanguage,
   foldedFigureCount,
   htmlRanges,
   imageOffsets,
   markdownLinks,
   normalizeUrl,
+  type ParsedCollection,
   parseArticle,
+  parseCollection,
+  renameCollectionMember,
   slugForUrl,
   splitBlocks,
   stringifyArticle,
+  stringifyCollection,
 } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
@@ -820,6 +828,40 @@ export async function recanonicalize(
   return { from: article.slug, to, index, refreshed };
 }
 
+/**
+ * Every collection in the vault (ADR 0029), or none when it has no
+ * `collections/`.
+ *
+ * Throws on one it cannot read rather than skipping it. A migration that went
+ * ahead without it would move articles out from under that collection's
+ * members and leave them dangling, which is the thing reading collections here
+ * exists to prevent — so an unreadable one stops the run before anything moves.
+ */
+export async function loadCollections(
+  vault: string,
+): Promise<ParsedCollection[]> {
+  const dir = join(vault, COLLECTIONS_DIR);
+  if (!existsSync(dir)) return [];
+  const collections: ParsedCollection[] = [];
+  for (const name of (await readdir(dir)).sort()) {
+    if (!name.endsWith(".md")) continue;
+    const path = join(dir, name);
+    try {
+      collections.push(
+        parseCollection(
+          name.slice(0, -".md".length),
+          await readFile(path, "utf8"),
+        ),
+      );
+    } catch (error) {
+      throw new Error(
+        `${path}: ${error instanceof Error ? error.message : String(error)} — fix it before migrating, or its members would be left behind`,
+      );
+    }
+  }
+  return collections;
+}
+
 async function recanonicalizeAll(
   articles: Article[],
   args: ReturnType<typeof parseArgs>,
@@ -829,6 +871,9 @@ async function recanonicalizeAll(
       (args.write ? "" : " (reporting only; pass --write to apply)"),
   );
   const root = join(args.vault, "articles");
+  // Held in memory and updated as articles move, report-only runs included, so
+  // two moves touching one collection each see the other's result.
+  let collections = await loadCollections(args.vault);
   let moved = 0;
   let failed = 0;
   for (const article of articles) {
@@ -873,18 +918,42 @@ async function recanonicalizeAll(
     }
 
     moved++;
+    const touched = renameCollectionMember(collections, plan.from, plan.to);
+    collections = collections.map(
+      (collection) => touched.find((c) => c.id === collection.id) ?? collection,
+    );
     const fields =
       plan.refreshed.length === 0
         ? ""
         : ` — refreshes ${plan.refreshed.join(", ")}`;
+    const carried =
+      touched.length === 0
+        ? ""
+        : ` — carries membership in ${touched.map((c) => c.id).join(", ")}`;
     console.log(`  ${plan.from}
-    → ${plan.to}${fields}${note}`);
+    → ${plan.to}${fields}${carried}${note}`);
     if (!args.write) continue;
 
     // Written before the rename, not after: a crash between the two leaves the
     // article correct in the old directory, which this same mode fixes on the
     // next run. The other order leaves it moved and stale.
-    await writeTogether([[join(from, "index.md"), plan.index]]);
+    //
+    // The collections go in the same batch, for the same reason. Written first,
+    // a crash leaves them naming a slug that does not exist yet, and the next
+    // run moves the article onto it — renaming is a no-op the second time, so
+    // the state converges. Written after, a crash leaves the article moved and
+    // its collections naming the old slug, and nothing here would ever look at
+    // that article again: its slug already matches.
+    await writeTogether([
+      [join(from, "index.md"), plan.index],
+      ...touched.map(
+        (collection) =>
+          [
+            join(args.vault, collectionPath(collection.id)),
+            stringifyCollection(collection.frontmatter, collection.body),
+          ] as const,
+      ),
+    ]);
     await rename(from, to);
   }
   const verb = args.write ? "moved" : "would move";

@@ -7,6 +7,33 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Collections, and favorites.** A collection is a hand-picked, ordered list
+  of articles kept in the vault as `collections/<id>.md`; favorites is the one
+  every vault has. They are the first thing in the vault written by a person
+  rather than the pipeline — tags and categories are the model's — so they are
+  kept out of article frontmatter, which the processor rewrites on every run
+  (ADR 0029).
+
+  The site publishes them at `/collections/`, with `/favorites/` as a shortcut,
+  and marks an article's own collections on its page. An unlisted article stays
+  off its collection's public page. A push that only changes collections
+  redeploys the site through the vault's new `publish.yml` and never starts
+  processing, so curation costs no model calls. `validate` checks every member
+  exists, and `sweep --recanonicalize` carries memberships across a slug
+  change.
+
+  Every page now carries a `tiro:site` marker and every article page its
+  collection state, which is what the clipper will read to offer collection
+  toggles instead of a clip button on a Tiro page, on any domain.
+
+### Fixed
+
+- **In dev, list pages and term links now pick up vault edits.** The listed
+  articles and the term-page index each outlived the vault read they came from,
+  so an edit showed up on the article page and nowhere else.
+
 ## [0.9.0] - 2026-09-22
 
 ### Added

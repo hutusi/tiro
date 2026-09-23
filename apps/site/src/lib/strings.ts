@@ -6,7 +6,12 @@ export const STRINGS = {
     "个人稍后读知识库：剪藏网页为 Markdown，自动摘要、打标签并翻译成中文，双语对照阅读。",
   /** The public repo — the header Star button and the footer both link here. */
   repoUrl: "https://github.com/hutusi/tiro",
-  nav: { home: "首页", search: "搜索与标签", settings: "设置" },
+  nav: {
+    home: "首页",
+    collections: "合集",
+    search: "搜索与标签",
+    settings: "设置",
+  },
   /** The header's outbound Star link. Kept out of `nav`, which is iterated to
    * build the internal-page nav and carries active-page state. "Star" stays in
    * English because that is the word Chinese developers use; the sentence is
@@ -54,6 +59,22 @@ export const STRINGS = {
     open: "直接打开文章",
   },
   list: { empty: "还没有剪藏任何文章" },
+  collections: {
+    title: "合集",
+    /** Favorites' title before the vault has a `favorites.md` to give it one. */
+    favorites: "收藏",
+    // Says what a collection *is*, because nothing else on the site does:
+    // tags and categories are written by the model, and this is the one list
+    // that was chosen by hand.
+    intro: "手选的文章。标签与分类由模型给出，合集不是。",
+    /** No collections in the vault at all. */
+    empty: "还没有合集。",
+    /** A collection that exists and holds nothing — what you get the moment
+     * you create one, so it must not read like a failure. */
+    emptyCollection: "这个合集还没有文章。",
+    /** Leads the collection chips on an article's page. */
+    memberOf: "收录于",
+  },
   library: {
     title: "文章",
     viewLabel: "视图",

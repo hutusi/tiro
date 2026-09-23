@@ -7,11 +7,41 @@ export const TIRO_SCHEMA_VERSION = 1;
  * YAML 1.1 parsers (e.g. js-yaml) turn unquoted ISO timestamps into Date
  * objects; the `yaml` package keeps them strings. Accept both and normalize
  * to an ISO string so hand-edited vault files can't break the schema.
+ *
+ * Exported because the collection schema needs the same leniency for the same
+ * reason, and a second copy would be free to drift from this one.
  */
-const isoDatetime = z.preprocess(
+export const isoDatetime = z.preprocess(
   (v) => (v instanceof Date ? v.toISOString() : v),
   z.iso.datetime({ offset: true }),
 );
+
+/**
+ * Order two `isoDatetime` values by the instant they name, for `sort`.
+ *
+ * Never compare them as strings. The schema accepts offsets, and
+ * `2026-09-23T01:00:00+08:00` sorts after `2026-09-22T22:00:00Z` as text while
+ * naming a moment five hours earlier. Every writer emits `Z` today, so only a
+ * hand-edited value reaches that — which is exactly the value nobody tests.
+ *
+ * Nor normalize them on read to make string order work: the processor
+ * round-trips article frontmatter on every run, so that would rewrite the
+ * timestamp the owner wrote. The stored text stays as written; only ordering
+ * reads the instant.
+ *
+ * A missing value — absent, null, or empty — orders before every present one,
+ * so "newest first" puts undated entries last, deterministically.
+ */
+export function compareInstants(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const missingA = a === undefined || a === null || a === "";
+  const missingB = b === undefined || b === null || b === "";
+  if (missingA || missingB)
+    return missingA === missingB ? 0 : missingA ? -1 : 1;
+  return Date.parse(a) - Date.parse(b);
+}
 
 /**
  * Which clipper wrote the article, mirroring `processor_version` below.
@@ -258,7 +288,15 @@ export interface ParsedArticle {
   body: string;
 }
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+/**
+ * The leading frontmatter fence, captured group 1 being the YAML inside.
+ *
+ * Exported for the collection reader, which is a different document with the
+ * same fence. `frontmatterLength`'s comment below says why there is exactly
+ * one of these: a second copy drifted on `\r\n`, and a repair then read an
+ * article's YAML as prose and refused the article as misaligned.
+ */
+export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
 /**
  * Length of the leading frontmatter block, delimiters included, or null when
