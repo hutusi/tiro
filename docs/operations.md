@@ -564,7 +564,26 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   `github-offer`, `github-fetching`, `github-refused`, `github-retrying`,
   `reading`, `ready-zh`, `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
-  `build` before packaging.
+  `build` before packaging. The collections panel has its own set at
+  `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
+  `created`, `saving`, `saved`, `refused`, `failed`, `site`, `not-recorded`,
+  `save-unreachable`.
+- **On a Tiro page the popup offers collections, not a clip** (ADR 0029). It
+  recognizes the page by the site's `tiro:site` meta and `#tiro-page` island,
+  on any domain, and shows a tick-list drawn from the page itself. Ticks queue
+  in `chrome.storage.local` (`tiroCollectionQueue`, per vault) and are
+  committed as **one** commit when the popup closes or on "Save now"; the
+  service worker is the queue's only writer. "Clip this page anyway" falls
+  back to the ordinary clip. A pending count shows on any page while something
+  is queued.
+  - A save that fails keeps the queue and says why in the next popup; the next
+    close or "Save now" retries, and retrying is always safe.
+  - An add for an article the vault does not have is **dropped**, with a note
+    ("that article is not in your vault") — the marker proves a Tiro site, not
+    *your* Tiro site, so every add is checked against the vault first.
+  - After a save, the page keeps showing the old membership until the deploy
+    finishes (a minute or two). The popup lays what it saved over the page
+    until the page agrees, so reopening it shows the truth, not the stale site.
 - **What the popup shows** (ADR 0015): a short label beside the wordmark —
   Reading…, Ready, Saved ✓ / Updated ✓, "Saved <date>" for a page clipped
   before from this machine, Failed, Cannot clip, Set up — and the full
@@ -628,11 +647,16 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **4**: 2 added the optional arxiv.org fetch, 3
+  policy also requires. It is at **5**: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
   for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
   fetch. Each is a new destination, and a new destination is a practice change
-  whichever way the separate opt-in is answered. Both language
+  whichever way the separate opt-in is answered. 5 is a different kind of
+  bump: collections (ADR 0029) keep a ticked box after the popup closes and
+  commit it then, which falsified the promise that closing the popup discards
+  everything. No new destination, no new permission — but the number tracks
+  what the text promises, so a sentence that stopped being true is a bump even
+  when the manifest is unchanged. Do not "correct" it back to 4. Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
   English copy and silently missed the Chinese one that this extension actually
@@ -1108,4 +1132,9 @@ permanent extension ID, unrelated to the unpacked one.
 | A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |
 | A price renders as a formula | `has_math: true` on an article whose literal dollars are not escaped | escape them as `\$`, or clear the flag |
 | The search page shows "搜索索引在构建后生成" in production | `pagefind --site dist` did not run after `astro build`, so `dist/pagefind/` is missing | check the deploy log for the pagefind step; the results UI imports `/pagefind/pagefind.js` and shows the notice when that import fails |
+| The popup says a collection save failed: "… cannot parse …" | a hand-edited `collections/<id>.md` no longer validates, and the extension refuses to overwrite what it cannot read | run `validate` on the vault, fix the file, then "Save now" — the queued changes were kept |
+| The popup says a collection save failed: "… kept moving" | three commits landed on the branch during one save — a processing run committing back in a burst | "Save now" again once processing settles; nothing was lost |
+| The extension card on `chrome://extensions` shows **Errors** right after reloading | the service worker threw while loading, so it never registered — nothing it does (collection saves, settings-sync mirroring) runs. The usual cause is a DOM API reached at module load: the worker imported `@tiro/shared`'s root, which pulls in remark | open Errors for the stack; the extension `build` should already have refused this bundle (`scripts/check-worker.ts`). Import `@tiro/shared/documents` from anything the worker reaches |
+| The popup says "A change could not be recorded" | the extension's background worker did not answer a toggle, even on a retry — usually it was still starting, or the extension was just reloaded | press Save now, which re-sends the toggle before saving; if it keeps failing, reload the extension at `chrome://extensions` and tick again. Closing the popup first loses that one toggle, by design: the popup cannot write the queue itself |
+| A collection change is saved but the site still shows the old list | the vault's `publish.yml` is missing or failed, so no deploy was dispatched | copy `vault-template/.github/workflows/publish.yml` into the vault, or dispatch "Deploy site" by hand |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |

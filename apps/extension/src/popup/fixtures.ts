@@ -1,4 +1,7 @@
+import type { QueuedOp } from "../collection-queue.ts";
 import type { Messages } from "../i18n.ts";
+import type { TiroPage } from "../tiro-page.ts";
+import type { CollectionsState } from "./collections-view.ts";
 import type { PopupState } from "./view.ts";
 
 /**
@@ -169,4 +172,108 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       fetchOffered: true,
     },
   };
+}
+
+/**
+ * The popup on a Tiro page (ADR 0029), by name: `popup.html?collections=<name>`
+ * in a `build:dev` build. Same contract as the clip fixtures above — painted
+ * before any `chrome.*` call, so `dist/` served over plain HTTP shows them.
+ */
+export function collectionFixtures(
+  m: Messages,
+): Record<string, CollectionsState> {
+  const at = "2026-09-22T10:00:00.000Z";
+  const article: TiroPage = {
+    kind: "article",
+    slug: "example-net-papers-attention-notes-278b43cb",
+    member: ["reading-notes"],
+    catalog: [
+      { id: "favorites", title: "收藏" },
+      { id: "reading-notes", title: "重读清单" },
+      { id: "empty-shelf", title: "空书架" },
+    ],
+  };
+  const op = (
+    id: string,
+    collection: string,
+    action: "add" | "remove",
+    state: "pending" | "sent",
+    title?: string,
+  ): QueuedOp => ({
+    id,
+    collection,
+    slug: article.slug,
+    action,
+    at,
+    state,
+    ...(title === undefined ? {} : { title }),
+  });
+  const idle = { status: null, syncing: false, report: null };
+  // What every state has unless it says otherwise: nothing stranded in the
+  // popup, and the last save reached the worker.
+  const reached = { unrecorded: 0, saveUnreachable: false };
+  const pending = [
+    op("1", "favorites", "add", "pending"),
+    op("2", "reading-notes", "remove", "pending"),
+  ];
+  const states: Record<
+    string,
+    Omit<CollectionsState, "unrecorded" | "saveUnreachable"> &
+      Partial<Pick<CollectionsState, "unrecorded" | "saveUnreachable">>
+  > = {
+    article: { page: article, queue: [], ...idle },
+    "no-favorites-yet": {
+      page: { ...article, catalog: article.catalog.slice(1) },
+      queue: [],
+      ...idle,
+    },
+    pending: { page: article, queue: pending, ...idle },
+    created: {
+      page: article,
+      queue: [op("3", "collection-4f1c2a9e", "add", "pending", "待读 · 长文")],
+      ...idle,
+    },
+    saving: {
+      page: article,
+      queue: pending,
+      status: null,
+      syncing: true,
+      report: null,
+    },
+    saved: {
+      page: article,
+      queue: [op("1", "favorites", "add", "sent")],
+      status: { at, ok: true },
+      syncing: false,
+      report: { pending: 1, ok: true, committed: "c0ffee", refused: 0 },
+    },
+    refused: {
+      page: article,
+      queue: [],
+      status: { at, ok: true, refused: 1 },
+      syncing: false,
+      report: { pending: 1, ok: true, committed: null, refused: 1 },
+    },
+    failed: {
+      page: article,
+      queue: pending,
+      status: { at, ok: false, error: "Bad credentials", httpStatus: 401 },
+      syncing: false,
+      report: null,
+    },
+    site: { page: { kind: "site" }, queue: [], ...idle },
+    "not-recorded": { page: article, queue: pending, ...idle, unrecorded: 1 },
+    "save-unreachable": {
+      page: article,
+      queue: pending,
+      ...idle,
+      saveUnreachable: true,
+    },
+  };
+  return Object.fromEntries(
+    Object.entries(states).map(([name, state]) => [
+      name,
+      { ...reached, ...state },
+    ]),
+  );
 }

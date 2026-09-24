@@ -23,7 +23,10 @@
       <p id="disclosure-body-2">
         None of it is sent to your vault until you press “Clip to vault”, which
         commits it to the GitHub repository you configured. Close this popup
-        without clipping and the result is discarded.
+        without clipping and the result is discarded. On a Tiro site — any
+        page carrying Tiro's marker — the popup offers collections instead: a
+        box you tick is kept, and committed to the same repository when you
+        close the popup or press “Save now”, for an article it already holds.
       </p>
       <div class="actions">
         <button id="accept" type="button" class="btn btn-primary">
@@ -51,6 +54,28 @@
         Read in your browser to build this preview. Nothing is sent to your
         vault until you clip.
       </p>
+    </section>
+
+    <!-- A Tiro page (ADR 0029): collections instead of a clip. Its rows are
+      built from the page's own catalog, so the list is empty in the markup. -->
+    <section id="collections" hidden>
+      <p id="collections-intro" class="note"></p>
+      <ul id="collection-list"></ul>
+      <form id="collection-new">
+        <input
+          id="collection-new-title"
+          type="text"
+          maxlength="80"
+          autocomplete="off"
+          placeholder="New collection…"
+        />
+        <button id="collection-new-add" type="submit" class="btn btn-secondary">
+          Add
+        </button>
+      </form>
+      <button id="clip-anyway" type="button" class="linklike">
+        Clip this page anyway
+      </button>
     </section>
 
     <div id="progress" hidden aria-live="polite">
@@ -90,6 +115,15 @@
       </button>
       <button id="clip" type="button" class="btn btn-primary" disabled>
         Clip to vault
+      </button>
+    </div>
+
+    <!-- Pending collection changes, on any page: a queue that could only be
+      seen from a Tiro page would be one the reader loses track of. -->
+    <div id="collection-sync" hidden aria-live="polite">
+      <p id="collection-sync-text" data-tone="neutral"></p>
+      <button id="sync-now" type="button" class="btn btn-secondary">
+        Save now
       </button>
     </div>
 

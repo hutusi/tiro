@@ -108,7 +108,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -190,6 +190,37 @@ const en = {
   importNotPdf: "That file is not a PDF.",
   importFailed: (detail: string) => `Could not import it: ${detail}`,
   importNeedsSettings: "Fill in your vault settings and save them first.",
+
+  // Collections, on a Tiro page (ADR 0029)
+  // "Tiro site", not "Your Tiro": the popup knows the page by its marker and
+  // cannot tell whose site it is. Only a save checks that against the vault.
+  labelTiroPage: "Tiro site",
+  tiroArticleIntro:
+    "Choose the collections this article belongs in. Only an article already in your vault can be added.",
+  tiroSiteIntro:
+    "This is a Tiro site. Open an article on it to add it to a collection.",
+  /** Favorites before the vault has a `favorites.md` to title it. */
+  favorites: "Favorites",
+  collectionsLabel: "Collections",
+  newCollectionPlaceholder: "New collection…",
+  newCollectionAdd: "Add",
+  clipAnyway: "Clip this page anyway",
+  collectionsPending: (n: number) =>
+    `${n === 1 ? "1 change" : `${n} changes`} not yet saved — saved when you close this popup.`,
+  collectionsSaving: "Saving to your vault…",
+  collectionsSyncNow: "Save now",
+  collectionsSaved: "Saved to your vault. The site updates in a minute or two.",
+  collectionsRefused: (n: number) =>
+    `${n === 1 ? "1 change was" : `${n} changes were`} dropped: that article is not in your vault.`,
+  collectionsFailed: (reason: string) =>
+    `Could not save: ${reason} Your changes are kept and will be retried.`,
+  /** A toggle the worker could not record, even after a retry. It lives only
+   * in this popup until Save now records it, which the sentence has to say. */
+  collectionsNotRecorded:
+    "A change could not be recorded. Press Save now to try again — it is lost if you close this popup first.",
+  /** Save now could not reach the extension's background worker. */
+  collectionsSaveUnreachable:
+    "Could not reach the extension to save. Your changes are kept; press Save now to try again.",
 };
 
 export type Messages = typeof en;
@@ -259,7 +290,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -324,6 +355,28 @@ const zh: Messages = {
   importNotPdf: "该文件不是 PDF。",
   importFailed: (detail: string) => `导入失败：${detail}`,
   importNeedsSettings: "请先填写并保存仓库设置。",
+
+  labelTiroPage: "Tiro 站点",
+  tiroArticleIntro: "选择这篇文章所属的合集。只有你仓库中已有的文章才能加入。",
+  tiroSiteIntro: "这是一个 Tiro 站点。打开其中一篇文章即可加入合集。",
+  favorites: "收藏",
+  collectionsLabel: "合集",
+  newCollectionPlaceholder: "新建合集…",
+  newCollectionAdd: "添加",
+  clipAnyway: "仍要剪藏此页",
+  collectionsPending: (n: number) =>
+    `${n} 处改动尚未保存，关闭弹窗时自动保存。`,
+  collectionsSaving: "正在保存到仓库…",
+  collectionsSyncNow: "立即保存",
+  collectionsSaved: "已保存到仓库，站点将在一两分钟内更新。",
+  collectionsRefused: (n: number) =>
+    `${n} 处改动已丢弃：你的仓库中没有这篇文章。`,
+  collectionsFailed: (reason: string) =>
+    `保存失败：${reason} 改动已保留，稍后会重试。`,
+  collectionsNotRecorded:
+    "有改动未能记下。请点击「立即保存」重试——若先关闭弹窗，这项改动将丢失。",
+  collectionsSaveUnreachable:
+    "无法连接扩展以保存。改动已保留，请点击「立即保存」重试。",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

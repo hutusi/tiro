@@ -1,3 +1,4 @@
+import type { QueuedOp } from "./collection-queue.ts";
 import type { LanguageSetting } from "./i18n.ts";
 
 export interface TiroExtensionConfig {
@@ -469,8 +470,14 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * 4: the disclosure names raw.githubusercontent.com, which the extension may
  * now fetch a markdown file from (ADR 0023). Exactly the case 2 was, and
  * bumped for the same reason: a second outbound destination is a practice
- * change whichever way its optional permission is answered. */
-export const DISCLOSURE_VERSION = 4;
+ * change whichever way its optional permission is answered.
+ *
+ * 5: collections (ADR 0029). On a Tiro page a ticked box is kept after the
+ * popup closes and committed then — which falsified "close this popup without
+ * clipping and the result is discarded", the sentence version 4 ended on. No
+ * new destination and no new permission, but a promise the text made stopped
+ * being true, and that is what this number tracks. */
+export const DISCLOSURE_VERSION = 5;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */
@@ -538,10 +545,17 @@ async function loadClipHistory(): Promise<ClipHistory> {
   return (stored[HISTORY_KEY] ?? {}) as ClipHistory;
 }
 
+/** One destination vault, as a storage key: owner, repo and branch. Everything
+ * recorded per vault is keyed by it, so switching any of the three can never
+ * surface — or, for the collection queue, flush — another vault's state. */
+export function vaultKey(config: TiroExtensionConfig): string {
+  return `${config.owner}/${config.repo}#${config.branch}`;
+}
+
 /** Entries are scoped to the destination vault, so switching owner, repo or
  * branch cannot surface another vault's clips as hints. */
 function historyKey(config: TiroExtensionConfig, slug: string): string {
-  return `${config.owner}/${config.repo}#${config.branch}::${slug}`;
+  return `${vaultKey(config)}::${slug}`;
 }
 
 export async function recordClip(
@@ -561,4 +575,84 @@ export async function lastClippedAt(
   slug: string,
 ): Promise<string | null> {
   return (await loadClipHistory())[historyKey(config, slug)] ?? null;
+}
+
+/* ------------------------------------------------ collections (ADR 0029) */
+
+/**
+ * Queued collection toggles, per vault, in `local` only.
+ *
+ * Never synced, for the same reason the clip history is not: it is a record of
+ * work this machine has in hand, and two machines each holding the other's
+ * pending ops would each flush them. Every *write* goes through the service
+ * worker (`collections-worker.ts`), which serializes them; the popup only
+ * reads. Two realms writing one key is the race ADR 0022 recorded as open for
+ * settings, and routing through the worker is the fix it named.
+ */
+const COLLECTION_QUEUE_KEY = "tiroCollectionQueue";
+/** The last flush's outcome, per vault, so a popup opened after a failure can
+ * say what went wrong rather than silently showing a pending count. */
+const COLLECTION_STATUS_KEY = "tiroCollectionStatus";
+
+export interface FlushStatus {
+  at: string;
+  ok: boolean;
+  /** Why it failed; absent on success. */
+  error?: string;
+  /** The HTTP status behind a GitHub failure, so the popup can phrase it the
+   * way a failed clip is phrased (bad token, no access, not found). */
+  httpStatus?: number;
+  /** Adds dropped because the vault has no such article. */
+  refused?: number;
+}
+
+export async function loadCollectionQueue(
+  config: TiroExtensionConfig,
+): Promise<QueuedOp[]> {
+  const stored = await chrome.storage.local.get(COLLECTION_QUEUE_KEY);
+  const all = (stored[COLLECTION_QUEUE_KEY] ?? {}) as Record<
+    string,
+    QueuedOp[]
+  >;
+  return all[vaultKey(config)] ?? [];
+}
+
+/** Worker only — see `COLLECTION_QUEUE_KEY`. */
+export async function saveCollectionQueue(
+  config: TiroExtensionConfig,
+  queue: readonly QueuedOp[],
+): Promise<void> {
+  const stored = await chrome.storage.local.get(COLLECTION_QUEUE_KEY);
+  const all = (stored[COLLECTION_QUEUE_KEY] ?? {}) as Record<
+    string,
+    QueuedOp[]
+  >;
+  if (queue.length === 0) delete all[vaultKey(config)];
+  else all[vaultKey(config)] = [...queue];
+  await chrome.storage.local.set({ [COLLECTION_QUEUE_KEY]: all });
+}
+
+export async function loadFlushStatus(
+  config: TiroExtensionConfig,
+): Promise<FlushStatus | null> {
+  const stored = await chrome.storage.local.get(COLLECTION_STATUS_KEY);
+  const all = (stored[COLLECTION_STATUS_KEY] ?? {}) as Record<
+    string,
+    FlushStatus
+  >;
+  return all[vaultKey(config)] ?? null;
+}
+
+/** Worker only. */
+export async function saveFlushStatus(
+  config: TiroExtensionConfig,
+  status: FlushStatus,
+): Promise<void> {
+  const stored = await chrome.storage.local.get(COLLECTION_STATUS_KEY);
+  const all = (stored[COLLECTION_STATUS_KEY] ?? {}) as Record<
+    string,
+    FlushStatus
+  >;
+  all[vaultKey(config)] = status;
+  await chrome.storage.local.set({ [COLLECTION_STATUS_KEY]: all });
 }
