@@ -30,7 +30,7 @@ describe("validateVault", () => {
     const report = await validateVault(vault);
     expect(report.errors).toEqual([]);
     expect(report.articles).toBe(8);
-    expect(report.collections).toBe(3);
+    expect(report.collections).toBe(4);
     rmSync(vault, { recursive: true, force: true });
   });
 
@@ -243,7 +243,7 @@ describe("validateVault on collections", () => {
     writeFileSync(join(vault, "collections", ".gitkeep"), "");
     const report = await validateVault(vault);
     expect(report.errors).toEqual([]);
-    expect(report.collections).toBe(3);
+    expect(report.collections).toBe(4);
     rmSync(vault, { recursive: true, force: true });
   });
 

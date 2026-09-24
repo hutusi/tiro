@@ -23,6 +23,8 @@ Every team I have worked on treats a second opinion as free. It is not: the
 consultation costs an hour, and the decision it postpones costs whatever the
 delay costs, which is almost never written down anywhere.
 
+![Two chairs at a table](./assets/c3d82a4f6e10.jpg)
+
 ## Three tests
 
 The first test is whether the answer could change what you do. If both replies

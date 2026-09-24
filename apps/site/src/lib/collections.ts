@@ -1,5 +1,6 @@
 import { compareInstants, FAVORITES_ID } from "@tiro/shared";
 import { type Article, getArticles } from "./articles.ts";
+import { coverImages } from "./covers.ts";
 import { STRINGS } from "./strings.ts";
 import { readCollections } from "./vault-read.ts";
 
@@ -29,6 +30,12 @@ export interface Collection {
    * site degrades to not showing a row, and `validate` is what refuses it.
    */
   memberSlugs: string[];
+  /**
+   * What the collection is shown with: 0–3 public image paths, the hand-set
+   * cover or the listed members' lead images (see `coverImages`). Empty means
+   * a typographic cover — a valid state, not a missing one.
+   */
+  coverImages: string[];
   /**
    * Favorites standing in for a `favorites.md` the vault does not have yet.
    *
@@ -77,19 +84,27 @@ export async function getCollections(): Promise<Collection[]> {
   membershipCache = null;
 
   const bySlug = new Map(articles.map((article) => [article.slug, article]));
+  const listed = new Set(bySlug.keys());
 
   const collections = entries.map((entry): Collection => {
     const memberSlugs = entry.frontmatter.items.map((item) => item.slug);
+    const members = memberSlugs
+      .map((slug) => bySlug.get(slug))
+      .filter((article): article is Article => article !== undefined);
     return {
       id: entry.id,
       title: entry.frontmatter.title,
       description: entry.frontmatter.description ?? null,
       body: entry.body,
       updatedAt: entry.frontmatter.updated_at ?? null,
-      articles: memberSlugs
-        .map((slug) => bySlug.get(slug))
-        .filter((article): article is Article => article !== undefined),
+      articles: members,
       memberSlugs,
+      coverImages: coverImages(
+        entry.id,
+        entry.frontmatter.cover,
+        members,
+        listed,
+      ),
       virtual: false,
     };
   });
@@ -102,6 +117,7 @@ export async function getCollections(): Promise<Collection[]> {
       updatedAt: null,
       articles: [],
       memberSlugs: [],
+      coverImages: [],
       virtual: true,
     });
   }

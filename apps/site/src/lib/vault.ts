@@ -2,6 +2,14 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 /**
+ * The largest vault asset the site will serve. Cloudflare Pages rejects files
+ * over 25 MB; the processor caps downloads at 10 MB, so anything bigger is
+ * unexpected. `copy-assets` skips it loudly, and a cover must never name one,
+ * or it would point at a file that was never copied.
+ */
+export const MAX_ASSET_BYTES = 20 * 1024 * 1024;
+
+/**
  * Where the vault content lives. Defaults to the in-repo fixture vault so
  * local dev needs no vault clone; deploys set TIRO_VAULT_DIR to a checkout
  * of tiro-vault. Asserting existence up front guards against Astro's

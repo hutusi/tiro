@@ -20,6 +20,8 @@ tiro:
 This article is processed and carries a Chinese title and summary, but its
 translation did not survive the alignment gate, so there is no `zh.md` beside it.
 
+![A page being retyped](./assets/f07d52b9a4c8.jpg)
+
 The site renders it single-pane while `articleMeta` still hands the template a
 Chinese title — the one combination no other fixture produces, and the reason
 every rule keyed on the reader mode also has to ask whether the article is

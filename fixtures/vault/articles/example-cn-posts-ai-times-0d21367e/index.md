@@ -26,3 +26,5 @@ no width, height or viewBox, which Astro's image pipeline cannot measure. The
 site must serve it as a plain copy and carry on (ADR 0020). -->
 
 ![](./assets/view-proxy.svg)
+
+![阅读灯](./assets/1a9f0c6e3b72.jpg)

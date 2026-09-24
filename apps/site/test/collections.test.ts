@@ -9,7 +9,12 @@ import {
 } from "../src/lib/collections.ts";
 import { resetVaultCache } from "../src/lib/vault-read.ts";
 
-function writeArticle(dir: string, slug: string, unlisted = false): void {
+function writeArticle(
+  dir: string,
+  slug: string,
+  unlisted = false,
+  body = `Body of ${slug}.`,
+): void {
   const articleDir = join(dir, "articles", slug);
   mkdirSync(articleDir, { recursive: true });
   writeFileSync(
@@ -23,9 +28,49 @@ ${unlisted ? "unlisted: true\n" : ""}tiro:
   schema: 1
 ---
 
-Body of ${slug}.
+${body}
 `,
   );
+}
+
+/** A PNG as far as `imageSize` reads: signature and IHDR, then padding to
+ * `bytes` — so size on disk and pixel size can be set independently. */
+function png(width: number, height: number, bytes = 64): Uint8Array {
+  const out = new Uint8Array(Math.max(bytes, 33));
+  const view = new DataView(out.buffer);
+  out.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  view.setUint32(8, 13);
+  out.set([0x49, 0x48, 0x44, 0x52], 12);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return out;
+}
+
+function writeAsset(
+  dir: string,
+  slug: string,
+  file: string,
+  bytes: Uint8Array,
+): void {
+  const assets = join(dir, "articles", slug, "assets");
+  mkdirSync(assets, { recursive: true });
+  writeFileSync(join(assets, file), bytes);
+}
+
+/** An article whose body references each file in order, each one written. */
+function writeIllustrated(
+  dir: string,
+  slug: string,
+  images: [file: string, bytes: Uint8Array][],
+  unlisted = false,
+): void {
+  writeArticle(
+    dir,
+    slug,
+    unlisted,
+    images.map(([file]) => `![](./assets/${file})`).join("\n\n"),
+  );
+  for (const [file, bytes] of images) writeAsset(dir, slug, file, bytes);
 }
 
 function writeCollection(
@@ -244,6 +289,150 @@ describe("getCollections", () => {
       const reading = (await getCollections()).find((c) => c.id === "reading");
       expect(reading?.description).toBe("值得再读");
       expect(reading?.body.trim()).toBe("为什么留着这个列表。");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("collection covers", () => {
+  const PHOTO = png(1200, 800);
+
+  async function coverOf(id: string): Promise<string[] | undefined> {
+    resetVaultCache();
+    return (await getCollections()).find((c) => c.id === id)?.coverImages;
+  }
+
+  test("up to three members' lead images, in the owner's order", async () => {
+    const dir = vault();
+    try {
+      for (const slug of ["a", "b", "c", "d"]) {
+        writeIllustrated(dir, slug, [[`${slug}.png`, PHOTO]]);
+      }
+      writeCollection(
+        dir,
+        "shelf",
+        'title: "S"\nitems:\n  - slug: c\n  - slug: a\n  - slug: d\n  - slug: b\n',
+      );
+      expect(await coverOf("shelf")).toEqual([
+        "/vault-assets/c/c.png",
+        "/vault-assets/a/a.png",
+        "/vault-assets/d/d.png",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the lead image is the first one worth a cover, not the first one", async () => {
+    const dir = vault();
+    try {
+      writeIllustrated(dir, "a", [
+        ["avatar.png", png(64, 64, 8000)], // heavy, but an avatar
+        ["banner.png", png(1320, 189)], // a strip a crop would smear
+        ["diagram.svg", new TextEncoder().encode("<svg/>".padEnd(9000))],
+        ["anim.gif", new Uint8Array(9000)],
+        ["missing.png", PHOTO],
+        ["photo.png", PHOTO],
+      ]);
+      rmSync(join(dir, "articles", "a", "assets", "missing.png"));
+      writeCollection(dir, "shelf", 'title: "S"\nitems:\n  - slug: a\n');
+      expect(await coverOf("shelf")).toEqual(["/vault-assets/a/photo.png"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // AVIF, or a header the reader does not know: judged by weight instead.
+  test("an image it cannot size is judged by its bytes", async () => {
+    const dir = vault();
+    try {
+      writeIllustrated(dir, "a", [
+        ["pixel.avif", new Uint8Array(200)],
+        ["photo.avif", new Uint8Array(6000)],
+      ]);
+      writeCollection(dir, "shelf", 'title: "S"\nitems:\n  - slug: a\n');
+      expect(await coverOf("shelf")).toEqual(["/vault-assets/a/photo.avif"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unlisted member lends no picture", async () => {
+    const dir = vault();
+    try {
+      writeIllustrated(dir, "hidden", [["h.png", PHOTO]], true);
+      writeIllustrated(dir, "shown", [["s.png", PHOTO]]);
+      writeCollection(
+        dir,
+        "shelf",
+        'title: "S"\nitems:\n  - slug: hidden\n  - slug: shown\n',
+      );
+      expect(await coverOf("shelf")).toEqual(["/vault-assets/shown/s.png"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a hand-set cover wins, and may name a non-member", async () => {
+    const dir = vault();
+    try {
+      writeIllustrated(dir, "a", [["a.png", PHOTO]]);
+      writeArticle(dir, "b");
+      // Too small to be picked, but a person chose it.
+      writeAsset(dir, "b", "chosen.gif", new Uint8Array(40));
+      writeCollection(
+        dir,
+        "shelf",
+        'title: "S"\ncover: articles/b/assets/chosen.gif\nitems:\n  - slug: a\n',
+      );
+      expect(await coverOf("shelf")).toEqual(["/vault-assets/b/chosen.gif"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // `validate` is the gate; the build shows what it would have built anyway.
+  test("a hand-set cover that is gone or unlisted falls back, never fails", async () => {
+    const dir = vault();
+    const warn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (message: string) => warnings.push(message);
+    try {
+      writeIllustrated(dir, "a", [["a.png", PHOTO]]);
+      writeIllustrated(dir, "hidden", [["h.png", PHOTO]], true);
+      writeCollection(
+        dir,
+        "gone",
+        'title: "G"\ncover: articles/a/assets/pruned.png\nitems:\n  - slug: a\n',
+      );
+      writeCollection(
+        dir,
+        "secret",
+        'title: "S"\ncover: articles/hidden/assets/h.png\nitems:\n  - slug: a\n',
+      );
+      resetVaultCache();
+      const collections = await getCollections();
+      for (const id of ["gone", "secret"]) {
+        expect(collections.find((c) => c.id === id)?.coverImages).toEqual([
+          "/vault-assets/a/a.png",
+        ]);
+      }
+      expect(warnings).toHaveLength(2);
+      expect(warnings.join("\n")).toContain("collections/secret.md");
+    } finally {
+      console.warn = warn;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("no pictures at all is an empty cover, drawn as type", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeCollection(dir, "shelf", 'title: "S"\nitems:\n  - slug: a\n');
+      expect(await coverOf("shelf")).toEqual([]);
+      expect(await coverOf("favorites")).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
