@@ -16,6 +16,7 @@ const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
 const EN = "example-com-posts-hello-ai-e8446b12";
 const CN = "example-cn-posts-ai-times-0d21367e";
+const UNLISTED = "example-cn-notes-unlisted-shelf-8145cda3";
 
 function freshVault(): string {
   const dir = mkdtempSync(join(tmpdir(), "tiro-validate-"));
@@ -154,6 +155,43 @@ describe("validateVault on collections", () => {
     expect(report.errors).toContain(
       `collections/reading.md: ${RAW} is not an article in this vault`,
     );
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("accepts a cover that exists, member or not", async () => {
+    const vault = withCollection(
+      "reading.md",
+      `---\ntitle: "X"\ncover: "articles/${EN}/assets/cover.png"\ntiro:\n  schema: 1\n---\n`,
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a cover whose file or article is gone, or is unlisted", async () => {
+    const withCover = (cover: string) =>
+      `---\ntitle: "X"\ncover: "${cover}"\ntiro:\n  schema: 1\n---\n`;
+    const vault = withCollection(
+      "reading.md",
+      withCover(`articles/${EN}/assets/pruned.png`),
+    );
+    writeFileSync(
+      join(vault, "collections", "other.md"),
+      withCover("articles/gone-deadbeef/assets/cover.png"),
+    );
+    // An unlisted article's asset exists, but the site will not show it.
+    mkdirSync(join(vault, "articles", UNLISTED, "assets"));
+    writeFileSync(join(vault, "articles", UNLISTED, "assets", "c.jpg"), "");
+    writeFileSync(
+      join(vault, "collections", "shelf.md"),
+      withCover(`articles/${UNLISTED}/assets/c.jpg`),
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([
+      "collections/other.md: cover articles/gone-deadbeef/assets/cover.png names gone-deadbeef, which is not an article in this vault",
+      `collections/reading.md: cover articles/${EN}/assets/pruned.png does not exist`,
+      `collections/shelf.md: cover articles/${UNLISTED}/assets/c.jpg belongs to an unlisted article, which the site will not show`,
+    ]);
     rmSync(vault, { recursive: true, force: true });
   });
 
