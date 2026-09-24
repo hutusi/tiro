@@ -914,8 +914,9 @@ async function main(): Promise<void> {
     tiroPage = page;
     el.label.textContent = m.labelTiroPage;
     el.label.dataset.tone = "neutral";
-    // The reader's own site: there is nothing here to clip, so the clip
-    // controls go rather than sit disabled beside the toggles.
+    // A Tiro site — whoever runs it — has nothing worth clipping, so the clip
+    // controls go rather than sit disabled beside the toggles. "Clip this page
+    // anyway" is there for the case where that is wrong.
     el.clip.hidden = true;
     el.sourceFetch.hidden = true;
     el.loading.hidden = true;

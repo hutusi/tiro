@@ -51,7 +51,7 @@ export type TiroPage =
     }
   /** A Tiro page that is not an article — the library, search, settings — or
    * an article page whose payload could not be read. Nothing to toggle, and
-   * nothing to clip either: it is the reader's own site. */
+   * nothing worth clipping either: it is a Tiro site, whoever runs it. */
   | { kind: "site" };
 
 /** A slug as `slugForUrl` makes them — or as a local import's is. Loose on
