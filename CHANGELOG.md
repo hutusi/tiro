@@ -32,6 +32,15 @@ versions follow the `0.x` line while Tiro is a personal system.
   to version 5: it used to promise that closing the popup discards everything,
   and a kept tick is the one thing that is not discarded.
 
+- **Collections as a gallery, with covers.** `/collections/` is now a grid of
+  cards, each with a cover built from its members' own pictures. Avatars,
+  badges and page-wide banners are passed over, and a shelf with no pictures
+  gets a typographic cover instead. A collection page opens with its cover as a
+  banner, and a shared link previews it. A cover can be pinned by hand with
+  `cover: articles/<slug>/assets/<file>`. `validate` reports one that has gone
+  stale, and `sweep --recanonicalize` carries it across a slug change
+  (ADR 0030).
+
 ### Fixed
 
 - **In dev, list pages and term links now pick up vault edits.** The listed

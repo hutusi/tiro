@@ -390,6 +390,18 @@ devDependencies — the action must log "using pre-installed wrangler".
   otherwise skip in silence.
   - **An unlisted member is left off the collection's page** (ADR 0017), though
     the article's own page still shows the chip. Empty collections are listed.
+  - **Description and cover are hand edits** (ADR 0030); the clipper sets
+    neither. `description: "…"` shows under the title. The cover is built from
+    the members' own pictures: the first local JPEG, PNG, WebP or AVIF in each
+    body that is at least 150px on its shorter side and no more than 3:1, up to
+    three members, in file order. Pin one instead with
+    `cover: "articles/<slug>/assets/<file>"`, a path copied from the repo
+    browser. It may be any listed article's image, a member or not.
+    `validate` reports a cover whose article or file is gone, or whose
+    article is unlisted. The site shows such a cover as the derived one and
+    only warns in the build log, so `validate` is where you find out. A
+    re-clip can prune the asset a cover names, which is how a correct cover
+    goes stale.
   - **Deleting an article now has a second step**: drop it from any collection
     that names it. `validate` lists them.
   - `publish.yml` ships in `vault-template/`, which does not propagate — copy it

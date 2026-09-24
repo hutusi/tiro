@@ -3,7 +3,8 @@
 Status: accepted (2026-09). The site half — contract, pages, validation,
 migration, and the vault's publish workflow — ships first; the clipper that
 edits collections from a Tiro page ships on top of it. Both are described here
-so the two halves are one decision.
+so the two halves are one decision. Extended by ADR 0030, which adds covers
+and the gallery.
 
 ## Context
 
