@@ -543,7 +543,9 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   and exits non-zero.
 - **Collections move with their members** (ADR 0029). Every collection naming a
   moved slug is rewritten to the new one in the same write, keeping the
-  member's place and date; the report says `carries membership in …`. An
+  member's place and date, and so is a `cover:` pointing into a moved
+  article's `assets/` (ADR 0030); the report says `carries it in collections
+  …`. An
   unreadable collection stops the run before anything moves — fix it first,
   or its members would be stranded.
 

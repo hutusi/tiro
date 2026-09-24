@@ -5,6 +5,7 @@ import {
   FAVORITES_ID,
   type ParsedCollection,
   parseCollection,
+  parseCoverPath,
   renameCollectionMember,
   stringifyCollection,
 } from "../src/collections.ts";
@@ -88,6 +89,70 @@ describe("parseCollection", () => {
     expect(() =>
       parseCollection("x", "---\ntitle: X\ntiro:\n  schema: 2\n---\n"),
     ).toThrow();
+  });
+});
+
+describe("cover", () => {
+  const withCover = (cover: string) =>
+    `---\ntitle: X\ncover: "${cover}"\ntiro:\n  schema: 1\n---\n`;
+
+  test("accepts an article asset named by its vault path", () => {
+    const parsed = parseCollection(
+      "x",
+      withCover("articles/a-1234abcd/assets/0f71f771c929.png"),
+    );
+    expect(parsed.frontmatter.cover).toBe(
+      "articles/a-1234abcd/assets/0f71f771c929.png",
+    );
+    expect(parseCoverPath("articles/a-1234abcd/assets/cover.png")).toEqual({
+      slug: "a-1234abcd",
+      file: "cover.png",
+    });
+  });
+
+  test("refuses anything that is not one article asset", () => {
+    for (const bad of [
+      "https://example.com/cover.png",
+      "/articles/a-1234abcd/assets/c.png",
+      "articles/a-1234abcd/assets/../../../etc/passwd",
+      "articles/a-1234abcd/assets/nested/c.png",
+      "articles/a-1234abcd/assets/.hidden.png",
+      "articles/a-1234abcd/index.md",
+      "articles/A-Upper/assets/c.png",
+      "collections/assets/c.png",
+    ]) {
+      expect(() => parseCollection("x", withCover(bad))).toThrow();
+      expect(parseCoverPath(bad)).toBeNull();
+    }
+  });
+
+  // The clipper parses a collection, applies its ops and writes the result
+  // back. A field the schema did not declare would be stripped by the parse,
+  // so a hand-set cover would vanish on the next toggle.
+  test("survives the clipper's parse, apply and write", () => {
+    const text = stringifyCollection(
+      {
+        ...collection([]).frontmatter,
+        description: "值得反复读的几篇",
+        cover: "articles/a-1234abcd/assets/cover.png",
+      },
+      "为什么留着这个列表。",
+    );
+    const result = applyCollectionOps(
+      FAVORITES_ID,
+      parseCollection(FAVORITES_ID, text),
+      [op("add", "b-1234abcd", T2)],
+    );
+    if (result === null) throw new Error("expected a change");
+    const written = parseCollection(
+      FAVORITES_ID,
+      stringifyCollection(result.frontmatter, result.body),
+    );
+    expect(written.frontmatter.cover).toBe(
+      "articles/a-1234abcd/assets/cover.png",
+    );
+    expect(written.frontmatter.description).toBe("值得反复读的几篇");
+    expect(written.body).toBe("为什么留着这个列表。\n");
   });
 });
 
@@ -322,6 +387,32 @@ describe("renameCollectionMember", () => {
       "new-slug",
     );
     expect(renamed?.frontmatter.items).toEqual([{ slug: "new-slug" }]);
+  });
+
+  test("carries a cover that lives in the renamed article", () => {
+    const existing = collection([{ slug: "old-slug" }]);
+    existing.frontmatter.cover = "articles/old-slug/assets/c.png";
+    const [renamed] = renameCollectionMember(
+      [existing],
+      "old-slug",
+      "new-slug",
+    );
+    expect(renamed?.frontmatter.cover).toBe("articles/new-slug/assets/c.png");
+  });
+
+  test("carries a cover even when its article is not a member", () => {
+    const existing = collection([{ slug: "x" }]);
+    existing.frontmatter.cover = "articles/old-slug/assets/c.png";
+    const changed = renameCollectionMember([existing], "old-slug", "new-slug");
+    expect(changed).toHaveLength(1);
+    expect(changed[0]?.frontmatter.items).toEqual([{ slug: "x" }]);
+    expect(changed[0]?.frontmatter.cover).toBe(
+      "articles/new-slug/assets/c.png",
+    );
+    // A slug that merely starts with the old one is a different article.
+    const other = collection([]);
+    other.frontmatter.cover = "articles/old-slug-2/assets/c.png";
+    expect(renameCollectionMember([other], "old-slug", "new")).toEqual([]);
   });
 
   test("returns only the collections that changed", () => {
