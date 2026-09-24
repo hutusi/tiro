@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && vite build -c vite.clipper.config.ts",
-    "build:dev": "vite build --mode development && vite build -c vite.clipper.config.ts",
+    "build": "vite build && vite build -c vite.clipper.config.ts && bun run scripts/check-worker.ts",
+    "build:dev": "vite build --mode development && vite build -c vite.clipper.config.ts && bun run scripts/check-worker.ts",
     "package": "bun run build && cd dist && rm -f ../tiro-clipper.zip && zip -qr ../tiro-clipper.zip . -x '.DS_Store' '**/.DS_Store'",
     "typecheck": "tsc --noEmit",
     "sweep": "bun run scripts/sweep.ts"

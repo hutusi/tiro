@@ -1,4 +1,4 @@
-import { readFrontmatterLoose } from "@tiro/shared";
+import { readFrontmatterLoose } from "@tiro/shared/documents";
 import type { TiroExtensionConfig } from "./storage.ts";
 
 const API = "https://api.github.com";

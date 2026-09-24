@@ -5,7 +5,7 @@ import {
   isValidCollectionId,
   parseCollection,
   stringifyCollection,
-} from "@tiro/shared";
+} from "@tiro/shared/documents"; // not the root: see there
 import type { QueuedOp } from "./collection-queue.ts";
 import { commitFiles, type FetchLike } from "./github.ts";
 import type { TiroExtensionConfig } from "./storage.ts";
