@@ -1,0 +1,113 @@
+---
+/**
+ * A collection's cover (ADR 0030): one image, a mosaic of two or three, or —
+ * with none — the title's first character set on ruled paper. Fills its
+ * container's width; the caller shapes it through custom properties on an
+ * element it owns — `--cover-ratio` (16/10 by default), `--cover-max-height`
+ * and `--cover-glyph` — rather than a passed class, which the caller's scoped
+ * styles would not reach.
+ *
+ * Images are decorative (`alt=""`): the title always sits beside the cover,
+ * and a screen reader announcing three filenames first would bury it.
+ */
+interface Props {
+  images: string[];
+  title: string;
+  /** Above the fold on a collection page: load it with the page rather than
+   * waiting for the lazy-load observer. */
+  eager?: boolean;
+}
+const { images, title, eager = false } = Astro.props;
+
+// First grapheme, not first code unit: a title may open with an emoji or a
+// combining sequence, and half a surrogate pair renders as a box.
+const segment = new Intl.Segmenter("zh", { granularity: "grapheme" })
+  .segment(title.trim())
+  [Symbol.iterator]()
+  .next().value?.segment;
+const glyph = (segment ?? "·").toUpperCase();
+const loading = eager ? "eager" : "lazy";
+---
+
+{
+  images.length === 0 ? (
+    <div class="cover type" aria-hidden="true">
+      <span class="glyph">{glyph}</span>
+    </div>
+  ) : (
+    <div class="cover" data-count={images.length} aria-hidden="true">
+      {images.map((src) => (
+        <img src={src} alt="" loading={loading} decoding="async" />
+      ))}
+    </div>
+  )
+}
+
+<style>
+  /* Raw tokens, never --color-*: `@theme inline` substitutes those away. */
+  .cover {
+    position: relative;
+    display: grid;
+    width: 100%;
+    aspect-ratio: var(--cover-ratio, 16 / 10);
+    max-height: var(--cover-max-height, none);
+    overflow: hidden;
+    /* The seams between tiles are this, showing through the gap. */
+    gap: 2px;
+    background: var(--field);
+  }
+  .cover img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+  }
+  .cover[data-count="2"] {
+    grid-template-columns: 1fr 1fr;
+  }
+  /* One large on the left, two stacked on the right. */
+  .cover[data-count="3"] {
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .cover[data-count="3"] img:first-child {
+    grid-row: 1 / span 2;
+  }
+
+  /* Ruled paper: the reading surface the site is built around, so a
+     collection with no pictures still looks chosen rather than missing. */
+  .type {
+    place-items: center;
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0 23px,
+        var(--rule) 23px 24px
+      ),
+      var(--chip);
+  }
+  .glyph {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* The glyph's own box, so the rules do not run through the character. */
+    padding: 0.14em 0.22em 0.18em;
+    background: var(--field);
+    border-radius: 4px;
+    font-family: var(--font-serif);
+    font-size: var(--cover-glyph, 64px);
+    font-weight: 500;
+    line-height: 1;
+    color: var(--ink-soft);
+  }
+  /* A short accent rule under the character, like a bookplate. */
+  .glyph::after {
+    content: "";
+    width: 0.4em;
+    height: 2px;
+    margin-top: 0.14em;
+    background: var(--accent);
+  }
+</style>
