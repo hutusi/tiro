@@ -377,6 +377,38 @@ describe("collection covers", () => {
     }
   });
 
+  // Block by block, the way the reader renders, so the two cannot disagree.
+  test("agrees with the reader's block-by-block rendering", async () => {
+    const dir = vault();
+    try {
+      // The reader shows this as literal text: the definition sits in another
+      // block, where a block rendered on its own cannot see it.
+      writeArticle(
+        dir,
+        "a",
+        false,
+        "![ref][pic]\n\n[pic]: ./assets/ref.png\n\n![](./assets/inline.png)",
+      );
+      writeAsset(dir, "a", "ref.png", PHOTO);
+      writeAsset(dir, "a", "inline.png", PHOTO);
+      // An unclosed `$$` does not swallow the rest of the article in the
+      // reader, so it must not hide the image after it here either.
+      writeArticle(dir, "b", false, "$$\nx = 1\n\n![](./assets/after.png)");
+      writeAsset(dir, "b", "after.png", PHOTO);
+      writeCollection(
+        dir,
+        "shelf",
+        'title: "S"\nitems:\n  - slug: a\n  - slug: b\n',
+      );
+      expect(await coverOf("shelf")).toEqual([
+        "/vault-assets/a/inline.png",
+        "/vault-assets/b/after.png",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // AVIF, or a header the reader does not know: judged by weight instead.
   test("an image it cannot size is judged by its bytes", async () => {
     const dir = vault();

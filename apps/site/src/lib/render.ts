@@ -1,4 +1,4 @@
-import { normalizeBlockMath } from "@tiro/shared";
+import { normalizeBlockMath, splitBlocks } from "@tiro/shared";
 import type { ElementContent, Root } from "hast";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -416,6 +416,12 @@ const treeMath = sanitizedTree(true).freeze();
  * text holding brackets, and a reference quoted inside a code block, which
  * renders as text and is no image at all. A regex over the source gets all
  * three wrong.
+ *
+ * Block by block, prepared exactly as `renderBlock` prepares one, because that
+ * is how the reader renders a body (`buildReaderView`). A whole-body parse
+ * disagrees with it both ways: it resolves a reference-style image against a
+ * definition in another block, which the reader shows as literal text, and an
+ * unclosed `$$` swallows every image after it, which the reader still shows.
  */
 export function renderedImageSources(
   body: string,
@@ -423,14 +429,15 @@ export function renderedImageSources(
   options: Pick<RenderOptions, "inlineMath"> = {},
 ): string[] {
   const processor = options.inlineMath === true ? treeMath : treeProse;
-  const tree = processor.runSync(
-    processor.parse(localizeAssets(body, slug)),
-  ) as Root;
   const sources: string[] = [];
-  visit(tree, "element", (node) => {
-    const src = node.properties?.src;
-    if (node.tagName === "img" && typeof src === "string") sources.push(src);
-  });
+  for (const block of splitBlocks(body)) {
+    const text = localizeAssets(normalizeBlockMath(block.text), slug);
+    const tree = processor.runSync(processor.parse(text)) as Root;
+    visit(tree, "element", (node) => {
+      const src = node.properties?.src;
+      if (node.tagName === "img" && typeof src === "string") sources.push(src);
+    });
+  }
   return sources;
 }
 
