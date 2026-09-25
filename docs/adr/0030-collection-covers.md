@@ -120,8 +120,12 @@ article is a member, since the cover may name any article.
 - **A collection page**: the cover as a 3:1 banner (2:1 on a phone), but only
   when it has pictures. On the page, the typographic cover would restate the
   heading beneath it.
-- **The page's `og:image`** is the cover's first image, so a shared link
-  previews the shelf. A collection without pictures keeps the site card.
+- **The page's `og:image`** is the cover's first JPEG, PNG or GIF image, so a
+  shared link previews the shelf. Those are the only types Facebook's
+  `og:image:type` lists, and WebP (common among lead images), AVIF or a pinned
+  SVG would give no preview at all. A later tile beats the generic card, so
+  one is used when the first is not card-safe. A collection with no card-safe
+  image keeps the site card.
 
 ## Consequences
 

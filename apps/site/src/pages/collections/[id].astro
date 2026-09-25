@@ -3,6 +3,7 @@ import CollectionCover from "../../components/CollectionCover.astro";
 import Library from "../../components/Library.astro";
 import Base from "../../layouts/Base.astro";
 import { getCollections } from "../../lib/collections.ts";
+import { socialImage } from "../../lib/covers.ts";
 import { renderBlockHtml } from "../../lib/render.ts";
 import { STRINGS } from "../../lib/strings.ts";
 
@@ -34,7 +35,7 @@ const intro =
 <Base
   title={collection.title}
   description={collection.description ?? undefined}
-  ogImagePath={collection.coverImages[0]}
+  ogImagePath={socialImage(collection.coverImages)}
 >
   {
     /* Pictures only. The typographic cover earns its place in the gallery,

@@ -7,6 +7,7 @@ import {
   getCollections,
   tiroPagePayload,
 } from "../src/lib/collections.ts";
+import { socialImage } from "../src/lib/covers.ts";
 import { resetVaultCache } from "../src/lib/vault-read.ts";
 
 function writeArticle(
@@ -522,6 +523,18 @@ describe("collection covers", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("socialImage", () => {
+  test("the first cover image a crawler can show", () => {
+    expect(socialImage(["/v/a/1.png", "/v/a/2.jpg"])).toBe("/v/a/1.png");
+    // WebP, AVIF and SVG are fine covers but no card to Facebook's crawler.
+    expect(socialImage(["/v/a/1.webp", "/v/b/2.avif", "/v/c/3.JPEG"])).toBe(
+      "/v/c/3.JPEG",
+    );
+    expect(socialImage(["/v/a/pinned.svg"])).toBeUndefined();
+    expect(socialImage([])).toBeUndefined();
   });
 });
 

@@ -123,6 +123,21 @@ export function leadImage(article: Article): string | null {
   return found;
 }
 
+/** Formats a social card can carry. Facebook's `og:image:type` lists only
+ * these three, so a WebP lead image or a pinned SVG — both valid covers on the
+ * page — is no card at all to its crawler. */
+const CARD_EXT = /\.(?:jpe?g|png|gif)$/i;
+
+/**
+ * The image a collection's link previews with: the first of its cover images a
+ * crawler can show, or undefined for the site's own card. A later tile rather
+ * than the site card, because any picture from the shelf says more about it
+ * than the generic one does.
+ */
+export function socialImage(images: readonly string[]): string | undefined {
+  return images.find((src) => CARD_EXT.test(src));
+}
+
 /**
  * The images a collection is shown with.
  *
