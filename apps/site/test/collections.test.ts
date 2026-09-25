@@ -343,6 +343,40 @@ describe("collection covers", () => {
     }
   });
 
+  // What the page renders, not what a regex over the source finds (ADR 0030).
+  test("follows the images the article renders", async () => {
+    const dir = vault();
+    try {
+      const body = (file: string) =>
+        [
+          "```md",
+          `![quoted](./assets/${file}-fenced.png)`,
+          "```",
+          "",
+          `Inline code: \`![quoted](./assets/${file}-inline.png)\``,
+          "",
+          `<p><img src="./assets/${file}-html.png" alt=""></p>`,
+        ].join("\n");
+      writeArticle(dir, "a", false, body("a"));
+      for (const suffix of ["fenced", "inline", "html"]) {
+        writeAsset(dir, "a", `a-${suffix}.png`, PHOTO);
+      }
+      writeArticle(dir, "b", false, "![a [nested] alt](./assets/b.png)");
+      writeAsset(dir, "b", "b.png", PHOTO);
+      writeCollection(
+        dir,
+        "shelf",
+        'title: "S"\nitems:\n  - slug: a\n  - slug: b\n',
+      );
+      expect(await coverOf("shelf")).toEqual([
+        "/vault-assets/a/a-html.png",
+        "/vault-assets/b/b.png",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // AVIF, or a header the reader does not know: judged by weight instead.
   test("an image it cannot size is judged by its bytes", async () => {
     const dir = vault();

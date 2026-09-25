@@ -16,6 +16,7 @@ import {
 } from "@tiro/shared";
 import type { Article } from "./articles.ts";
 import { imageSize } from "./image-size.ts";
+import { renderedImageSources } from "./render.ts";
 import { vaultDir } from "./vault.ts";
 
 /** A mosaic has room for three: one large, two stacked. */
@@ -45,10 +46,6 @@ export const MIN_COVER_BYTES = 5 * 1024;
  * the eye from everything else. A hand-set cover may still be either.
  */
 const PHOTO_EXT = /\.(?:jpe?g|png|webp|avif)$/i;
-
-/** Every localized image reference in a body, in order. The processor writes
- * them as exactly `./assets/<file>` (see `renderBlockHtml`). */
-const ASSET_IMAGE_RE = /!\[[^\]]*\]\(\.\/assets\/([^\s)]+)/g;
 
 function publicAsset(slug: string, file: string): string {
   return `/vault-assets/${slug}/${file}`;
@@ -107,8 +104,13 @@ export function leadImage(article: Article): string | null {
   const cached = leadCache.get(article);
   if (cached !== undefined) return cached;
   let found: string | null = null;
-  for (const match of article.body.matchAll(ASSET_IMAGE_RE)) {
-    const file = decodeFile(match[1] ?? "");
+  const local = publicAsset(article.slug, "");
+  const sources = renderedImageSources(article.body, article.slug, {
+    inlineMath: article.frontmatter.has_math === true,
+  });
+  for (const src of sources) {
+    if (!src.startsWith(local)) continue;
+    const file = decodeFile(src.slice(local.length));
     if (!PHOTO_EXT.test(file) || file.includes("/")) continue;
     if (!worthACover(article.slug, file)) continue;
     found = publicAsset(article.slug, file);

@@ -55,7 +55,12 @@ strip it.
 
 ### A lead image is measured, cheaply
 
-An article's lead image is the first local image in its body that:
+An article's lead image is the first local image the article *renders* that
+meets the rules below. The images are read off the renderer's own sanitized
+tree, not the markdown source. A regex over the source missed an `<img>` in raw
+HTML (the processor localizes those as well as markdown images) and an alt text
+containing brackets, and it picked up a reference quoted inside a code block,
+which renders as text. An image qualifies when it:
 
 - is a JPEG, PNG, WebP or AVIF. SVG and GIF are never picked automatically:
   clipped SVGs are mostly line art on a transparent ground, which reads as a
