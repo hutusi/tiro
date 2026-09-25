@@ -409,6 +409,20 @@ describe("collection covers", () => {
     }
   });
 
+  test("keeps the rendered src, so an escaped name stays escaped", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a", false, "![](./assets/photo%23one.png)");
+      writeAsset(dir, "a", "photo#one.png", PHOTO);
+      writeCollection(dir, "shelf", 'title: "S"\nitems:\n  - slug: a\n');
+      expect(await coverOf("shelf")).toEqual([
+        "/vault-assets/a/photo%23one.png",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // AVIF, or a header the reader does not know: judged by weight instead.
   test("an image it cannot size is judged by its bytes", async () => {
     const dir = vault();

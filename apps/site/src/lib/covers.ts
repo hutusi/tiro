@@ -110,10 +110,13 @@ export function leadImage(article: Article): string | null {
   });
   for (const src of sources) {
     if (!src.startsWith(local)) continue;
+    // Decoded only to find the file on disk. The cover keeps the src exactly
+    // as rendered: rebuilt from the decoded name, `photo%23one.jpg` would
+    // come back as `photo#one.jpg`, whose `#` a browser reads as a fragment.
     const file = decodeFile(src.slice(local.length));
     if (!PHOTO_EXT.test(file) || file.includes("/")) continue;
     if (!worthACover(article.slug, file)) continue;
-    found = publicAsset(article.slug, file);
+    found = src;
     break;
   }
   leadCache.set(article, found);
