@@ -397,8 +397,9 @@ devDependencies — the action must log "using pre-installed wrangler".
     three members, in file order. Pin one instead with
     `cover: "articles/<slug>/assets/<file>"`, a path copied from the repo
     browser. It may be any listed article's image, a member or not.
-    `validate` reports a cover whose article or file is gone, or whose
-    article is unlisted. The site shows such a cover as the derived one and
+    `validate` reports a cover whose article or file is gone, one that is not
+    an image or is over the 20 MiB the site publishes, and one whose article is
+    unlisted. The site shows such a cover as the derived one and
     only warns in the build log, so `validate` is where you find out. A
     re-clip can prune the asset a cover names, which is how a correct cover
     goes stale.

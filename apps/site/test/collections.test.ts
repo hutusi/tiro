@@ -393,7 +393,7 @@ describe("collection covers", () => {
   });
 
   // `validate` is the gate; the build shows what it would have built anyway.
-  test("a hand-set cover that is gone or unlisted falls back, never fails", async () => {
+  test("a hand-set cover that is gone, unlisted or not an image falls back", async () => {
     const dir = vault();
     const warn = console.warn;
     const warnings: string[] = [];
@@ -411,14 +411,20 @@ describe("collection covers", () => {
         "secret",
         'title: "S"\ncover: articles/hidden/assets/h.png\nitems:\n  - slug: a\n',
       );
+      writeAsset(dir, "a", "notes.txt", PHOTO);
+      writeCollection(
+        dir,
+        "text",
+        'title: "T"\ncover: articles/a/assets/notes.txt\nitems:\n  - slug: a\n',
+      );
       resetVaultCache();
       const collections = await getCollections();
-      for (const id of ["gone", "secret"]) {
+      for (const id of ["gone", "secret", "text"]) {
         expect(collections.find((c) => c.id === id)?.coverImages).toEqual([
           "/vault-assets/a/a.png",
         ]);
       }
-      expect(warnings).toHaveLength(2);
+      expect(warnings).toHaveLength(3);
       expect(warnings.join("\n")).toContain("collections/secret.md");
     } finally {
       console.warn = warn;

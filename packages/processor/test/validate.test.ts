@@ -6,6 +6,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -168,7 +169,7 @@ describe("validateVault on collections", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
-  test("catches a cover whose file or article is gone, or is unlisted", async () => {
+  test("catches a cover the site could not show", async () => {
     const withCover = (cover: string) =>
       `---\ntitle: "X"\ncover: "${cover}"\ntiro:\n  schema: 1\n---\n`;
     const vault = withCollection(
@@ -186,11 +187,31 @@ describe("validateVault on collections", () => {
       join(vault, "collections", "shelf.md"),
       withCover(`articles/${UNLISTED}/assets/c.jpg`),
     );
+    // Present, but not something the site can show: a hand-placed note, a
+    // directory, and an image `copy-assets` would skip for its size.
+    const assets = join(vault, "articles", EN, "assets");
+    writeFileSync(join(assets, "notes.txt"), "not an image");
+    mkdirSync(join(assets, "folder.png"));
+    writeFileSync(join(assets, "huge.jpg"), "");
+    truncateSync(join(assets, "huge.jpg"), 20 * 1024 * 1024 + 1);
+    for (const [name, file] of [
+      ["text", "notes.txt"],
+      ["dir", "folder.png"],
+      ["huge", "huge.jpg"],
+    ]) {
+      writeFileSync(
+        join(vault, "collections", `${name}.md`),
+        withCover(`articles/${EN}/assets/${file}`),
+      );
+    }
     const report = await validateVault(vault);
     expect(report.errors).toEqual([
+      `collections/dir.md: cover articles/${EN}/assets/folder.png is not a file`,
+      `collections/huge.md: cover articles/${EN}/assets/huge.jpg is over the 20 MiB the site serves`,
       "collections/other.md: cover articles/gone-deadbeef/assets/cover.png names gone-deadbeef, which is not an article in this vault",
       `collections/reading.md: cover articles/${EN}/assets/pruned.png does not exist`,
       `collections/shelf.md: cover articles/${UNLISTED}/assets/c.jpg belongs to an unlisted article, which the site will not show`,
+      `collections/text.md: cover articles/${EN}/assets/notes.txt is not an image (expected jpg, png, webp, avif, gif or svg)`,
     ]);
     rmSync(vault, { recursive: true, force: true });
   });

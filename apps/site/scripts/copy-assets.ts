@@ -7,7 +7,8 @@
  */
 import { cpSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { MAX_ASSET_BYTES, vaultDir } from "../src/lib/vault.ts";
+import { MAX_SERVED_ASSET_BYTES } from "@tiro/shared";
+import { vaultDir } from "../src/lib/vault.ts";
 
 const articlesDir = `${vaultDir()}/articles`;
 const outRoot = resolve(import.meta.dirname, "../public/vault-assets");
@@ -20,9 +21,9 @@ for (const relPath of new Bun.Glob("*/assets/*").scanSync({
   cwd: articlesDir,
 })) {
   const source = join(articlesDir, relPath);
-  if (statSync(source).size > MAX_ASSET_BYTES) {
+  if (statSync(source).size > MAX_SERVED_ASSET_BYTES) {
     console.warn(
-      `skipping oversized asset (> ${MAX_ASSET_BYTES} bytes): ${relPath}`,
+      `skipping oversized asset (> ${MAX_SERVED_ASSET_BYTES} bytes): ${relPath}`,
     );
     skipped += 1;
     continue;

@@ -1,8 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   COLLECTIONS_DIR,
   checkAlignment,
+  isCoverImageFile,
   isValidCollectionId,
+  MAX_SERVED_ASSET_BYTES,
   parseArticle,
   parseCollection,
   parseCoverPath,
@@ -140,7 +142,7 @@ export async function validateVault(
 /**
  * Collections (ADR 0029): every file parses, is named something that can be a
  * filename and a route, lists each member once, names only articles that
- * exist, and has a cover that exists if it names one (ADR 0030).
+ * exist, and names a cover the site can show if it names one (ADR 0030).
  *
  * The last is the one that matters most. The site skips a member with no
  * article rather than failing — a missing row, not an error — so a dangling
@@ -227,8 +229,22 @@ async function validateCollections(
         errors.push(
           `${where}: cover ${cover} names ${target.slug}, which is not an article in this vault`,
         );
+      } else if (!isCoverImageFile(target.file)) {
+        // The site would put it in an <img> and a social card as it stands.
+        errors.push(
+          `${where}: cover ${cover} is not an image (expected jpg, png, webp, avif, gif or svg)`,
+        );
       } else if (!existsSync(`${vaultDir}/${cover}`)) {
         errors.push(`${where}: cover ${cover} does not exist`);
+      } else if (!statSync(`${vaultDir}/${cover}`).isFile()) {
+        errors.push(`${where}: cover ${cover} is not a file`);
+      } else if (
+        statSync(`${vaultDir}/${cover}`).size > MAX_SERVED_ASSET_BYTES
+      ) {
+        // `copy-assets` skips it, so the site never has it to show.
+        errors.push(
+          `${where}: cover ${cover} is over the ${MAX_SERVED_ASSET_BYTES / 1024 / 1024} MiB the site serves`,
+        );
       } else if (unlisted.has(target.slug)) {
         // The site will not show it: the image's path carries the slug, and a
         // public list page naming an unlisted article is the enumeration

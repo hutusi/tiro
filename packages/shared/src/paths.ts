@@ -20,6 +20,15 @@ export function translationPath(slug: string): string {
 export function assetsDir(slug: string): string {
   return `${articleDir(slug)}/assets`;
 }
+
+/**
+ * The largest article asset the site will serve. Cloudflare Pages rejects
+ * files over 25 MB; the processor caps downloads at 10 MB, so anything bigger
+ * is unexpected. The site's `copy-assets` skips it loudly, which is why a
+ * collection cover naming one is refused by `validate` — it would point at a
+ * file that was never published.
+ */
+export const MAX_SERVED_ASSET_BYTES = 20 * 1024 * 1024;
 /** Collections live beside `articles/`, one file per collection, the filename
  * stem being the id (ADR 0029). The processor's globs are all rooted at
  * `articles/`, so nothing here is ever mistaken for an article. */

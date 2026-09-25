@@ -44,6 +44,18 @@ export const FAVORITES_ID = "favorites";
 const COVER_RE =
   /^articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/assets\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
 
+/**
+ * Files a browser shows as an image — what a cover may be. Checked by
+ * `validate` and by the site, not by the schema: a schema failure fails the
+ * build and stops the clipper writing the collection at all, and a wrong
+ * extension is the owner's to fix at leisure, not a reason to block either.
+ */
+const COVER_IMAGE_RE = /\.(?:jpe?g|png|webp|avif|gif|svg)$/i;
+
+export function isCoverImageFile(file: string): boolean {
+  return COVER_IMAGE_RE.test(file);
+}
+
 /** The article and file a cover path names, or null if it is not one. */
 export function parseCoverPath(
   cover: string,

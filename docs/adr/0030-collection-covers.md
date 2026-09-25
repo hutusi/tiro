@@ -84,13 +84,23 @@ names the article, which is the enumeration ADR 0017 removes. So:
 - a hand-set cover naming an unlisted article is ignored
 - `validate` reports a hand-set cover naming an unlisted article
 
+### A pinned cover must be something the site can show
+
+The schema checks only the path's shape. Being an image the site will publish
+is checked by `validate` and by the site, so a wrong file blocks neither the
+build nor the clipper. That means an image extension (JPEG, PNG, WebP, AVIF,
+GIF or SVG), a regular file, and no larger than the 20 MiB `copy-assets`
+publishes. The limit lives in `@tiro/shared` as `MAX_SERVED_ASSET_BYTES`, so
+`validate` and the copy cannot disagree about it.
+
 ### The site degrades, `validate` refuses
 
 A hand-set cover can go stale: its article can be deleted, or a re-clip can
 prune the very asset the owner picked. The site never fails a build over it.
 It warns and shows the cover it would have built anyway. `validate` is the gate
-that reports it: a missing article, a missing file, or an unlisted article.
-This is the same split as a dangling member (ADR 0029).
+that reports it: a missing article, a missing or non-image file, one too large
+to publish, or an unlisted article. This is the same split as a dangling member
+(ADR 0029).
 
 `sweep --recanonicalize` rewrites a cover pointing into a moved article's
 `assets/` in the same write as the memberships. It does so whether or not that

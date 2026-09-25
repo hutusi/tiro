@@ -9,10 +9,14 @@
  */
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseCoverPath } from "@tiro/shared";
+import {
+  isCoverImageFile,
+  MAX_SERVED_ASSET_BYTES,
+  parseCoverPath,
+} from "@tiro/shared";
 import type { Article } from "./articles.ts";
 import { imageSize } from "./image-size.ts";
-import { MAX_ASSET_BYTES, vaultDir } from "./vault.ts";
+import { vaultDir } from "./vault.ts";
 
 /** A mosaic has room for three: one large, two stacked. */
 export const MAX_COVER_IMAGES = 3;
@@ -55,7 +59,7 @@ function publicAsset(slug: string, file: string): string {
 function servableSize(slug: string, file: string): number | null {
   try {
     const stat = statSync(join(vaultDir(), "articles", slug, "assets", file));
-    if (!stat.isFile() || stat.size > MAX_ASSET_BYTES) return null;
+    if (!stat.isFile() || stat.size > MAX_SERVED_ASSET_BYTES) return null;
     return stat.size;
   } catch {
     return null;
@@ -117,8 +121,8 @@ export function leadImage(article: Article): string | null {
 /**
  * The images a collection is shown with.
  *
- * - A hand-set `cover:` wins, as its one image — but only if it names a listed
- *   article's asset that will actually be served. An unlisted article's asset
+ * - A hand-set `cover:` wins, as its one image — but only if it names an image
+ *   file of a listed article that will actually be served. An unlisted article's asset
  *   would put its slug on a public list page, which is the enumeration ADR 0017
  *   removes, so that cover is ignored just as a missing one is.
  * - Otherwise the lead images of the listed members, in the owner's order,
@@ -138,13 +142,14 @@ export function coverImages(
     const target = parseCoverPath(cover);
     if (
       target !== null &&
+      isCoverImageFile(target.file) &&
       listed.has(target.slug) &&
       servableSize(target.slug, target.file) !== null
     ) {
       return [publicAsset(target.slug, target.file)];
     }
     console.warn(
-      `collections/${id}.md: cover ${cover} is not a listed article's asset; using the members' images instead`,
+      `collections/${id}.md: cover ${cover} is not a listed article's image; using the members' images instead`,
     );
   }
   const images: string[] = [];
