@@ -929,7 +929,7 @@ async function recanonicalizeAll(
     const carried =
       touched.length === 0
         ? ""
-        : ` — carries membership in ${touched.map((c) => c.id).join(", ")}`;
+        : ` — carries it in collections ${touched.map((c) => c.id).join(", ")}`;
     console.log(`  ${plan.from}
     → ${plan.to}${fields}${carried}${note}`);
     if (!args.write) continue;

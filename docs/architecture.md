@@ -293,7 +293,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   them: every glob it runs is rooted at `articles/`, and a collections push
   triggers the vault's `publish.yml`, which only dispatches a deploy. The site
   joins members through the listed funnel, so an unlisted article stays off a
-  public collection page while its own page still shows its chips. Every page
+  public collection page while its own page still shows its chips. A
+  collection's cover is derived from its listed members' lead images unless a
+  hand-set `cover:` pins one article asset by vault path (ADR 0030); `validate`
+  checks it exists and is listed, and the sweep carries it across a rename.
+  Every page
   carries a `tiro:site` meta and article pages a `#tiro-page` JSON island (slug,
   memberships, catalog), which is how the clipper recognizes a Tiro page on any
   domain.

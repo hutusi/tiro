@@ -390,6 +390,20 @@ devDependencies — the action must log "using pre-installed wrangler".
   otherwise skip in silence.
   - **An unlisted member is left off the collection's page** (ADR 0017), though
     the article's own page still shows the chip. Empty collections are listed.
+  - **Description and cover are hand edits** (ADR 0030); the clipper sets
+    neither. `description: "…"` shows under the title. The cover is built from
+    the members' own pictures: the first local JPEG, PNG, WebP or AVIF each
+    article renders (a reference quoted in a code block does not count) that
+    is at least 150px on its shorter side and no more than 3:1, up to
+    three members, in file order. Pin one instead with
+    `cover: "articles/<slug>/assets/<file>"`, a path copied from the repo
+    browser. It may be any listed article's image, a member or not.
+    `validate` reports a cover whose article or file is gone, one that is not
+    an image or is over the 20 MiB the site publishes, and one whose article is
+    unlisted. The site shows such a cover as the derived one and
+    only warns in the build log, so `validate` is where you find out. A
+    re-clip can prune the asset a cover names, which is how a correct cover
+    goes stale.
   - **Deleting an article now has a second step**: drop it from any collection
     that names it. `validate` lists them.
   - `publish.yml` ships in `vault-template/`, which does not propagate — copy it
@@ -543,7 +557,9 @@ gh workflow run "Deploy site" --repo hutusi/tiro --ref main
   and exits non-zero.
 - **Collections move with their members** (ADR 0029). Every collection naming a
   moved slug is rewritten to the new one in the same write, keeping the
-  member's place and date; the report says `carries membership in …`. An
+  member's place and date, and so is a `cover:` pointing into a moved
+  article's `assets/` (ADR 0030); the report says `carries it in collections
+  …`. An
   unreadable collection stops the run before anything moves — fix it first,
   or its members would be stranded.
 

@@ -7,11 +7,8 @@
  */
 import { cpSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { MAX_SERVED_ASSET_BYTES } from "@tiro/shared";
 import { vaultDir } from "../src/lib/vault.ts";
-
-// Cloudflare Pages rejects files over 25 MB; the processor caps downloads at
-// 10 MB, so anything bigger here is unexpected — skip it loudly.
-const MAX_BYTES = 20 * 1024 * 1024;
 
 const articlesDir = `${vaultDir()}/articles`;
 const outRoot = resolve(import.meta.dirname, "../public/vault-assets");
@@ -24,8 +21,10 @@ for (const relPath of new Bun.Glob("*/assets/*").scanSync({
   cwd: articlesDir,
 })) {
   const source = join(articlesDir, relPath);
-  if (statSync(source).size > MAX_BYTES) {
-    console.warn(`skipping oversized asset (> ${MAX_BYTES} bytes): ${relPath}`);
+  if (statSync(source).size > MAX_SERVED_ASSET_BYTES) {
+    console.warn(
+      `skipping oversized asset (> ${MAX_SERVED_ASSET_BYTES} bytes): ${relPath}`,
+    );
     skipped += 1;
     continue;
   }

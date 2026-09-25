@@ -1,0 +1,136 @@
+---
+/**
+ * One collection in the gallery: its cover, then its title, description and a
+ * meta line. The whole card is the link — there is nothing else on it to
+ * click, so no stretched pseudo-element is needed the way `ArticleItem` needs
+ * one.
+ */
+import { type Collection, collectionUrl } from "../lib/collections.ts";
+import { articleCountLabel, dateLabel, STRINGS } from "../lib/strings.ts";
+import CollectionCover from "./CollectionCover.astro";
+
+interface Props {
+  collection: Collection;
+}
+const { collection } = Astro.props;
+const t = STRINGS.collections;
+---
+
+<li class="card">
+  <a href={collectionUrl(collection.id)} class="card-link">
+    <div class="art">
+      <CollectionCover
+        images={collection.coverImages}
+        title={collection.title}
+      />
+    </div>
+    <div class="text">
+      <h2 class="title">{collection.title}</h2>
+      {
+        collection.description !== null && (
+          <p class="desc">{collection.description}</p>
+        )
+      }
+      <p class="meta">
+        <span>{articleCountLabel(collection.articles.length)}</span>
+        {
+          collection.updatedAt !== null && (
+            <time datetime={collection.updatedAt}>
+              {t.updated} {dateLabel(collection.updatedAt)}
+            </time>
+          )
+        }
+      </p>
+    </div>
+  </a>
+</li>
+
+<style>
+  /* Raw tokens (--rule, --accent…), never --color-*: `@theme inline`
+     substitutes those away at build time. Border, lift and shadow match the
+     library's cards view, so the two galleries read as one family. */
+  .card {
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--field);
+    overflow: hidden;
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.18s ease,
+      border-color 0.18s;
+  }
+  .card:hover,
+  .card:focus-within {
+    border-color: var(--ink-mute);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-card);
+  }
+  .card-link {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    color: inherit;
+    text-decoration: none;
+  }
+  .card-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 10px;
+  }
+  .art {
+    border-bottom: 1px solid var(--rule);
+  }
+  /* The cover's images live in the child's scope, so reaching them takes
+     :global — anchored under this card so it cannot leak. */
+  .card:hover .art :global(img) {
+    transform: scale(1.03);
+  }
+  .text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px 18px 14px;
+  }
+  .title {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    text-wrap: pretty;
+  }
+  .card:hover .title {
+    color: var(--accent);
+  }
+  .desc {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: auto 0 0;
+    padding-top: 6px;
+    font-family: var(--font-ui);
+    font-size: 12px;
+    color: var(--ink-mute);
+  }
+  .meta time::before {
+    content: "· ";
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card,
+    .card:hover .art :global(img) {
+      transition: none;
+      transform: none;
+    }
+  }
+</style>

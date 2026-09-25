@@ -19,6 +19,8 @@ tiro:
 Every article in the vault looked like this before translated titles existed: a
 full side-by-side translation, a Chinese summary, and no Chinese title at all.
 
+![Archive shelves](./assets/8e4b17a0d2f5.jpg)
+
 The body does not open with its own title, which is why nothing can be lifted
 out of the translation to stand in for one. That combination is ordinary rather
 than exotic, so the reader has to stay readable in it — including in the mode

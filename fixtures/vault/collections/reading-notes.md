@@ -7,6 +7,8 @@ items:
   - slug: "example-io-notes-the-cost-of-a-second-opinion-e72f13a9"
     added_at: "2026-09-21T11:00:00.000Z"
   - slug: "example-org-essays-before-the-backfill-80754d43"
+  - slug: "example-cn-posts-ai-times-0d21367e"
+    added_at: "2026-09-19T10:00:00.000Z"
 tiro:
   schema: 1
 ---

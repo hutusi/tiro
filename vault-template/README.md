@@ -38,6 +38,11 @@ push under `collections/` redeploys the site through `publish.yml` and never
 starts processing. Delete an article and you must also drop it from any
 collection that lists it — `tiro-process validate` reports which.
 
+A collection may also carry a `description:` line, shown under its title, and
+a `cover:` naming one article image by its vault path,
+`articles/<slug>/assets/<file>`. Without a cover, the site builds one from the
+members' own pictures (ADR 0030), so most collections never need one.
+
 ## Setup
 
 1. Create a new GitHub repository (e.g. `tiro-vault`) and copy the contents

@@ -29,6 +29,43 @@ import {
 export const FAVORITES_ID = "favorites";
 
 /**
+ * A collection's cover: one article asset, named by its vault path.
+ *
+ * A path into the vault, not a URL. The site is public and a hotlinked cover
+ * breaks the day its host moves it, silently; an asset path is something
+ * `validate` can check exists (ADR 0030). Any article's asset may serve, not
+ * only a member's — the picture that sums up a shelf is not always inside it.
+ *
+ * Both parts are held to the alphabet the pipeline itself writes (slugs are
+ * lowercase dash-joined ascii, assets are content-hash names), loosened only
+ * enough for a hand-placed file: no separators and no leading dot, so the path
+ * can never climb out of the article's `assets/`.
+ */
+const COVER_RE =
+  /^articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/assets\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
+
+/**
+ * Files a browser shows as an image — what a cover may be. Checked by
+ * `validate` and by the site, not by the schema: a schema failure fails the
+ * build and stops the clipper writing the collection at all, and a wrong
+ * extension is the owner's to fix at leisure, not a reason to block either.
+ */
+const COVER_IMAGE_RE = /\.(?:jpe?g|png|webp|avif|gif|svg)$/i;
+
+export function isCoverImageFile(file: string): boolean {
+  return COVER_IMAGE_RE.test(file);
+}
+
+/** The article and file a cover path names, or null if it is not one. */
+export function parseCoverPath(
+  cover: string,
+): { slug: string; file: string } | null {
+  const match = COVER_RE.exec(cover);
+  if (match?.[1] === undefined || match[2] === undefined) return null;
+  return { slug: match[1], file: match[2] };
+}
+
+/**
  * One article's membership.
  *
  * `added_at` is optional so a collection stays worth hand-editing: `- slug: x`
@@ -58,6 +95,17 @@ export const CollectionFrontmatterSchema = z.object({
    * exactly why it is not the id. */
   title: z.string().min(1),
   description: z.string().trim().min(1).optional(),
+  /** Hand-set cover, `articles/<slug>/assets/<file>`. Absent is the normal
+   * case: the site then builds one from the members' own images (ADR 0030).
+   *
+   * Declared here even though only a person writes it, because this schema is
+   * also what the clipper parses a collection with before rewriting it — and
+   * zod drops keys it was not told about, so a field missing from here would
+   * be erased by the next toggle. */
+  cover: z
+    .string()
+    .regex(COVER_RE, "expected articles/<slug>/assets/<file>")
+    .optional(),
   created_at: isoDatetime.optional(),
   updated_at: isoDatetime.optional(),
   /** Ordered: file order *is* the curation order, so a hand edit reorders a
@@ -232,6 +280,10 @@ export function applyCollectionOps(
  * old entry is dropped rather than listed twice. `updated_at` is left alone,
  * because nothing the owner decided has changed.
  *
+ * A cover naming the old slug is carried too, whether or not the article is a
+ * member: the rename moves its `assets/` directory, and a cover left pointing
+ * at the old one is a broken image the site would quietly replace.
+ *
  * Returns only the collections that changed, so the caller writes nothing it
  * does not have to.
  */
@@ -242,18 +294,27 @@ export function renameCollectionMember(
 ): ParsedCollection[] {
   const changed: ParsedCollection[] = [];
   for (const collection of collections) {
-    const { items } = collection.frontmatter;
-    if (!items.some((item) => item.slug === from)) continue;
+    const { items, cover } = collection.frontmatter;
+    const member = items.some((item) => item.slug === from);
+    // The cover moves with the directory it lives in, and it may name an
+    // article that is not a member — so it is checked on its own, not only
+    // for collections that hold `from`.
+    const coverTarget = cover === undefined ? null : parseCoverPath(cover);
+    const coverMoves = coverTarget?.slug === from;
+    if (!member && !coverMoves) continue;
     const already = items.some((item) => item.slug === to);
-    const renamed = already
-      ? items.filter((item) => item.slug !== from)
-      : items.map((item) =>
-          item.slug === from ? { ...item, slug: to } : item,
-        );
-    changed.push({
-      ...collection,
-      frontmatter: { ...collection.frontmatter, items: renamed },
-    });
+    const renamed = !member
+      ? items
+      : already
+        ? items.filter((item) => item.slug !== from)
+        : items.map((item) =>
+            item.slug === from ? { ...item, slug: to } : item,
+          );
+    const frontmatter = { ...collection.frontmatter, items: renamed };
+    if (coverMoves && coverTarget !== null) {
+      frontmatter.cover = `articles/${to}/assets/${coverTarget.file}`;
+    }
+    changed.push({ ...collection, frontmatter });
   }
   return changed;
 }

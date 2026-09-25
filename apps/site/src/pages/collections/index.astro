@@ -1,6 +1,7 @@
 ---
+import CollectionCard from "../../components/CollectionCard.astro";
 import Base from "../../layouts/Base.astro";
-import { collectionUrl, getCollections } from "../../lib/collections.ts";
+import { getCollections } from "../../lib/collections.ts";
 import { STRINGS } from "../../lib/strings.ts";
 
 const collections = await getCollections();
@@ -15,57 +16,21 @@ const t = STRINGS.collections;
 
   {collections.length === 0 && <p class="text-ink-soft">{t.empty}</p>}
 
-  <ul class="m-0 list-none p-0">
+  <ul class="gallery m-0 list-none p-0">
     {
       collections.map((collection) => (
-        <li class="row">
-          <a href={collectionUrl(collection.id)} class="title">
-            {collection.title}
-          </a>
-          <span class="count font-mono">{collection.articles.length}</span>
-          {collection.description !== null && (
-            <p class="desc">{collection.description}</p>
-          )}
-        </li>
+        <CollectionCard collection={collection} />
       ))
     }
   </ul>
 </Base>
 
 <style>
-  /* A two-column grid rather than a flex row: the count sits on the title's
-     baseline and the description starts under the title, not under the count.
-     Same row rhythm as the library's list view. */
-  .row {
+  /* `auto-fill` over the library width, like the article cards: one column
+     on a phone, two or three on a desktop, four only on the widest setting. */
+  .gallery {
     display: grid;
-    grid-template-columns: 1fr auto;
-    align-items: baseline;
-    gap: 2px 12px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--rule);
-  }
-  .row:first-child {
-    border-top: 1px solid var(--rule);
-  }
-  .title {
-    font-size: 17px;
-    color: var(--ink);
-    text-decoration: none;
-  }
-  .title:hover,
-  .title:focus-visible {
-    color: var(--accent);
-    text-decoration: underline;
-  }
-  .count {
-    font-size: 13px;
-    color: var(--ink-mute);
-  }
-  .desc {
-    grid-column: 1 / -1;
-    margin: 0;
-    font-family: var(--font-ui);
-    font-size: 13px;
-    color: var(--ink-mute);
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 20px;
   }
 </style>

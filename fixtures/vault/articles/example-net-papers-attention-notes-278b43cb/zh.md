@@ -2,6 +2,8 @@
 
 注意力机制将一个查询与一组键做匹配，返回值的加权和。对单个查询向量 $q$ 和键矩阵 $K$ 而言，权重为 $\mathrm{softmax}(qK^\top / \sqrt{d_k})$，完整的批量形式是：
 
+![注意力热图](./assets/5b0e1f7c2a91.jpg)
+
 $$
 \mathrm{Attention}(Q, K, V) = \mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right) V
 $$

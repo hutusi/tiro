@@ -6,6 +6,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +17,7 @@ const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
 const EN = "example-com-posts-hello-ai-e8446b12";
 const CN = "example-cn-posts-ai-times-0d21367e";
+const UNLISTED = "example-cn-notes-unlisted-shelf-8145cda3";
 
 function freshVault(): string {
   const dir = mkdtempSync(join(tmpdir(), "tiro-validate-"));
@@ -29,7 +31,7 @@ describe("validateVault", () => {
     const report = await validateVault(vault);
     expect(report.errors).toEqual([]);
     expect(report.articles).toBe(8);
-    expect(report.collections).toBe(3);
+    expect(report.collections).toBe(4);
     rmSync(vault, { recursive: true, force: true });
   });
 
@@ -157,6 +159,63 @@ describe("validateVault on collections", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
+  test("accepts a cover that exists, member or not", async () => {
+    const vault = withCollection(
+      "reading.md",
+      `---\ntitle: "X"\ncover: "articles/${EN}/assets/cover.png"\ntiro:\n  schema: 1\n---\n`,
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("catches a cover the site could not show", async () => {
+    const withCover = (cover: string) =>
+      `---\ntitle: "X"\ncover: "${cover}"\ntiro:\n  schema: 1\n---\n`;
+    const vault = withCollection(
+      "reading.md",
+      withCover(`articles/${EN}/assets/pruned.png`),
+    );
+    writeFileSync(
+      join(vault, "collections", "other.md"),
+      withCover("articles/gone-deadbeef/assets/cover.png"),
+    );
+    // An unlisted article's asset exists, but the site will not show it.
+    mkdirSync(join(vault, "articles", UNLISTED, "assets"));
+    writeFileSync(join(vault, "articles", UNLISTED, "assets", "c.jpg"), "");
+    writeFileSync(
+      join(vault, "collections", "shelf.md"),
+      withCover(`articles/${UNLISTED}/assets/c.jpg`),
+    );
+    // Present, but not something the site can show: a hand-placed note, a
+    // directory, and an image `copy-assets` would skip for its size.
+    const assets = join(vault, "articles", EN, "assets");
+    writeFileSync(join(assets, "notes.txt"), "not an image");
+    mkdirSync(join(assets, "folder.png"));
+    writeFileSync(join(assets, "huge.jpg"), "");
+    truncateSync(join(assets, "huge.jpg"), 20 * 1024 * 1024 + 1);
+    for (const [name, file] of [
+      ["text", "notes.txt"],
+      ["dir", "folder.png"],
+      ["huge", "huge.jpg"],
+    ]) {
+      writeFileSync(
+        join(vault, "collections", `${name}.md`),
+        withCover(`articles/${EN}/assets/${file}`),
+      );
+    }
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([
+      `collections/dir.md: cover articles/${EN}/assets/folder.png is not a file`,
+      `collections/huge.md: cover articles/${EN}/assets/huge.jpg is over the 20 MiB the site serves`,
+      "collections/other.md: cover articles/gone-deadbeef/assets/cover.png names gone-deadbeef, which is not an article in this vault",
+      `collections/reading.md: cover articles/${EN}/assets/pruned.png does not exist`,
+      `collections/shelf.md: cover articles/${UNLISTED}/assets/c.jpg belongs to an unlisted article, which the site will not show`,
+      `collections/text.md: cover articles/${EN}/assets/notes.txt is not an image (expected jpg, png, webp, avif, gif or svg)`,
+    ]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
   test("catches a member listed twice", async () => {
     const vault = withCollection(
       "reading.md",
@@ -205,7 +264,7 @@ describe("validateVault on collections", () => {
     writeFileSync(join(vault, "collections", ".gitkeep"), "");
     const report = await validateVault(vault);
     expect(report.errors).toEqual([]);
-    expect(report.collections).toBe(3);
+    expect(report.collections).toBe(4);
     rmSync(vault, { recursive: true, force: true });
   });
 

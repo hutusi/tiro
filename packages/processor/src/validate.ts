@@ -1,10 +1,13 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   COLLECTIONS_DIR,
   checkAlignment,
+  isCoverImageFile,
   isValidCollectionId,
+  MAX_SERVED_ASSET_BYTES,
   parseArticle,
   parseCollection,
+  parseCoverPath,
   slugForUrl,
   splitBlocks,
   translationPath,
@@ -37,6 +40,7 @@ export async function validateVault(
   const articlesDir = `${vaultDir}/articles`;
   const errors: string[] = [];
   const slugs = new Set<string>();
+  const unlisted = new Set<string>();
   let articles = 0;
 
   // `**`, not `*`: the processor and the site both glob one level deep, so a
@@ -68,6 +72,7 @@ export async function validateVault(
     articles += 1;
     slugs.add(slug);
     const { frontmatter, body } = parsed;
+    if (frontmatter.unlisted === true) unlisted.add(slug);
 
     // Invariant 2: the path is the identity and is derived from the URL. A
     // slug that no longer matches means the next clip of this page creates a
@@ -125,14 +130,19 @@ export async function validateVault(
     }
   }
 
-  const collections = await validateCollections(vaultDir, slugs, errors);
+  const collections = await validateCollections(
+    vaultDir,
+    slugs,
+    unlisted,
+    errors,
+  );
   return { articles, collections, errors };
 }
 
 /**
  * Collections (ADR 0029): every file parses, is named something that can be a
- * filename and a route, lists each member once, and names only articles that
- * exist.
+ * filename and a route, lists each member once, names only articles that
+ * exist, and names a cover the site can show if it names one (ADR 0030).
  *
  * The last is the one that matters most. The site skips a member with no
  * article rather than failing — a missing row, not an error — so a dangling
@@ -148,6 +158,7 @@ export async function validateVault(
 async function validateCollections(
   vaultDir: string,
   slugs: ReadonlySet<string>,
+  unlisted: ReadonlySet<string>,
   errors: string[],
 ): Promise<number> {
   const dir = `${vaultDir}/${COLLECTIONS_DIR}`;
@@ -204,6 +215,43 @@ async function validateCollections(
       seen.add(slug);
       if (!slugs.has(slug)) {
         errors.push(`${where}: ${slug} is not an article in this vault`);
+      }
+    }
+
+    // Same split as a dangling member: the site shows a missing cover as the
+    // one it would have built anyway, so this is the only place it surfaces.
+    // A re-clip can drop the asset (the processor prunes what the body no
+    // longer references), which is how a cover that was right goes stale.
+    const { cover } = parsed.frontmatter;
+    const target = cover === undefined ? null : parseCoverPath(cover);
+    if (cover !== undefined && target !== null) {
+      if (!slugs.has(target.slug)) {
+        errors.push(
+          `${where}: cover ${cover} names ${target.slug}, which is not an article in this vault`,
+        );
+      } else if (!isCoverImageFile(target.file)) {
+        // The site would put it in an <img> and a social card as it stands.
+        errors.push(
+          `${where}: cover ${cover} is not an image (expected jpg, png, webp, avif, gif or svg)`,
+        );
+      } else if (!existsSync(`${vaultDir}/${cover}`)) {
+        errors.push(`${where}: cover ${cover} does not exist`);
+      } else if (!statSync(`${vaultDir}/${cover}`).isFile()) {
+        errors.push(`${where}: cover ${cover} is not a file`);
+      } else if (
+        statSync(`${vaultDir}/${cover}`).size > MAX_SERVED_ASSET_BYTES
+      ) {
+        // `copy-assets` skips it, so the site never has it to show.
+        errors.push(
+          `${where}: cover ${cover} is over the ${MAX_SERVED_ASSET_BYTES / 1024 / 1024} MiB the site serves`,
+        );
+      } else if (unlisted.has(target.slug)) {
+        // The site will not show it: the image's path carries the slug, and a
+        // public list page naming an unlisted article is the enumeration
+        // ADR 0017 exists to remove.
+        errors.push(
+          `${where}: cover ${cover} belongs to an unlisted article, which the site will not show`,
+        );
       }
     }
   }

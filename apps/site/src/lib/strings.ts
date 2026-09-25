@@ -74,6 +74,8 @@ export const STRINGS = {
     emptyCollection: "这个合集还没有文章。",
     /** Leads the collection chips on an article's page. */
     memberOf: "收录于",
+    /** Before a collection card's last-updated date. */
+    updated: "更新于",
   },
   library: {
     title: "文章",
@@ -159,6 +161,10 @@ export function pageTitle(page: number): string {
 
 export function pageNote(current: number, last: number, total: number): string {
   return `第 ${current} / ${last} 页 · 共 ${total} 篇`;
+}
+
+export function articleCountLabel(count: number): string {
+  return `${count} 篇`;
 }
 
 export function resultsLabel(count: number): string {

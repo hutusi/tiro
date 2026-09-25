@@ -22,6 +22,8 @@ tiro:
 
 Attention maps a query against a set of keys and returns a weighted sum of the values. Written for a single query vector $q$ and key matrix $K$, the weights are $\mathrm{softmax}(qK^\top / \sqrt{d_k})$, and the whole batched form is:
 
+![Attention heat map](./assets/5b0e1f7c2a91.jpg)
+
 $$
 \mathrm{Attention}(Q, K, V) = \mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right) V
 $$

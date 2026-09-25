@@ -9,6 +9,8 @@ items:
     added_at: "2026-09-21T14:00:00.000Z"
   - slug: "example-com-posts-hello-ai-e8446b12"
     added_at: "2026-09-20T08:00:00.000Z"
+  - slug: "example-dev-notes-a-clip-awaiting-retranslation-6d1b7b92"
+    added_at: "2026-09-20T07:00:00.000Z"
 tiro:
   schema: 1
 ---

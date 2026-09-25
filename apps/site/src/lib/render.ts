@@ -1,4 +1,4 @@
-import { normalizeBlockMath } from "@tiro/shared";
+import { normalizeBlockMath, splitBlocks } from "@tiro/shared";
 import type { ElementContent, Root } from "hast";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -317,13 +317,18 @@ function stripOnce(value: string, prefix: string): string {
 }
 
 /**
- * `singleDollarTextMath` is the only difference between the two processors.
+ * Parse through sanitize: the front half every processor here shares — the
+ * renderer below, and `renderedImageSources`, which must see exactly the
+ * images a page would.
+ *
+ * `singleDollarTextMath` is the only difference between the math and prose
+ * variants.
  * With it on, `$` is a math delimiter everywhere and "it costs $5 to $10"
  * renders as a formula — so it is enabled only for articles the clipper
  * flagged as containing real math. `$$…$$` is unambiguous and stays on for
  * everything, including articles clipped before math support existed.
  */
-function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
+function sanitizedTree(singleDollarTextMath: boolean) {
   return (
     unified()
       .use(remarkParse)
@@ -344,6 +349,12 @@ function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
       .use(remarkRehype, { allowDangerousHtml: true })
       .use(rehypeRaw)
       .use(rehypeSanitize, schema)
+  );
+}
+
+function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
+  return (
+    sanitizedTree(singleDollarTextMath)
       // After the sanitizer because it has to see the *clobbered* id to
       // reconcile it with the link that points at it, and before the
       // generators because it may only ever touch clipped markup — Shiki and
@@ -391,6 +402,49 @@ export interface RenderOptions {
   pane?: Pane;
 }
 
+// Parse and sanitize only: no Shiki, no KaTeX, nothing stringified. The front
+// half the renderer runs, so what it finds is what a page would show.
+const treeProse = sanitizedTree(false).freeze();
+const treeMath = sanitizedTree(true).freeze();
+
+/**
+ * The `src` of every image a body renders, in document order, with local
+ * references already pointing at the published copies (`/vault-assets/…`).
+ *
+ * Read off the sanitized tree rather than the markdown source: that is what
+ * catches an `<img>` in raw HTML (the processor localizes those too), an alt
+ * text holding brackets, and a reference quoted inside a code block, which
+ * renders as text and is no image at all. A regex over the source gets all
+ * three wrong.
+ *
+ * Block by block, prepared exactly as `renderBlock` prepares one, because that
+ * is how the reader renders a body (`buildReaderView`). A whole-body parse
+ * disagrees with it both ways: it resolves a reference-style image against a
+ * definition in another block, which the reader shows as literal text, and an
+ * unclosed `$$` swallows every image after it, which the reader still shows.
+ */
+export function renderedImageSources(
+  body: string,
+  slug: string,
+  options: Pick<RenderOptions, "inlineMath"> = {},
+): string[] {
+  const processor = options.inlineMath === true ? treeMath : treeProse;
+  const sources: string[] = [];
+  for (const block of splitBlocks(body)) {
+    const text = localizeAssets(normalizeBlockMath(block.text), slug);
+    const tree = processor.runSync(processor.parse(text)) as Root;
+    visit(tree, "element", (node) => {
+      const src = node.properties?.src;
+      if (node.tagName === "img" && typeof src === "string") sources.push(src);
+    });
+  }
+  return sources;
+}
+
+function localizeAssets(text: string, slug: string): string {
+  return text.replaceAll("./assets/", `/vault-assets/${slug}/`);
+}
+
 /**
  * Render one markdown block to sanitized HTML at build time. The processor
  * writes localized image references as exactly "./assets/<file>", so pointing
@@ -412,10 +466,7 @@ export function renderBlock(
   slug: string,
   options: RenderOptions = {},
 ): { html: string; anchorIds: string[] } {
-  const withAssets = normalizeBlockMath(blockText).replaceAll(
-    "./assets/",
-    `/vault-assets/${slug}/`,
-  );
+  const withAssets = localizeAssets(normalizeBlockMath(blockText), slug);
   const processor = processorFor(
     options.inlineMath === true,
     options.pane ?? "original",

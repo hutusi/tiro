@@ -108,10 +108,16 @@ describe("fixture collections", () => {
       "empty-shelf.md",
       // Holds the unlisted fixture on purpose. A collection page joins through
       // the listed funnel, so this is what proves an unlisted member stays out
-      // of a public list while its own page still renders.
+      // of a public list while its own page still renders. Its cover is a
+      // two-image mosaic: hello-ai's only image is too small to be picked.
       "favorites.md",
+      // A hand-set `cover:` that is not a member's image, so the page shows
+      // the override and not the members' own pictures (ADR 0030).
+      "field-guide.md",
       // A prose body, a description, and one item with no `added_at` — the
       // shape a hand-written collection has, which the extension never emits.
+      // Three members with pictures, so its cover is the full mosaic; one of
+      // them opens with an SVG, which is passed over for the photo after it.
       "reading-notes.md",
     ]);
   });
