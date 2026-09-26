@@ -147,7 +147,8 @@ flowchart LR
    - download images into `assets/` and rewrite body URLs to relative paths
      (per-image fallback to hotlink on failure),
    - one LLM call for a structured summary, one category (from the taxonomy in
-     `config/tiro.yml`), and free-form tags, written into frontmatter — and, for
+     `config/tiro.yml`), and tags — English, in one canonical form, through
+     the aliases `tiro.yml` may set (ADR 0033) — written into frontmatter — and, for
      an article not already in the target language, the title translated into it
      and the summary written a second time in the article's own language. One
      call, so a title and the summary it renders under agree on their terms

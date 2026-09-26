@@ -113,3 +113,27 @@ pdf:
     );
   });
 });
+
+describe("tags", () => {
+  test("no tags section means no aliases", () => {
+    expect(parseTiroConfig(minimalConfig).tags.aliases).toEqual({});
+  });
+
+  test("an alias names a tag, and null drops one", () => {
+    const config = parseTiroConfig(
+      `${minimalConfig}tags:\n  aliases:\n    large language models: llm\n    misc: null\n`,
+    );
+    expect(config.tags.aliases).toEqual({
+      "large language models": "llm",
+      misc: null,
+    });
+  });
+
+  test("an alias to an empty tag is refused rather than read as a drop", () => {
+    // `null` is the one way to drop a tag; an empty string is more likely a
+    // half-written entry than a decision.
+    expect(() =>
+      parseTiroConfig(`${minimalConfig}tags:\n  aliases:\n    misc: ""\n`),
+    ).toThrow();
+  });
+});

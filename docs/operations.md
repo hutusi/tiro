@@ -68,6 +68,29 @@ endpoint works.
   values on purpose: the artifact is always named `zh.md` and the language
   detector only distinguishes Chinese from non-Chinese, so any other target
   would translate every article — Chinese originals included.
+- **Tags** are the model's, written in English and in one form: lowercase,
+  words separated by spaces, a hyphen kept only beside a digit (`gpt-4`)
+  (ADR 0033). A tag in another script is dropped, and the run log says which.
+  To steer them, `tags.aliases` in `tiro.yml` rewrites one tag to another as it
+  is written, or drops it with `null`:
+
+  ```yaml
+  tags:
+    aliases:
+      large language models: llm
+      misc: null
+  ```
+
+  Either side may be spelled any way — both are normalized first — and an alias
+  is one hop, not a chain. It applies from the next run on; articles already
+  processed keep their tags until they are reprocessed or retagged.
+  - **The vocabulary is the vault's own**: every English tag at least two
+    articles carry, up to 150, most used first, rebuilt at the start of each
+    run. The model is asked to reuse one when it fits, and an article may add
+    at most two tags from outside it — fewer only if that would leave it with
+    under three. A run log line `left out new tag(s) past the 2 allowed`
+    shows the cap working. There is nothing to maintain: a tag enters the list
+    by being used twice.
 - **Image downloads** are bounded per image (`images.max_bytes`,
   `images.timeout_ms`) and per article (`images.max_count`,
   `images.total_max_bytes`, `images.stage_timeout_ms`). Hitting an aggregate
@@ -316,8 +339,11 @@ so re-runs are always safe no-ops for finished articles.
   `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
   Checks frontmatter schema, that each directory name still equals the slug
   derived from its `url` (invariant 2), that no article is nested below
-  `articles/<slug>/`, and that every `zh.md` belongs to an article that should
-  have one and stays block-aligned with it. Exits non-zero on any of these —
+  `articles/<slug>/`, that tags are written in their canonical form (ADR 0033),
+  and that every `zh.md` belongs to an article that should have one and stays
+  block-aligned with it. A vault not yet retagged reports its old spellings
+  here — `retag` (below) is the fix, and a clean `validate` is how you know it
+  finished. Exits non-zero on any of these —
   `run` only warns, so this is the only thing that fails on a violation.
 
 ### Math rendering
@@ -371,7 +397,7 @@ the summary and recorded in the article.
 
 | Marker | Meaning | Fix |
 | --- | --- | --- |
-| `tiro.summary_failed: true` | the summary needs a human look. The run log says which of two things it is holding: `summary unusable after 3 attempts; using a first-paragraph excerpt`, or `summary unfinished after 3 attempts; keeping the longest cut reply` | reprocess with `force` + slug. For the cut kind, read the article first — the kept summary is often serviceable, and a retry may cut it again |
+| `tiro.summary_failed: true` | the summary needs a human look. The run log says which of two things it is holding: `summary unusable after 3 attempts; using a first-paragraph excerpt`, or `summary unfinished after 3 attempts; keeping the longest cut reply`. On a forced reprocess the excerpt route keeps the article's existing category and tags rather than writing placeholders over them | reprocess with `force` + slug. For the cut kind, read the article first — the kept summary is often serviceable, and a retry may cut it again |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage. The run turns red | fix the cause; next run retries automatically |
 | articles stay unprocessed + run warning `stopped after the provider failed 3 articles in a row` | the provider is down or refusing the key: three articles in a row failed with a 401, 403, 404, 429, 5xx or no connection, so the run stopped starting new ones rather than pay every article's retries to learn the same thing (ADR 0032). The run turns red | fix the cause — the `failed and stays pending` lines above it name the error. Everything not attempted is still pending, so the next run (at the latest the daily one) picks it all up |
@@ -1063,6 +1089,63 @@ Both forced paths overwrite it, and they differ in what else they touch —
 `backfill-titles --force` rewrites the title and nothing else, while a forced
 *processing* run (`run --force`, or the workflow with `force: true`) re-rolls the
 summary and the tags alongside it.
+
+### Measuring the vault's tags
+
+`tags` reads every article and reports what its tags look like (ADR 0033): how
+many distinct tags there are, how many only one article carries, what the next
+run would offer the model as its vocabulary, and the tags that are not in
+English, not in canonical form, or used in both singular and plural. No model,
+no writes — safe on the live clone at any time.
+
+```sh
+bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
+```
+
+Read it for what to alias. A singular and plural pair (`ai agent/ai agents`) or
+two names for one thing is a line under `tags.aliases` in `tiro.yml`; it applies
+from the next run on.
+
+### Retagging the vault
+
+Articles processed before ADR 0033 keep the tags they were given — any
+language, any spelling, mostly one-offs — until they are reprocessed. `retag`
+gives them the tags a run would give them now: one small JSON-mode call per
+article, from its title and summary (the source-language one where there is
+one) with its old tags as hints, held to the same policy and offered the same
+vocabulary as a run. It rewrites only `tags` and never touches `processed_at`,
+so nothing is re-queued.
+
+Not `--force` over the vault: that re-translates whole bodies and re-downloads
+every image to change one line.
+
+```sh
+# Baseline, then what it would touch (no LLM calls, no writes)
+bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
+bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --dry-run
+
+# A few first, then read the diff in the vault
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --limit 5
+
+# The rest, then measure again
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault
+bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
+```
+
+- **Run it from `main`**, after the change that brought it has merged — a
+  command run from an unmerged branch writes to the live vault all the same.
+- It skips pending articles (`run` tags those, from the body) and articles
+  whose tags already meet the policy: canonical, English, three to six, at most
+  two outside the vocabulary. That skip is what makes it resumable — run it
+  again to continue — and `--force` asks about every processed article.
+- The vocabulary is built once, before the first call, from the whole vault,
+  so every article in a run is offered the same list.
+- **Expect the diff to be tag lines.** Articles last written by something other
+  than the pipeline may also have `processed_at` and `processor_version` swap
+  places in their `tiro:` block — the serializer's own order, applied once.
+- It stops after three failures in a row and at `processing.run_budget_ms`;
+  failures exit non-zero and keep the article's old tags. Commit and push the
+  vault: the push redeploys (ADR 0032).
 
 ### Cutting an extension release
 

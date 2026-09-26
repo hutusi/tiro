@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
+import { tagAliases } from "@tiro/shared";
 import type { TiroConfig } from "@tiro/shared/config";
 import { backfillTitles } from "./backfill-titles.ts";
 import { createDeadline, type Deadline } from "./deadline.ts";
@@ -10,7 +11,9 @@ import {
   runPipeline,
 } from "./pipeline.ts";
 import { repairVault } from "./repair.ts";
+import { retagVault } from "./retag.ts";
 import { publishRunReport } from "./run-report.ts";
+import { readTaggedArticles, type TagCount, tagReport } from "./tag-report.ts";
 import { validateVault } from "./validate.ts";
 
 function usage(): never {
@@ -21,6 +24,8 @@ function usage(): never {
       "  tiro-process validate --vault <dir>",
       "  tiro-process repair --vault <dir> [--slug <slug>] [--dry-run]",
       "  tiro-process backfill-titles --vault <dir> [--slug <slug>] [--force] [--dry-run] [--limit <n>]",
+      "  tiro-process tags --vault <dir>",
+      "  tiro-process retag --vault <dir> [--slug <slug>] [--force] [--dry-run] [--limit <n>]",
     ].join("\n"),
   );
   process.exit(2);
@@ -41,7 +46,14 @@ const { values, positionals } = parseArgs({
 
 const command = positionals[0] ?? "run";
 const vaultDir = values.vault;
-const COMMANDS = new Set(["run", "validate", "repair", "backfill-titles"]);
+const COMMANDS = new Set([
+  "run",
+  "validate",
+  "repair",
+  "backfill-titles",
+  "tags",
+  "retag",
+]);
 if (vaultDir === undefined || !COMMANDS.has(command)) usage();
 
 if (command === "validate") {
@@ -50,6 +62,10 @@ if (command === "validate") {
   process.exit(await repair(vaultDir));
 } else if (command === "backfill-titles") {
   process.exit(await backfill(vaultDir));
+} else if (command === "tags") {
+  process.exit(await tags(vaultDir));
+} else if (command === "retag") {
+  process.exit(await retag(vaultDir));
 } else {
   process.exit(await run(vaultDir));
 }
@@ -150,6 +166,60 @@ async function run(vault: string): Promise<number> {
           : `warning: ${failure.slug} failed and will NOT be retried by an ordinary run: ${failure.error}`,
       );
     }
+  }
+  return 0;
+}
+
+/**
+ * Measure the vault's tags (ADR 0033). Reads only — no model, no writes — so
+ * it is safe to run on the live clone at any time, before and after a retag.
+ */
+async function tags(vault: string): Promise<number> {
+  const config = await loadVaultConfig(vault);
+  const { articles, unreadable } = await readTaggedArticles(vault);
+  const report = tagReport(articles, tagAliases(config.tags.aliases));
+  const list = (items: readonly TagCount[]) =>
+    items.map((t) => `${t.tag} (${t.articles})`).join(", ");
+  const share =
+    report.distinct === 0
+      ? 0
+      : Math.round((100 * report.singletons) / report.distinct);
+  console.log(
+    `${report.articles} article(s): ${report.distinct} distinct tag(s), ` +
+      `${report.singletons} on one article only (${share}%); ` +
+      `a run would offer ${report.vocabulary} as the vocabulary`,
+  );
+  console.log(`most used: ${list(report.top)}`);
+  if (report.nonEnglish.length > 0) {
+    console.log(
+      `not in English: ${report.nonEnglish.length}: ${list(report.nonEnglish)}`,
+    );
+  }
+  if (report.nonCanonical.length > 0) {
+    console.log(
+      `not in canonical form: ${report.nonCanonical.length} spelling(s): ` +
+        report.nonCanonical.map((t) => `${t.tag} → ${t.canonical}`).join(", "),
+    );
+  }
+  if (report.plurals.length > 0) {
+    console.log(
+      `singular and plural both in use: ${report.plurals.map(([a, b]) => `${a}/${b}`).join(", ")}`,
+    );
+  }
+  if (report.fewTags.length > 0) {
+    console.log(
+      `fewer than 3 tags: ${report.fewTags.length} article(s): ${report.fewTags.join(", ")}`,
+    );
+  }
+  if (report.manyTags.length > 0) {
+    console.log(
+      `more than 6 tags: ${report.manyTags.length} article(s): ${report.manyTags.join(", ")}`,
+    );
+  }
+  if (unreadable > 0) {
+    console.warn(
+      `warning: ${unreadable} article(s) could not be read — run 'tiro-process validate'`,
+    );
   }
   return 0;
 }
@@ -259,5 +329,75 @@ async function backfill(vault: string): Promise<number> {
   // commit step and discard the articles that did process (invariant 7), this
   // command is hand-run and read as a diff — like `repair`, which exits non-zero
   // on a refusal.
+  return report.failed.length > 0 || report.invalid.length > 0 ? 1 : 0;
+}
+
+/**
+ * Give processed articles the tags a run would give them now (ADR 0033).
+ * Hand-run and read as a diff, like `backfill-titles`: it rewrites only the
+ * `tags` line of articles that are already processed and never touches their
+ * markers, so nothing is re-queued. Pushing the result redeploys (ADR 0032).
+ */
+async function retag(vault: string): Promise<number> {
+  const config = await loadVaultConfig(vault);
+  const dryRun = values["dry-run"];
+  const deadline = createDeadline(config.processing.run_budget_ms);
+
+  let limit: number | undefined;
+  if (values.limit !== undefined) {
+    limit = Number(values.limit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      console.error(`--limit must be a positive integer, got: ${values.limit}`);
+      return 2;
+    }
+  }
+
+  let chat: ChatFn = async () => {
+    throw new Error("LLM client unavailable in dry-run");
+  };
+  if (!dryRun) {
+    const client = chatClientFor(config, deadline);
+    if (client === null) return 1;
+    chat = client;
+  }
+
+  const report = await retagVault(
+    vault,
+    config,
+    {
+      ...(values.slug !== undefined ? { slug: values.slug } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+      force: values.force,
+      dryRun,
+    },
+    { chat, deadline, log: (message) => console.log(message) },
+  );
+
+  const list = (tags: readonly string[]) => `[${tags.join(", ")}]`;
+  for (const article of report.retagged) {
+    console.log(
+      article.after === null
+        ? `would retag ${article.slug}: ${list(article.before)}`
+        : `${article.slug}: ${list(article.before)} → ${list(article.after)}`,
+    );
+  }
+  for (const failure of report.failed) {
+    console.warn(`warning: ${failure.slug} kept its tags: ${failure.error}`);
+  }
+  for (const bad of report.invalid) {
+    console.warn(`warning: ${bad.path} could not be read: ${bad.error}`);
+  }
+  const pending = report.skipped.filter((s) => s.reason === "pending").length;
+  console.log(
+    `${dryRun ? "would retag" : "retagged"} ${report.retagged.length} of ${report.scanned} article(s), ` +
+      `${report.unchanged.length} unchanged, ${report.skipped.length - pending} already meeting the policy, ` +
+      `${pending} pending, ${report.failed.length} failed, ${report.invalid.length} unreadable, ` +
+      `${report.remaining.length} left for a re-run; vocabulary offered: ${report.vocabulary.length} tag(s)`,
+  );
+  if (report.remaining.length > 0) {
+    console.log(`re-run to continue: ${report.remaining.join(", ")}`);
+  }
+  // Like `backfill-titles`: this exit code is the only signal an article
+  // kept tags it should have lost, and the command is hand-run.
   return report.failed.length > 0 || report.invalid.length > 0 ? 1 : 0;
 }

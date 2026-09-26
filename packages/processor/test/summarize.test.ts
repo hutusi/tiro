@@ -457,6 +457,106 @@ describe("summarize", () => {
     expect(result.summaryOrig).toBeUndefined();
   });
 
+  test("asks for English tags, lowercase, with spaces", async () => {
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
+    };
+    await summarize({ ...baseOptions, chat });
+    expect(system).toContain("in English even when the article is not");
+    expect(system).toContain("words separated by spaces");
+    expect(system).not.toContain("free-form");
+  });
+
+  test("writes the reply's tags under the tag policy", async () => {
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要。",
+        category: "ai",
+        tags: ["Open-Source", "ai安全", "open source", "AI Safety"],
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.tags).toEqual(["open source", "ai safety"]);
+  });
+
+  test("a reply with too many tags costs tags, not a retry", async () => {
+    // The schema used to cap the list at eight, so a ninth tag failed the
+    // whole reply and spent an attempt of the article's three.
+    const { chat, calls } = scripted([
+      JSON.stringify({
+        summary: "摘要。",
+        category: "ai",
+        tags: ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(calls()).toBe(1);
+    expect(result.tags).toEqual(["a", "b", "c", "d", "e", "f"]);
+  });
+
+  test("a cut reply's tags are held to the same policy", async () => {
+    const cut = JSON.stringify({
+      summary: "本文提出了三个论点，第一个是",
+      category: "ai",
+      tags: ["Rust", "内存安全"],
+    });
+    const { chat } = scripted([cut, cut, cut]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.failed).toBe(true);
+    expect(result.tags).toEqual(["rust"]);
+  });
+
+  test("offers the vault's vocabulary, and holds new tags to the cap", async () => {
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({
+        summary: "摘要。",
+        category: "ai",
+        tags: ["rust", "new one", "new two", "new three"],
+      });
+    };
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      vocabulary: ["rust", "databases"],
+    });
+    expect(system).toContain("The vault already uses these tags");
+    expect(system).toContain("rust, databases.");
+    expect(result.tags).toEqual(["rust", "new one", "new two"]);
+  });
+
+  test("says nothing about a vocabulary the vault does not have yet", async () => {
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
+    };
+    await summarize({ ...baseOptions, chat });
+    expect(system).not.toContain("already uses");
+  });
+
+  test("applies the vault's aliases", async () => {
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要。",
+        category: "ai",
+        tags: ["misc", "LLMs"],
+      }),
+    ]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      tagAliases: new Map<string, string | null>([
+        ["misc", null],
+        ["llms", "llm"],
+      ]),
+    });
+    expect(result.tags).toEqual(["llm"]);
+  });
+
   test("propagates provider errors instead of falling back", async () => {
     let calls = 0;
     const chat: ChatFn = async () => {
