@@ -9,8 +9,14 @@ inputs:
     description: The secret's name, as the log and the summary should show it.
     required: true
   token:
-    description: The token to check. An empty value is reported and passes.
+    description: The token to check.
     required: true
+  allow-empty:
+    description: >-
+      "true" when the secret is optional, so an unset one passes with a
+      notice. Otherwise an unset secret fails: a workflow that needs the token
+      would break on it, and silence here is how nobody would find out.
+    default: "false"
   warn-days:
     description: Fail when fewer than this many days are left.
     default: "30"
@@ -24,11 +30,17 @@ runs:
       env:
         NAME: ${{ inputs.name }}
         TOKEN: ${{ inputs.token }}
+        ALLOW_EMPTY: ${{ inputs.allow-empty }}
         WARN_DAYS: ${{ inputs.warn-days }}
       run: |
         if [ -z "$TOKEN" ]; then
-          echo "::notice::$NAME is not set here; nothing to check"
-          exit 0
+          if [ "$ALLOW_EMPTY" = "true" ]; then
+            echo "::notice::$NAME is not set here; nothing to check"
+            exit 0
+          fi
+          echo "::error::$NAME is not set. The workflows that use it cannot run without it."
+          echo "- \`$NAME\`: **not set**" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
         fi
         # /rate_limit does not count against the rate limit, and answers any
         # token that is still valid, whatever its permissions.

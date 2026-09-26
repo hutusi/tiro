@@ -21,8 +21,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # Only if the vault is private; unset, the step reports it and passes.
+      # Needed only if the vault is private, so unset is allowed: the step
+      # reports it and passes.
       - uses: ./.github/actions/token-expiry
         with:
           name: VAULT_READ_TOKEN
           token: ${{ secrets.VAULT_READ_TOKEN }}
+          allow-empty: "true"

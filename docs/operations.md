@@ -22,7 +22,9 @@ failing with 401/404, check these first and rotate.
 "Token expiry" workflow in each repo — `tokens.yml`, checking
 `VAULT_READ_TOKEN` in tiro and `TIRO_DISPATCH_TOKEN` in the vault — reads the
 expiry date GitHub reports for the token and turns red, so GitHub emails you,
-once fewer than 30 days are left, or at once if the token is already refused.
+once fewer than 30 days are left, or at once if the token is already refused
+or the secret is not set at all. `VAULT_READ_TOKEN` is the exception to that
+last one: a public vault does not need it, so unset passes with a notice.
 Its run summary shows the date and the days left. Both call the one check in
 `hutusi/tiro/.github/actions/token-expiry`, so the vault's copy of the workflow
 never needs updating for a fix to it.

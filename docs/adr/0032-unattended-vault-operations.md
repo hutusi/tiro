@@ -135,7 +135,10 @@ response to a token that has an expiry. A weekly `tokens.yml` in each repo asks
 for `/rate_limit` (free, and answered for any valid token) with the token the
 repo's workflows hold, and fails once fewer than 30 days remain — about four
 red runs, and four emails, before it stops working — or at once if the token is
-refused. The check is one composite action in tiro, which the vault's workflow
+refused, or its secret is not set. An unset secret fails rather than passing,
+because a workflow that needs the token breaks on it just as surely; only
+`VAULT_READ_TOKEN`, which a public vault does not need, is allowed to be
+unset. The check is one composite action in tiro, which the vault's workflow
 calls by reference, so it is written once.
 
 The extension's token lives only in a browser, so the extension reports it:
