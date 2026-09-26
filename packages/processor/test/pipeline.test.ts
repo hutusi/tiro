@@ -633,6 +633,40 @@ describe("tags", () => {
   });
 });
 
+describe("saved links", () => {
+  function withInbox(text: string): string {
+    const vault = freshVault();
+    mkdirSync(join(vault, "inbox"), { recursive: true });
+    writeFileSync(join(vault, "inbox", "saved.url"), text);
+    return vault;
+  }
+
+  test("a run drains the inbox before it chooses articles", async () => {
+    const vault = withInbox("https://example.net/saved");
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, dryRun: true },
+      config,
+      deps,
+    );
+    expect(report.inbox.saved.map((s) => s.url)).toEqual([
+      "https://example.net/saved",
+    ]);
+  });
+
+  test("a one-article run leaves the inbox alone", async () => {
+    const vault = withInbox("https://example.net/saved");
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, slug: RAW },
+      config,
+      deps,
+    );
+    expect(report.inbox).toEqual({ saved: [], existing: [], rejected: [] });
+    expect(existsSync(join(vault, "inbox", "saved.url"))).toBe(true);
+  });
+});
+
 describe("a provider outage", () => {
   /** Five pending articles with equal bodies, so they run in slug order, and
    * the fixture's own pending clip moved out of the way. Each body names its
