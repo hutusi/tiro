@@ -328,6 +328,40 @@ describe("parseArticle / stringifyArticle", () => {
     ).toBeUndefined();
   });
 
+  test("preserves a link capture and a PDF medium side by side", () => {
+    // A saved link that turned out to be a PDF carries both facts (ADR 0034);
+    // either dropped on a round-trip loses how the body was made.
+    const saved = ArticleFrontmatterSchema.parse({
+      ...validClip,
+      tiro: {
+        schema: 1,
+        capture: "link",
+        source_media: "pdf",
+        processed_at: "2026-09-26T10:00:00.000Z",
+        fetch_failed: "HTTP 404",
+      },
+    });
+    const again = parseArticle(stringifyArticle(saved, "")).frontmatter.tiro;
+    expect(again.capture).toBe("link");
+    expect(again.source_media).toBe("pdf");
+    expect(again.fetch_failed).toBe("HTTP 404");
+  });
+
+  test("rejects a capture it does not know, and an empty failure reason", () => {
+    expect(
+      ClipFrontmatterSchema.safeParse({
+        ...validClip,
+        tiro: { schema: 1, capture: "email" },
+      }).success,
+    ).toBe(false);
+    expect(
+      ArticleFrontmatterSchema.safeParse({
+        ...validClip,
+        tiro: { schema: 1, fetch_failed: "  " },
+      }).success,
+    ).toBe(false);
+  });
+
   test("preserves an unlisted article's flag through a processor round-trip", () => {
     // Same trap as the two above, and the one with the worst failure mode: the
     // flag is set by hand and the loss is silent, so an article hidden on
