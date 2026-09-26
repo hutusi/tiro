@@ -35,6 +35,22 @@ describe("validateVault", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
+  test("catches a tag not written in its canonical form", async () => {
+    // ADR 0033. The site would still group it with its variants; what goes is
+    // the vault holding one vocabulary.
+    const vault = freshVault();
+    const path = join(vault, "articles", EN, "index.md");
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace("  - tutorial\n", "  - Open-Source\n"),
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([
+      `${EN}/index.md: tag "Open-Source" is not in canonical form ("open source")`,
+    ]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
   test("catches a directory whose slug no longer matches its url", async () => {
     const vault = freshVault();
     renameSync(

@@ -115,5 +115,9 @@ own.
 
 - A tag's form is part of the content contract, alongside the schema, though
   the schema does not enforce it: articles written before this still parse.
+  `validate` checks it — canonical form, no tag twice, at most six — and not
+  language, which is the processor's policy rather than the contract: a person
+  may give an article a tag in any script. On the live vault before a retag
+  that is 180 errors, all spellings.
 - Tags change only as articles are processed. Until the vault is retagged, old
   Chinese tags and old spellings sit beside the new ones.
