@@ -758,6 +758,13 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   article's page on the site; that page exists only once the vault workflow
   has processed and deployed the clip, which the hint under the link says.
   "View in vault" is the GitHub file and works immediately.
+- **"Clip link to Tiro"** in any link's right-click menu saves that link
+  without opening it (ADR 0034): the address goes into the vault's `inbox/`,
+  exactly as the iPhone shortcut does it, and the next processing run clips
+  the page. The toolbar button shows how it went for a few seconds — ✓ saved,
+  a grey ✓ if the article was already there, ! if it could not — with the
+  reason as its tooltip. It sends nothing before the disclosure is accepted, so
+  a fresh install asks to be opened once first.
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
@@ -814,7 +821,7 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **5**: 2 added the optional arxiv.org fetch, 3
+  policy also requires. It is at **6**: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
   for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
   fetch. Each is a new destination, and a new destination is a practice change
@@ -823,7 +830,10 @@ Two decisions worth not relitigating:
   commit it then, which falsified the promise that closing the popup discards
   everything. No new destination, no new permission — but the number tracks
   what the text promises, so a sentence that stopped being true is a bump even
-  when the manifest is unchanged. Do not "correct" it back to 4. Both language
+  when the manifest is unchanged. Do not "correct" it back to 4. 6 is "Clip
+  link" (ADR 0034): a link's address now leaves the browser from a context-menu
+  click with no popup open — the same destination, but a new way to reach it.
+  Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
   English copy and silently missed the Chinese one that this extension actually

@@ -476,8 +476,13 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * popup closes and committed then — which falsified "close this popup without
  * clipping and the result is discarded", the sentence version 4 ended on. No
  * new destination and no new permission, but a promise the text made stopped
- * being true, and that is what this number tracks. */
-export const DISCLOSURE_VERSION = 5;
+ * being true, and that is what this number tracks.
+ *
+ * 6: "Clip link" (ADR 0034). A link's address is now sent to the repository
+ * from a context-menu click, with no popup open — a new way for data to leave
+ * the browser, even though the destination is the same, and the page behind it
+ * is read later by the processor rather than by the extension. */
+export const DISCLOSURE_VERSION = 6;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */
