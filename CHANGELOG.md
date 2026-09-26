@@ -86,6 +86,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A failed reprocess no longer strips an article's tags.** When every summary
+  reply was unusable, the pipeline kept the old summary but wrote the
+  fallback category and an empty tag list over the article's real ones, taking
+  it off every tag page. It now keeps them.
+
 - **In dev, list pages and term links now pick up vault edits.** The listed
   articles and the term-page index each outlived the vault read they came from,
   so an edit showed up on the article page and nowhere else.
