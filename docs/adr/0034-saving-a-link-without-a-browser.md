@@ -38,6 +38,26 @@ it as before; `sweep` imports it; the processor can.
   `sweep` finds a baseline's clipper at either path, so refs from before the
   move stay comparable.
 
+### 2. One hardened parser for pages nobody vetted
+
+`@tiro/clip/happy-dom` is the one way to turn fetched HTML into a document
+outside a browser — `withHtmlDocument(html, url, fn)` — shared by `sweep` and
+the processor, and a separate entry point so the extension never bundles it.
+The processor runs holding the LLM key and a token that can push to the vault,
+so the page gets a document and nothing more:
+
+- **No script runs.** Measured rather than assumed: a script parsed through
+  `innerHTML` never runs, in happy-dom as in a browser, and `clipPage` moving
+  nodes about does not change that. The one way happy-dom runs one is a script
+  element created and connected, which nothing does today; evaluation is
+  switched off explicitly so a future change that does still runs nothing. A
+  test builds exactly that path and fails with evaluation on.
+- **No request leaves.** happy-dom fetches for itself, bypassing any guard the
+  caller puts on its own fetch; a `<link rel=preload as=script>` really is
+  requested. Script and CSS loading and every kind of navigation are off, and
+  a fetch interceptor refuses anything left. A test serves the page's
+  resources from a real local server and counts zero requests.
+
 ## Consequences
 
 - The service worker's rule (invariant 6) covers `@tiro/clip` too: types only,

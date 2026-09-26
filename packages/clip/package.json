@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./happy-dom": "./src/happy-dom.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -12,10 +13,10 @@
     "@joplin/turndown-plugin-gfm": "^1.0.67",
     "@mozilla/readability": "^0.6.0",
     "@tiro/shared": "workspace:*",
+    "happy-dom": "^20.12.0",
     "turndown": "^7.2.4"
   },
   "devDependencies": {
-    "@types/turndown": "^5.0.6",
-    "happy-dom": "^20.12.0"
+    "@types/turndown": "^5.0.6"
   }
 }
