@@ -147,6 +147,45 @@ function keepBetterSummary(
   };
 }
 
+/**
+ * Keep an article's category and tags when this run has nothing but
+ * placeholders to put in their place.
+ *
+ * The excerpt fallback means no reply was usable, so it writes the taxonomy's
+ * fallback category and no tags at all. On a first run that is all there is.
+ * On a `--force` run over a processed article it overwrote a real answer with
+ * those placeholders — `[]` for tags, which took the article off every tag
+ * page — while `keepBetterSummary` was already keeping the summary beside
+ * them. A cut reply is different: its category and tags are the model's
+ * reading, and win as fresh output does.
+ *
+ * The category is kept only while it is still in the taxonomy, so a stale one
+ * cannot outlive a change to `tiro.yml`.
+ */
+function keepExistingTerms(
+  produced: SummaryResult,
+  frontmatter: { category?: string; tags?: string[] },
+  categories: readonly string[],
+  log: (line: string) => void,
+): SummaryResult {
+  if (produced.fromExcerpt !== true) return produced;
+  const tags = frontmatter.tags ?? [];
+  const category =
+    frontmatter.category !== undefined &&
+    categories.includes(frontmatter.category)
+      ? frontmatter.category
+      : undefined;
+  if (tags.length === 0 && category === undefined) return produced;
+  log(
+    "summary fell back to an excerpt; keeping the existing category and tags",
+  );
+  return {
+    ...produced,
+    ...(category !== undefined ? { category } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
+  };
+}
+
 /** True when `candidate` is the one a reader is better served by. */
 function isBetterSummary(candidate: string, incumbent: string): boolean {
   const candidateFinished = summaryIsFinished(candidate);
@@ -402,7 +441,12 @@ async function processOne(
     log,
   });
   const chosen = summary.failed
-    ? keepBetterSummary(summary, frontmatter, log)
+    ? keepExistingTerms(
+        keepBetterSummary(summary, frontmatter, log),
+        frontmatter,
+        config.categories,
+        log,
+      )
     : summary;
   if (chosen.failed) {
     report.summaryFailed.push(article.slug);

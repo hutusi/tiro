@@ -362,6 +362,64 @@ describe("failure markers", () => {
     expect(frontmatter.summary_orig).toBe(good.summary_orig);
   });
 
+  test("a reprocess that falls back to an excerpt keeps the category and tags", async () => {
+    // The excerpt route has no reading of the article: its category is the
+    // taxonomy's fallback and its tags are none. Written over a processed
+    // article, that took it off every tag page.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, deps);
+    const good = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    ).frontmatter;
+    expect(good.tags).toEqual(["test", "fixture"]);
+
+    const report = await runPipeline(
+      { vaultDir: vault, force: true, slug: RAW_SLUG },
+      config,
+      {
+        ...deps,
+        chat: makeFakeChat({
+          summary: { summary: "s", category: "not-in-taxonomy", tags: [] },
+        }),
+      },
+    );
+    expect(report.summaryFailed).toEqual([RAW_SLUG]);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.tiro.summary_failed).toBe(true);
+    expect(frontmatter.category).toBe(good.category);
+    expect(frontmatter.tags).toEqual(["test", "fixture"]);
+  });
+
+  test("a cut reply's own category and tags still replace the old ones", async () => {
+    // Only the excerpt's placeholders give way; a cut reply is the model's
+    // reading of the article and is as current as a finished one.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, deps);
+    await runPipeline(
+      { vaultDir: vault, force: true, slug: RAW_SLUG },
+      config,
+      {
+        ...deps,
+        chat: makeFakeChat({
+          summary: {
+            summary: "本文提出了三个论点，第一个是",
+            category: "tech",
+            tags: ["cut"],
+          },
+        }),
+      },
+    );
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.category).toBe("tech");
+    expect(frontmatter.tags).toEqual(["cut"]);
+  });
+
   /**
    * The other direction, and the one that keeps the guard from becoming a
    * ratchet: when the run succeeds, this run's summary wins outright — a

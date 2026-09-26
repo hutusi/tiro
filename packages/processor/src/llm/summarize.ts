@@ -53,6 +53,13 @@ export interface SummaryResult {
    * the log line says which happened.
    */
   failed: boolean;
+  /**
+   * True only on the excerpt route: no reply was usable, so `category` is the
+   * taxonomy's fallback and `tags` is empty — placeholders, not a reading of
+   * the article. The pipeline keeps an article's existing ones over these.
+   * A cut reply's category and tags are the model's, and are not flagged.
+   */
+  fromExcerpt?: true;
 }
 
 /**
@@ -264,6 +271,7 @@ export async function summarize(
     category: fallbackCategory(categories),
     tags: [],
     failed: true,
+    fromExcerpt: true,
   };
 }
 
