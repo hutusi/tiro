@@ -31,8 +31,11 @@ never needs updating for a fix to it.
   and compare the date it prints with the one on
   <https://github.com/settings/tokens>. It is the only check that the header
   means what the workflow assumes.
-- Not checked here: the extension PAT, which lives only in a browser, and the
-  LLM key and Cloudflare token, which are not GitHub tokens.
+- The extension PAT lives only in a browser, so the extension checks it: its
+  Settings page's **Test connection** says when the token expires, and shows
+  it as a warning under 30 days. Worth a press now and then — nothing prompts it. The
+  LLM key and the Cloudflare token are not checked: neither is a GitHub
+  token.
 - The vault's copy needs `vault-template/.github/workflows/tokens.yml` copied
   in by hand, like the other workflows.
 
@@ -772,7 +775,8 @@ installed that way never quietly drifts a release behind.
    and **Add to Chrome**. The item is unlisted, so the link is the only way in;
    searching the store will not find it.
 2. Open the extension's Settings and fill in owner, repository, branch, and a
-   PAT, then hit **Test connection**.
+   PAT, then hit **Test connection**. It also says when that PAT expires —
+   note the date.
 
 **Unpacked** is for a build that is not released yet — a branch under test, or a
 fix wanted on one machine before a version is cut. No clone or toolchain needed:

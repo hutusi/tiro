@@ -385,8 +385,8 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   articles cheapest-first stops one such article from starving the rest.
 - **Expiring fine-grained PATs** (three kinds: `TIRO_DISPATCH_TOKEN`,
   `VAULT_READ_TOKEN`, and an extension PAT per machine). A weekly
-  `tokens.yml` in each repo fails 30 days before a workflow token expires
-  (ADR 0032).
+  `tokens.yml` in each repo fails 30 days before a workflow token expires, and
+  the extension's Test connection shows its own (ADR 0032).
 - **Pagefind index only exists after a build**: the search UI degrades
   gracefully in `astro dev`.
 - **Cloudflare Pages 25MB/file cap**: the asset copy step skips and warns on

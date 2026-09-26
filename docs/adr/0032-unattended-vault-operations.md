@@ -138,6 +138,12 @@ red runs, and four emails, before it stops working — or at once if the token i
 refused. The check is one composite action in tiro, which the vault's workflow
 calls by reference, so it is written once.
 
+The extension's token lives only in a browser, so the extension reports it:
+Test connection reads the same header and says when the token expires, warning
+under the same 30 days. Nothing prompts that check, which is the gap left —
+a background check would break the store listing's promise that nothing is
+read in the background.
+
 The header's meaning is taken on trust, and one public report says it can carry
 the server's time instead of the expiry. So the date is always printed, and the
 runbook asks for one comparison against GitHub's own token page after setup.

@@ -74,8 +74,10 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 - **Tokens warn before they expire.** A weekly workflow in each repo checks the
   GitHub token its workflows hold and fails — so GitHub emails you — 30 days
-  before it expires, or at once if it has already been refused. The runbook's
-  "set a calendar reminder" is gone (ADR 0032).
+  before it expires, or at once if it has already been refused. The
+  extension's **Test connection** now says when its own token expires, and
+  warns under 30 days. The runbook's "set a calendar reminder" is gone
+  (ADR 0032).
 
 - **The search page lists tags only.** The categories row repeated the tags
   (`ai` was a chip in both) without saying it was something else. An article's

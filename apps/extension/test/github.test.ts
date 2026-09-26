@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { ArticleFrontmatterSchema, stringifyArticle } from "@tiro/shared";
 import {
+  daysUntil,
   encodeBase64Utf8,
   type FetchLike,
   findExistingIndex,
   GitHubHttpError,
+  parseTokenExpiry,
   putFile,
   testConnection,
 } from "../src/github.ts";
@@ -17,8 +19,12 @@ const config: TiroExtensionConfig = {
   token: "t",
 };
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status });
+function json(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 describe("encodeBase64Utf8", () => {
@@ -69,6 +75,31 @@ describe("testConnection", () => {
     });
   });
 
+  test("reports the token's expiry when GitHub sends one", async () => {
+    const result = await testConnection(config, async () =>
+      json(
+        200,
+        { full_name: "o/r" },
+        {
+          "GitHub-Authentication-Token-Expiration": "2027-09-26 10:00:00 +0800",
+        },
+      ),
+    );
+    expect(result).toEqual({
+      ok: true,
+      fullName: "o/r",
+      expiresAt: new Date("2027-09-26T02:00:00.000Z"),
+    });
+  });
+
+  test("a token with no expiry says nothing about one", async () => {
+    const result = await testConnection(config, async () =>
+      json(200, { full_name: "o/r" }),
+    );
+    expect(result).toEqual({ ok: true, fullName: "o/r" });
+    expect("expiresAt" in result).toBe(false);
+  });
+
   test("a thrown fetch reads as a network failure with its detail", async () => {
     const result = await testConnection(config, async () => {
       throw new TypeError("Failed to fetch");
@@ -78,6 +109,52 @@ describe("testConnection", () => {
       reason: "network",
       detail: "TypeError: Failed to fetch",
     });
+  });
+});
+
+describe("parseTokenExpiry", () => {
+  test("reads GitHub's date with its offset", () => {
+    expect(parseTokenExpiry("2027-09-26 10:00:00 +0800")).toEqual(
+      new Date("2027-09-26T02:00:00.000Z"),
+    );
+    expect(parseTokenExpiry("2025-09-05 17:55:53 -0530")).toEqual(
+      new Date("2025-09-05T23:25:53.000Z"),
+    );
+  });
+
+  test("reads a UTC-suffixed date too", () => {
+    expect(parseTokenExpiry("2027-01-02 03:04:05 UTC")).toEqual(
+      new Date("2027-01-02T03:04:05.000Z"),
+    );
+  });
+
+  test("says nothing rather than guess at a shape it does not know", () => {
+    // A wrong date shown as the token's expiry is worse than none: it is what
+    // the reader would plan the rotation around.
+    for (const header of [
+      null,
+      "",
+      "tomorrow",
+      "2027-09-26",
+      "2027-09-26T10:00:00Z",
+      "2027-13-40 10:00:00 +0800",
+    ]) {
+      expect(parseTokenExpiry(header)).toBeNull();
+    }
+  });
+});
+
+describe("daysUntil", () => {
+  const now = new Date("2026-09-26T12:00:00.000Z");
+
+  test("counts whole days, rounding down", () => {
+    expect(daysUntil(new Date("2026-10-26T12:00:00.000Z"), now)).toBe(30);
+    // Half a day short of 30 is 29: "30 days left" would overstate it.
+    expect(daysUntil(new Date("2026-10-26T00:00:00.000Z"), now)).toBe(29);
+  });
+
+  test("is below zero once the date has passed", () => {
+    expect(daysUntil(new Date("2026-09-25T12:00:00.000Z"), now)).toBe(-1);
   });
 });
 

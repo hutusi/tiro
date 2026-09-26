@@ -70,7 +70,8 @@ members' own pictures (ADR 0030), so most collections never need one.
 > Fine-grained PATs expire (max ~1 year). `tokens.yml` checks
 > `TIRO_DISPATCH_TOKEN` weekly and fails 30 days before it expires, so GitHub
 > emails you. Run it once by hand after setup and check the date it prints
-> against your token settings. The extension's token is yours to track.
+> against your token settings. The extension's **Test connection** says when
+> its own token expires.
 
 ## Manual operations
 
