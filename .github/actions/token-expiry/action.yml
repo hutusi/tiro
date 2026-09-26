@@ -32,6 +32,10 @@ runs:
         TOKEN: ${{ inputs.token }}
         ALLOW_EMPTY: ${{ inputs.allow-empty }}
         WARN_DAYS: ${{ inputs.warn-days }}
+      # GitHub runs a `bash` step as `bash --noprofile --norc -eo pipefail`, so
+      # any command here that can exit non-zero ends the step. Hence no
+      # pipelines below: a `grep` that finds nothing, or a `head` that closes
+      # its pipe early, would fail it on a perfectly good answer.
       run: |
         if [ -z "$TOKEN" ]; then
           if [ "$ALLOW_EMPTY" = "true" ]; then
@@ -44,27 +48,36 @@ runs:
         fi
         # /rate_limit does not count against the rate limit, and answers any
         # token that is still valid, whatever its permissions.
-        headers=$(curl -sS -o /dev/null -D - \
+        if ! headers=$(curl -sS -o /dev/null -D - \
           -H "Authorization: Bearer $TOKEN" \
           -H "Accept: application/vnd.github+json" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          https://api.github.com/rate_limit | tr -d '\r')
-        status=$(printf '%s\n' "$headers" | head -1 | awk '{print $2}')
+          https://api.github.com/rate_limit); then
+          echo "::error::Could not reach GitHub to check $NAME."
+          exit 1
+        fi
+        headers=${headers//$'\r'/}
+        status=$(awk 'NR == 1 { print $2; exit }' <<<"$headers")
         if [ "$status" != "200" ]; then
           echo "::error::$NAME was refused (HTTP $status): it has expired or been revoked. Rotate it."
           echo "- \`$NAME\`: **refused (HTTP $status)** — expired or revoked" >> "$GITHUB_STEP_SUMMARY"
           exit 1
         fi
-        # e.g. "2027-09-26 10:00:00 +0800"; absent for a token with no expiry.
-        expiry=$(printf '%s\n' "$headers" \
-          | grep -i '^github-authentication-token-expiration:' \
-          | cut -d' ' -f2-)
+        # e.g. "2027-09-26 10:00:00 +0800"; absent for a token with no expiry,
+        # which awk answers with nothing — and exit 0, unlike grep.
+        expiry=$(awk 'tolower($0) ~ /^github-authentication-token-expiration:/ {
+          sub(/^[^:]*:[ \t]*/, ""); print; exit
+        }' <<<"$headers")
         if [ -z "$expiry" ]; then
           echo "::notice::$NAME has no expiry date"
           echo "- \`$NAME\`: no expiry" >> "$GITHUB_STEP_SUMMARY"
           exit 0
         fi
-        days=$(( ( $(date -d "$expiry" +%s) - $(date +%s) ) / 86400 ))
+        if ! expires_at=$(date -d "$expiry" +%s 2>/dev/null); then
+          echo "::error::GitHub reported an expiry for $NAME that this check cannot read: $expiry"
+          exit 1
+        fi
+        days=$(( (expires_at - $(date +%s)) / 86400 ))
         echo "$NAME expires $expiry ($days days left)"
         echo "- \`$NAME\`: expires $expiry ($days days left)" >> "$GITHUB_STEP_SUMMARY"
         if [ "$days" -lt "$WARN_DAYS" ]; then
