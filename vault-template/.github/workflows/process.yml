@@ -144,10 +144,18 @@ jobs:
       # what went wrong through `failures`, which counts hard failures and
       # unreadable articles, never a budget deferral (ADR 0032). The run page's
       # summary names them.
+      #
+      # Only "0" is a clean run. A missing count means the processor never
+      # said how it went — it crashed, or could not write its output — and an
+      # outcome nobody knows is not one to stay green over.
       - name: Fail on article errors
-        if: always() && steps.process.outputs.failures != '' && steps.process.outputs.failures != '0'
+        if: always() && steps.process.outputs.failures != '0'
         env:
           FAILURES: ${{ steps.process.outputs.failures }}
         run: |
-          echo "::error::$FAILURES article(s) failed or could not be read; the run summary names them"
+          if [ -z "$FAILURES" ]; then
+            echo "::error::The processor reported no failure count, so this run's outcome is unknown; see the Run the processor step"
+          else
+            echo "::error::$FAILURES article(s) failed or could not be read; the run summary names them"
+          fi
           exit 1

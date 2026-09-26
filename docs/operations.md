@@ -360,7 +360,9 @@ in the original is a formula in the translation.
 processed, what it left for the next run, what failed and why, and which
 articles came out marked. **A run turns red, and GitHub emails you, only when an
 article failed hard or could not be read** — the rows below that stay pending
-with a warning, plus anything `validate` would reject. It turns red in its last
+with a warning, plus anything `validate` would reject — **or when the processor
+never said how it went**: a crash, or a failure count it could not write. The
+last step's message says which. It turns red in its last
 step, after the commit and the deploy (ADR 0032), so a red run has still saved
 and published everything it finished; nothing needs re-running to keep its
 work. A budget deferral and a `summary_failed` / `translation_failed` marker

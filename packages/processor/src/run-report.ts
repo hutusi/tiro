@@ -99,9 +99,10 @@ export function formatRunSummary(report: PipelineReport): string {
  * nothing.
  *
  * Never throws. By the time this runs the articles are written, and a report
- * that could not be saved is no reason to crash out of a run that worked and
- * turn it red for the wrong cause. It warns instead; a missing failure count
- * leaves the job green, and the warning in the log is what explains it.
+ * that could not be saved is no reason to crash out of a run that worked. It
+ * warns instead. A missing failure count still turns the job red: the
+ * workflow's last step treats anything but "0" as a failure, so a run whose
+ * outcome went unrecorded is looked at rather than trusted.
  */
 export function publishRunReport(
   report: PipelineReport,

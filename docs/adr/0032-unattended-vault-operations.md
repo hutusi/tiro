@@ -80,7 +80,9 @@ there is nothing to publish.
 The processor still exits 0. It writes a Markdown summary of the run to
 `$GITHUB_STEP_SUMMARY` and `failures=<n>` to `$GITHUB_OUTPUT`, and the
 workflow's **last** step — after the commit and after the deploy dispatch —
-exits 1 when that count is not zero. GitHub's own failed-run email is the
+exits 1 unless that count is exactly zero. A missing count fails too: it means
+the processor crashed or could not write its output, and a run whose outcome
+nobody recorded should not stay green. GitHub's own failed-run email is the
 notification, so there is no webhook, token or address to configure.
 
 Invariant 7 forbids failing the workflow *before* its commit step; placing the
