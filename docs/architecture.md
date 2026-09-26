@@ -157,7 +157,10 @@ flowchart LR
      (ADR 0008),
    - commit results back and fire a `repository_dispatch` to this repo —
      after every push and manual run, committed or not, so a hand edit to the
-     vault publishes itself (ADR 0032).
+     vault publishes itself (ADR 0032),
+   - only then, turn the job red if an article failed hard or could not be
+     read, so GitHub's failed-run email is the alert. The processor itself
+     always exits 0 and hands the count to the workflow (ADR 0032).
 
    Pending articles are processed cheapest-first, under a wall-clock budget
    (`processing.run_budget_ms`) the processor enforces itself so it stops in

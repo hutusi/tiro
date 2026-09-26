@@ -6,6 +6,7 @@ import { createDeadline, type Deadline } from "./deadline.ts";
 import { type ChatFn, createChatClient } from "./llm/client.ts";
 import { loadVaultConfig, runPipeline } from "./pipeline.ts";
 import { repairVault } from "./repair.ts";
+import { publishRunReport } from "./run-report.ts";
 import { validateVault } from "./validate.ts";
 
 function usage(): never {
@@ -104,8 +105,13 @@ async function run(vault: string): Promise<number> {
     `done: ${report.processed.length} processed, ${report.translated.length} translated, ` +
       `${report.imagesDownloaded} images downloaded (${report.imagesFailed} kept as hotlinks, ${report.imagesPruned} orphans removed), ` +
       `${report.summaryFailed.length} summary fallback(s), ${report.translationFailed.length} translation failure(s), ` +
-      `${report.skipped.length} left for the next run, ${report.invalid.length} invalid`,
+      `${report.errored.length} failed, ${report.skipped.length} left for the next run, ${report.invalid.length} invalid`,
   );
+  // Failures are reported, not exited on: exiting non-zero here would fail the
+  // workflow before its commit step (invariant 7). The workflow reads the
+  // count this writes and turns the job red only after it has committed and
+  // deployed (ADR 0032).
+  publishRunReport(report);
   // Invalid articles are warnings here: exiting non-zero would fail the
   // workflow before its commit step, discarding the articles that DID
   // process. `validate` is the strict gate for contract violations.

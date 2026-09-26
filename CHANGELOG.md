@@ -55,6 +55,14 @@ versions follow the `0.x` line while Tiro is a personal system.
   finishes it without one; with nothing pending it takes about a minute and
   deploys nothing (ADR 0032).
 
+- **A failed article now fails the run, and GitHub emails you.** The processor
+  exits 0 on purpose, so a run was green whether its articles processed or
+  failed, and the only trace was a log line. Each run now writes a summary to
+  its Actions page, and turns red in its last step — after it has committed and
+  deployed, so nothing is lost — when an article failed hard or could not be
+  read. Budget deferrals and summary/translation markers are listed but never
+  turn it red (ADR 0032).
+
 - **The search page lists tags only.** The categories row repeated the tags
   (`ai` was a chip in both) without saying it was something else. An article's
   category is still a link on its row and in the reader, and `/categories/` now

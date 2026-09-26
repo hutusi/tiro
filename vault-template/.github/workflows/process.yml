@@ -64,6 +64,7 @@ jobs:
         working-directory: tiro
 
       - name: Run the processor
+        id: process
         working-directory: tiro
         env:
           # Must match llm.api_key_env in config/tiro.yml. If you rename it
@@ -136,3 +137,17 @@ jobs:
           token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
           repository: hutusi/tiro
           event-type: vault-updated
+
+      # Last, and only here: by now the run's work is committed and deployed,
+      # so failing the job loses nothing (invariant 7) — it only makes GitHub
+      # send its failed-run email. The processor always exits 0 and reports
+      # what went wrong through `failures`, which counts hard failures and
+      # unreadable articles, never a budget deferral (ADR 0032). The run page's
+      # summary names them.
+      - name: Fail on article errors
+        if: always() && steps.process.outputs.failures != '' && steps.process.outputs.failures != '0'
+        env:
+          FAILURES: ${{ steps.process.outputs.failures }}
+        run: |
+          echo "::error::$FAILURES article(s) failed or could not be read; the run summary names them"
+          exit 1

@@ -20,6 +20,13 @@ all the same chore — remembering to do the step the workflow did not:
   budget and leaves the rest pending (ADR 0008), and pending work was only ever
   picked up by the next push or a manual dispatch. An over-long article clipped
   last thing at night sat half-translated until something else was clipped.
+- **A failure was silent.** `run` exits 0 whatever happens to an article, on
+  purpose: a non-zero exit fails the workflow before its commit step and
+  throws away every article that did finish (invariant 7). So the job was
+  green whether ten articles processed or ten failed, and the only record was a
+  warning line in a log nobody opens. A provider that started refusing the key
+  would have gone unnoticed until someone wondered why nothing new was
+  translated.
 
 ## Decision
 
@@ -53,6 +60,25 @@ pipeline must never disagree with itself on (invariant 3).
 A scheduled run deploys only when it committed something: with nothing new
 there is nothing to publish.
 
+### 3. A run reports its failures after it has committed
+
+The processor still exits 0. It writes a Markdown summary of the run to
+`$GITHUB_STEP_SUMMARY` and `failures=<n>` to `$GITHUB_OUTPUT`, and the
+workflow's **last** step — after the commit and after the deploy dispatch —
+exits 1 when that count is not zero. GitHub's own failed-run email is the
+notification, so there is no webhook, token or address to configure.
+
+Invariant 7 forbids failing the workflow *before* its commit step; placing the
+red at the very end keeps to it while making failure visible. Nothing is lost
+by a red run: its work is already on `main` and published.
+
+What counts is what will not fix itself by waiting: a hard failure, and an
+article whose frontmatter no longer parses. A budget deferral is the budget
+doing its job and resumes on the next run. `summary_failed` and
+`translation_failed` are settled — recorded in the article, never retried —
+so they are listed in the summary but do not turn the run red; otherwise one
+bad summary would send an email a day with nothing new to say.
+
 ## Consequences
 
 - The runbook loses every "then dispatch a deploy". Deleting an article, hiding
@@ -65,6 +91,10 @@ there is nothing to publish.
   older, so it costs a build, not a wrong site.
 - An article that can never be processed — a scanned PDF (ADR 0026) — is
   retried every day rather than on the next push, re-downloading its PDF each
-  time. Deleting the stub is still the way to stop it.
+  time, and each of those runs is red. Deleting the stub is still the way to
+  stop it.
+- A transient provider error — one 503 that clears by the next run — turns
+  that one run red. The summary says the article stays pending, which is the
+  cue that nothing needs doing.
 - `vault-template/` does not propagate. A vault still on the old `process.yml`
   keeps the old behaviour until the file is copied in.
