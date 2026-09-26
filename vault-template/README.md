@@ -10,6 +10,7 @@ articles/<slug>/index.md   # original article + frontmatter
 articles/<slug>/zh.md      # paragraph-aligned Chinese translation
 articles/<slug>/assets/    # images downloaded by the workflow
 collections/<id>.md               # a hand-picked list of articles (favorites.md is one)
+inbox/                            # links saved without their page; each becomes an article
 config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
 .github/workflows/publish.yml     # redeploys the site when a collection changes

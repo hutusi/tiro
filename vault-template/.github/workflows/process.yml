@@ -3,7 +3,9 @@ name: Process articles
 on:
   push:
     branches: [main]
-    paths: ["articles/**"]
+    # inbox/: a link saved from a phone or the extension's "Clip link" is a
+    # file there, and the run turns it into an article (ADR 0034).
+    paths: ["articles/**", "inbox/**"]
   workflow_dispatch:
     inputs:
       force:
@@ -78,6 +80,10 @@ jobs:
           FORCE: ${{ inputs.force }}
           SLUG: ${{ inputs.slug }}
         run: |
+          # Recorded on articles made from saved links: this checkout is the
+          # code that clips their pages (ADR 0034).
+          TIRO_COMMIT="$(git describe --always)"
+          export TIRO_COMMIT
           args=(--vault "$GITHUB_WORKSPACE/vault")
           if [ "$FORCE" = "true" ]; then args+=(--force); fi
           if [ -n "$SLUG" ]; then args+=(--slug "$SLUG"); fi
