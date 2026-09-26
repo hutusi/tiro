@@ -73,3 +73,57 @@ describe("discoverArticles ordering", () => {
     expect(pending.map((a) => a.slug)).toEqual(["aaa-pending-00000000"]);
   });
 });
+
+describe("discoverArticles tag lists", () => {
+  function tagged(slug: string, tags: string[]): string {
+    return clip(slug, "body", true).replace(
+      "tiro:",
+      `tags: [${tags.map((t) => JSON.stringify(t)).join(", ")}]\ntiro:`,
+    );
+  }
+
+  test("reads every article's tags, pending or processed", async () => {
+    const dir = vaultWith({ "aaa-pending-00000000": "short" });
+    mkdirSync(join(dir, "articles", "bbb-done-11111111"), { recursive: true });
+    writeFileSync(
+      join(dir, "articles", "bbb-done-11111111", "index.md"),
+      tagged("bbb-done-11111111", ["rust", "databases"]),
+    );
+    const { tagLists } = await discoverArticles(dir);
+    expect(tagLists).toEqual([[], ["rust", "databases"]]);
+  });
+
+  test("a one-article run still reads the rest for their tags", async () => {
+    // The vocabulary is the whole vault's. Built from the one article a
+    // --slug run processes, it would be empty — the model offered nothing.
+    const dir = vaultWith({ "aaa-pending-00000000": "short" });
+    mkdirSync(join(dir, "articles", "bbb-done-11111111"), { recursive: true });
+    writeFileSync(
+      join(dir, "articles", "bbb-done-11111111", "index.md"),
+      tagged("bbb-done-11111111", ["rust"]),
+    );
+    const { pending, tagLists } = await discoverArticles(dir, {
+      slug: "aaa-pending-00000000",
+    });
+    expect(pending.map((a) => a.slug)).toEqual(["aaa-pending-00000000"]);
+    expect(tagLists).toContainEqual(["rust"]);
+  });
+
+  test("an unreadable article outside a one-article run is not its to report", async () => {
+    const dir = vaultWith({ "aaa-pending-00000000": "short" });
+    mkdirSync(join(dir, "articles", "bbb-broken-11111111"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(dir, "articles", "bbb-broken-11111111", "index.md"),
+      "---\nnot: [valid\n---\n",
+    );
+    const narrowed = await discoverArticles(dir, {
+      slug: "aaa-pending-00000000",
+    });
+    expect(narrowed.invalid).toEqual([]);
+    // Without --slug it is this run's, and is reported as before.
+    const whole = await discoverArticles(dir);
+    expect(whole.invalid).toHaveLength(1);
+  });
+});

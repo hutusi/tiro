@@ -84,6 +84,13 @@ endpoint works.
   Either side may be spelled any way — both are normalized first — and an alias
   is one hop, not a chain. It applies from the next run on; articles already
   processed keep their tags until they are reprocessed or retagged.
+  - **The vocabulary is the vault's own**: every English tag at least two
+    articles carry, up to 150, most used first, rebuilt at the start of each
+    run. The model is asked to reuse one when it fits, and an article may add
+    at most two tags from outside it — fewer only if that would leave it with
+    under three. A run log line `left out new tag(s) past the 2 allowed`
+    shows the cap working. There is nothing to maintain: a tag enters the list
+    by being used twice.
 - **Image downloads** are bounded per image (`images.max_bytes`,
   `images.timeout_ms`) and per article (`images.max_count`,
   `images.total_max_bytes`, `images.stage_timeout_ms`). Hitting an aggregate

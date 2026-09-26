@@ -38,6 +38,7 @@ import {
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
 import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
+import { buildVocabulary } from "./tag-policy.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -57,6 +58,14 @@ export interface PipelineDeps {
    * production builds one from `config.processing.run_budget_ms`. */
   deadline?: Deadline;
   log?: (message: string) => void;
+}
+
+/** How this run writes tags, settled once before any article runs
+ * (ADR 0033). */
+interface Tagging {
+  aliases: ReadonlyMap<string, string | null>;
+  /** The vault's recurring tags, most used first. */
+  vocabulary: readonly string[];
 }
 
 export interface PipelineOptions {
@@ -235,11 +244,21 @@ export async function runPipeline(
   // the next one, so it neither counts nor resets the streak (ADR 0032).
   const outages = createBreaker(PROVIDER_FAILURE_LIMIT);
 
-  const { pending, invalid } = await discoverArticles(options.vaultDir, {
-    ...(options.slug !== undefined ? { slug: options.slug } : {}),
-    force: options.force === true,
-  });
+  const { pending, invalid, tagLists } = await discoverArticles(
+    options.vaultDir,
+    {
+      ...(options.slug !== undefined ? { slug: options.slug } : {}),
+      force: options.force === true,
+    },
+  );
   report.invalid = invalid;
+  // Built once and held for the whole run, so every article in it is offered
+  // the same list, and the order articles run in cannot change their tags.
+  const aliases = tagAliases(config.tags.aliases);
+  const tagging: Tagging = {
+    aliases,
+    vocabulary: buildVocabulary(tagLists, aliases),
+  };
   for (const bad of invalid)
     log(`invalid article skipped: ${bad.path}: ${bad.error}`);
   log(`${pending.length} article(s) to process`);
@@ -292,6 +311,7 @@ export async function runPipeline(
         log,
         deadline,
         options.force === true,
+        tagging,
       );
       outages.succeeded();
     } catch (error) {
@@ -384,6 +404,7 @@ async function processOne(
   /** A forced redo asks for the work to be done again, which for a checkpoint
    * means starting from nothing rather than resuming. */
   force: boolean,
+  tagging: Tagging,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
@@ -434,7 +455,7 @@ async function processOne(
   const body = imageResult.body;
   const blocks = splitBlocks(body);
 
-  const aliases = tagAliases(config.tags.aliases);
+  const { aliases, vocabulary } = tagging;
   const summary = await summarize({
     chat: deps.chat,
     model: modelFor(config, "summary"),
@@ -448,6 +469,7 @@ async function processOne(
     bilingual: lang !== config.translation.target,
     cjkThreshold: config.translation.cjk_threshold,
     tagAliases: aliases,
+    vocabulary,
     log,
   });
   const chosen = summary.failed

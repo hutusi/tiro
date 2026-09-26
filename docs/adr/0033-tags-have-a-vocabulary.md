@@ -67,6 +67,28 @@ An alias is how a person steers the model without editing articles:
 `misc: null` refuses one. Both sides are normalized, so an entry matches
 however either is spelled; one hop, so an alias table cannot loop.
 
+### 3. The vault's own vocabulary, offered and enforced
+
+Each run builds a vocabulary from the vault itself: every English tag that at
+least two articles carry, after normalizing and aliases, most used first, cut
+to 150. On the live vault that is about 115 tags. It is offered in the prompt
+("reuse one whenever it fits; coin a new tag only for a central topic none of
+them covers"), and the policy holds an article to **at most two tags from
+outside it** — unless that would leave it with fewer than three, so an article
+on a topic the vault has never seen still gets its tags.
+
+- **Derived, not kept in a file.** A curated list would need upkeep and would
+  drift from what the vault is actually about. The aliases are the one thing a
+  person maintains.
+- **Only tags that recur.** A tag on one article names nothing it has in common
+  with another, and offering the model the long tail would teach it the tail.
+- **The whole vault's, even for one article.** Discovery used to skip other
+  articles under `--slug` before reading them; it now reads every article's
+  tags, so a one-article run is offered the same list.
+- **Frozen for the run.** Built once before any article, so the order articles
+  run in cannot change what any of them is offered.
+- **An empty vocabulary caps nothing.** A new vault has nothing to reuse yet.
+
 ## Consequences
 
 - A tag's form is part of the content contract, alongside the schema, though
