@@ -1,4 +1,4 @@
-import { clipPage } from "./clip-page.ts";
+import { clipPage } from "@tiro/clip";
 import type { ClipResultMessage } from "./messages.ts";
 
 /**

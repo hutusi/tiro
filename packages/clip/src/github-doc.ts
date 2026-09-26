@@ -1,7 +1,7 @@
 import { type GitHubDocRef, githubBlobUrl, githubRawUrl } from "@tiro/shared";
 import { clipMarkdownFile } from "./clip-page.ts";
-import type { FetchLike } from "./github.ts";
-import type { ClipPayload } from "./messages.ts";
+import type { FetchLike } from "./fetch-like.ts";
+import type { ClipPayload } from "./payload.ts";
 
 /**
  * Clipping a GitHub markdown file from whichever of its URLs the reader is on.

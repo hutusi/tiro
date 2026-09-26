@@ -76,6 +76,7 @@ import {
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { clipPage } from "@tiro/clip";
 import {
   type ArticleFrontmatter,
   COLLECTIONS_DIR,
@@ -98,7 +99,6 @@ import {
   stringifyCollection,
 } from "@tiro/shared";
 import { Window } from "happy-dom";
-import { clipPage } from "../src/clip-page.ts";
 import type { ClipPayload } from "../src/messages.ts";
 
 /**
@@ -1192,12 +1192,20 @@ async function loadBaseline(ref: string, baselines: string): Promise<Clip> {
     );
   }
 
-  const entry = join(dir, "apps/extension/src/clip-page.ts");
-  if (!existsSync(entry)) {
+  // Where the clipper lived at that ref: in its own package since ADR 0034,
+  // in the extension before it. Newest first, so a ref from either side of
+  // the move can be compared against today.
+  const entry = [
+    "packages/clip/src/clip-page.ts",
+    "apps/extension/src/clip-page.ts",
+  ]
+    .map((path) => join(dir, path))
+    .find((path) => existsSync(path));
+  if (entry === undefined) {
     // Before clip-page.ts existed the pipeline lived inside the injected IIFE,
     // which cannot be imported. Say so rather than failing on a module error.
     throw new Error(
-      `${ref} (${sha.slice(0, 8)}) predates apps/extension/src/clip-page.ts, so its clipper cannot be imported`,
+      `${ref} (${sha.slice(0, 8)}) predates clip-page.ts, so its clipper cannot be imported`,
     );
   }
   const module = (await import(pathToFileURL(entry).href)) as {

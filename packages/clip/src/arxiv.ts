@@ -1,8 +1,8 @@
 import { type ArxivRef, arxivAbsUrl, arxivHtmlUrl } from "@tiro/shared";
 import { clipPage } from "./clip-page.ts";
 import { hasLatexmlFullText, truncateExcerpt } from "./dom-prepare.ts";
-import type { FetchLike } from "./github.ts";
-import type { ClipPayload } from "./messages.ts";
+import type { FetchLike } from "./fetch-like.ts";
+import type { ClipPayload } from "./payload.ts";
 
 /**
  * Clipping an arXiv paper from whichever of its URLs the reader is on.
