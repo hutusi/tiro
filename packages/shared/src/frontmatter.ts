@@ -146,6 +146,39 @@ const sourceMedia = z.literal("pdf").optional();
 const pdfUnstructured = z.boolean().optional();
 
 /**
+ * How the article came in, when it was not a page clipped in a browser.
+ *
+ * `"link"` means only its URL was saved — from a phone's share sheet, or the
+ * extension's "Clip link" — and the processor fetched the page and ran the
+ * clipper on it itself (ADR 0034). Such a body is read without the reader's
+ * cookies and without running the page's scripts, so it can be thinner than a
+ * browser clip of the same page; this is what lets an audit find those, and
+ * what a re-clip from the browser replaces.
+ *
+ * Separate from `source_media` because the two record different facts: a link
+ * can turn out to be a PDF, and then both are true. Kept after processing, as
+ * provenance. A one-member union for the same reason `source_media` is.
+ * Optional and additive, so no `tiro.schema` bump, and named on both schemas.
+ */
+const capture = z.literal("link").optional();
+
+/**
+ * Why the processor could not build this article's body, when that is settled.
+ *
+ * Set only for a failure that will not change by retrying — a page that
+ * answered 404 or 410, a bot wall, a response that is not a document, a page
+ * that renders its text with scripts (ADR 0034) — and on a PDF refused for
+ * good (ADR 0026, narrowed there). The article is marked processed, so no run
+ * retries it forever; the site hides it, having no body to show; and
+ * `--force` with its slug asks again. A transient failure never sets it: that
+ * article stays pending instead.
+ *
+ * On the article schema only: nothing the extension writes carries it, and a
+ * re-clip that brings a body should drop it.
+ */
+const fetchFailed = z.string().trim().min(1).optional();
+
+/**
  * The article's title, translated into the vault's target language.
  *
  * `zh.md` is a bare body that must stay strictly 1:1 block-aligned with
@@ -250,6 +283,7 @@ export const ClipFrontmatterSchema = z.object({
     source_url: sourceUrl,
     source_media: sourceMedia,
     pdf_unstructured: pdfUnstructured,
+    capture,
   }),
 });
 export type ClipFrontmatter = z.infer<typeof ClipFrontmatterSchema>;
@@ -269,10 +303,12 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
     source_url: sourceUrl,
     source_media: sourceMedia,
     pdf_unstructured: pdfUnstructured,
+    capture,
     processed_at: isoDatetime.optional(),
     processor_version: z.string().optional(),
     summary_failed: z.boolean().optional(),
     translation_failed: z.boolean().optional(),
+    fetch_failed: fetchFailed,
   }),
 });
 export type ArticleFrontmatter = z.infer<typeof ArticleFrontmatterSchema>;

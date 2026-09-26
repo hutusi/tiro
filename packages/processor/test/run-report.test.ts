@@ -15,6 +15,8 @@ function report(overrides: Partial<PipelineReport> = {}): PipelineReport {
     errored: [],
     skipped: [],
     halted: [],
+    inbox: { saved: [], existing: [], rejected: [] },
+    fetchFailed: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -122,6 +124,34 @@ describe("formatRunSummary", () => {
       "**Left for the next run** (budget reached): `long`",
     );
     expect(text).not.toContain("**Failed**");
+  });
+});
+
+describe("saved links in the run report", () => {
+  const inbox = {
+    saved: [
+      {
+        file: "inbox/a",
+        slug: "example-net-a-12345678",
+        url: "https://example.net/a",
+      },
+    ],
+    existing: [{ file: "inbox/b", slug: "example-net-b-12345678" }],
+    rejected: [{ file: "inbox/c", reason: "no http(s) link in it" }],
+  };
+
+  test("a save that held no link fails the run", () => {
+    // It is deleted, and this is the only place it is ever mentioned again.
+    expect(failureCount(report({ inbox }))).toBe(1);
+  });
+
+  test("lists what each saved link became", () => {
+    const text = formatRunSummary(report({ inbox }));
+    expect(text).toContain(
+      "- `example-net-a-12345678` from https://example.net/a",
+    );
+    expect(text).toContain("`example-net-b-12345678` was already in the vault");
+    expect(text).toContain("- `inbox/c`: no http(s) link in it");
   });
 });
 

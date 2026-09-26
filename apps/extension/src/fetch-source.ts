@@ -1,10 +1,14 @@
 import {
+  ARXIV_ORIGIN,
+  clipArxivPaper,
+  clipGitHubDoc,
+  RAW_ORIGIN,
+} from "@tiro/clip";
+import {
   githubRawUrl,
   parseArxivUrl,
   parseGitHubMarkdownUrl,
 } from "@tiro/shared";
-import { ARXIV_ORIGIN, clipArxivPaper } from "./arxiv.ts";
-import { clipGitHubDoc, RAW_ORIGIN } from "./github-doc.ts";
 import type { FetchSourceKind, Messages } from "./i18n.ts";
 import type { ClipPayload } from "./messages.ts";
 

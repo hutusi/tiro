@@ -117,6 +117,13 @@ time the article is processed.
   that is admitted.** Figures do not survive, equations read as flattened text,
   and a table stays a block of lines. Clause 4's density check is what keeps the
   floor from falling through entirely; it does not raise the ceiling.
+> **Narrowed by [ADR 0034](0034-saving-a-link-without-a-browser.md)** for
+> the refusals below that retrying cannot change — a scan, too many pages, a
+> response that is not a PDF, a 404. Those are no longer left pending: the
+> article is marked processed with `tiro.fetch_failed`, since a daily run would
+> otherwise download and refuse it again every day. A transient failure still
+> leaves it pending.
+
 - **The extension must not ship before the converter.** A stub nothing can
   process is an article pending forever, indistinguishable from queue backlog.
 - **Some running heads survive the strip.** Where extraction fuses one to text

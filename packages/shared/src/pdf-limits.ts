@@ -28,3 +28,14 @@ export const PDF_MIN_CHARS_PER_PAGE = 100;
 /** The other half of that gate. An average is a sum, so one dense page among
  * nine scanned ones clears the line above on its own. */
 export const PDF_MIN_PAGE_COVERAGE = 0.5;
+
+/**
+ * A PDF refused for what it is — a scan, too many pages, not readable as a
+ * PDF at all — rather than for how it arrived. Nothing about retrying changes
+ * the answer, so the processor records it and stops asking (ADR 0034, which
+ * narrows ADR 0026's "stays pending").
+ *
+ * No `name` of its own on purpose: it prints as a plain `Error`, so the
+ * extension's import message reads exactly as it did before the class existed.
+ */
+export class PdfRefusal extends Error {}

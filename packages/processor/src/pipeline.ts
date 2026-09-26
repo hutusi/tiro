@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import {
+  type ArticleFrontmatter,
   normalizeTags,
   splitBlocks,
   stringifyArticle,
@@ -18,7 +19,9 @@ import {
 } from "./deadline.ts";
 import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
 import { processImages, reconcileAssets } from "./images.ts";
+import { drainInbox, type InboxReport } from "./inbox.ts";
 import { detectLang } from "./language.ts";
+import { fetchLinkPage, type LinkPage } from "./link.ts";
 import {
   discardTranslationCache,
   loadTranslationCache,
@@ -38,6 +41,7 @@ import {
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
 import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
+import { isSettled } from "./refusal.ts";
 import { buildVocabulary } from "./tag-policy.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
@@ -73,6 +77,9 @@ export interface PipelineOptions {
   slug?: string;
   force?: boolean;
   dryRun?: boolean;
+  /** The tiro commit this run executes, recorded on stubs made from saved
+   * links: it is the code that will clip their pages (ADR 0034). */
+  clipperCommit?: string;
 }
 
 export interface PipelineReport {
@@ -96,6 +103,11 @@ export interface PipelineReport {
    * each would only have paid its retries to fail the same way (ADR 0032).
    * Pending, so the next run picks them up. */
   halted: string[];
+  /** Links saved to `inbox/` this run turned into stubs, or could not. */
+  inbox: InboxReport;
+  /** Refused for a reason retrying will not change, and marked so — processed,
+   * with `tiro.fetch_failed` (ADR 0034). */
+  fetchFailed: { slug: string; reason: string }[];
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
@@ -232,6 +244,8 @@ export async function runPipeline(
     errored: [],
     skipped: [],
     halted: [],
+    inbox: { saved: [], existing: [], rejected: [] },
+    fetchFailed: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -243,6 +257,20 @@ export async function runPipeline(
   // Outages only: an article that fails on its own content says nothing about
   // the next one, so it neither counts nor resets the streak (ADR 0032).
   const outages = createBreaker(PROVIDER_FAILURE_LIMIT);
+
+  // Before discovery, so a link saved since the last run is a stub by the
+  // time articles are chosen, and is processed in this run. Not under --slug:
+  // a one-article run is about that article, not about what was saved.
+  if (options.slug === undefined) {
+    report.inbox = await drainInbox(options.vaultDir, {
+      dryRun: options.dryRun === true,
+      ...(deps.now !== undefined ? { now: deps.now } : {}),
+      ...(options.clipperCommit !== undefined
+        ? { clipperCommit: options.clipperCommit }
+        : {}),
+      log,
+    });
+  }
 
   const { pending, invalid, tagLists } = await discoverArticles(
     options.vaultDir,
@@ -407,23 +435,62 @@ async function processOne(
   tagging: Tagging,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
-  const { frontmatter } = article.parsed;
+  // Rebound when a saved link's page is fetched below: its title, excerpt and
+  // source URL are the page's, and everything after — the summary's prompt,
+  // the final write — has to see them (ADR 0034).
+  let frontmatter = article.parsed.frontmatter;
   log(`processing ${article.slug}`);
 
   const cacheAbs = `${article.dirAbs}/${TRANSLATION_CACHE_FILE}`;
 
-  // A PDF article's body is not in the vault yet, so it is built before
-  // anything reads one — language detection included, which on a stub would
-  // classify an empty string.
+  // A saved link's body, or a PDF's, is not in the vault yet, so it is built
+  // before anything reads one — language detection included, which on a stub
+  // would classify an empty string.
   //
-  // A refusal throws, and that is the intended outcome rather than a tolerated
-  // one: the catch around processOne leaves tiro.processed_at absent, so the
-  // article stays pending and a later run — or a later version of this code —
-  // tries again without anything being re-clipped.
-  const sourceBody =
-    frontmatter.tiro.source_media === "pdf"
-      ? await pdfBody(article, config, deps, log, deadline, force)
-      : article.parsed.body;
+  // A refusal that retrying could change throws, and the catch around
+  // processOne leaves the article pending for a later run. One that retrying
+  // will not change — a 404, a scan, a page built by scripts — is settled
+  // here instead: the article is marked processed with the reason, so no run
+  // asks again until someone does with --force (ADR 0034).
+  let sourceBody: string;
+  try {
+    let linkBody: string | undefined;
+    if (
+      frontmatter.tiro.capture === "link" &&
+      frontmatter.tiro.source_media === undefined &&
+      article.parsed.body.trim() === ""
+    ) {
+      const page = await fetchLinkPage({
+        url: frontmatter.tiro.source_url ?? frontmatter.url,
+        maxBytes: config.fetch.max_bytes,
+        timeoutMs: config.fetch.timeout_ms,
+        minChars: config.fetch.min_chars,
+        deadline,
+        ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+        ...(deps.resolveHost !== undefined
+          ? { resolveHost: deps.resolveHost }
+          : {}),
+        log,
+      });
+      frontmatter = withLinkPage(frontmatter, page);
+      if (page.kind === "page") linkBody = page.payload.markdown;
+    }
+    sourceBody =
+      frontmatter.tiro.source_media === "pdf"
+        ? await pdfBody(
+            { ...article, parsed: { ...article.parsed, frontmatter } },
+            config,
+            deps,
+            log,
+            deadline,
+            force,
+          )
+        : (linkBody ?? article.parsed.body);
+  } catch (error) {
+    if (!isSettled(error)) throw error;
+    await settleRefusal(article, String(error), now, report, log);
+    return;
+  }
 
   const lang =
     frontmatter.lang ??
@@ -567,6 +634,9 @@ async function processOne(
   const {
     summary_failed: _staleSummaryFailed,
     translation_failed: _staleTranslationFailed,
+    // A body was built this time, so an earlier refusal no longer describes
+    // the article (ADR 0034).
+    fetch_failed: _staleFetchFailed,
     // Dropped here and nowhere else: this write is the moment the body stops
     // being extracted text and becomes the article (ADR 0027). Clearing it
     // earlier would lose the flag if a later stage threw; later, and a
@@ -757,6 +827,76 @@ async function discardCheckpointQuietly(
  * http(s) and nothing else. A second field would restate that and could
  * contradict it.
  */
+/**
+ * The stub's frontmatter with what the fetched page said about itself: its
+ * title, excerpt and author, whether it holds math, and where it was read
+ * when that is not the saved URL. A link that turned out to be a PDF records
+ * that, and the PDF stage builds its body.
+ */
+function withLinkPage(
+  frontmatter: ArticleFrontmatter,
+  page: LinkPage,
+): ArticleFrontmatter {
+  const tiro = {
+    ...frontmatter.tiro,
+    ...(page.sourceUrl !== undefined ? { source_url: page.sourceUrl } : {}),
+    ...(page.kind === "pdf" ? { source_media: "pdf" as const } : {}),
+  };
+  if (page.kind === "pdf") return { ...frontmatter, tiro };
+  const { payload } = page;
+  return {
+    ...frontmatter,
+    title: payload.title.trim() || frontmatter.title,
+    ...(payload.excerpt.trim() !== "" ? { excerpt: payload.excerpt } : {}),
+    ...(payload.author.trim() !== "" ? { author: payload.author } : {}),
+    ...(payload.readabilityFailed ? { readability_failed: true } : {}),
+    ...(payload.hasMath ? { has_math: true } : {}),
+    tiro,
+  };
+}
+
+/**
+ * Record a refusal retrying will not change, and stop asking.
+ *
+ * The article keeps everything it had — a stub keeps being an empty stub,
+ * which the site does not show; a PDF whose source has gone keeps the body it
+ * was already given — and gains `processed_at` and the reason, so it leaves
+ * the pending set. What it does not keep is `summary_failed` or
+ * `translation_failed` from an earlier run: those describe work this run did
+ * not do.
+ */
+async function settleRefusal(
+  article: DiscoveredArticle,
+  reason: string,
+  now: () => Date,
+  report: PipelineReport,
+  log: (message: string) => void,
+): Promise<void> {
+  const { frontmatter, body } = article.parsed;
+  const {
+    summary_failed: _summaryFailed,
+    translation_failed: _translationFailed,
+    ...tiro
+  } = frontmatter.tiro;
+  await Bun.write(
+    article.indexAbs,
+    stringifyArticle(
+      {
+        ...frontmatter,
+        tiro: {
+          ...tiro,
+          processed_at: now().toISOString(),
+          processor_version: PROCESSOR_VERSION,
+          fetch_failed: reason,
+        },
+      },
+      body,
+    ),
+  );
+  report.fetchFailed.push({ slug: article.slug, reason });
+  log(`${article.slug}: settled without a body, not retried: ${reason}`);
+}
+
 async function pdfBody(
   article: DiscoveredArticle,
   config: TiroConfig,

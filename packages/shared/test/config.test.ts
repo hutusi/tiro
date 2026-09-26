@@ -114,6 +114,17 @@ pdf:
   });
 });
 
+describe("fetch", () => {
+  test("defaults for fetching a saved link", () => {
+    const { fetch } = parseTiroConfig(minimalConfig);
+    expect(fetch).toEqual({
+      max_bytes: 5 * 1024 * 1024,
+      timeout_ms: 30_000,
+      min_chars: 500,
+    });
+  });
+});
+
 describe("tags", () => {
   test("no tags section means no aliases", () => {
     expect(parseTiroConfig(minimalConfig).tags.aliases).toEqual({});

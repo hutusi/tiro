@@ -1,3 +1,7 @@
+// The plugin ships no types. Referenced from here, the module that imports
+// it, so every program compiling this file — the extension's, the
+// processor's — gets the declaration without listing it in its own tsconfig.
+/// <reference path="./turndown-plugin-gfm.d.ts" />
 import { gfm } from "@joplin/turndown-plugin-gfm";
 import TurndownService from "turndown";
 import {

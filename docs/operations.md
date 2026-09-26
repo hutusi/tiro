@@ -49,6 +49,7 @@ never needs updating for a fix to it.
 | `CLOUDFLARE_API_TOKEN` | tiro | Account → Cloudflare Pages: Edit | `wrangler pages deploy` |
 | `CLOUDFLARE_ACCOUNT_ID` | tiro | (not sensitive) | wrangler target account |
 | extension PAT | Chrome options page only (one per machine) | PAT: `tiro-vault`, Contents RW | clip commits |
+| phone PAT | the iPhone Shortcut only | PAT: `tiro-vault`, Contents RW | saving a link into `inbox/` (below). Its own token, with the extension PAT's expiry date |
 
 Rotate a GitHub secret with `gh secret set NAME -R hutusi/<repo>` (prompts for
 the value); the extension PAT is re-pasted in its options page.
@@ -403,10 +404,11 @@ the summary and recorded in the article.
 | articles stay unprocessed + run warning `stopped after the provider failed 3 articles in a row` | the provider is down or refusing the key: three articles in a row failed with a 401, 403, 404, 429, 5xx or no connection, so the run stopped starting new ones rather than pay every article's retries to learn the same thing (ADR 0032). The run turns red | fix the cause — the `failed and stays pending` lines above it name the error. Everything not attempted is still pending, so the next run (at the latest the daily one) picks it all up |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it, at the latest the daily one. Dispatch the workflow to hurry it along |
 | Import refused in the options page with `no usable text layer` or `covers only N of M` | a scanned PDF, or one that is mostly scans. The gates run in the extension so this is said while you are there | nothing to clean up — nothing was committed. OCR is out of scope |
-| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever, and the daily run downloads it again and turns red over it each day. Clip the HTML version if one exists, or delete the stub |
-| PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
-| PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
-| PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |
+| `tiro.fetch_failed: "<reason>"` | the article's body could not be built, for a reason retrying will not change (ADR 0034): a saved link that answered 404, a bot check, a response that is not a page, a page that builds its text with scripts, a PDF that is a scan or too long. It is marked processed so no run asks again, and the site does not show it — it has no body. The run that set it turned red once and named it | clip the page in a browser if it needs one (a re-clip replaces the stub), or fix the cause and reprocess with `force` + slug to ask again, or delete it |
+| PDF article: `fetch_failed` says `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic. Clip the HTML version if one exists, or delete the stub |
+| PDF article: `fetch_failed` says `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` and reprocess with `force` + slug |
+| PDF article: `fetch_failed` says `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
+| PDF article: `fetch_failed` says `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` and reprocess with `force` + slug, if the document is genuinely wanted whole |
 | PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/`. Only on a path that was going to reconvert; a converted import never reaches it | fix the permissions; the article keeps the body it had and stays pending |
 | PDF article stays unprocessed + run line `pdf stage timed out` | past `pdf.stage_timeout_ms` for this document — a slow server, or more batches than fit | nothing: the checkpoint holds what it finished and the next run resumes. Repeated on a very long PDF, raise `pdf.stage_timeout_ms` |
 | PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, or a request was refused (400) or timed out, so those kept the raw text layer. A provider that was down — 5xx, 401/403/404, 429, no connection — does not land here: the article stays pending and the run turns red (ADR 0032) | **clipped:** reprocess with `force` + slug, which discards the checkpoint and reconverts. **Imported:** re-import the file — `--force` keeps the converted body and would change nothing. Either way an ordinary run resumes those fallbacks as settled; if it repeats, the article is readable but unformatted in places |
@@ -635,6 +637,83 @@ git -C ../tiro-vault push
   unreadable collection stops the run before anything moves — fix it first,
   or its members would be stranded.
 
+## Saving from iPhone
+
+A link saved from the iPhone's Share Sheet becomes an article the same way a
+clip does, minus the browser (ADR 0034). The shortcut writes one file into the
+vault's `inbox/` — the URL, as text — and the next processing run, which that
+push starts, fetches the page, clips it and processes it. Nothing is computed on
+the phone; the slug is the processor's to make.
+
+**What it cannot save well** is what a fetch cannot see: a page behind a login
+or paywall, and a page that builds its text with scripts. Those come back as
+`tiro.fetch_failed` (Failure markers above), reported once by the run, and a clip
+from the desktop browser replaces them. Roughly one link in ten, measured on the
+vault's own pages.
+
+### The token
+
+Create a fine-grained PAT at <https://github.com/settings/personal-access-tokens>:
+repository access **only `tiro-vault`**, permission **Contents: Read and write**,
+and the same expiry date as the extension's PAT, so one reminder covers both. It
+lives in the shortcut and nowhere else — a lost phone is one revocation, not a
+rotation for every machine. **Never share the shortcut**: it carries the token.
+
+### Building the shortcut
+
+In Shortcuts, new shortcut "Save to Tiro". In its details, turn on **Show in
+Share Sheet** and accept **URLs** and **Safari web pages**. Then these actions,
+in order:
+
+1. **Get URLs from Input** — Shortcut Input.
+2. **Get Item from List** — First Item.
+3. **Expand URL**. This matters: a `t.co` or `bit.ly` link saved as it is would
+   become an article filed under the shortener, and the same page saved
+   from a browser would then be a second article.
+4. **Text** — the expanded URL, and nothing else. This is the file.
+5. **Base64 Encode** — the Text, with **Line Breaks: None**. The Contents API
+   rejects wrapped base64.
+6. **Format Date** — Current Date, custom format `yyyyMMdd-HHmmss`.
+7. **Random Number** — between 1000 and 9999, so two saves in one second do not
+   collide.
+8. **Text** — `Formatted Date-Random Number.url`. This is the file name.
+9. **Get Contents of URL**:
+   - URL: `https://api.github.com/repos/<owner>/tiro-vault/contents/inbox/` then
+     the file name from step 8
+   - Method: **PUT**
+   - Headers: `Authorization` = `Bearer <the phone PAT>`,
+     `Accept` = `application/vnd.github+json`,
+     `X-GitHub-Api-Version` = `2022-11-28`
+   - Request Body: **JSON**, with `message` = `save: ` then the expanded URL,
+     and `content` = the Base64 Encoded result
+10. **Get Dictionary Value** — `content` from the result of step 9.
+11. **If** it has any value: **Show Notification** "Saved to Tiro". Otherwise:
+    **Show Alert** with the result of step 9 — GitHub's own message says what
+    went wrong (a `401` is the token; a `404` is the repository name, or a token
+    that cannot see it).
+
+The same request from a terminal, to check a token before building the shortcut:
+
+```sh
+curl -X PUT \
+  -H "Authorization: Bearer $PHONE_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/hutusi/tiro-vault/contents/inbox/$(date +%Y%m%d-%H%M%S)-test.url" \
+  -d "{\"message\":\"save: test\",\"content\":\"$(printf 'https://example.com/' | base64)\"}"
+```
+
+That saves `example.com` for real; delete the article it makes, or leave it.
+
+### What happens next
+
+- The push starts "Process articles". Its summary lists each saved link under
+  **Saved links**, with the article it became — or, if the file held no link, as
+  a failure: that file is deleted, and the run turns red so the save is not lost
+  without a word.
+- A link already in the vault keeps its article; saving it again is harmless.
+- The article appears on the site when the run deploys, like a clip.
+
 ## Extension
 
 ### Development machine
@@ -679,6 +758,13 @@ git -C ../tiro-vault push
   article's page on the site; that page exists only once the vault workflow
   has processed and deployed the clip, which the hint under the link says.
   "View in vault" is the GitHub file and works immediately.
+- **"Clip link to Tiro"** in any link's right-click menu saves that link
+  without opening it (ADR 0034): the address goes into the vault's `inbox/`,
+  exactly as the iPhone shortcut does it, and the next processing run clips
+  the page. The toolbar button shows how it went for a few seconds — ✓ saved,
+  a grey ✓ if the article was already there, ! if it could not — with the
+  reason as its tooltip. It sends nothing before the disclosure is accepted, so
+  a fresh install asks to be opened once first.
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
@@ -735,7 +821,7 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **5**: 2 added the optional arxiv.org fetch, 3
+  policy also requires. It is at **6**: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
   for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
   fetch. Each is a new destination, and a new destination is a practice change
@@ -744,7 +830,10 @@ Two decisions worth not relitigating:
   commit it then, which falsified the promise that closing the popup discards
   everything. No new destination, no new permission — but the number tracks
   what the text promises, so a sentence that stopped being true is a bump even
-  when the manifest is unchanged. Do not "correct" it back to 4. Both language
+  when the manifest is unchanged. Do not "correct" it back to 4. 6 is "Clip
+  link" (ADR 0034): a link's address now leaves the browser from a context-menu
+  click with no popup open — the same destination, but a new way to reach it.
+  Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
   English copy and silently missed the Chinese one that this extension actually
@@ -1039,7 +1128,7 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    `unwrapMediaWrappers` exists for a failure this sweep reports as
    byte-identical, because no vault page wraps a lone figure in a sidebar. It
    finds corpus regressions; a green sweep is not a safety argument, and
-   adversarial shapes belong in `apps/extension/test/dom-prepare.test.ts`.
+   adversarial shapes belong in `packages/clip/test/dom-prepare.test.ts`.
 
 ### Backfilling translated titles
 
