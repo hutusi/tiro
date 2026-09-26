@@ -13,6 +13,7 @@ collections/<id>.md               # a hand-picked list of articles (favorites.md
 config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
 .github/workflows/publish.yml     # redeploys the site when a collection changes
+.github/workflows/tokens.yml      # warns before TIRO_DISPATCH_TOKEN expires
 ```
 
 Articles arrive via the Tiro Chrome extension; the workflow summarizes, tags,
@@ -66,7 +67,10 @@ members' own pictures (ADR 0030), so most collections never need one.
    **this vault repository** with **Contents: Read and write**, and paste it
    into the extension's options page.
 
-> Fine-grained PATs expire (max ~1 year) — set a reminder to rotate both.
+> Fine-grained PATs expire (max ~1 year). `tokens.yml` checks
+> `TIRO_DISPATCH_TOKEN` weekly and fails 30 days before it expires, so GitHub
+> emails you. Run it once by hand after setup and check the date it prints
+> against your token settings. The extension's token is yours to track.
 
 ## Manual operations
 

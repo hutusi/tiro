@@ -383,8 +383,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   (ADR 0008). `timeout-minutes` is a backstop above that budget, and the commit
   step runs `if: always()` so even a kill keeps the run's work. Ordering pending
   articles cheapest-first stops one such article from starving the rest.
-- **Expiring fine-grained PATs** (two of them): documented in the
-  vault-template README; set a calendar reminder.
+- **Expiring fine-grained PATs** (three kinds: `TIRO_DISPATCH_TOKEN`,
+  `VAULT_READ_TOKEN`, and an extension PAT per machine). A weekly
+  `tokens.yml` in each repo fails 30 days before a workflow token expires
+  (ADR 0032).
 - **Pagefind index only exists after a build**: the search UI degrades
   gracefully in `astro dev`.
 - **Cloudflare Pages 25MB/file cap**: the asset copy step skips and warns on

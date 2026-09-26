@@ -31,6 +31,10 @@ all the same chore — remembering to do the step the workflow did not:
   another, until the run budget ran out. `backfill-titles` already stopped
   after three failures in a row; `run`, which spends far more per article, did
   not.
+- **Tokens expired without warning.** Two fine-grained PATs are held by
+  workflows and one more by each browser, all with at most a year to live. The
+  runbook said to set a calendar reminder, and an expired dispatch token fails
+  as a deploy that never happens.
 - **A failure was silent.** `run` exits 0 whatever happens to an article, on
   purpose: a non-zero exit fails the workflow before its commit step and
   throws away every article that did finish (invariant 7). So the job was
@@ -124,6 +128,20 @@ Three, as in `backfill-titles`, which now shares the counter (`createBreaker`):
 one outage is noise, two can be coincidence, and each costs an article its
 full retries.
 
+### 6. Tokens say when they are about to expire
+
+GitHub sends a `GitHub-Authentication-Token-Expiration` header on every API
+response to a token that has an expiry. A weekly `tokens.yml` in each repo asks
+for `/rate_limit` (free, and answered for any valid token) with the token the
+repo's workflows hold, and fails once fewer than 30 days remain — about four
+red runs, and four emails, before it stops working — or at once if the token is
+refused. The check is one composite action in tiro, which the vault's workflow
+calls by reference, so it is written once.
+
+The header's meaning is taken on trust, and one public report says it can carry
+the server's time instead of the expiry. So the date is always printed, and the
+runbook asks for one comparison against GitHub's own token page after setup.
+
 ## Consequences
 
 - The runbook loses every "then dispatch a deploy". Deleting an article, hiding
@@ -141,5 +159,8 @@ full retries.
 - A transient provider error — one 503 that clears by the next run — turns
   that one run red. The summary says the article stays pending, which is the
   cue that nothing needs doing.
+- A scheduled workflow in a public repository is disabled after 60 days
+  without activity. tiro is public; if it ever goes that quiet, the token check
+  stops with it.
 - `vault-template/` does not propagate. A vault still on the old `process.yml`
   keeps the old behaviour until the file is copied in.

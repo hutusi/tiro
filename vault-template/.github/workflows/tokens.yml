@@ -1,0 +1,22 @@
+name: Token expiry
+
+# Weekly, so a token about to expire turns a run red — and GitHub emails —
+# about four times before it stops working (ADR 0032). The check itself lives
+# in the tiro repo, like the processor, so a fix there reaches every vault
+# without copying this file again.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: hutusi/tiro/.github/actions/token-expiry@main
+        with:
+          name: TIRO_DISPATCH_TOKEN
+          token: ${{ secrets.TIRO_DISPATCH_TOKEN }}

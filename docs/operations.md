@@ -18,6 +18,24 @@ Day-2 operations for the running Tiro system.
 All fine-grained PATs expire (max ~1 year) — when clips or deploys start
 failing with 401/404, check these first and rotate.
 
+**The two held by workflows warn before they expire** (ADR 0032). A weekly
+"Token expiry" workflow in each repo — `tokens.yml`, checking
+`VAULT_READ_TOKEN` in tiro and `TIRO_DISPATCH_TOKEN` in the vault — reads the
+expiry date GitHub reports for the token and turns red, so GitHub emails you,
+once fewer than 30 days are left, or at once if the token is already refused.
+Its run summary shows the date and the days left. Both call the one check in
+`hutusi/tiro/.github/actions/token-expiry`, so the vault's copy of the workflow
+never needs updating for a fix to it.
+
+- **On first setup, run it by hand** (Actions → Token expiry → Run workflow)
+  and compare the date it prints with the one on
+  <https://github.com/settings/tokens>. It is the only check that the header
+  means what the workflow assumes.
+- Not checked here: the extension PAT, which lives only in a browser, and the
+  LLM key and Cloudflare token, which are not GitHub tokens.
+- The vault's copy needs `vault-template/.github/workflows/tokens.yml` copied
+  in by hand, like the other workflows.
+
 | Secret | Lives in | Scope | Purpose |
 | --- | --- | --- | --- |
 | `TIRO_LLM_API_KEY` | tiro-vault | Bailian API key | LLM calls |

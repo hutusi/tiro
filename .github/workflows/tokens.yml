@@ -1,0 +1,28 @@
+name: Token expiry
+
+# Weekly, so a token about to expire turns a run red — and GitHub emails —
+# about four times before it stops working (ADR 0032). The tokens this repo's
+# workflows hold; the vault checks its own with the same action.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # For the action below; it holds no token of its own to persist.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Only if the vault is private; unset, the step reports it and passes.
+      - uses: ./.github/actions/token-expiry
+        with:
+          name: VAULT_READ_TOKEN
+          token: ${{ secrets.VAULT_READ_TOKEN }}

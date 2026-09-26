@@ -1,0 +1,61 @@
+name: Token expiry
+description: >-
+  Fail when a GitHub token is refused or expires within the warning window
+  (ADR 0032). Reads the GitHub-Authentication-Token-Expiration header, which
+  GitHub sends for any token that has an expiry.
+
+inputs:
+  name:
+    description: The secret's name, as the log and the summary should show it.
+    required: true
+  token:
+    description: The token to check. An empty value is reported and passes.
+    required: true
+  warn-days:
+    description: Fail when fewer than this many days are left.
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      # Inputs reach the script as environment, never as source: `${{ }}` is
+      # substituted into a run block before bash parses it.
+      env:
+        NAME: ${{ inputs.name }}
+        TOKEN: ${{ inputs.token }}
+        WARN_DAYS: ${{ inputs.warn-days }}
+      run: |
+        if [ -z "$TOKEN" ]; then
+          echo "::notice::$NAME is not set here; nothing to check"
+          exit 0
+        fi
+        # /rate_limit does not count against the rate limit, and answers any
+        # token that is still valid, whatever its permissions.
+        headers=$(curl -sS -o /dev/null -D - \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/rate_limit | tr -d '\r')
+        status=$(printf '%s\n' "$headers" | head -1 | awk '{print $2}')
+        if [ "$status" != "200" ]; then
+          echo "::error::$NAME was refused (HTTP $status): it has expired or been revoked. Rotate it."
+          echo "- \`$NAME\`: **refused (HTTP $status)** — expired or revoked" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        fi
+        # e.g. "2027-09-26 10:00:00 +0800"; absent for a token with no expiry.
+        expiry=$(printf '%s\n' "$headers" \
+          | grep -i '^github-authentication-token-expiration:' \
+          | cut -d' ' -f2-)
+        if [ -z "$expiry" ]; then
+          echo "::notice::$NAME has no expiry date"
+          echo "- \`$NAME\`: no expiry" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        days=$(( ( $(date -d "$expiry" +%s) - $(date +%s) ) / 86400 ))
+        echo "$NAME expires $expiry ($days days left)"
+        echo "- \`$NAME\`: expires $expiry ($days days left)" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$days" -lt "$WARN_DAYS" ]; then
+          echo "::error::$NAME expires in $days days ($expiry). Rotate it."
+          exit 1
+        fi
