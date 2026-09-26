@@ -79,3 +79,32 @@ export function normalizeTags(
   }
   return out;
 }
+
+/**
+ * What is wrong with an article's tags as written, by form alone: a tag not
+ * in canonical form, one listed twice, or more than `TAG_LIMIT`. Empty when
+ * they are fine. Language is policy, not form, and is not checked here: an
+ * article may carry a tag a person gave it.
+ */
+export function tagFormProblems(tags: readonly string[]): string[] {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of tags) {
+    const canonical = normalizeTag(tag);
+    if (canonical !== tag) {
+      problems.push(
+        canonical === ""
+          ? `tag ${JSON.stringify(tag)} is empty once normalized`
+          : `tag ${JSON.stringify(tag)} is not in canonical form (${JSON.stringify(canonical)})`,
+      );
+    }
+    if (seen.has(canonical)) {
+      problems.push(`tag ${JSON.stringify(tag)} is listed more than once`);
+    }
+    seen.add(canonical);
+  }
+  if (tags.length > TAG_LIMIT) {
+    problems.push(`${tags.length} tags, at most ${TAG_LIMIT}`);
+  }
+  return problems;
+}

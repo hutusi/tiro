@@ -5,6 +5,7 @@ import {
   normalizeTags,
   TAG_LIMIT,
   tagAliases,
+  tagFormProblems,
 } from "../src/tags.ts";
 
 describe("normalizeTag", () => {
@@ -117,5 +118,39 @@ describe("tagAliases and normalizeTags", () => {
   test(`caps the list at ${TAG_LIMIT}`, () => {
     const many = ["a", "b", "c", "d", "e", "f", "g", "h"];
     expect(normalizeTags(many)).toEqual(many.slice(0, TAG_LIMIT));
+  });
+});
+
+describe("tagFormProblems", () => {
+  test("canonical tags, in any language, are fine", () => {
+    // Language is the processor's policy, not the contract: a person may
+    // give an article a tag in any script.
+    expect(tagFormProblems(["rust", "gpt-4", "ci/cd", "知识管理"])).toEqual([]);
+  });
+
+  test("names a tag that is not in canonical form, and its canonical form", () => {
+    expect(tagFormProblems(["Open-Source"])).toEqual([
+      'tag "Open-Source" is not in canonical form ("open source")',
+    ]);
+  });
+
+  test("names a tag listed twice, however it was spelled", () => {
+    expect(tagFormProblems(["rust", "rust"])).toEqual([
+      'tag "rust" is listed more than once',
+    ]);
+    expect(tagFormProblems(["open source", "open-source"])).toContain(
+      'tag "open-source" is listed more than once',
+    );
+  });
+
+  test("names a tag that normalizes to nothing", () => {
+    expect(tagFormProblems(["#"])).toEqual([
+      'tag "#" is empty once normalized',
+    ]);
+  });
+
+  test(`counts more than ${TAG_LIMIT}`, () => {
+    const tags = ["a", "b", "c", "d", "e", "f", "g"];
+    expect(tagFormProblems(tags)).toEqual([`7 tags, at most ${TAG_LIMIT}`]);
   });
 });

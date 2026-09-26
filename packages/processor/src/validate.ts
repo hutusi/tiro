@@ -10,6 +10,7 @@ import {
   parseCoverPath,
   slugForUrl,
   splitBlocks,
+  tagFormProblems,
   translationPath,
 } from "@tiro/shared";
 
@@ -80,6 +81,13 @@ export async function validateVault(
     const expected = await slugForUrl(frontmatter.url);
     if (expected !== slug) {
       errors.push(`${relPath}: slug does not match url (expected ${expected})`);
+    }
+
+    // ADR 0033: one form per tag. The site still groups a stray spelling with
+    // its variants, so nothing breaks — but the vault stops holding one
+    // vocabulary, and `retag` is what repairs it.
+    for (const problem of tagFormProblems(frontmatter.tags ?? [])) {
+      errors.push(`${relPath}: ${problem}`);
     }
 
     const zhFile = Bun.file(`${vaultDir}/${translationPath(slug)}`);

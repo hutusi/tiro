@@ -339,8 +339,11 @@ so re-runs are always safe no-ops for finished articles.
   `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
   Checks frontmatter schema, that each directory name still equals the slug
   derived from its `url` (invariant 2), that no article is nested below
-  `articles/<slug>/`, and that every `zh.md` belongs to an article that should
-  have one and stays block-aligned with it. Exits non-zero on any of these —
+  `articles/<slug>/`, that tags are written in their canonical form (ADR 0033),
+  and that every `zh.md` belongs to an article that should have one and stays
+  block-aligned with it. A vault not yet retagged reports its old spellings
+  here — `retag` (below) is the fix, and a clean `validate` is how you know it
+  finished. Exits non-zero on any of these —
   `run` only warns, so this is the only thing that fails on a violation.
 
 ### Math rendering
