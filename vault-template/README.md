@@ -13,10 +13,12 @@ collections/<id>.md               # a hand-picked list of articles (favorites.md
 config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
 .github/workflows/publish.yml     # redeploys the site when a collection changes
+.github/workflows/tokens.yml      # warns before TIRO_DISPATCH_TOKEN expires
 ```
 
 Articles arrive via the Tiro Chrome extension; the workflow summarizes, tags,
-translates, and localizes images, then commits the results back.
+translates, and localizes images, then commits the results back. It also runs
+once a day (03:17 UTC), which finishes anything an earlier run left for later.
 
 A translated article also carries `articles/<slug>/.tiro-zh-cache.json` — a
 translation checkpoint, keyed by the source text of each block. One run has a
@@ -65,7 +67,11 @@ members' own pictures (ADR 0030), so most collections never need one.
    **this vault repository** with **Contents: Read and write**, and paste it
    into the extension's options page.
 
-> Fine-grained PATs expire (max ~1 year) — set a reminder to rotate both.
+> Fine-grained PATs expire (max ~1 year). `tokens.yml` checks
+> `TIRO_DISPATCH_TOKEN` weekly and fails 30 days before it expires, so GitHub
+> emails you. Run it once by hand after setup and check the date it prints
+> against your token settings. The extension's **Test connection** says when
+> its own token expires.
 
 ## Manual operations
 
@@ -74,3 +80,9 @@ members' own pictures (ADR 0030), so most collections never need one.
 - **Reprocess everything**: run with "force" and no slug.
 - A re-run without "force" is always a safe no-op: articles are selected by
   the missing `tiro.processed_at` frontmatter marker, not by push diffs.
+- **Hand edits publish themselves.** Hiding an article (`unlisted: true`),
+  deleting one, or any other push under `articles/` redeploys the site when the
+  processing run it starts ends, even with nothing to process.
+- **Updating this vault's workflows**: the files under `.github/workflows/`
+  are copies. When the Tiro repo's `vault-template/` changes them, copy the new
+  versions in by hand — nothing propagates them.

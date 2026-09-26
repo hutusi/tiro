@@ -41,10 +41,51 @@ export function encodeBase64Utf8(text: string): string {
   return btoa(binary);
 }
 
+/** Fewer days than this before the token expires and Test connection warns
+ * rather than just saying when (ADR 0032) — the same window the workflows'
+ * weekly check uses for their tokens. */
+export const TOKEN_EXPIRY_WARN_DAYS = 30;
+
+/**
+ * The expiry GitHub reports for the token, from the
+ * `GitHub-Authentication-Token-Expiration` response header — sent for any
+ * token that has one, as `2027-09-26 10:00:00 +0800`. Null when the header is
+ * absent (a token with no expiry) or in a shape this does not know, which
+ * the options page shows as nothing rather than as a wrong date.
+ */
+export function parseTokenExpiry(header: string | null): Date | null {
+  if (header === null) return null;
+  const match =
+    /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (?:([+-]\d{2})(\d{2})|UTC)$/.exec(
+      header.trim(),
+    );
+  if (match === null) return null;
+  const [, day, time, offsetHours, offsetMinutes] = match;
+  const zone =
+    offsetHours === undefined ? "Z" : `${offsetHours}:${offsetMinutes}`;
+  const date = new Date(`${day}T${time}${zone}`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Days from `now` to `expiresAt` on the reader's own calendar: 0 when the
+ * token expires today, 1 when tomorrow, whatever the hours in between.
+ *
+ * Calendar days rather than elapsed ones, because the number is shown beside
+ * a date. Counting 24-hour periods, a token expiring at 01:00 tomorrow read as
+ * "expires today" at 23:00 — next to tomorrow's date. Rounded, not floored,
+ * so a day that daylight saving made 23 or 25 hours long still counts as one.
+ */
+export function daysUntil(expiresAt: Date, now: Date): number {
+  const startOfDay = (date: Date) =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  return Math.round((startOfDay(expiresAt) - startOfDay(now)) / 86_400_000);
+}
+
 /** Structured so the options page can phrase the outcome in the user's
  * language; prose does not belong in this layer. */
 export type ConnectionTestResult =
-  | { ok: true; fullName: string }
+  | { ok: true; fullName: string; expiresAt?: Date }
   | { ok: false; reason: "not_found" | "unauthorized" }
   | { ok: false; reason: "http"; status: number }
   | { ok: false; reason: "network"; detail: string };
@@ -61,9 +102,13 @@ export async function testConnection(
     if (res.status === 401) return { ok: false, reason: "unauthorized" };
     if (!res.ok) return { ok: false, reason: "http", status: res.status };
     const repo = (await res.json()) as { full_name?: string };
+    const expiresAt = parseTokenExpiry(
+      res.headers.get("github-authentication-token-expiration"),
+    );
     return {
       ok: true,
       fullName: repo.full_name ?? `${config.owner}/${config.repo}`,
+      ...(expiresAt !== null ? { expiresAt } : {}),
     };
   } catch (error) {
     return { ok: false, reason: "network", detail: String(error) };

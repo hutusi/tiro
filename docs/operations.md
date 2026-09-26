@@ -18,6 +18,29 @@ Day-2 operations for the running Tiro system.
 All fine-grained PATs expire (max ~1 year) — when clips or deploys start
 failing with 401/404, check these first and rotate.
 
+**The two held by workflows warn before they expire** (ADR 0032). A weekly
+"Token expiry" workflow in each repo — `tokens.yml`, checking
+`VAULT_READ_TOKEN` in tiro and `TIRO_DISPATCH_TOKEN` in the vault — reads the
+expiry date GitHub reports for the token and turns red, so GitHub emails you,
+once fewer than 30 days are left, or at once if the token is already refused
+or the secret is not set at all. `VAULT_READ_TOKEN` is the exception to that
+last one: a public vault does not need it, so unset passes with a notice.
+Its run summary shows the date and the days left. Both call the one check in
+`hutusi/tiro/.github/actions/token-expiry`, so the vault's copy of the workflow
+never needs updating for a fix to it.
+
+- **On first setup, run it by hand** (Actions → Token expiry → Run workflow)
+  and compare the date it prints with the one on
+  <https://github.com/settings/tokens>. It is the only check that the header
+  means what the workflow assumes.
+- The extension PAT lives only in a browser, so the extension checks it: its
+  Settings page's **Test connection** says when the token expires, and shows
+  it as a warning under 30 days. Worth a press now and then — nothing prompts it. The
+  LLM key and the Cloudflare token are not checked: neither is a GitHub
+  token.
+- The vault's copy needs `vault-template/.github/workflows/tokens.yml` copied
+  in by hand, like the other workflows.
+
 | Secret | Lives in | Scope | Purpose |
 | --- | --- | --- | --- |
 | `TIRO_LLM_API_KEY` | tiro-vault | Bailian API key | LLM calls |
@@ -76,7 +99,8 @@ endpoint works.
   `articles/<slug>/.tiro-zh-cache.json`, so an article too long for one run
   resumes on the next instead of restarting — successive runs converge. Nothing
   needs doing when a run reports `budget reached; resuming next run: <slug>`:
-  the next push, or a manual dispatch, picks it up.
+  the next push, the daily run (03:17 UTC), or a manual dispatch picks it up
+  (ADR 0032).
   - The budget binds every stage, retry, and HTTP request: the chat client
     refuses to start a call with no budget left and clamps each request to
     `min(llm.timeout_ms, remaining)`, and the image stage is clamped the same
@@ -332,20 +356,34 @@ in the original is a formula in the translation.
 
 ### Failure markers
 
+**Every run says how it went.** Its Actions page carries a summary: what it
+processed, what it left for the next run, what failed and why, and which
+articles came out marked. **A run turns red, and GitHub emails you, only when an
+article failed hard or could not be read** — the rows below that stay pending
+with a warning, plus anything `validate` would reject — **or when the processor
+never said how it went**: a crash, or a failure count it could not write. The
+last step's message says which. It turns red in its last
+step, after the commit and the deploy (ADR 0032), so a red run has still saved
+and published everything it finished; nothing needs re-running to keep its
+work. A budget deferral and a `summary_failed` / `translation_failed` marker
+never turn it red — the first resumes by itself, and the markers are listed in
+the summary and recorded in the article.
+
 | Marker | Meaning | Fix |
 | --- | --- | --- |
 | `tiro.summary_failed: true` | the summary needs a human look. The run log says which of two things it is holding: `summary unusable after 3 attempts; using a first-paragraph excerpt`, or `summary unfinished after 3 attempts; keeping the longest cut reply` | reprocess with `force` + slug. For the cut kind, read the article first — the kept summary is often serviceable, and a retry may cut it again |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
-| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
-| article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |
+| article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage. The run turns red | fix the cause; next run retries automatically |
+| articles stay unprocessed + run warning `stopped after the provider failed 3 articles in a row` | the provider is down or refusing the key: three articles in a row failed with a 401, 403, 404, 429, 5xx or no connection, so the run stopped starting new ones rather than pay every article's retries to learn the same thing (ADR 0032). The run turns red | fix the cause — the `failed and stays pending` lines above it name the error. Everything not attempted is still pending, so the next run (at the latest the daily one) picks it all up |
+| article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it, at the latest the daily one. Dispatch the workflow to hurry it along |
 | Import refused in the options page with `no usable text layer` or `covers only N of M` | a scanned PDF, or one that is mostly scans. The gates run in the extension so this is said while you are there | nothing to clean up — nothing was committed. OCR is out of scope |
-| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever. Clip the HTML version if one exists, or delete the stub |
+| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever, and the daily run downloads it again and turns red over it each day. Clip the HTML version if one exists, or delete the stub |
 | PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
 | PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
 | PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |
 | PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/`. Only on a path that was going to reconvert; a converted import never reaches it | fix the permissions; the article keeps the body it had and stays pending |
 | PDF article stays unprocessed + run line `pdf stage timed out` | past `pdf.stage_timeout_ms` for this document — a slow server, or more batches than fit | nothing: the checkpoint holds what it finished and the next run resumes. Repeated on a very long PDF, raise `pdf.stage_timeout_ms` |
-| PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, so those kept the raw text layer | **clipped:** reprocess with `force` + slug, which discards the checkpoint and reconverts. **Imported:** re-import the file — `--force` keeps the converted body and would change nothing. Either way an ordinary run resumes those fallbacks as settled; if it repeats, the article is readable but unformatted in places |
+| PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, or a request was refused (400) or timed out, so those kept the raw text layer. A provider that was down — 5xx, 401/403/404, 429, no connection — does not land here: the article stays pending and the run turns red (ADR 0032) | **clipped:** reprocess with `force` + slug, which discards the checkpoint and reconverts. **Imported:** re-import the file — `--force` keeps the converted body and would change nothing. Either way an ordinary run resumes those fallbacks as settled; if it repeats, the article is readable but unformatted in places |
 | run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
 
 ## Deploys
@@ -359,15 +397,22 @@ devDependencies — the action must log "using pre-installed wrangler".
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something
   has to take effect even when it is the last listed thing.
-- **A vault push alone does not redeploy — except under `collections/`.** It
-  starts the vault's `process.yml`, but that workflow only dispatches
-  `vault-updated` when its commit step actually committed something
-  (`steps.commit.outputs.committed == 'true'`). An edit with nothing pending to
-  process commits nothing, so the site keeps serving the old build until a
-  deploy is dispatched by hand (Actions → Deploy site → Run workflow) or some
-  push to `hutusi/tiro` main triggers one. This applies to every vault-only
-  edit below. A push touching `collections/**` is the exception: the vault's
-  `publish.yml` dispatches on it directly (ADR 0029).
+- **A vault push redeploys on its own** (ADR 0032). A push under `articles/`
+  starts the vault's `process.yml`, which dispatches `vault-updated` when it
+  finishes — whether or not it committed anything, so a hand edit with nothing
+  to process (`unlisted`, a deletion, a repair, a slug migration) is published
+  too. A manual run of the workflow deploys the same way. A push under
+  `collections/` goes through `publish.yml` instead, which only dispatches
+  (ADR 0029). A push touching neither — `config/tiro.yml`, say — deploys
+  nothing, and needs nothing: the site does not read the config.
+  - The deploy comes when the processing run *ends*, and that run queues behind
+    one already in progress, so a hand edit can take as long to appear as the
+    run ahead of it. Dispatch a deploy by hand (Actions → Deploy site → Run
+    workflow) only to skip that wait.
+  - This needs the vault's copy of `process.yml` to be current:
+    `vault-template/` does not propagate. A vault still on the old file
+    dispatches only after a commit, and every hand edit needs a deploy
+    dispatched by hand.
 - **Collections** (ADR 0029): one file per collection at
   `collections/<id>.md`, the filename being the id — lowercase ASCII words
   joined by single dashes, because it is a filename and a URL. Favorites is
@@ -414,10 +459,10 @@ devDependencies — the action must log "using pre-installed wrangler".
   `.tiro-zh-cache.json` checkpoint — but since collections (ADR 0029) it is not
   the only place that names it: drop the slug from every collection that lists
   it, which `validate` names as `… is not an article in this vault`. Commit
-  both together and push, then dispatch a deploy. Left behind, a member is a
+  both together and push; the push redeploys. Left behind, a member is a
   row the site silently skips and an error on every later `validate`.
 - Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
-  frontmatter and push, then dispatch a deploy. It drops out of the library,
+  frontmatter and push; the push redeploys. It drops out of the library,
   the pager, the tag and category pages, search, RSS and the sitemap, and stays
   reachable at `/articles/<slug>/` with a `未公开` label and a
   `noindex, nofollow` robots tag. Remove the line (or set it to `false`) to
@@ -532,10 +577,11 @@ git -C ../tiro-vault status
 # 4. The gate. Must report 0 errors.
 bun run packages/processor/src/cli.ts validate --vault ../tiro-vault
 
-# 5. Commit in the vault, then deploy by hand: a hand-pushed vault change
-#    never dispatches vault-updated, so the site would keep serving old
-#    content silently.
-gh workflow run "Deploy site" --repo hutusi/tiro --ref main
+# 5. Commit and push in the vault. The push starts process.yml, which has
+#    nothing to process and dispatches the deploy when it ends (ADR 0032).
+git -C ../tiro-vault add -A
+git -C ../tiro-vault commit -m "migrate: recanonicalize slugs"
+git -C ../tiro-vault push
 ```
 
 - **Bodies and `zh.md` are never touched.** Block alignment cannot move,
@@ -733,7 +779,8 @@ installed that way never quietly drifts a release behind.
    and **Add to Chrome**. The item is unlisted, so the link is the only way in;
    searching the store will not find it.
 2. Open the extension's Settings and fill in owner, repository, branch, and a
-   PAT, then hit **Test connection**.
+   PAT, then hit **Test connection**. It also says when that PAT expires —
+   note the date.
 
 **Unpacked** is for a build that is not released yet — a branch under test, or a
 fix wanted on one machine before a version is cut. No clone or toolchain needed:
@@ -1008,8 +1055,8 @@ non-zero, because an article silently keeping no title is the one thing nothing
 else would report.
 
 It writes only `title_zh` — never `tiro.processed_at` — so nothing becomes
-pending, the processor will not re-run, and **no deploy is triggered**. Commit
-the vault and deploy by hand, the same way a slug migration does.
+pending and the processor has nothing to redo. Commit and push the vault: the
+push redeploys, the same way a slug migration does (ADR 0032).
 
 One gotcha it shares with `summary`: a hand-fixed `title_zh` is not durable.
 Both forced paths overwrite it, and they differ in what else they touch —
@@ -1134,6 +1181,7 @@ permanent extension ID, unrelated to the unpacked one.
 | Symptom | Cause | Action |
 | --- | --- | --- |
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
+| A run stops early with `stopped after the provider failed 3 articles in a row` | a provider outage, an expired or revoked `TIRO_LLM_API_KEY`, a model id the key cannot use, or quota exhausted — the three errors before it say which | curl self-test against the provider; fix the key, the model or the quota. Nothing to clean up: the articles it did not attempt are still pending |
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |

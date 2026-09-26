@@ -155,7 +155,12 @@ flowchart LR
    - for non-Chinese articles, a block-aligned Chinese translation → `zh.md`,
      batched and checkpointed so a long article resumes rather than restarts
      (ADR 0008),
-   - commit results back and fire a `repository_dispatch` to this repo.
+   - commit results back and fire a `repository_dispatch` to this repo —
+     after every push and manual run, committed or not, so a hand edit to the
+     vault publishes itself (ADR 0032),
+   - only then, turn the job red if an article failed hard or could not be
+     read, so GitHub's failed-run email is the alert. The processor itself
+     always exits 0 and hands the count to the workflow (ADR 0032).
 
    Pending articles are processed cheapest-first, under a wall-clock budget
    (`processing.run_budget_ms`) the processor enforces itself so it stops in
@@ -378,8 +383,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   (ADR 0008). `timeout-minutes` is a backstop above that budget, and the commit
   step runs `if: always()` so even a kill keeps the run's work. Ordering pending
   articles cheapest-first stops one such article from starving the rest.
-- **Expiring fine-grained PATs** (two of them): documented in the
-  vault-template README; set a calendar reminder.
+- **Expiring fine-grained PATs** (three kinds: `TIRO_DISPATCH_TOKEN`,
+  `VAULT_READ_TOKEN`, and an extension PAT per machine). A weekly
+  `tokens.yml` in each repo fails 30 days before a workflow token expires, and
+  the extension's Test connection shows its own (ADR 0032).
 - **Pagefind index only exists after a build**: the search UI degrades
   gracefully in `astro dev`.
 - **Cloudflare Pages 25MB/file cap**: the asset copy step skips and warns on
