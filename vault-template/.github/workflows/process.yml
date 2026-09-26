@@ -110,10 +110,20 @@ jobs:
           git push
 
       - name: Trigger site deploy
-        # Gate on a commit actually landing, not on job success: a run that
+        # Gate on the commit step succeeding, not on job success: a run that
         # committed real work and was then killed by timeout-minutes still has
         # something to publish.
-        if: always() && steps.commit.outcome == 'success' && steps.commit.outputs.committed == 'true'
+        #
+        # A push or a manual run deploys even when this run committed nothing
+        # (ADR 0032). Such a push is a hand edit — `unlisted`, a deletion, a
+        # repair, a slug migration — and its content is already on main, so
+        # there is nothing to process and everything to publish. Any other
+        # trigger waits for a commit of its own.
+        if: >-
+          always() && steps.commit.outcome == 'success' &&
+          (steps.commit.outputs.committed == 'true' ||
+          github.event_name == 'push' ||
+          github.event_name == 'workflow_dispatch')
         uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.TIRO_DISPATCH_TOKEN }}

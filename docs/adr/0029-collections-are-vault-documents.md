@@ -162,6 +162,8 @@ collections name a slug nothing will look at again.
   — its collections must drop it too, and `validate` says which.
 - A collections-only push now redeploys on its own. Every other hand edit to the
   vault still needs a deploy dispatched by hand, as before.
+  > **Superseded by [ADR 0032](0032-unattended-vault-operations.md)** for the
+  > second sentence: a push under `articles/` now redeploys on its own too.
 - The header nav gained a fourth item, which broke every label per character at
   390px until the phone-only spacing was tightened. A measured width budget, not
   a design preference, is what decides how many items that row holds.

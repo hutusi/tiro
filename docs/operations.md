@@ -359,15 +359,22 @@ devDependencies — the action must log "using pre-installed wrangler".
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something
   has to take effect even when it is the last listed thing.
-- **A vault push alone does not redeploy — except under `collections/`.** It
-  starts the vault's `process.yml`, but that workflow only dispatches
-  `vault-updated` when its commit step actually committed something
-  (`steps.commit.outputs.committed == 'true'`). An edit with nothing pending to
-  process commits nothing, so the site keeps serving the old build until a
-  deploy is dispatched by hand (Actions → Deploy site → Run workflow) or some
-  push to `hutusi/tiro` main triggers one. This applies to every vault-only
-  edit below. A push touching `collections/**` is the exception: the vault's
-  `publish.yml` dispatches on it directly (ADR 0029).
+- **A vault push redeploys on its own** (ADR 0032). A push under `articles/`
+  starts the vault's `process.yml`, which dispatches `vault-updated` when it
+  finishes — whether or not it committed anything, so a hand edit with nothing
+  to process (`unlisted`, a deletion, a repair, a slug migration) is published
+  too. A manual run of the workflow deploys the same way. A push under
+  `collections/` goes through `publish.yml` instead, which only dispatches
+  (ADR 0029). A push touching neither — `config/tiro.yml`, say — deploys
+  nothing, and needs nothing: the site does not read the config.
+  - The deploy comes when the processing run *ends*, and that run queues behind
+    one already in progress, so a hand edit can take as long to appear as the
+    run ahead of it. Dispatch a deploy by hand (Actions → Deploy site → Run
+    workflow) only to skip that wait.
+  - This needs the vault's copy of `process.yml` to be current:
+    `vault-template/` does not propagate. A vault still on the old file
+    dispatches only after a commit, and every hand edit needs a deploy
+    dispatched by hand.
 - **Collections** (ADR 0029): one file per collection at
   `collections/<id>.md`, the filename being the id — lowercase ASCII words
   joined by single dashes, because it is a filename and a URL. Favorites is
@@ -414,10 +421,10 @@ devDependencies — the action must log "using pre-installed wrangler".
   `.tiro-zh-cache.json` checkpoint — but since collections (ADR 0029) it is not
   the only place that names it: drop the slug from every collection that lists
   it, which `validate` names as `… is not an article in this vault`. Commit
-  both together and push, then dispatch a deploy. Left behind, a member is a
+  both together and push; the push redeploys. Left behind, a member is a
   row the site silently skips and an error on every later `validate`.
 - Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
-  frontmatter and push, then dispatch a deploy. It drops out of the library,
+  frontmatter and push; the push redeploys. It drops out of the library,
   the pager, the tag and category pages, search, RSS and the sitemap, and stays
   reachable at `/articles/<slug>/` with a `未公开` label and a
   `noindex, nofollow` robots tag. Remove the line (or set it to `false`) to
@@ -532,10 +539,11 @@ git -C ../tiro-vault status
 # 4. The gate. Must report 0 errors.
 bun run packages/processor/src/cli.ts validate --vault ../tiro-vault
 
-# 5. Commit in the vault, then deploy by hand: a hand-pushed vault change
-#    never dispatches vault-updated, so the site would keep serving old
-#    content silently.
-gh workflow run "Deploy site" --repo hutusi/tiro --ref main
+# 5. Commit and push in the vault. The push starts process.yml, which has
+#    nothing to process and dispatches the deploy when it ends (ADR 0032).
+git -C ../tiro-vault add -A
+git -C ../tiro-vault commit -m "migrate: recanonicalize slugs"
+git -C ../tiro-vault push
 ```
 
 - **Bodies and `zh.md` are never touched.** Block alignment cannot move,
@@ -1008,8 +1016,8 @@ non-zero, because an article silently keeping no title is the one thing nothing
 else would report.
 
 It writes only `title_zh` — never `tiro.processed_at` — so nothing becomes
-pending, the processor will not re-run, and **no deploy is triggered**. Commit
-the vault and deploy by hand, the same way a slug migration does.
+pending and the processor has nothing to redo. Commit and push the vault: the
+push redeploys, the same way a slug migration does (ADR 0032).
 
 One gotcha it shares with `summary`: a hand-fixed `title_zh` is not durable.
 Both forced paths overwrite it, and they differ in what else they touch —

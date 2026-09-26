@@ -155,7 +155,9 @@ flowchart LR
    - for non-Chinese articles, a block-aligned Chinese translation → `zh.md`,
      batched and checkpointed so a long article resumes rather than restarts
      (ADR 0008),
-   - commit results back and fire a `repository_dispatch` to this repo.
+   - commit results back and fire a `repository_dispatch` to this repo —
+     after every push and manual run, committed or not, so a hand edit to the
+     vault publishes itself (ADR 0032).
 
    Pending articles are processed cheapest-first, under a wall-clock budget
    (`processing.run_budget_ms`) the processor enforces itself so it stops in

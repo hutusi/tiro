@@ -43,6 +43,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **A hand edit to the vault publishes itself.** Hiding an article, deleting
+  one, a repair or a slug migration used to end with "then dispatch a deploy",
+  because the vault workflow only deployed when it had processed something. It
+  now deploys after every push and every manual run, so each of those is a push
+  and nothing else. Copy the new `process.yml` from `vault-template/` into the
+  vault to pick this up (ADR 0032).
+
 - **The search page lists tags only.** The categories row repeated the tags
   (`ai` was a chip in both) without saying it was something else. An article's
   category is still a link on its row and in the reader, and `/categories/` now

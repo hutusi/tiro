@@ -178,7 +178,8 @@ async function repair(vault: string): Promise<number> {
  * Fill in the translated titles of articles processed before `title_zh`
  * existed. Hand-run and read as a diff, like `repair` — it rewrites articles
  * that are already processed and never touches their processing markers, so
- * nothing is re-queued and no deploy fires.
+ * nothing is re-queued. Pushing the result redeploys through the vault
+ * workflow, which deploys every push (ADR 0032).
  */
 async function backfill(vault: string): Promise<number> {
   const config = await loadVaultConfig(vault);
