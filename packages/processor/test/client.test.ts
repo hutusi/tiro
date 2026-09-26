@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
-import { createChatClient } from "../src/llm/client.ts";
+import {
+  ChatConnectionError,
+  ChatHttpError,
+  createChatClient,
+  isProviderFailure,
+} from "../src/llm/client.ts";
 
 function jsonResponse(content: string): Response {
   return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
@@ -388,4 +393,98 @@ describe("a caller that has stopped waiting", () => {
     expect(body).not.toContain("signal");
     expect(JSON.parse(body)).toEqual(request);
   });
+});
+
+describe("a request that never reaches the provider", () => {
+  test("is named a connection error, and still retried", async () => {
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 2,
+      fetchImpl: async () => {
+        calls += 1;
+        throw new TypeError(
+          "Unable to connect. Is the computer able to access the url?",
+        );
+      },
+      sleep: noSleep,
+    });
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    expect(error).toBeInstanceOf(ChatConnectionError);
+    expect(String(error)).toContain("Unable to connect");
+    expect(calls).toBe(3);
+  });
+
+  test("a timeout keeps its own name", async () => {
+    // The timeout-attempt limit and the stages that fall back on a timeout
+    // both recognise it by name; wrapping it would hide it from both.
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        const error = new Error("The operation timed out.");
+        error.name = "TimeoutError";
+        throw error;
+      },
+      sleep: noSleep,
+    });
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    expect(error).not.toBeInstanceOf(ChatConnectionError);
+    expect((error as Error).name).toBe("TimeoutError");
+  });
+});
+
+describe("isProviderFailure", () => {
+  const timeout = (): Error => {
+    const error = new Error("The operation timed out.");
+    error.name = "TimeoutError";
+    return error;
+  };
+  const cases: [string, unknown, boolean][] = [
+    ["a rejected key", new ChatHttpError(401, "invalid api key"), true],
+    [
+      "a key without access",
+      new ChatHttpError(403, "Model.AccessDenied"),
+      true,
+    ],
+    ["an unknown model or endpoint", new ChatHttpError(404, "not found"), true],
+    [
+      "a rate limit that outlasted the retries",
+      new ChatHttpError(429, "slow down"),
+      true,
+    ],
+    ["a server fault", new ChatHttpError(500, "boom"), true],
+    ["a gateway fault", new ChatHttpError(503, "busy"), true],
+    ["no connection", new ChatConnectionError(new TypeError("refused")), true],
+    [
+      "content moderation",
+      new ChatHttpError(400, "data_inspection_failed"),
+      false,
+    ],
+    ["a request too large", new ChatHttpError(413, "too large"), false],
+    ["a server-side request timeout", new ChatHttpError(408, "timeout"), false],
+    ["a client-side timeout", timeout(), false],
+    [
+      "a bare TypeError from a code slip",
+      new TypeError("x is undefined"),
+      false,
+    ],
+    [
+      "an empty reply",
+      new Error("chat completions response has no message content"),
+      false,
+    ],
+    [
+      "a reply that would not parse",
+      new SyntaxError("Unexpected token"),
+      false,
+    ],
+    ["a blown budget", new DeadlineExceededError("a request", -1), false],
+  ];
+  for (const [what, error, expected] of cases) {
+    test(`${what}: ${expected ? "outage" : "not an outage"}`, () => {
+      expect(isProviderFailure(error)).toBe(expected);
+    });
+  }
 });

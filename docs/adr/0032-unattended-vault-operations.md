@@ -20,6 +20,12 @@ all the same chore — remembering to do the step the workflow did not:
   budget and leaves the rest pending (ADR 0008), and pending work was only ever
   picked up by the next push or a manual dispatch. An over-long article clipped
   last thing at night sat half-translated until something else was clipped.
+- **An outage could be written down as a verdict.** The PDF restructuring
+  pass (ADR 0026) falls back to the extracted text when a batch's request
+  fails, and checkpoints that fallback as settled, so a document too slow or
+  too odd for the model does not redo the same batches every run. It could not
+  tell such a batch from one the provider never answered because it was down,
+  so an outage during a PDF cost that article its structure permanently.
 - **A failure was silent.** `run` exits 0 whatever happens to an article, on
   purpose: a non-zero exit fails the workflow before its commit step and
   throws away every article that did finish (invariant 7). So the job was
@@ -78,6 +84,25 @@ doing its job and resumes on the next run. `summary_failed` and
 `translation_failed` are settled — recorded in the article, never retried —
 so they are listed in the summary but do not turn the run red; otherwise one
 bad summary would send an email a day with nothing new to say.
+
+### 4. An outage is told apart from a refusal
+
+The chat client exports `isProviderFailure`: true for a rejected key (401), an
+account or model the key cannot use (403, 404), a rate limit that outlasted the
+retries (429), a server fault (5xx), and a request that never connected — which
+the client now names `ChatConnectionError`, since `fetch` reports it as a bare
+`TypeError`, the same thing a code slip throws.
+
+Two things are deliberately *not* outages. A **400** is a verdict on this
+request — DashScope's content moderation answers one — and the next article
+will not share it. A **timeout** is as often this request's size as the
+provider's state, and the fallbacks that exist for one (per-block translation,
+a PDF batch kept as extracted text) are there because a batch too big to
+answer in time would otherwise time out on every run forever.
+
+The PDF restructuring pass rethrows an outage instead of falling back, so
+nothing is checkpointed for that batch and the article stays pending; the
+batches it did restore are kept for the next run.
 
 ## Consequences
 

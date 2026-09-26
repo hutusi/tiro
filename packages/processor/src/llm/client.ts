@@ -69,7 +69,7 @@ const RETRY_DELAYS_MS = [500, 1500, 3000];
  * article retry on a later run. */
 const TIMEOUT_ATTEMPT_LIMIT = 2;
 
-class ChatHttpError extends Error {
+export class ChatHttpError extends Error {
   constructor(
     readonly status: number,
     body: string,
@@ -77,13 +77,62 @@ class ChatHttpError extends Error {
     super(
       `chat completions request failed with ${status}: ${body.slice(0, 300)}`,
     );
+    this.name = "ChatHttpError";
   }
+}
+
+/** The request never reached the provider — refused connection, DNS, TLS, a
+ * malformed base URL. `fetch` reports all of these as a bare `TypeError`,
+ * which is also what a programming slip throws, so the client names it at the
+ * one place it can tell the two apart. */
+export class ChatConnectionError extends Error {
+  constructor(cause: TypeError) {
+    super(`chat completions request could not connect: ${cause.message}`, {
+      cause,
+    });
+    this.name = "ChatConnectionError";
+  }
+}
+
+/**
+ * Whether an error says the provider is not serving *any* request right now,
+ * as opposed to refusing this one (ADR 0032).
+ *
+ * A rejected key (401), an account or model the key cannot use (403, 404), a
+ * quota or rate limit that outlasted the retries (429), a server fault (5xx)
+ * and a connection that could not be made all fail every request alike, so
+ * repeating them on the next article only spends time learning it again.
+ *
+ * Deliberately left out:
+ * - **400 and the other 4xx.** A verdict on this request — DashScope's content
+ *   moderation (`data_inspection_failed`) answers 400 — which the next article
+ *   will not share.
+ * - **Timeouts** (a `TimeoutError`, or a 408). A slow reply is as often the
+ *   size of this request as the state of the provider, and the stages that
+ *   fall back on one — per-block translation, a PDF batch kept as extracted
+ *   text — exist because a batch too big to answer in time would otherwise
+ *   time out on every run forever.
+ * - **An empty or unparseable reply.** The provider answered; what it said is
+ *   the caller's problem to judge.
+ */
+export function isProviderFailure(error: unknown): boolean {
+  if (error instanceof ChatConnectionError) return true;
+  if (!(error instanceof ChatHttpError)) return false;
+  const { status } = error;
+  return (
+    status === 401 ||
+    status === 403 ||
+    status === 404 ||
+    status === 429 ||
+    status >= 500
+  );
 }
 
 function retryable(error: unknown): boolean {
   if (error instanceof ChatHttpError)
     return error.status === 429 || error.status >= 500;
-  // Network errors / timeouts surface as TypeError or AbortError-ish objects.
+  // Connection failures (ChatConnectionError) and timeouts are transport
+  // faults worth another attempt; a reply that would not parse is not.
   return !(error instanceof SyntaxError);
 }
 
@@ -168,6 +217,13 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
             AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
             options?.signal,
           ),
+        }).catch((error: unknown) => {
+          // Named here, where a bare TypeError can only mean the request never
+          // got through — see ChatConnectionError. Still retried like any
+          // transport fault; only what the error is called changes.
+          throw error instanceof TypeError
+            ? new ChatConnectionError(error)
+            : error;
         });
         if (!res.ok) throw new ChatHttpError(res.status, await res.text());
         const payload = (await res.json()) as {
