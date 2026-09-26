@@ -89,6 +89,13 @@ on a topic the vault has never seen still gets its tags.
   run in cannot change what any of them is offered.
 - **An empty vocabulary caps nothing.** A new vault has nothing to reuse yet.
 
+### 4. A report to measure it by
+
+`tiro-process tags` measures the vault's tags without changing anything:
+distinct and single-article counts, the vocabulary a run would offer, and the
+tags not in English, not in canonical form, or in both singular and plural. It
+is how the numbers in this record were taken, and how a retag is judged.
+
 ## Consequences
 
 - A tag's form is part of the content contract, alongside the schema, though
