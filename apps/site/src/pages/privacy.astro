@@ -22,7 +22,9 @@ const updated = "2026-09-23";
       GitHub 以外的任何地方。
       两者的时机并不相同：剪藏的内容只在你按下「剪藏」之后才上传；在 Tiro
       站点（任何带有 Tiro
-      标记的页面）上勾选的合集改动，在你关闭弹窗或点击「立即保存」时上传；令牌则出现在扩展
+      标记的页面）上勾选的合集改动，在你关闭弹窗或点击「立即保存」时上传；在链接的右键菜单中选择「用
+      Tiro
+      剪藏链接」时，只上传该链接的地址，页面由你仓库中的处理程序稍后读取；令牌则出现在扩展
       发出的每个 GitHub API 请求的授权头里，也就是这些上传，以及你在设置页点击
       「测试连接」的时候。此外还有几方可能参与，且都只在你自己选择之后：一是
       arxiv.org，它会知道你在看哪一篇论文；二是
@@ -174,8 +176,10 @@ const updated = "2026-09-23";
       Everything the extension clips goes to exactly one third party — GitHub — into
       the repository you name, and the extension itself sends your token nowhere but
       GitHub. The timing differs between the two: what you clip is uploaded only when
-      you press Clip, and a collection change you make on a Tiro site when you close
-      the popup or press "Save now", while the token travels in the
+      you press Clip, a collection change you make on a Tiro site when you close the
+      popup or press "Save now", and a link you save with "Clip link to Tiro" from
+      its right-click menu — only its address — the moment you choose it, the page
+      being read later by the processor in your repository. The token travels in the
       <code>Authorization</code> header of every GitHub API request the extension
       makes — those uploads, and the "Test connection" button on the options page.
       A few other parties can be involved, all only if you choose it: arxiv.org, which

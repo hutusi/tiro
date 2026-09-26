@@ -152,6 +152,20 @@ This narrows ADR 0026, where every refusal left a PDF pending: with a daily
 run (ADR 0032) that is a download, a refusal and a red run a day, forever, for
 a document nothing will change.
 
+### 7. "Clip link" in the extension writes the same file
+
+The extension's context menu on any link offers "Clip link to Tiro", which
+writes the same `inbox/` file the shortcut writes, from the service worker —
+so the processor stays the only thing that makes a stub, and a link saved from
+either place ends up the same. It asks the vault first whether the article
+exists, only to say so; sends nothing before the disclosure is accepted; and
+reports on the toolbar button's badge and tooltip rather than through
+notifications, which would be another permission for a line of text.
+`contextMenus` carries no install warning. The disclosure moves to version 6:
+a link's address now leaves the browser without the popup open — the same
+destination, but a new way to reach it, and the number tracks what the text
+promises.
+
 ## Consequences
 
 - The service worker's rule (invariant 6) covers `@tiro/clip` too: types only,

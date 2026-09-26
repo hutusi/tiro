@@ -51,6 +51,10 @@ across machines, not for an audience.
 >   button files an article into your collections instead: favorites, or any
 >   list you name. The change is committed to the same repository when you
 >   close the popup, and only for an article your repository already holds.
+> - Save a link without opening it: "Clip link to Tiro" in any link's
+>   right-click menu sends that link's address to your repository, and the
+>   open-source processor there fetches and clips the page later. Only the
+>   address leaves the browser, and only on that click.
 > - Nothing is read in the background. A page is read only when you open the
 >   Tiro popup on it, to build the preview — and on first run, only after you
 >   agree to the disclosure the popup shows you. Close it without clipping and
@@ -67,16 +71,17 @@ across machines, not for an audience.
 
 ## Single purpose
 
-> Save a document the user chooses — the web page they are on, or a PDF on
-> their own computer — into a user-specified GitHub repository as a Markdown
-> file, and let the user file those saved documents into their own collections
-> in that repository.
+> Save a document the user chooses — the web page they are on, a link they
+> right-click, or a PDF on their own computer — into a user-specified GitHub
+> repository as a Markdown file, and let the user file those saved documents
+> into their own collections in that repository.
 
 ## Permission justifications
 
 | Permission | Justification |
 | --- | --- |
 | `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. |
+| `contextMenus` | Adds one item, "Clip link to Tiro", to the right-click menu on links. Choosing it saves that link's address into the user's own repository, so the page can be clipped later without being opened. It reads nothing from the page the link is on, and sends only the address, only on that click. Chrome shows no install warning for this permission. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. Before that, on the same click, it runs a two-line function that looks for the marker a Tiro site publishes, so the popup can offer collections instead of a clip on a page carrying that marker — on any domain; it does not check whose site it is. Both are bundled with the extension; nothing is fetched or evaluated at runtime. |
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup, plus collection changes not yet saved to the repository and the outcome of the last save (kept briefly after saving, at most a week, never synced). Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
 | `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. Collection edits go to the same repository with the same token through the Git Data API, so several collection files change in one commit. |
@@ -155,6 +160,7 @@ Required certifications, all true of this extension:
 - Data is **not** used or transferred for purposes unrelated to the item's
   single purpose. (Transfers at the user's direction, each of them the single
   purpose: the clip itself, to GitHub; a collection change, to the same
+  repository; a link's address saved from the context menu, to the same
   repository; and — only once the user has granted the matching optional
   permission — the request to arxiv.org that fetches the paper being clipped,
   or to raw.githubusercontent.com for the markdown file being clipped, each of
