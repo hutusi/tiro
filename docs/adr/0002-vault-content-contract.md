@@ -29,6 +29,9 @@ between them must survive retries, re-clips, and concurrent runs.
   `tiro.processed_at`, `tiro.processor_version`).
 - Categories come from the taxonomy in `config/tiro.yml` and are assigned by
   the LLM (with free-form tags); there is no clip-time taxonomy UI.
+  > **Narrowed by [ADR 0033](0033-tags-have-a-vocabulary.md).** Tags are
+  > still the model's, but written in one form, in English, through the
+  > vault's aliases, and reusing the vault's own vocabulary where one fits.
 
 ## Consequences
 

@@ -68,6 +68,22 @@ endpoint works.
   values on purpose: the artifact is always named `zh.md` and the language
   detector only distinguishes Chinese from non-Chinese, so any other target
   would translate every article — Chinese originals included.
+- **Tags** are the model's, written in English and in one form: lowercase,
+  words separated by spaces, a hyphen kept only beside a digit (`gpt-4`)
+  (ADR 0033). A tag in another script is dropped, and the run log says which.
+  To steer them, `tags.aliases` in `tiro.yml` rewrites one tag to another as it
+  is written, or drops it with `null`:
+
+  ```yaml
+  tags:
+    aliases:
+      large language models: llm
+      misc: null
+  ```
+
+  Either side may be spelled any way — both are normalized first — and an alias
+  is one hop, not a chain. It applies from the next run on; articles already
+  processed keep their tags until they are reprocessed or retagged.
 - **Image downloads** are bounded per image (`images.max_bytes`,
   `images.timeout_ms`) and per article (`images.max_count`,
   `images.total_max_bytes`, `images.stage_timeout_ms`). Hitting an aggregate

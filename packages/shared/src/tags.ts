@@ -62,19 +62,20 @@ export function tagAliases(
 /**
  * An article's tags in canonical form: each normalized and put through the
  * aliases, empties and duplicates dropped, first spelling's position kept,
- * and cut to `TAG_LIMIT`.
+ * and cut to `limit` — `TAG_LIMIT` unless a caller filters further first.
  */
 export function normalizeTags(
   tags: readonly string[],
   aliases: ReadonlyMap<string, string | null> = new Map(),
+  limit: number = TAG_LIMIT,
 ): string[] {
   const out: string[] = [];
   for (const raw of tags) {
+    if (out.length >= limit) break;
     const normal = normalizeTag(raw);
     const tag = aliases.has(normal) ? aliases.get(normal) : normal;
     if (tag === null || tag === undefined || tag === "") continue;
     if (!out.includes(tag)) out.push(tag);
-    if (out.length === TAG_LIMIT) break;
   }
   return out;
 }
