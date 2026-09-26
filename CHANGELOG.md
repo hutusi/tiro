@@ -48,7 +48,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   had 768 tag pages, 85% of them holding a single article — including the same
   topic twice, as `ai安全` and `ai safety`. Tags are now lowercase English with
   spaces between words, a tag in another script is dropped, and `tags.aliases`
-  in `tiro.yml` merges or refuses tags as they are written (ADR 0033).
+  in `tiro.yml` merges or refuses tags as they are written. The model is also
+  shown the vault's own vocabulary — every tag two articles share — and asked
+  to reuse it; an article may coin at most two tags outside it (ADR 0033).
 
 - **A hand edit to the vault publishes itself.** Hiding an article, deleting
   one, a repair or a slug migration used to end with "then dispatch a deploy",

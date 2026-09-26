@@ -508,6 +508,36 @@ describe("summarize", () => {
     expect(result.tags).toEqual(["rust"]);
   });
 
+  test("offers the vault's vocabulary, and holds new tags to the cap", async () => {
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({
+        summary: "摘要。",
+        category: "ai",
+        tags: ["rust", "new one", "new two", "new three"],
+      });
+    };
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      vocabulary: ["rust", "databases"],
+    });
+    expect(system).toContain("The vault already uses these tags");
+    expect(system).toContain("rust, databases.");
+    expect(result.tags).toEqual(["rust", "new one", "new two"]);
+  });
+
+  test("says nothing about a vocabulary the vault does not have yet", async () => {
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
+    };
+    await summarize({ ...baseOptions, chat });
+    expect(system).not.toContain("already uses");
+  });
+
   test("applies the vault's aliases", async () => {
     const { chat } = scripted([
       JSON.stringify({

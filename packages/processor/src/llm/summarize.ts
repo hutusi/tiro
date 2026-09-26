@@ -1,6 +1,6 @@
 import { plainText, splitBlocks } from "@tiro/shared";
 import { z } from "zod";
-import { writableTags } from "../tag-policy.ts";
+import { MAX_NEW_TAGS, writableTags } from "../tag-policy.ts";
 import type { ChatFn, ChatMessage } from "./client.ts";
 import {
   acceptableSourceSummary,
@@ -35,6 +35,10 @@ export interface SummarizeOptions {
   cjkThreshold: number;
   /** `tags.aliases` from the vault config, as `tagAliases` built it. */
   tagAliases?: ReadonlyMap<string, string | null>;
+  /** The vault's recurring tags, most used first (`buildVocabulary`), offered
+   * for reuse; tags outside it are capped (ADR 0033). Empty on a vault too
+   * young to have one. */
+  vocabulary?: readonly string[];
   maxBodyChars?: number;
   log?: (message: string) => void;
 }
@@ -148,6 +152,7 @@ export async function summarize(
     bilingual = false,
     cjkThreshold,
     tagAliases = new Map<string, string | null>(),
+    vocabulary = [],
     maxBodyChars = 30_000,
     log = () => {},
   } = options;
@@ -162,6 +167,11 @@ export async function summarize(
     `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`,
     `- "category": exactly one of: ${categories.join(", ")}.`,
     '- "tags": 3 to 6 short topic tags, in English even when the article is not — lowercase, words separated by spaces, a proper noun by its usual English name.',
+    ...(vocabulary.length > 0
+      ? [
+          `  The vault already uses these tags. Reuse one whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
+        ]
+      : []),
     ...(bilingual
       ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
       : []),
@@ -176,6 +186,7 @@ export async function summarize(
     },
   ];
 
+  const known = new Set(vocabulary);
   // The best cut summary seen so far, kept in case every attempt is cut.
   let unfinished: z.infer<typeof ResponseSchema> | undefined;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -217,7 +228,7 @@ export async function summarize(
         return {
           ...accept(
             parsed.data,
-            { bilingual, title, targetLang, cjkThreshold, tagAliases },
+            { bilingual, title, targetLang, cjkThreshold, tagAliases, known },
             log,
           ),
           failed: false,
@@ -258,7 +269,7 @@ export async function summarize(
     return {
       ...accept(
         unfinished,
-        { bilingual, title, targetLang, cjkThreshold, tagAliases },
+        { bilingual, title, targetLang, cjkThreshold, tagAliases, known },
         log,
       ),
       failed: true,
@@ -296,6 +307,7 @@ function accept(
     targetLang: string;
     cjkThreshold: number;
     tagAliases: ReadonlyMap<string, string | null>;
+    known: ReadonlySet<string>;
   },
   log: (message: string) => void,
 ): Omit<SummaryResult, "failed"> {
@@ -304,7 +316,7 @@ function accept(
   // are held to the same policy as a finished one's (ADR 0033).
   const rest = {
     ...reply,
-    tags: writableTags(reply.tags, context.tagAliases, log),
+    tags: writableTags(reply.tags, context.tagAliases, log, context.known),
   };
   // Gated on `bilingual` here as well as in the prompt, so a title volunteered
   // for an article that has no source language is discarded in one place and

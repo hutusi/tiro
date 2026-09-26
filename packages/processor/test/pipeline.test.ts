@@ -393,59 +393,6 @@ describe("failure markers", () => {
     expect(frontmatter.tags).toEqual(["test", "fixture"]);
   });
 
-  test("writes tags through the vault's aliases", async () => {
-    const vault = freshVault();
-    const configPath = join(vault, "config", "tiro.yml");
-    writeFileSync(
-      configPath,
-      `${readFileSync(configPath, "utf8")}\ntags:\n  aliases:\n    fixture: null\n    Test: testing\n`,
-    );
-    const config = await loadVaultConfig(vault);
-    await runPipeline({ vaultDir: vault }, config, deps);
-    const { frontmatter } = parseArticle(
-      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
-    );
-    expect(frontmatter.tags).toEqual(["testing"]);
-  });
-
-  test("an excerpt run keeps old tags, normalized but not filtered", async () => {
-    // Kept tags were the article's already. Normalizing them is form; dropping
-    // one for not being English would be a failed run deciding for a person.
-    const vault = freshVault();
-    const config = await loadVaultConfig(vault);
-    await runPipeline({ vaultDir: vault }, config, {
-      ...deps,
-      chat: makeFakeChat({
-        summary: {
-          summary: "好的摘要。",
-          category: "ai",
-          tags: ["Rust"],
-        },
-      }),
-    });
-    const path = join(vault, "articles", RAW, "index.md");
-    const done = parseArticle(readFileSync(path, "utf8"));
-    writeFileSync(
-      path,
-      stringifyArticle(
-        { ...done.frontmatter, tags: ["Open-Source", "知识管理"] },
-        done.body,
-      ),
-    );
-    await runPipeline(
-      { vaultDir: vault, force: true, slug: RAW_SLUG },
-      config,
-      {
-        ...deps,
-        chat: makeFakeChat({
-          summary: { summary: "s", category: "not-in-taxonomy", tags: [] },
-        }),
-      },
-    );
-    const { frontmatter } = parseArticle(readFileSync(path, "utf8"));
-    expect(frontmatter.tags).toEqual(["open source", "知识管理"]);
-  });
-
   test("a cut reply's own category and tags still replace the old ones", async () => {
     // Only the excerpt's placeholders give way; a cut reply is the model's
     // reading of the article and is as current as a finished one.
@@ -610,6 +557,79 @@ describe("hard failures", () => {
     // Succeeding article fully processed despite the earlier failure.
     const second = parseArticle(readFileSync(secondPath, "utf8"));
     expect(needsProcessing(second.frontmatter)).toBe(false);
+  });
+});
+
+describe("tags", () => {
+  test("a one-article run is offered the whole vault's vocabulary", async () => {
+    // Discovery skips other articles under --slug; the vocabulary must not.
+    // In the fixture vault, `contract` and `rendering` are the English tags
+    // two articles share.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    let system = "";
+    await runPipeline({ vaultDir: vault, slug: RAW }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: (request) => {
+          if (request.response_format?.type === "json_object") {
+            system =
+              request.messages.find((m) => m.role === "system")?.content ?? "";
+          }
+        },
+      }),
+    });
+    expect(system).toContain("The vault already uses these tags");
+    expect(system).toContain("contract, rendering.");
+  });
+
+  test("writes tags through the vault's aliases", async () => {
+    const vault = freshVault();
+    const configPath = join(vault, "config", "tiro.yml");
+    writeFileSync(
+      configPath,
+      `${readFileSync(configPath, "utf8")}\ntags:\n  aliases:\n    fixture: null\n    Test: testing\n`,
+    );
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, deps);
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, "articles", RAW, "index.md"), "utf8"),
+    );
+    expect(frontmatter.tags).toEqual(["testing"]);
+  });
+
+  test("an excerpt run keeps old tags, normalized but not filtered", async () => {
+    // Kept tags were the article's already. Normalizing them is form; dropping
+    // one for not being English would be a failed run deciding for a person.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: {
+          summary: "好的摘要。",
+          category: "ai",
+          tags: ["Rust"],
+        },
+      }),
+    });
+    const path = join(vault, "articles", RAW, "index.md");
+    const done = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        { ...done.frontmatter, tags: ["Open-Source", "知识管理"] },
+        done.body,
+      ),
+    );
+    await runPipeline({ vaultDir: vault, force: true, slug: RAW }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: { summary: "s", category: "not-in-taxonomy", tags: [] },
+      }),
+    });
+    const { frontmatter } = parseArticle(readFileSync(path, "utf8"));
+    expect(frontmatter.tags).toEqual(["open source", "知识管理"]);
   });
 });
 
