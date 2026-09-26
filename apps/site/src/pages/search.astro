@@ -1,19 +1,19 @@
 ---
 /**
- * 搜索与标签: full-text search over the Pagefind index plus every tag and
- * category as a chip. The results UI is ours, over Pagefind's JS API rather
+ * 搜索与标签: full-text search over the Pagefind index plus every tag as a
+ * chip. Categories are not listed here (ADR 0031): each article links its own.
+ * The results UI is ours, over Pagefind's JS API rather
  * than PagefindUI — the design's result item (mono domain · date, title,
  * Chinese title) is not something PagefindUI's template can render, and the
  * index's own meta comes from `data-pagefind-meta` in the reader's title block.
  */
 import Base from "../layouts/Base.astro";
-import { type ArticleGroup, categoryIndex, tagIndex } from "../lib/articles.ts";
+import { type ArticleGroup, tagIndex } from "../lib/articles.ts";
 import { allTagsLabel, resultsLabel, STRINGS } from "../lib/strings.ts";
 
 const byCount = (a: ArticleGroup, b: ArticleGroup): number =>
   b.articles.length - a.articles.length || a.label.localeCompare(b.label, "zh");
 const tags = (await tagIndex()).sort(byCount);
-const categories = (await categoryIndex()).sort(byCount);
 // The live vault has ~190 tags; the long tail folds away behind a summary.
 const TOP_TAGS = 30;
 const t = STRINGS.search;
@@ -61,19 +61,6 @@ const t = STRINGS.search;
       )
     }
   </section>
-
-  {
-    categories.length > 0 && (
-      <section class="mt-4 flex flex-wrap gap-2" aria-label={t.categories}>
-        {categories.map((category) => (
-          <a class="chip rounded-md" href={`/categories/${category.slug}/`}>
-            {category.label}
-            <span class="count">{category.articles.length}</span>
-          </a>
-        ))}
-      </section>
-    )
-  }
 
   <p
     id="search-count"

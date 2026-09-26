@@ -2,7 +2,9 @@
 
 Status: accepted (2026-09); the reader's *sticky toolbar under a sticky header*
 is superseded by ADR 0021 (2026-09), which makes the site header scroll away on
-an article so one bar of chrome sits above the text instead of two. Everything
+an article so one bar of chrome sits above the text instead of two; the
+categories row on `/search/` and the `/categories/` → `/search/` redirect are
+superseded by ADR 0031 (2026-09). Everything
 else here stands: the palette,
 the type pairing, the reader's grid rows, the two reading measures and which of
 them is on the Settings dial.
@@ -69,7 +71,8 @@ declaration only thins strokes, which at 12-14px is felt as faintness.
   divisibility so the constant cannot drift back.
 - `/search/` — 搜索与标签: a borderless search field over the Pagefind JS API
   (not PagefindUI, whose result template cannot render the design's item),
-  every tag as a chip with its count, and the categories as a second row.
+  every tag as a chip with its count, and the categories as a second row
+  (removed by ADR 0031).
   `/tags/` and `/categories/` redirect here (Astro `redirects` for dev and
   the static fallback, `public/_redirects` for Cloudflare's edge 301s); the
   per-tag and per-category pages stay, rendered as the same list.

@@ -8,13 +8,14 @@ export default defineConfig({
   // The custom domain; the generated *.pages.dev URL also still serves the site.
   site: "https://tiro.ainaive.com",
   output: "static",
-  // The tag and category indexes folded into the search page (ADR 0014), plus
-  // the shortcut to the one collection every vault has. Static output renders
+  // The tag index folded into the search page (ADR 0014); the category index
+  // has no page since ADR 0031, so its old URL goes home. Plus the shortcut to
+  // the one collection every vault has. Static output renders
   // these as meta-refresh pages; public/_redirects gives Cloudflare Pages the
   // same map as real 301s at the edge.
   redirects: {
     "/tags/": "/search/",
-    "/categories/": "/search/",
+    "/categories/": "/",
     "/favorites/": "/collections/favorites/",
   },
   // An unlisted article is still built and still reachable; the sitemap is

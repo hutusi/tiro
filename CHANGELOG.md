@@ -41,6 +41,13 @@ versions follow the `0.x` line while Tiro is a personal system.
   stale, and `sweep --recanonicalize` carries it across a slug change
   (ADR 0030).
 
+### Changed
+
+- **The search page lists tags only.** The categories row repeated the tags
+  (`ai` was a chip in both) without saying it was something else. An article's
+  category is still a link on its row and in the reader, and `/categories/` now
+  goes to the library (ADR 0031).
+
 ### Fixed
 
 - **In dev, list pages and term links now pick up vault edits.** The listed

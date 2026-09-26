@@ -91,7 +91,6 @@ export const STRINGS = {
     title: "搜索与标签",
     placeholder: "搜索标题、正文、标签…",
     tags: "标签",
-    categories: "分类",
     more: "显示更多",
     /** `{n}` is the number of matches not yet shown. */
     remaining: "还有 {n} 篇",

@@ -166,9 +166,9 @@ flowchart LR
 
    The site's shape follows the "Later Reader" design (ADR 0014): a paginated
    Library at `/` and `/page/N/`, a 搜索与标签 page carrying Pagefind search
-   plus every tag and category as chips (`/tags/` and `/categories/` redirect
-   to it — `astro.config.mjs` for dev and the static fallback,
-   `public/_redirects` for Cloudflare's edge), the reader, and a settings
+   plus every tag as a chip (`/tags/` redirects to it — `astro.config.mjs`
+   for dev and the static fallback, `public/_redirects` for Cloudflare's
+   edge; categories are reached from each article, ADR 0031), the reader, and a settings
    page. Reading preferences — paper, text size, default layout, list view —
    live in the browser's `localStorage` and are applied by an inline script
    before first paint; nothing about a reader ever reaches the server.
