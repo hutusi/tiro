@@ -9,7 +9,7 @@ import {
   restoreCodeLanguagesIn,
 } from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
-import type { ClipPayload } from "./messages.ts";
+import type { ClipPayload } from "./payload.ts";
 import {
   normalizeSourceMarkdown,
   plainTextMarkdownSource,

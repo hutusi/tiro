@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { clipPage } from "@tiro/clip";
 import { Window } from "happy-dom";
 import {
   backfill,
@@ -7,7 +8,6 @@ import {
   isReplayable,
   plainTextShell,
 } from "../scripts/sweep.ts";
-import { clipPage } from "../src/clip-page.ts";
 
 describe("countMarkdown", () => {
   test("counts images and the subset that carry a folded caption", () => {

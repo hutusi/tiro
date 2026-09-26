@@ -94,7 +94,7 @@ flowchart LR
    holding all of the document's text — so GitLab, Codeberg and any static `.md`
    are covered without a hostname.
 
-   The repair pass (`apps/extension/src/dom-prepare.ts`) runs on a clone
+   The repair pass (`packages/clip/src/dom-prepare.ts`) runs on a clone
    *before* Readability, which prunes low-text subtrees it cannot be asked to
    give back. It recovers each formula's LaTeX source (KaTeX/MathJax
    annotation, then arXiv's `<math alttext>`, then MathJax v2's

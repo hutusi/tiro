@@ -1039,7 +1039,7 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    `unwrapMediaWrappers` exists for a failure this sweep reports as
    byte-identical, because no vault page wraps a lone figure in a sidebar. It
    finds corpus regressions; a green sweep is not a safety argument, and
-   adversarial shapes belong in `apps/extension/test/dom-prepare.test.ts`.
+   adversarial shapes belong in `packages/clip/test/dom-prepare.test.ts`.
 
 ### Backfilling translated titles
 

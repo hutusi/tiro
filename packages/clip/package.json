@@ -1,0 +1,21 @@
+{
+  "name": "@tiro/clip",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@joplin/turndown-plugin-gfm": "^1.0.67",
+    "@mozilla/readability": "^0.6.0",
+    "@tiro/shared": "workspace:*",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6",
+    "happy-dom": "^20.12.0"
+  }
+}

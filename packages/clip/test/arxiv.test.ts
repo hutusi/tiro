@@ -6,7 +6,7 @@ import {
   prepareFetchedDocument,
 } from "../src/arxiv.ts";
 import { clipPage } from "../src/clip-page.ts";
-import type { FetchLike } from "../src/github.ts";
+import type { FetchLike } from "../src/fetch-like.ts";
 
 /** Parse a whole document, the way DOMParser does in the popup — `<head>` and
  * all, since prepareFetchedDocument inserts a `<base>` into it. */
