@@ -169,6 +169,12 @@ const en = {
   connUnauthorized: "Token rejected (401)",
   connHttp: (status: number) => `GitHub returned ${status}`,
   connNetwork: (detail: string) => `Network error: ${detail}`,
+  connTokenExpires: (date: string, days: number) =>
+    `The token expires on ${date} (${days} ${days === 1 ? "day" : "days"} left).`,
+  connTokenExpiresSoon: (date: string, days: number) =>
+    days < 1
+      ? `The token expires today (${date}) — make a new one now.`
+      : `The token expires in ${days} ${days === 1 ? "day" : "days"} (${date}) — make a new one soon.`,
 
   /**
    * Importing a PDF from disk (ADR 0027).
@@ -343,6 +349,12 @@ const zh: Messages = {
   connUnauthorized: "令牌被拒绝（401）",
   connHttp: (status: number) => `GitHub 返回了 ${status}`,
   connNetwork: (detail: string) => `网络错误：${detail}`,
+  connTokenExpires: (date: string, days: number) =>
+    `令牌将于 ${date} 到期（还有 ${days} 天）。`,
+  connTokenExpiresSoon: (date: string, days: number) =>
+    days < 1
+      ? `令牌今天（${date}）到期，请立即更换。`
+      : `令牌将在 ${days} 天后（${date}）到期，请尽快更换。`,
 
   importHeading: "导入 PDF",
   importHint:

@@ -14,9 +14,11 @@ import {
 import { buildClipFile } from "../clip.ts";
 import {
   type ConnectionTestResult,
+  daysUntil,
   encodeBase64Utf8,
   findExistingIndex,
   putFile,
+  TOKEN_EXPIRY_WARN_DAYS,
   testConnection,
 } from "../github.ts";
 import {
@@ -155,6 +157,27 @@ function applyText(locale: Locale): void {
   }
   saveButton.textContent = m.saveButton;
   testButton.textContent = m.testButton;
+}
+
+/** A date as the reader's calendar has it, which is the one they will
+ * compare with GitHub's token page. */
+function localDay(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** The sentence about the token's expiry, and whether it should warn — a
+ * separate step from `describeConnection` so a warning can recolour a
+ * connection that otherwise succeeded. */
+function describeExpiry(
+  expiresAt: Date,
+  now: Date,
+): { text: string; warn: boolean } {
+  const days = daysUntil(expiresAt, now);
+  const date = localDay(expiresAt);
+  return days < TOKEN_EXPIRY_WARN_DAYS
+    ? { text: m.connTokenExpiresSoon(date, days), warn: true }
+    : { text: m.connTokenExpires(date, days), warn: false };
 }
 
 function describeConnection(r: ConnectionTestResult): string {
@@ -383,9 +406,23 @@ testButton.addEventListener("click", () => {
     return;
   }
   show(m.testing, "ok");
-  void testConnection(config).then((r) =>
-    show(describeConnection(r), r.ok ? "ok" : "error"),
-  );
+  void testConnection(config).then((r) => {
+    if (!r.ok) {
+      show(describeConnection(r), "error");
+      return;
+    }
+    // A token with no expiry, or a header this page cannot read, says
+    // nothing about it rather than guessing.
+    if (r.expiresAt === undefined) {
+      show(describeConnection(r), "ok");
+      return;
+    }
+    const expiry = describeExpiry(r.expiresAt, new Date());
+    show(
+      `${describeConnection(r)} ${expiry.text}`,
+      expiry.warn ? "warn" : "ok",
+    );
+  });
 });
 
 /** Paint the import line, which keeps its own status separate from the

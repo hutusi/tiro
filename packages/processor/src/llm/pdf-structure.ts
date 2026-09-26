@@ -1,6 +1,6 @@
 import { DeadlineExceededError, StageTimeoutError } from "../deadline.ts";
 import type { TranslationCache } from "./cache.ts";
-import type { ChatFn } from "./client.ts";
+import { type ChatFn, isProviderFailure } from "./client.ts";
 
 /**
  * Turning a PDF's extracted text back into Markdown.
@@ -346,6 +346,14 @@ export async function restorePdfStructure(
           // Neither reads as out, so it was the stage's own cap.
           throw new StageTimeoutError("pdf", what);
         }
+        // A provider that is down is not a verdict on this batch. Falling back
+        // would checkpoint the extracted text below as this batch's settled
+        // answer, and every later run resumes a settled batch as done — so an
+        // outage cost the article its structure for good. Let it reach the
+        // pipeline instead, which leaves the article pending with the batches
+        // already restored saved (ADR 0032). A 400 or a timeout still falls
+        // back: those can be about this batch, and would recur on every run.
+        if (isProviderFailure(error)) throw error;
         log(
           `pdf batch ${index + 1} attempt ${attempt} failed: ${String(error)}`,
         );

@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { DeadlineExceededError, StageTimeoutError } from "../src/deadline.ts";
-import type { ChatFn } from "../src/llm/client.ts";
+import {
+  ChatConnectionError,
+  type ChatFn,
+  ChatHttpError,
+  createChatClient,
+} from "../src/llm/client.ts";
 import {
   batchPages,
   rejectReason,
   restorePdfStructure,
 } from "../src/llm/pdf-structure.ts";
+import { droppedReply } from "./helpers.ts";
 
 const PAGE = (n: number) =>
   `Section ${n}\nThe method is straightforward to imple-\nment and efficient in page ${n}.`;
@@ -131,9 +137,10 @@ describe("restorePdfStructure", () => {
     expect(result.markdown).not.toContain("| --- |");
   });
 
-  test("survives a provider that throws", async () => {
-    // Per-article fault isolation (invariant 7): a dead provider costs
-    // formatting, never the article.
+  test("survives a failed request that is not an outage", async () => {
+    // Per-article fault isolation (invariant 7): a request that fails on its
+    // own costs formatting, never the article. A provider that is down is the
+    // other case, and is not a fallback — see "and a provider outage" below.
     const chat: ChatFn = async () => {
       throw new Error("502 upstream");
     };
@@ -169,7 +176,7 @@ describe("restorePdfStructure and the run budget", () => {
     );
   });
 
-  test("still treats an ordinary provider error as a failed batch", async () => {
+  test("still treats an error that is not an outage as a failed batch", async () => {
     const chat: ChatFn = async () => {
       throw new Error("502 upstream");
     };
@@ -500,5 +507,121 @@ describe("restorePdfStructure and the stage cap inside a call", () => {
       remainingMs: () => 60_000,
     });
     expect(result.fallbacks).toBe(0);
+  });
+});
+
+describe("restorePdfStructure and a provider outage", () => {
+  const threePages = ["a".repeat(80), "b".repeat(80), "c".repeat(80)];
+  const opts = { model: "m", pages: threePages, batchChars: 100 };
+
+  /** Answers the first batch, then fails every request with `error`. */
+  function failingAfterFirst(error: () => unknown) {
+    let calls = 0;
+    const chat: ChatFn = async (request) => {
+      calls += 1;
+      if (calls === 1) return goodChat(request);
+      throw error();
+    };
+    return { chat, calls: () => calls };
+  }
+
+  function memoryCache() {
+    const store = new Map<string, string>();
+    return {
+      store,
+      writeError: undefined,
+      get: (k: string) => store.get(k),
+      set: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      flush: async () => {},
+      retain: () => {},
+    };
+  }
+
+  test("hands a server fault to the pipeline instead of falling back", async () => {
+    // The bug this replaced: an outage was caught as a failed batch, and the
+    // fallback checkpointed as settled, so every later run resumed the
+    // extracted text as done — the article lost its structure for good.
+    const { chat, calls } = failingAfterFirst(
+      () => new ChatHttpError(503, "busy"),
+    );
+    const cache = memoryCache();
+    await expect(restorePdfStructure({ ...opts, chat, cache })).rejects.toThrow(
+      ChatHttpError,
+    );
+    // No second attempt at a batch the provider cannot answer.
+    expect(calls()).toBe(2);
+    // The batch that did come back is kept for the next run; the one that
+    // failed is not recorded at all, so the next run asks again.
+    expect(cache.store.size).toBe(1);
+    expect(cache.store.get(threePages[0] as string)).toBe(
+      threePages[0] as string,
+    );
+  });
+
+  test("does the same for a rejected key and a dropped connection", async () => {
+    for (const error of [
+      () => new ChatHttpError(401, "invalid api key"),
+      () => new ChatConnectionError(new TypeError("Unable to connect")),
+    ]) {
+      const { chat } = failingAfterFirst(error);
+      await expect(restorePdfStructure({ ...opts, chat })).rejects.toThrow();
+    }
+  });
+
+  test("hands a reply that stopped arriving to the pipeline, through the real client", async () => {
+    // The seam Codex's review found: the connection dropped after the headers,
+    // while the body was read. The client must name that an outage, or this
+    // pass records the extracted text as the batch's settled answer.
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 1,
+      sleep: async () => {},
+      fetchImpl: async (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          const body = JSON.parse(String(init?.body)) as {
+            messages: { role: string; content: string }[];
+          };
+          const user = body.messages.find((m) => m.role === "user")?.content;
+          return Response.json({
+            choices: [{ message: { content: user } }],
+          });
+        }
+        return droppedReply();
+      },
+    });
+    const cache = memoryCache();
+    await expect(restorePdfStructure({ ...opts, chat, cache })).rejects.toThrow(
+      ChatConnectionError,
+    );
+    // The first batch came back and is kept; the one whose reply dropped is
+    // not recorded, so the next run asks again.
+    expect(cache.store.size).toBe(1);
+  });
+
+  test("still falls back on a refused request, which is about this batch", async () => {
+    const { chat } = failingAfterFirst(
+      () => new ChatHttpError(400, "data_inspection_failed"),
+    );
+    const cache = memoryCache();
+    const result = await restorePdfStructure({ ...opts, chat, cache });
+    expect(result.fallbacks).toBe(2);
+    expect(cache.store.size).toBe(3);
+  });
+
+  test("still falls back on a timeout, which can be the batch's size", async () => {
+    // A batch too big to answer in time would time out on every run; the
+    // fallback is what lets such a PDF finish at all.
+    const { chat } = failingAfterFirst(() => {
+      const error = new Error("The operation timed out.");
+      error.name = "TimeoutError";
+      return error;
+    });
+    const result = await restorePdfStructure({ ...opts, chat });
+    expect(result.fallbacks).toBe(2);
   });
 });

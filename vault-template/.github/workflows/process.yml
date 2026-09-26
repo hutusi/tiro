@@ -14,6 +14,12 @@ on:
         description: "Only process this article slug"
         type: string
         default: ""
+  # Daily, so an article the run budget deferred is finished without waiting
+  # for the next clip (ADR 0032). Off the hour, when scheduled runs queue
+  # longest. A run with nothing pending takes about a minute and deploys
+  # nothing. Scheduled runs use the default branch.
+  schedule:
+    - cron: "17 3 * * *"
 
 # Serialize runs; queued (not cancelled) so a clip landing mid-run still gets
 # its own run afterwards.
@@ -38,14 +44,14 @@ jobs:
       # serializes them) would otherwise check out a vault that predates the
       # previous run's commit-back, re-process its articles, and then fail
       # the push with a rebase conflict against that commit.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: vault
           ref: main
 
       # The processor code lives in the tiro monorepo. If tiro is private,
       # add a read-scoped PAT here via `token:`.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: hutusi/tiro
           path: tiro
@@ -58,6 +64,7 @@ jobs:
         working-directory: tiro
 
       - name: Run the processor
+        id: process
         working-directory: tiro
         env:
           # Must match llm.api_key_env in config/tiro.yml. If you rename it
@@ -110,12 +117,45 @@ jobs:
           git push
 
       - name: Trigger site deploy
-        # Gate on a commit actually landing, not on job success: a run that
+        # Gate on the commit step succeeding, not on job success: a run that
         # committed real work and was then killed by timeout-minutes still has
         # something to publish.
-        if: always() && steps.commit.outcome == 'success' && steps.commit.outputs.committed == 'true'
-        uses: peter-evans/repository-dispatch@v3
+        #
+        # A push or a manual run deploys even when this run committed nothing
+        # (ADR 0032). Such a push is a hand edit — `unlisted`, a deletion, a
+        # repair, a slug migration — and its content is already on main, so
+        # there is nothing to process and everything to publish. The daily
+        # run waits for a commit of its own: with nothing new, there is
+        # nothing to publish.
+        if: >-
+          always() && steps.commit.outcome == 'success' &&
+          (steps.commit.outputs.committed == 'true' ||
+          github.event_name == 'push' ||
+          github.event_name == 'workflow_dispatch')
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
           repository: hutusi/tiro
           event-type: vault-updated
+
+      # Last, and only here: by now the run's work is committed and deployed,
+      # so failing the job loses nothing (invariant 7) — it only makes GitHub
+      # send its failed-run email. The processor always exits 0 and reports
+      # what went wrong through `failures`, which counts hard failures and
+      # unreadable articles, never a budget deferral (ADR 0032). The run page's
+      # summary names them.
+      #
+      # Only "0" is a clean run. A missing count means the processor never
+      # said how it went — it crashed, or could not write its output — and an
+      # outcome nobody knows is not one to stay green over.
+      - name: Fail on article errors
+        if: always() && steps.process.outputs.failures != '0'
+        env:
+          FAILURES: ${{ steps.process.outputs.failures }}
+        run: |
+          if [ -z "$FAILURES" ]; then
+            echo "::error::The processor reported no failure count, so this run's outcome is unknown; see the Run the processor step"
+          else
+            echo "::error::$FAILURES article(s) failed or could not be read; the run summary names them"
+          fi
+          exit 1

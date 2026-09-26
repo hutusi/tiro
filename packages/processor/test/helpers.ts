@@ -79,3 +79,21 @@ export function makeFakeChat(overrides?: {
     return fakeTranslateBlock(user);
   };
 }
+
+/** A reply whose headers arrive and whose body then stops: part of the JSON,
+ * then the `TypeError` Bun raises for a socket reset mid-body (measured
+ * against a real socket: "The socket connection was closed unexpectedly",
+ * code ECONNRESET). */
+export function droppedReply(status = 200): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"choices":['));
+        controller.error(
+          new TypeError("The socket connection was closed unexpectedly"),
+        );
+      },
+    }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
+}

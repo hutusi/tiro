@@ -163,6 +163,9 @@ decision about a different thing.
   workflow's deploy dispatch — gated on a commit landing — does not fire. The
   deploy must be dispatched by hand, exactly as for a deletion. See
   [operations](../operations.md).
+  > **Superseded by [ADR 0032](0032-unattended-vault-operations.md).** The
+  > vault workflow now dispatches a deploy after every push, commit or not, so
+  > hiding an article publishes itself.
 - An unlisted article's tags and category render as plain text whenever no
   listed article shares them — the terms are still recorded, and start linking
   again the moment something listed carries one. A reader can tell the two

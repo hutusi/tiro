@@ -43,6 +43,42 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **A hand edit to the vault publishes itself.** Hiding an article, deleting
+  one, a repair or a slug migration used to end with "then dispatch a deploy",
+  because the vault workflow only deployed when it had processed something. It
+  now deploys after every push and every manual run, so each of those is a push
+  and nothing else. Copy the new `process.yml` from `vault-template/` into the
+  vault to pick this up (ADR 0032).
+
+- **The vault workflow also runs daily.** An article too long for one run used
+  to wait, half-translated, for the next clip to start another. The daily run
+  finishes it without one; with nothing pending it takes about a minute and
+  deploys nothing (ADR 0032).
+
+- **A failed article now fails the run, and GitHub emails you.** The processor
+  exits 0 on purpose, so a run was green whether its articles processed or
+  failed, and the only trace was a log line. Each run now writes a summary to
+  its Actions page, and turns red in its last step — after it has committed and
+  deployed, so nothing is lost — when an article failed hard or could not be
+  read. Budget deferrals and summary/translation markers are listed but never
+  turn it red (ADR 0032).
+
+- **A provider outage stops the run instead of eating it.** Three articles in a
+  row failing on a server fault, a rejected key, a rate limit or no connection
+  now end the run, leaving the rest pending for the next one — where before
+  every article paid its full retries until the budget ran out. An outage in the
+  middle of a PDF no longer costs it its structure for good: that used to be
+  recorded as the model's verdict on the batch, and now leaves the article
+  pending. A refused request (400) and a timeout still fall back as before
+  (ADR 0032).
+
+- **Tokens warn before they expire.** A weekly workflow in each repo checks the
+  GitHub token its workflows hold and fails — so GitHub emails you — 30 days
+  before it expires, or at once if it has already been refused. The
+  extension's **Test connection** now says when its own token expires, and
+  warns under 30 days. The runbook's "set a calendar reminder" is gone
+  (ADR 0032).
+
 - **The search page lists tags only.** The categories row repeated the tags
   (`ai` was a chip in both) without saying it was something else. An article's
   category is still a link on its row and in the reader, and `/categories/` now

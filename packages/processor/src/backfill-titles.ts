@@ -1,5 +1,6 @@
 import { parseArticle, stringifyArticle } from "@tiro/shared";
 import { modelFor, type TiroConfig } from "@tiro/shared/config";
+import { createBreaker } from "./breaker.ts";
 import { createDeadline, type Deadline } from "./deadline.ts";
 import type { ChatFn } from "./llm/client.ts";
 import { translateTitle } from "./llm/title.ts";
@@ -92,7 +93,7 @@ export async function backfillTitles(
     new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
   ).sort();
 
-  let consecutiveFailures = 0;
+  const breaker = createBreaker(CONSECUTIVE_FAILURE_LIMIT);
   let stopped = false;
 
   for (const relPath of relPaths) {
@@ -175,7 +176,7 @@ export async function backfillTitles(
         // Not an exception, but not a success either: the article still has no
         // title, and that has to exit non-zero or nothing says so.
         report.failed.push({ slug, error: "no usable translation" });
-        consecutiveFailures += 1;
+        breaker.failed();
       } else {
         // Stripped and re-added rather than assigned, so the key lands after
         // `tags` — where `processOne` puts it. Assigning onto the parsed object
@@ -187,16 +188,16 @@ export async function backfillTitles(
           stringifyArticle({ ...previous, title_zh: titleZh }, body),
         );
         report.filled.push({ slug, title: frontmatter.title, titleZh });
-        consecutiveFailures = 0;
+        breaker.succeeded();
       }
     } catch (error) {
       report.failed.push({ slug, error: String(error) });
-      consecutiveFailures += 1;
+      breaker.failed();
     }
 
-    if (consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
+    if (breaker.tripped) {
       log(
-        `${consecutiveFailures} failures in a row; stopping rather than repeating them`,
+        `${breaker.count} failures in a row; stopping rather than repeating them`,
       );
       stopped = true;
     }

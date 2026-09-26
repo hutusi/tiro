@@ -137,6 +137,11 @@ time the article is processed.
   when the file cannot be removed, and refusing the article outright when
   neither works. A `--force` that silently replayed what it was invoked to
   discard would be worse than one that failed.
+  > **Narrowed by [ADR 0032](0032-unattended-vault-operations.md).** A batch
+  > the *provider* could not answer at all — a server fault, a rejected key, a
+  > rate limit, no connection — has reached no verdict, and is no longer
+  > stored as one: the article stays pending and the next run asks again. A
+  > refused request (400) or a timeout still falls back and is settled.
 - **The stage cap reaches into the model call.** A cap the client cannot see is
   one it will overrun: it retries on the run's clock, so a batch admitted with
   room to spare could return long afterwards. The call carries an abort signal,
