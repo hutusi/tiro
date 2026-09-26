@@ -100,9 +100,12 @@ bad summary would send an email a day with nothing new to say.
 
 The chat client exports `isProviderFailure`: true for a rejected key (401), an
 account or model the key cannot use (403, 404), a rate limit that outlasted the
-retries (429), a server fault (5xx), and a request that never connected — which
-the client now names `ChatConnectionError`, since `fetch` reports it as a bare
-`TypeError`, the same thing a code slip throws.
+retries (429), a server fault (5xx), and a connection that failed — one that
+never connected, or a reply that stopped arriving while its body was read. The
+client names both `ChatConnectionError`, since `fetch` and the body readers
+report them as a bare `TypeError`, the same thing a code slip throws. It reads
+the body as text and parses it separately, so a reply that arrived whole but is
+not JSON stays a parse error rather than an outage.
 
 Two things are deliberately *not* outages. A **400** is a verdict on this
 request — DashScope's content moderation answers one — and the next article

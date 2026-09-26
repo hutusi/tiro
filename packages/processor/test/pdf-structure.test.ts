@@ -4,12 +4,14 @@ import {
   ChatConnectionError,
   type ChatFn,
   ChatHttpError,
+  createChatClient,
 } from "../src/llm/client.ts";
 import {
   batchPages,
   rejectReason,
   restorePdfStructure,
 } from "../src/llm/pdf-structure.ts";
+import { droppedReply } from "./helpers.ts";
 
 const PAGE = (n: number) =>
   `Section ${n}\nThe method is straightforward to imple-\nment and efficient in page ${n}.`;
@@ -566,6 +568,39 @@ describe("restorePdfStructure and a provider outage", () => {
       const { chat } = failingAfterFirst(error);
       await expect(restorePdfStructure({ ...opts, chat })).rejects.toThrow();
     }
+  });
+
+  test("hands a reply that stopped arriving to the pipeline, through the real client", async () => {
+    // The seam Codex's review found: the connection dropped after the headers,
+    // while the body was read. The client must name that an outage, or this
+    // pass records the extracted text as the batch's settled answer.
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 1,
+      sleep: async () => {},
+      fetchImpl: async (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          const body = JSON.parse(String(init?.body)) as {
+            messages: { role: string; content: string }[];
+          };
+          const user = body.messages.find((m) => m.role === "user")?.content;
+          return Response.json({
+            choices: [{ message: { content: user } }],
+          });
+        }
+        return droppedReply();
+      },
+    });
+    const cache = memoryCache();
+    await expect(restorePdfStructure({ ...opts, chat, cache })).rejects.toThrow(
+      ChatConnectionError,
+    );
+    // The first batch came back and is kept; the one whose reply dropped is
+    // not recorded, so the next run asks again.
+    expect(cache.store.size).toBe(1);
   });
 
   test("still falls back on a refused request, which is about this batch", async () => {

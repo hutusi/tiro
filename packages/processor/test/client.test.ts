@@ -6,6 +6,7 @@ import {
   createChatClient,
   isProviderFailure,
 } from "../src/llm/client.ts";
+import { droppedReply } from "./helpers.ts";
 
 function jsonResponse(content: string): Response {
   return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
@@ -432,6 +433,60 @@ describe("a request that never reaches the provider", () => {
     const error = await chat({ model: "m", messages: [] }).catch((e) => e);
     expect(error).not.toBeInstanceOf(ChatConnectionError);
     expect((error as Error).name).toBe("TimeoutError");
+  });
+});
+
+describe("a reply that stops arriving", () => {
+  test("is a connection error — retried, and an outage", async () => {
+    // The fetch resolved, so wrapping only the fetch missed it: it escaped as a
+    // bare TypeError, and the PDF pass checkpointed its fallback as settled.
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 2,
+      fetchImpl: async () => {
+        calls += 1;
+        return droppedReply();
+      },
+      sleep: noSleep,
+    });
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    expect(error).toBeInstanceOf(ChatConnectionError);
+    expect(isProviderFailure(error)).toBe(true);
+    expect(calls).toBe(3);
+  });
+
+  test("a reply that arrived whole but is not JSON is still not retried", async () => {
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("not json", { status: 200 });
+      },
+      sleep: noSleep,
+    });
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    expect(error).toBeInstanceOf(SyntaxError);
+    expect(isProviderFailure(error)).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  test("an error status keeps its status when its body cannot be read", async () => {
+    // The status is the verdict: a 400 whose explanation was lost is still a
+    // refusal of this request, not an outage.
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => droppedReply(400),
+      sleep: noSleep,
+    });
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    expect(error).toBeInstanceOf(ChatHttpError);
+    expect((error as ChatHttpError).status).toBe(400);
+    expect(isProviderFailure(error)).toBe(false);
   });
 });
 

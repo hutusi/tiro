@@ -82,9 +82,10 @@ export class ChatHttpError extends Error {
 }
 
 /** The request never reached the provider — refused connection, DNS, TLS, a
- * malformed base URL. `fetch` reports all of these as a bare `TypeError`,
- * which is also what a programming slip throws, so the client names it at the
- * one place it can tell the two apart. */
+ * malformed base URL — or its reply stopped arriving: a socket reset while the
+ * body was being read. `fetch` and the body readers report all of these as a
+ * bare `TypeError`, which is also what a programming slip throws, so the
+ * client names it at the places it can tell the two apart. */
 export class ChatConnectionError extends Error {
   constructor(cause: TypeError) {
     super(`chat completions request could not connect: ${cause.message}`, {
@@ -92,6 +93,13 @@ export class ChatConnectionError extends Error {
     });
     this.name = "ChatConnectionError";
   }
+}
+
+/** Throws `error` as a `ChatConnectionError` when it is the `TypeError` a lost
+ * connection surfaces as, and unchanged otherwise — a timeout or an abort keeps
+ * its own name, which is what the rest of the client and its callers read. */
+function asConnectionError(error: unknown): never {
+  throw error instanceof TypeError ? new ChatConnectionError(error) : error;
 }
 
 /**
@@ -202,6 +210,9 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         );
       }
       try {
+        // A lost connection is named here and at the body read below, where a
+        // bare TypeError can only mean that — see ChatConnectionError. Still
+        // retried like any transport fault; only what it is called changes.
         const res = await fetchImpl(endpoint, {
           method: "POST",
           headers: {
@@ -217,16 +228,20 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
             AbortSignal.timeout(Math.min(timeoutMs, remainingMs)),
             options?.signal,
           ),
-        }).catch((error: unknown) => {
-          // Named here, where a bare TypeError can only mean the request never
-          // got through — see ChatConnectionError. Still retried like any
-          // transport fault; only what the error is called changes.
-          throw error instanceof TypeError
-            ? new ChatConnectionError(error)
-            : error;
-        });
-        if (!res.ok) throw new ChatHttpError(res.status, await res.text());
-        const payload = (await res.json()) as {
+        }).catch(asConnectionError);
+        if (!res.ok) {
+          // The status is the verdict. A body that could not be read loses the
+          // provider's explanation, not the classification: a 400 stays a 400.
+          throw new ChatHttpError(res.status, await res.text().catch(() => ""));
+        }
+        // Read, then parsed, rather than `res.json()`, which rejects with the
+        // same kind of error for both. Separately, a connection dropped mid-reply
+        // is an outage (retried, and counted by the pipeline's breaker), while
+        // a reply that arrived whole but is not JSON stays a SyntaxError — not
+        // retried, not an outage. Left unnamed, the first read as neither, and
+        // the PDF pass checkpointed its fallback as the batch's settled answer.
+        const text = await res.text().catch(asConnectionError);
+        const payload = JSON.parse(text) as {
           choices?: { message?: { content?: string } }[];
         };
         const content = payload.choices?.[0]?.message?.content;
