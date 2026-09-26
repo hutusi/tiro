@@ -41,7 +41,35 @@ Normalizing alone changes little — on the live vault it lands exactly on the
 ones the site was already folding. It is the ground the rest stands on: a
 vocabulary is only countable once each tag has one spelling.
 
+### 2. English, through the vault's aliases
+
+What the model writes is held to a policy before it is written
+(`writableTags`): each tag normalized, put through `tags.aliases` in
+`tiro.yml`, dropped if it is not in English (Han, kana or hangul), and the list
+cut to six. The prompt asks for the same — English even when the article is
+not, lowercase, spaces between words, a proper noun by its usual English name
+— and the policy is what holds when the model does not listen. A dropped tag is
+logged.
+
+English is the owner's choice. A Chinese article's topics are the same topics,
+and a second spelling of each in another script is the split this exists to
+stop. The site is Chinese, but its tags were already 87% English.
+
+The policy applies to model output only. Tags an article already has, kept
+because a failed run had nothing better, are only normalized: dropping one
+would be a run deciding for a person.
+
+The reply schema stops capping tags at eight. A ninth tag used to fail the
+whole reply and spend one of the article's three attempts; now it costs a tag.
+
+An alias is how a person steers the model without editing articles:
+`large language models: llm` merges two tags as they are written, and
+`misc: null` refuses one. Both sides are normalized, so an entry matches
+however either is spelled; one hop, so an alias table cannot loop.
+
 ## Consequences
 
 - A tag's form is part of the content contract, alongside the schema, though
   the schema does not enforce it: articles written before this still parse.
+- Tags change only as articles are processed. Until the vault is retagged, old
+  Chinese tags and old spellings sit beside the new ones.

@@ -1,5 +1,10 @@
 import { rm } from "node:fs/promises";
-import { splitBlocks, stringifyArticle } from "@tiro/shared";
+import {
+  normalizeTags,
+  splitBlocks,
+  stringifyArticle,
+  tagAliases,
+} from "@tiro/shared";
 import {
   modelFor,
   parseTiroConfig,
@@ -166,10 +171,13 @@ function keepExistingTerms(
   produced: SummaryResult,
   frontmatter: { category?: string; tags?: string[] },
   categories: readonly string[],
+  aliases: ReadonlyMap<string, string | null>,
   log: (line: string) => void,
 ): SummaryResult {
   if (produced.fromExcerpt !== true) return produced;
-  const tags = frontmatter.tags ?? [];
+  // Normalized, not held to the model's policy: these were already the
+  // article's, and dropping one here would be a run deciding for a person.
+  const tags = normalizeTags(frontmatter.tags ?? [], aliases);
   const category =
     frontmatter.category !== undefined &&
     categories.includes(frontmatter.category)
@@ -426,6 +434,7 @@ async function processOne(
   const body = imageResult.body;
   const blocks = splitBlocks(body);
 
+  const aliases = tagAliases(config.tags.aliases);
   const summary = await summarize({
     chat: deps.chat,
     model: modelFor(config, "summary"),
@@ -438,6 +447,7 @@ async function processOne(
     // language to summarize itself in.
     bilingual: lang !== config.translation.target,
     cjkThreshold: config.translation.cjk_threshold,
+    tagAliases: aliases,
     log,
   });
   const chosen = summary.failed
@@ -445,6 +455,7 @@ async function processOne(
         keepBetterSummary(summary, frontmatter, log),
         frontmatter,
         config.categories,
+        aliases,
         log,
       )
     : summary;
