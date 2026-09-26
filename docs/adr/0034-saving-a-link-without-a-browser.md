@@ -78,6 +78,31 @@ so the page gets a document and nothing more:
 
 All optional and additive, so no `tiro.schema` bump.
 
+### 4. A save is a file in `inbox/`
+
+A phone's shortcut saves a link by writing one file into the vault's `inbox/`
+through the Contents API: the URL, as text. The processor turns each into a
+stub at the start of a run — `normalizeUrl`, the slug, the domain as a
+placeholder title, an empty body, `capture: "link"` — and deletes the file in
+the same run, so the commit that adds the stub removes the file that asked
+for it.
+
+- **A file, not a message.** GitHub's `repository_dispatch` would carry the URL
+  in an event, and the processing workflow keeps one pending run per
+  concurrency group: a newer run cancels an older pending one, and the URL in
+  it goes with it. A file is in git the moment the phone sees its 201, and any
+  later run, or the daily one, picks it up.
+- **The processor, not the phone, makes the stub.** Normalizing a URL, hashing
+  it and slugifying it are not things a share-sheet shortcut can do, and a
+  slug computed any other way is a second identity rule (invariant 2).
+- **Never overwrites.** A URL that already has an article keeps it — a browser
+  clip is always the better body — and saving one link twice makes one
+  article.
+- **A file with no usable link is deleted and fails the run.** Kept, it would
+  fail every run after; deleted silently, the save would be lost without a
+  word. The run's summary is where it is named.
+- **Not under `--slug`**, which is about one article, not about what was saved.
+
 ## Consequences
 
 - The service worker's rule (invariant 6) covers `@tiro/clip` too: types only,

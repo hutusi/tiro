@@ -116,6 +116,10 @@ async function run(vault: string): Promise<number> {
       ...(values.slug !== undefined ? { slug: values.slug } : {}),
       force: values.force,
       dryRun,
+      // Set by the vault workflow to the tiro checkout it runs.
+      ...(process.env.TIRO_COMMIT !== undefined
+        ? { clipperCommit: process.env.TIRO_COMMIT }
+        : {}),
     },
     config,
     { chat, deadline },

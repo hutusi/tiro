@@ -18,6 +18,7 @@ import {
 } from "./deadline.ts";
 import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
 import { processImages, reconcileAssets } from "./images.ts";
+import { drainInbox, type InboxReport } from "./inbox.ts";
 import { detectLang } from "./language.ts";
 import {
   discardTranslationCache,
@@ -73,6 +74,9 @@ export interface PipelineOptions {
   slug?: string;
   force?: boolean;
   dryRun?: boolean;
+  /** The tiro commit this run executes, recorded on stubs made from saved
+   * links: it is the code that will clip their pages (ADR 0034). */
+  clipperCommit?: string;
 }
 
 export interface PipelineReport {
@@ -96,6 +100,8 @@ export interface PipelineReport {
    * each would only have paid its retries to fail the same way (ADR 0032).
    * Pending, so the next run picks them up. */
   halted: string[];
+  /** Links saved to `inbox/` this run turned into stubs, or could not. */
+  inbox: InboxReport;
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
@@ -232,6 +238,7 @@ export async function runPipeline(
     errored: [],
     skipped: [],
     halted: [],
+    inbox: { saved: [], existing: [], rejected: [] },
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -243,6 +250,20 @@ export async function runPipeline(
   // Outages only: an article that fails on its own content says nothing about
   // the next one, so it neither counts nor resets the streak (ADR 0032).
   const outages = createBreaker(PROVIDER_FAILURE_LIMIT);
+
+  // Before discovery, so a link saved since the last run is a stub by the
+  // time articles are chosen, and is processed in this run. Not under --slug:
+  // a one-article run is about that article, not about what was saved.
+  if (options.slug === undefined) {
+    report.inbox = await drainInbox(options.vaultDir, {
+      dryRun: options.dryRun === true,
+      ...(deps.now !== undefined ? { now: deps.now } : {}),
+      ...(options.clipperCommit !== undefined
+        ? { clipperCommit: options.clipperCommit }
+        : {}),
+      log,
+    });
+  }
 
   const { pending, invalid, tagLists } = await discoverArticles(
     options.vaultDir,

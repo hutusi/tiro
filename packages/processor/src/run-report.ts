@@ -12,10 +12,13 @@ import { type PipelineReport, PROVIDER_FAILURE_LIMIT } from "./pipeline.ts";
  * the article itself, never retried, and listed in the summary instead — so a
  * red run means "look at this", not "this happened once". An article the run
  * halted before (a provider outage) is pending work too; the outages that
- * halted it are what count.
+ * halted it are what count. A saved link that held nothing usable counts: it
+ * is deleted, and this is the only place it is ever mentioned again.
  */
 export function failureCount(report: PipelineReport): number {
-  return report.errored.length + report.invalid.length;
+  return (
+    report.errored.length + report.invalid.length + report.inbox.rejected.length
+  );
 }
 
 /** An error message as one line of Markdown that cannot break its list item. */
@@ -46,6 +49,24 @@ export function formatRunSummary(report: PipelineReport): string {
     `| Images | ${report.imagesDownloaded} downloaded, ${report.imagesFailed} kept as hotlinks, ${report.imagesPruned} orphans removed |`,
   ];
 
+  const { inbox } = report;
+  if (inbox.saved.length > 0 || inbox.existing.length > 0) {
+    lines.push("", "**Saved links** (ADR 0034):");
+    for (const saved of inbox.saved) {
+      lines.push(`- \`${saved.slug}\` from ${oneLine(saved.url)}`);
+    }
+    for (const existing of inbox.existing) {
+      lines.push(
+        `- \`${existing.slug}\` was already in the vault; kept as it is`,
+      );
+    }
+  }
+  if (inbox.rejected.length > 0) {
+    lines.push("", "**Saved links not used** — these turn the run red:");
+    for (const bad of inbox.rejected) {
+      lines.push(`- \`${bad.file}\`: ${oneLine(bad.reason)}`);
+    }
+  }
   if (report.errored.length > 0) {
     lines.push("", "**Failed** — these turn the run red:");
     for (const failure of report.errored) {
