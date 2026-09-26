@@ -96,6 +96,21 @@ distinct and single-article counts, the vocabulary a run would offer, and the
 tags not in English, not in canonical form, or in both singular and plural. It
 is how the numbers in this record were taken, and how a retag is judged.
 
+### 5. Retag what is already there
+
+The rules above apply as articles are processed, so on their own they would
+take as long to reach the vault as it takes to reprocess it. `tiro-process
+retag` brings processed articles up to them: one JSON-mode call per article,
+from its title and summary with its old tags as hints, through the same prompt
+lines, policy and vocabulary as a run. It rewrites only `tags`, keeping the key
+order the processor writes, and never touches the processing markers.
+
+A command beside `backfill-titles`, for its reasons: `--force` over the vault
+would re-translate whole bodies and re-download every image to change one line
+per article. Its skip rule is the policy itself — an article whose tags already
+meet it is not asked again — which makes it resumable without a marker of its
+own.
+
 ## Consequences
 
 - A tag's form is part of the content contract, alongside the schema, though

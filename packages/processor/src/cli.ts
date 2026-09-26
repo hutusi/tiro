@@ -11,6 +11,7 @@ import {
   runPipeline,
 } from "./pipeline.ts";
 import { repairVault } from "./repair.ts";
+import { retagVault } from "./retag.ts";
 import { publishRunReport } from "./run-report.ts";
 import { readTaggedArticles, type TagCount, tagReport } from "./tag-report.ts";
 import { validateVault } from "./validate.ts";
@@ -24,6 +25,7 @@ function usage(): never {
       "  tiro-process repair --vault <dir> [--slug <slug>] [--dry-run]",
       "  tiro-process backfill-titles --vault <dir> [--slug <slug>] [--force] [--dry-run] [--limit <n>]",
       "  tiro-process tags --vault <dir>",
+      "  tiro-process retag --vault <dir> [--slug <slug>] [--force] [--dry-run] [--limit <n>]",
     ].join("\n"),
   );
   process.exit(2);
@@ -50,6 +52,7 @@ const COMMANDS = new Set([
   "repair",
   "backfill-titles",
   "tags",
+  "retag",
 ]);
 if (vaultDir === undefined || !COMMANDS.has(command)) usage();
 
@@ -61,6 +64,8 @@ if (command === "validate") {
   process.exit(await backfill(vaultDir));
 } else if (command === "tags") {
   process.exit(await tags(vaultDir));
+} else if (command === "retag") {
+  process.exit(await retag(vaultDir));
 } else {
   process.exit(await run(vaultDir));
 }
@@ -324,5 +329,75 @@ async function backfill(vault: string): Promise<number> {
   // commit step and discard the articles that did process (invariant 7), this
   // command is hand-run and read as a diff — like `repair`, which exits non-zero
   // on a refusal.
+  return report.failed.length > 0 || report.invalid.length > 0 ? 1 : 0;
+}
+
+/**
+ * Give processed articles the tags a run would give them now (ADR 0033).
+ * Hand-run and read as a diff, like `backfill-titles`: it rewrites only the
+ * `tags` line of articles that are already processed and never touches their
+ * markers, so nothing is re-queued. Pushing the result redeploys (ADR 0032).
+ */
+async function retag(vault: string): Promise<number> {
+  const config = await loadVaultConfig(vault);
+  const dryRun = values["dry-run"];
+  const deadline = createDeadline(config.processing.run_budget_ms);
+
+  let limit: number | undefined;
+  if (values.limit !== undefined) {
+    limit = Number(values.limit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      console.error(`--limit must be a positive integer, got: ${values.limit}`);
+      return 2;
+    }
+  }
+
+  let chat: ChatFn = async () => {
+    throw new Error("LLM client unavailable in dry-run");
+  };
+  if (!dryRun) {
+    const client = chatClientFor(config, deadline);
+    if (client === null) return 1;
+    chat = client;
+  }
+
+  const report = await retagVault(
+    vault,
+    config,
+    {
+      ...(values.slug !== undefined ? { slug: values.slug } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+      force: values.force,
+      dryRun,
+    },
+    { chat, deadline, log: (message) => console.log(message) },
+  );
+
+  const list = (tags: readonly string[]) => `[${tags.join(", ")}]`;
+  for (const article of report.retagged) {
+    console.log(
+      article.after === null
+        ? `would retag ${article.slug}: ${list(article.before)}`
+        : `${article.slug}: ${list(article.before)} → ${list(article.after)}`,
+    );
+  }
+  for (const failure of report.failed) {
+    console.warn(`warning: ${failure.slug} kept its tags: ${failure.error}`);
+  }
+  for (const bad of report.invalid) {
+    console.warn(`warning: ${bad.path} could not be read: ${bad.error}`);
+  }
+  const pending = report.skipped.filter((s) => s.reason === "pending").length;
+  console.log(
+    `${dryRun ? "would retag" : "retagged"} ${report.retagged.length} of ${report.scanned} article(s), ` +
+      `${report.unchanged.length} unchanged, ${report.skipped.length - pending} already meeting the policy, ` +
+      `${pending} pending, ${report.failed.length} failed, ${report.invalid.length} unreadable, ` +
+      `${report.remaining.length} left for a re-run; vocabulary offered: ${report.vocabulary.length} tag(s)`,
+  );
+  if (report.remaining.length > 0) {
+    console.log(`re-run to continue: ${report.remaining.join(", ")}`);
+  }
+  // Like `backfill-titles`: this exit code is the only signal an article
+  // kept tags it should have lost, and the command is hand-run.
   return report.failed.length > 0 || report.invalid.length > 0 ? 1 : 0;
 }

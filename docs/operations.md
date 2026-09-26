@@ -1103,6 +1103,47 @@ Read it for what to alias. A singular and plural pair (`ai agent/ai agents`) or
 two names for one thing is a line under `tags.aliases` in `tiro.yml`; it applies
 from the next run on.
 
+### Retagging the vault
+
+Articles processed before ADR 0033 keep the tags they were given — any
+language, any spelling, mostly one-offs — until they are reprocessed. `retag`
+gives them the tags a run would give them now: one small JSON-mode call per
+article, from its title and summary (the source-language one where there is
+one) with its old tags as hints, held to the same policy and offered the same
+vocabulary as a run. It rewrites only `tags` and never touches `processed_at`,
+so nothing is re-queued.
+
+Not `--force` over the vault: that re-translates whole bodies and re-downloads
+every image to change one line.
+
+```sh
+# Baseline, then what it would touch (no LLM calls, no writes)
+bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
+bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --dry-run
+
+# A few first, then read the diff in the vault
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --limit 5
+
+# The rest, then measure again
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault
+bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
+```
+
+- **Run it from `main`**, after the change that brought it has merged — a
+  command run from an unmerged branch writes to the live vault all the same.
+- It skips pending articles (`run` tags those, from the body) and articles
+  whose tags already meet the policy: canonical, English, three to six, at most
+  two outside the vocabulary. That skip is what makes it resumable — run it
+  again to continue — and `--force` asks about every processed article.
+- The vocabulary is built once, before the first call, from the whole vault,
+  so every article in a run is offered the same list.
+- **Expect the diff to be tag lines.** Articles last written by something other
+  than the pipeline may also have `processed_at` and `processor_version` swap
+  places in their `tiro:` block — the serializer's own order, applied once.
+- It stops after three failures in a row and at `processing.run_budget_ms`;
+  failures exit non-zero and keep the article's old tags. Commit and push the
+  vault: the push redeploys (ADR 0032).
+
 ### Cutting an extension release
 
 `apps/extension/manifest.json` holds the only version string in the repo.
