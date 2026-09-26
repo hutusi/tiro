@@ -156,3 +156,10 @@ a document nothing will change.
 
 - The service worker's rule (invariant 6) covers `@tiro/clip` too: types only,
   never values.
+- A phone holds a vault-writing token. It is its own, so losing the phone is
+  one revocation, and it should share the extension's expiry date so one
+  reminder covers both; nothing checks it automatically.
+- About one saved link in ten needs a browser after all. Each is named once,
+  in the run that settles it, and a clip replaces it.
+- The processor typechecks with DOM types now, since it compiles
+  `@tiro/clip`'s source.
