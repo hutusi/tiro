@@ -58,6 +58,26 @@ so the page gets a document and nothing more:
   a fetch interceptor refuses anything left. A test serves the page's
   resources from a real local server and counts zero requests.
 
+### 3. The contract: what a saved link is, and how it ends
+
+- **`tiro.capture: "link"`** marks an article whose URL was saved without its
+  page. Separate from `source_media`, because a link can turn out to be a PDF
+  and then both are true. Kept after processing, as provenance: the body was
+  read without the reader's cookies or the page's scripts, and an audit may
+  want to find those.
+- **`tiro.fetch_failed: "<reason>"`** records a failure that will not change
+  by retrying — a 404, a bot wall, something that is not a document, a page
+  that builds its text with scripts. The article is marked processed, so no
+  run retries it forever (the daily run would), and the site already hides an
+  article with no body. `--force` with its slug asks again. A transient
+  failure — a 5xx, a timeout — never sets it; that article stays pending.
+- **`fetch` in `tiro.yml`**: a 5 MB cap (a page is text; past it, refused
+  rather than truncated), a 30-second timeout, and `min_chars: 500`, below
+  which a clip is taken to be a script-built page — the threshold `sweep`
+  already flags one at.
+
+All optional and additive, so no `tiro.schema` bump.
+
 ## Consequences
 
 - The service worker's rule (invariant 6) covers `@tiro/clip` too: types only,
