@@ -50,6 +50,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   and nothing else. Copy the new `process.yml` from `vault-template/` into the
   vault to pick this up (ADR 0032).
 
+- **The vault workflow also runs daily.** An article too long for one run used
+  to wait, half-translated, for the next clip to start another. The daily run
+  finishes it without one; with nothing pending it takes about a minute and
+  deploys nothing (ADR 0032).
+
 - **The search page lists tags only.** The categories row repeated the tags
   (`ai` was a chip in both) without saying it was something else. An article's
   category is still a link on its row and in the reader, and `/categories/` now

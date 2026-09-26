@@ -14,6 +14,12 @@ on:
         description: "Only process this article slug"
         type: string
         default: ""
+  # Daily, so an article the run budget deferred is finished without waiting
+  # for the next clip (ADR 0032). Off the hour, when scheduled runs queue
+  # longest. A run with nothing pending takes about a minute and deploys
+  # nothing. Scheduled runs use the default branch.
+  schedule:
+    - cron: "17 3 * * *"
 
 # Serialize runs; queued (not cancelled) so a clip landing mid-run still gets
 # its own run afterwards.
@@ -117,8 +123,9 @@ jobs:
         # A push or a manual run deploys even when this run committed nothing
         # (ADR 0032). Such a push is a hand edit — `unlisted`, a deletion, a
         # repair, a slug migration — and its content is already on main, so
-        # there is nothing to process and everything to publish. Any other
-        # trigger waits for a commit of its own.
+        # there is nothing to process and everything to publish. The daily
+        # run waits for a commit of its own: with nothing new, there is
+        # nothing to publish.
         if: >-
           always() && steps.commit.outcome == 'success' &&
           (steps.commit.outputs.committed == 'true' ||

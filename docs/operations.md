@@ -76,7 +76,8 @@ endpoint works.
   `articles/<slug>/.tiro-zh-cache.json`, so an article too long for one run
   resumes on the next instead of restarting — successive runs converge. Nothing
   needs doing when a run reports `budget reached; resuming next run: <slug>`:
-  the next push, or a manual dispatch, picks it up.
+  the next push, the daily run (03:17 UTC), or a manual dispatch picks it up
+  (ADR 0032).
   - The budget binds every stage, retry, and HTTP request: the chat client
     refuses to start a call with no budget left and clamps each request to
     `min(llm.timeout_ms, remaining)`, and the image stage is clamped the same
@@ -337,9 +338,9 @@ in the original is a formula in the translation.
 | `tiro.summary_failed: true` | the summary needs a human look. The run log says which of two things it is holding: `summary unusable after 3 attempts; using a first-paragraph excerpt`, or `summary unfinished after 3 attempts; keeping the longest cut reply` | reprocess with `force` + slug. For the cut kind, read the article first — the kept summary is often serviceable, and a retry may cut it again |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage | fix the cause; next run retries automatically |
-| article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it. Dispatch the workflow to hurry it along |
+| article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it, at the latest the daily one. Dispatch the workflow to hurry it along |
 | Import refused in the options page with `no usable text layer` or `covers only N of M` | a scanned PDF, or one that is mostly scans. The gates run in the extension so this is said while you are there | nothing to clean up — nothing was committed. OCR is out of scope |
-| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever. Clip the HTML version if one exists, or delete the stub |
+| PDF article stays unprocessed + run line `no usable text layer` | a scanned PDF. OCR is out of scope (ADR 0026) | nothing automatic — the article stays pending forever, and the daily run downloads it again each day. Clip the HTML version if one exists, or delete the stub |
 | PDF article stays unprocessed + run line `text layer covers only N of M page(s)` | a partly-scanned PDF — enough text overall, but concentrated on a few pages | same. If the document really is mostly figures, lower `pdf.min_page_coverage` |
 | PDF article stays unprocessed + run line `not a PDF:` | the URL served HTML (a login wall, a rate-limit interstitial) or something that is not a PDF at all | check the URL in a browser; if it needs a session, the processor cannot fetch it — it carries no cookies |
 | PDF article stays unprocessed + run line `too many pages` | past `pdf.max_pages`; refused rather than truncated | raise the cap in `config/tiro.yml` if the document is genuinely wanted whole |

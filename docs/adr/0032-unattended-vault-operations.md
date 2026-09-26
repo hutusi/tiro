@@ -16,6 +16,10 @@ all the same chore — remembering to do the step the workflow did not:
   pushes with nothing to process, so each ended with "then dispatch a deploy"
   — the most frequent manual step in the runbook, and one whose omission is
   silent: the site keeps serving the old build and says nothing.
+- **Deferred work waited for the next clip.** The processor stops at its run
+  budget and leaves the rest pending (ADR 0008), and pending work was only ever
+  picked up by the next push or a manual dispatch. An over-long article clipped
+  last thing at night sat half-translated until something else was clipped.
 
 ## Decision
 
@@ -33,6 +37,22 @@ vault as it is now.
 The dispatch still comes at the *end* of the run rather than on the push, so a
 deploy never races the processing it would otherwise publish half of.
 
+### 2. The processor also runs daily
+
+`process.yml` gains a daily schedule (03:17 UTC, off the hour, when GitHub's
+scheduled runs queue longest). It runs the ordinary selection — whatever lacks
+`tiro.processed_at` — so it is the same run a push would start, just without
+the push.
+
+There is deliberately no cheaper "is anything pending?" check in front of it.
+A run with nothing to do costs about a minute, roughly 30 of the 2,000 free
+minutes a private repository gets each month. A shell check that decided
+pending without the processor would be a second definition of the one rule the
+pipeline must never disagree with itself on (invariant 3).
+
+A scheduled run deploys only when it committed something: with nothing new
+there is nothing to publish.
+
 ## Consequences
 
 - The runbook loses every "then dispatch a deploy". Deleting an article, hiding
@@ -43,5 +63,8 @@ deploy never races the processing it would otherwise publish half of.
 - One push touching both `articles/` and `collections/` deploys twice, once
   from each workflow. The deploy workflow's concurrency group cancels the
   older, so it costs a build, not a wrong site.
+- An article that can never be processed — a scanned PDF (ADR 0026) — is
+  retried every day rather than on the next push, re-downloading its PDF each
+  time. Deleting the stub is still the way to stop it.
 - `vault-template/` does not propagate. A vault still on the old `process.yml`
   keeps the old behaviour until the file is copied in.

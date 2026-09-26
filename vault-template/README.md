@@ -16,7 +16,8 @@ config/tiro.yml                   # LLM provider config + category taxonomy
 ```
 
 Articles arrive via the Tiro Chrome extension; the workflow summarizes, tags,
-translates, and localizes images, then commits the results back.
+translates, and localizes images, then commits the results back. It also runs
+once a day (03:17 UTC), which finishes anything an earlier run left for later.
 
 A translated article also carries `articles/<slug>/.tiro-zh-cache.json` — a
 translation checkpoint, keyed by the source text of each block. One run has a
