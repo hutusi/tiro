@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs";
-import type { PipelineReport } from "./pipeline.ts";
+import { type PipelineReport, PROVIDER_FAILURE_LIMIT } from "./pipeline.ts";
 
 /**
  * How many outcomes of a run will not fix themselves by waiting (ADR 0032).
@@ -10,7 +10,9 @@ import type { PipelineReport } from "./pipeline.ts";
  * a budget deferral nor a settled marker counts. A deferral is the budget
  * doing its job, and `summary_failed` / `translation_failed` are recorded in
  * the article itself, never retried, and listed in the summary instead — so a
- * red run means "look at this", not "this happened once".
+ * red run means "look at this", not "this happened once". An article the run
+ * halted before (a provider outage) is pending work too; the outages that
+ * halted it are what count.
  */
 export function failureCount(report: PipelineReport): number {
   return report.errored.length + report.invalid.length;
@@ -36,6 +38,9 @@ export function formatRunSummary(report: PipelineReport): string {
     `| Processed | ${report.processed.length} |`,
     `| Translated | ${report.translated.length} |`,
     `| Left for the next run | ${report.skipped.length} |`,
+    ...(report.halted.length > 0
+      ? [`| Not attempted | ${report.halted.length} |`]
+      : []),
     `| Failed | ${report.errored.length} |`,
     `| Invalid | ${report.invalid.length} |`,
     `| Images | ${report.imagesDownloaded} downloaded, ${report.imagesFailed} kept as hotlinks, ${report.imagesPruned} orphans removed |`,
@@ -75,6 +80,12 @@ export function formatRunSummary(report: PipelineReport): string {
     lines.push(
       "",
       `**Left for the next run** (budget reached): ${slugs(report.skipped)}`,
+    );
+  }
+  if (report.halted.length > 0) {
+    lines.push(
+      "",
+      `**Stopped early** — the provider failed ${PROVIDER_FAILURE_LIMIT} articles in a row; not attempted, still pending: ${slugs(report.halted)}`,
     );
   }
   return `${lines.join("\n")}\n`;

@@ -63,6 +63,15 @@ versions follow the `0.x` line while Tiro is a personal system.
   read. Budget deferrals and summary/translation markers are listed but never
   turn it red (ADR 0032).
 
+- **A provider outage stops the run instead of eating it.** Three articles in a
+  row failing on a server fault, a rejected key, a rate limit or no connection
+  now end the run, leaving the rest pending for the next one — where before
+  every article paid its full retries until the budget ran out. An outage in the
+  middle of a PDF no longer costs it its structure for good: that used to be
+  recorded as the model's verdict on the batch, and now leaves the article
+  pending. A refused request (400) and a timeout still fall back as before
+  (ADR 0032).
+
 - **The search page lists tags only.** The categories row repeated the tags
   (`ai` was a chip in both) without saying it was something else. An article's
   category is still a link on its row and in the reader, and `/categories/` now

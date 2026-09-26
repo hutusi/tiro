@@ -14,6 +14,7 @@ function report(overrides: Partial<PipelineReport> = {}): PipelineReport {
     translationFailed: [],
     errored: [],
     skipped: [],
+    halted: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -121,6 +122,31 @@ describe("formatRunSummary", () => {
       "**Left for the next run** (budget reached): `long`",
     );
     expect(text).not.toContain("**Failed**");
+  });
+});
+
+describe("formatRunSummary when the provider stopped the run", () => {
+  test("says why the rest were not attempted", () => {
+    const text = formatRunSummary(
+      report({
+        errored: [
+          { slug: "a", error: "503", staysPending: true },
+          { slug: "b", error: "503", staysPending: true },
+          { slug: "c", error: "503", staysPending: true },
+        ],
+        halted: ["d", "e"],
+      }),
+    );
+    expect(text).toContain("| Not attempted | 2 |");
+    expect(text).toContain(
+      "**Stopped early** — the provider failed 3 articles in a row; not attempted, still pending: `d`, `e`",
+    );
+  });
+
+  test("a halted article is not itself a failure", () => {
+    // The outages that stopped the run are failures and already count; the
+    // articles never started are pending work, like a budget deferral.
+    expect(failureCount(report({ halted: ["d", "e"] }))).toBe(0);
   });
 });
 

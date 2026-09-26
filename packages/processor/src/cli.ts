@@ -4,7 +4,11 @@ import type { TiroConfig } from "@tiro/shared/config";
 import { backfillTitles } from "./backfill-titles.ts";
 import { createDeadline, type Deadline } from "./deadline.ts";
 import { type ChatFn, createChatClient } from "./llm/client.ts";
-import { loadVaultConfig, runPipeline } from "./pipeline.ts";
+import {
+  loadVaultConfig,
+  PROVIDER_FAILURE_LIMIT,
+  runPipeline,
+} from "./pipeline.ts";
 import { repairVault } from "./repair.ts";
 import { publishRunReport } from "./run-report.ts";
 import { validateVault } from "./validate.ts";
@@ -126,6 +130,11 @@ async function run(vault: string): Promise<number> {
   if (report.skipped.length > 0) {
     console.log(
       `budget reached; resuming next run: ${report.skipped.join(", ")}`,
+    );
+  }
+  if (report.halted.length > 0) {
+    console.warn(
+      `warning: stopped after the provider failed ${PROVIDER_FAILURE_LIMIT} articles in a row; not attempted, still pending: ${report.halted.join(", ")}`,
     );
   }
   if (report.errored.length > 0) {

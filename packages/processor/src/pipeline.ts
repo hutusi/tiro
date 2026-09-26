@@ -5,6 +5,7 @@ import {
   parseTiroConfig,
   type TiroConfig,
 } from "@tiro/shared/config";
+import { createBreaker } from "./breaker.ts";
 import {
   createDeadline,
   type Deadline,
@@ -20,7 +21,11 @@ import {
   TRANSLATION_CACHE_FILE,
   type TranslationCache,
 } from "./llm/cache.ts";
-import type { ChatFn, FetchLike } from "./llm/client.ts";
+import {
+  type ChatFn,
+  type FetchLike,
+  isProviderFailure,
+} from "./llm/client.ts";
 import {
   type SummaryResult,
   summarize,
@@ -30,6 +35,11 @@ import { translateBlocks } from "./llm/translate.ts";
 import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
+
+/** Outages in a row before a run stops starting articles (ADR 0032). Three,
+ * like `backfill-titles`: one is noise, two can be a coincidence, and each
+ * costs an article its full retries against a provider that is not there. */
+export const PROVIDER_FAILURE_LIMIT = 3;
 
 export interface PipelineDeps {
   chat: ChatFn;
@@ -68,6 +78,10 @@ export interface PipelineReport {
   /** Left for a later run because this one ran out of budget — not a failure:
    * their translation checkpoints are on disk and the next run resumes them. */
   skipped: string[];
+  /** Never started, because the provider failed article after article and
+   * each would only have paid its retries to fail the same way (ADR 0032).
+   * Pending, so the next run picks them up. */
+  halted: string[];
   invalid: { path: string; error: string }[];
   imagesDownloaded: number;
   imagesFailed: number;
@@ -161,6 +175,7 @@ export async function runPipeline(
     translationFailed: [],
     errored: [],
     skipped: [],
+    halted: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
@@ -169,6 +184,9 @@ export async function runPipeline(
 
   const deadline =
     deps.deadline ?? createDeadline(config.processing.run_budget_ms);
+  // Outages only: an article that fails on its own content says nothing about
+  // the next one, so it neither counts nor resets the streak (ADR 0032).
+  const outages = createBreaker(PROVIDER_FAILURE_LIMIT);
 
   const { pending, invalid } = await discoverArticles(options.vaultDir, {
     ...(options.slug !== undefined ? { slug: options.slug } : {}),
@@ -188,6 +206,17 @@ export async function runPipeline(
         detectLang(article.parsed.body, config.translation.cjk_threshold);
       log(`[dry-run] would process ${article.slug} (lang=${lang})`);
       continue;
+    }
+    if (outages.tripped) {
+      let haltedCount = 0;
+      for (const candidate of pending.slice(i)) {
+        if (await deferArticle(candidate, options, report, log, report.halted))
+          haltedCount += 1;
+      }
+      log(
+        `the provider failed ${outages.count} articles in a row; stopping, with ${haltedCount} article(s) left pending for the next run`,
+      );
+      break;
     }
     // Don't start what cannot finish: an article abandoned partway costs its
     // image downloads and summary call and gets rolled back anyway. One LLM
@@ -217,6 +246,7 @@ export async function runPipeline(
         deadline,
         options.force === true,
       );
+      outages.succeeded();
     } catch (error) {
       // Budget exhaustion is an orderly stop, not a fault: the article's
       // translation checkpoint is on disk, so the next run resumes it rather
@@ -260,6 +290,7 @@ export async function runPipeline(
           error: String(error),
           staysPending,
         });
+        if (isProviderFailure(error)) outages.failed();
         log(
           staysPending
             ? `processing failed for ${article.slug}, left pending: ${String(error)}`
@@ -542,10 +573,13 @@ async function deferArticle(
   options: PipelineOptions,
   report: PipelineReport,
   log: (message: string) => void,
+  /** Where a successful deferral is booked: the budget's `skipped` unless the
+   * caller is stopping for another reason. */
+  into: string[] = report.skipped,
 ): Promise<boolean> {
   try {
     await markPending(article, options, log);
-    report.skipped.push(article.slug);
+    into.push(article.slug);
     return true;
   } catch (error) {
     report.errored.push({

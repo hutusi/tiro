@@ -25,7 +25,11 @@ import {
 import { joinPdfPages } from "@tiro/shared/pdf";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
-import type { ChatFn, FetchLike } from "../src/llm/client.ts";
+import {
+  type ChatFn,
+  ChatHttpError,
+  type FetchLike,
+} from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
 import { makeFakeChat, makePdf, makeStyledPdf } from "./helpers.ts";
 
@@ -495,6 +499,139 @@ describe("hard failures", () => {
     // Succeeding article fully processed despite the earlier failure.
     const second = parseArticle(readFileSync(secondPath, "utf8"));
     expect(needsProcessing(second.frontmatter)).toBe(false);
+  });
+});
+
+describe("a provider outage", () => {
+  /** Five pending articles with equal bodies, so they run in slug order, and
+   * the fixture's own pending clip moved out of the way. Each body names its
+   * article, which is how a chat below decides whom to fail. */
+  function outageVault(): { vault: string; slugs: string[] } {
+    const vault = freshVault();
+    rmSync(join(vault, "articles", RAW), { recursive: true });
+    const slugs = ["a", "b", "c", "d", "e"].map(
+      (n) => `zz-outage-${n}-aaaaaaaa`,
+    );
+    for (const [i, slug] of slugs.entries()) {
+      mkdirSync(join(vault, "articles", slug), { recursive: true });
+      writeFileSync(
+        join(vault, "articles", slug, "index.md"),
+        [
+          "---",
+          `url: "https://example.net/outage/${i}"`,
+          `title: "Outage ${i}"`,
+          'domain: "example.net"',
+          'clipped_at: "2026-08-23T09:00:00.000Z"',
+          "tiro:",
+          "  schema: 1",
+          "---",
+          "",
+          `Body of article number ${i} in the outage set.`,
+          "",
+        ].join("\n"),
+      );
+    }
+    return { vault, slugs };
+  }
+
+  /** Fails the articles whose body mentions one of `numbers` with `error`. */
+  function failing(numbers: number[], error: () => unknown) {
+    const healthy = makeFakeChat();
+    let calls = 0;
+    const chat: ChatFn = async (request) => {
+      calls += 1;
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      if (numbers.some((n) => user.includes(`article number ${n} `))) {
+        throw error();
+      }
+      return healthy(request);
+    };
+    return { chat, calls: () => calls };
+  }
+
+  test("stops after three in a row, leaving the rest pending and untouched", async () => {
+    const { vault, slugs } = outageVault();
+    const config = await loadVaultConfig(vault);
+    const before = slugs.map((slug) =>
+      readFileSync(join(vault, "articles", slug, "index.md"), "utf8"),
+    );
+    const { chat, calls } = failing(
+      [0, 1, 2, 3, 4],
+      () => new ChatHttpError(503, "busy"),
+    );
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat,
+    });
+
+    expect(report.errored.map((e) => e.slug)).toEqual(slugs.slice(0, 3));
+    expect(report.halted).toEqual(slugs.slice(3));
+    expect(report.skipped).toEqual([]);
+    // The halted two never reached the provider.
+    expect(calls()).toBe(3);
+    for (const [i, slug] of slugs.entries()) {
+      expect(
+        readFileSync(join(vault, "articles", slug, "index.md"), "utf8"),
+      ).toBe(before[i] as string);
+    }
+  });
+
+  test("a failure that is not an outage never stops the run", async () => {
+    // A refusal is about one request; the next article may well go through.
+    const { vault, slugs } = outageVault();
+    const config = await loadVaultConfig(vault);
+    const { chat } = failing(
+      [0, 1, 2, 3, 4],
+      () => new ChatHttpError(400, "data_inspection_failed"),
+    );
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat,
+    });
+    expect(report.errored.map((e) => e.slug)).toEqual(slugs);
+    expect(report.halted).toEqual([]);
+  });
+
+  test("an article that goes through ends the streak", async () => {
+    const { vault, slugs } = outageVault();
+    const config = await loadVaultConfig(vault);
+    const { chat } = failing(
+      [0, 1, 3, 4],
+      () => new ChatHttpError(503, "busy"),
+    );
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      chat,
+    });
+    expect(report.processed).toEqual([slugs[2] as string]);
+    expect(report.errored).toHaveLength(4);
+    expect(report.halted).toEqual([]);
+  });
+
+  test("a forced article it stops before returns to pending", async () => {
+    // Forced discovery takes processed articles too. One left with its marker
+    // would be skipped by the next ordinary run — the same trap the budget's
+    // deferral had to close.
+    const { vault, slugs } = outageVault();
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, deps);
+    const done = (slug: string) =>
+      !needsProcessing(
+        parseArticle(
+          readFileSync(join(vault, "articles", slug, "index.md"), "utf8"),
+        ).frontmatter,
+      );
+    expect(slugs.every(done)).toBe(true);
+
+    const report = await runPipeline({ vaultDir: vault, force: true }, config, {
+      ...deps,
+      chat: async () => {
+        throw new ChatHttpError(401, "bad key");
+      },
+    });
+    expect(report.halted.length).toBeGreaterThan(0);
+    for (const slug of report.halted) expect(done(slug)).toBe(false);
   });
 });
 

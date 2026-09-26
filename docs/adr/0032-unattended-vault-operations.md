@@ -26,6 +26,11 @@ all the same chore — remembering to do the step the workflow did not:
   too odd for the model does not redo the same batches every run. It could not
   tell such a batch from one the provider never answered because it was down,
   so an outage during a PDF cost that article its structure permanently.
+- **A dead provider cost the whole budget.** Each pending article went through
+  its retries and timeouts against a provider that was not there, one after
+  another, until the run budget ran out. `backfill-titles` already stopped
+  after three failures in a row; `run`, which spends far more per article, did
+  not.
 - **A failure was silent.** `run` exits 0 whatever happens to an article, on
   purpose: a non-zero exit fails the workflow before its commit step and
   throws away every article that did finish (invariant 7). So the job was
@@ -103,6 +108,21 @@ answer in time would otherwise time out on every run forever.
 The PDF restructuring pass rethrows an outage instead of falling back, so
 nothing is checkpointed for that batch and the article stays pending; the
 batches it did restore are kept for the next run.
+
+### 5. Three outages in a row stop the run
+
+`run` counts articles that failed with an outage, and stops starting new ones
+at three in a row. Only an article that goes through resets the count; one
+that fails for its own reasons neither counts nor resets it, because it says
+nothing about the provider. The articles not attempted are booked as `halted`
+— apart from `skipped`, which means the budget — and returned to pending the
+same way a budget deferral is, so a forced one does not keep its old marker.
+The run is red already, from the three outages; the halted articles are
+pending work, not failures, and do not add to the count.
+
+Three, as in `backfill-titles`, which now shares the counter (`createBreaker`):
+one outage is noise, two can be coincidence, and each costs an article its
+full retries.
 
 ## Consequences
 
