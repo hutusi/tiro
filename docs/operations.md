@@ -1087,6 +1087,22 @@ Both forced paths overwrite it, and they differ in what else they touch —
 *processing* run (`run --force`, or the workflow with `force: true`) re-rolls the
 summary and the tags alongside it.
 
+### Measuring the vault's tags
+
+`tags` reads every article and reports what its tags look like (ADR 0033): how
+many distinct tags there are, how many only one article carries, what the next
+run would offer the model as its vocabulary, and the tags that are not in
+English, not in canonical form, or used in both singular and plural. No model,
+no writes — safe on the live clone at any time.
+
+```sh
+bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
+```
+
+Read it for what to alias. A singular and plural pair (`ai agent/ai agents`) or
+two names for one thing is a line under `tags.aliases` in `tiro.yml`; it applies
+from the next run on.
+
 ### Cutting an extension release
 
 `apps/extension/manifest.json` holds the only version string in the repo.
