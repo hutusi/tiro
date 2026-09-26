@@ -1,7 +1,8 @@
 import { plainText, splitBlocks } from "@tiro/shared";
 import { z } from "zod";
-import { MAX_NEW_TAGS, writableTags } from "../tag-policy.ts";
+import { writableTags } from "../tag-policy.ts";
 import type { ChatFn, ChatMessage } from "./client.ts";
+import { tagPromptLines } from "./tags.ts";
 import {
   acceptableSourceSummary,
   acceptableTitleZh,
@@ -166,12 +167,7 @@ export async function summarize(
     "Respond with a single JSON object with exactly these keys:",
     `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`,
     `- "category": exactly one of: ${categories.join(", ")}.`,
-    '- "tags": 3 to 6 short topic tags, in English even when the article is not — lowercase, words separated by spaces, a proper noun by its usual English name.',
-    ...(vocabulary.length > 0
-      ? [
-          `  The vault already uses these tags. Reuse one whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
-        ]
-      : []),
+    ...tagPromptLines(vocabulary),
     ...(bilingual
       ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
       : []),

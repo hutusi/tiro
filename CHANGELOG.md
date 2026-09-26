@@ -50,7 +50,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   spaces between words, a tag in another script is dropped, and `tags.aliases`
   in `tiro.yml` merges or refuses tags as they are written. The model is also
   shown the vault's own vocabulary — every tag two articles share — and asked
-  to reuse it; an article may coin at most two tags outside it (ADR 0033).
+  to reuse it; an article may coin at most two tags outside it. Two new
+  commands: `tiro-process tags` measures the vault's tags, and `tiro-process
+  retag` brings already-processed articles up to the same rules, one small call
+  each (ADR 0033).
 
 - **A hand edit to the vault publishes itself.** Hiding an article, deleting
   one, a repair or a slug migration used to end with "then dispatch a deploy",
