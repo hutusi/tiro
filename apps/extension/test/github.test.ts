@@ -145,16 +145,32 @@ describe("parseTokenExpiry", () => {
 });
 
 describe("daysUntil", () => {
-  const now = new Date("2026-09-26T12:00:00.000Z");
+  // Local-time constructors throughout: the count is on the reader's calendar,
+  // so the test must not depend on the machine's zone.
+  const now = new Date(2026, 8, 26, 23, 0);
 
-  test("counts whole days, rounding down", () => {
-    expect(daysUntil(new Date("2026-10-26T12:00:00.000Z"), now)).toBe(30);
-    // Half a day short of 30 is 29: "30 days left" would overstate it.
-    expect(daysUntil(new Date("2026-10-26T00:00:00.000Z"), now)).toBe(29);
+  test("counts calendar days, not 24-hour periods", () => {
+    // Two hours away, but tomorrow: shown beside tomorrow's date, it must not
+    // say "today".
+    expect(daysUntil(new Date(2026, 8, 27, 1, 0), now)).toBe(1);
+    expect(daysUntil(new Date(2026, 9, 26, 0, 30), now)).toBe(30);
+  });
+
+  test("is 0 for later today", () => {
+    expect(daysUntil(new Date(2026, 8, 26, 23, 59), now)).toBe(0);
   });
 
   test("is below zero once the date has passed", () => {
-    expect(daysUntil(new Date("2026-09-25T12:00:00.000Z"), now)).toBe(-1);
+    expect(daysUntil(new Date(2026, 8, 25, 23, 59), now)).toBe(-1);
+  });
+
+  test("a daylight-saving day still counts as one", () => {
+    // A whole year, so any zone with daylight saving crosses both changes:
+    // the 23-hour spring day is the one that would lose a day if rounded down.
+    const start = new Date(2026, 0, 1, 12);
+    for (let day = 0; day < 365; day += 1) {
+      expect(daysUntil(new Date(2026, 0, 1 + day, 12), start)).toBe(day);
+    }
   });
 });
 

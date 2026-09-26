@@ -67,10 +67,19 @@ export function parseTokenExpiry(header: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Whole days from `now` to `expiresAt`, rounded down, so "30 days left" is
- * never said of a token with 29.5. */
+/**
+ * Days from `now` to `expiresAt` on the reader's own calendar: 0 when the
+ * token expires today, 1 when tomorrow, whatever the hours in between.
+ *
+ * Calendar days rather than elapsed ones, because the number is shown beside
+ * a date. Counting 24-hour periods, a token expiring at 01:00 tomorrow read as
+ * "expires today" at 23:00 — next to tomorrow's date. Rounded, not floored,
+ * so a day that daylight saving made 23 or 25 hours long still counts as one.
+ */
 export function daysUntil(expiresAt: Date, now: Date): number {
-  return Math.floor((expiresAt.getTime() - now.getTime()) / 86_400_000);
+  const startOfDay = (date: Date) =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  return Math.round((startOfDay(expiresAt) - startOfDay(now)) / 86_400_000);
 }
 
 /** Structured so the options page can phrase the outcome in the user's
