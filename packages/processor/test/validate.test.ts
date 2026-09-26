@@ -51,6 +51,20 @@ describe("validateVault", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
+  test("catches an empty tag", async () => {
+    // A hand edit is the only way one gets in — the processor drops empties —
+    // and this gate is what hand edits have.
+    const vault = freshVault();
+    const path = join(vault, "articles", EN, "index.md");
+    writeFileSync(
+      path,
+      readFileSync(path, "utf8").replace("  - tutorial\n", '  - ""\n'),
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([`${EN}/index.md: tag "" is empty`]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
   test("catches a directory whose slug no longer matches its url", async () => {
     const vault = freshVault();
     renameSync(

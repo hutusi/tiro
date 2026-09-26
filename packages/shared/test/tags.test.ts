@@ -149,6 +149,17 @@ describe("tagFormProblems", () => {
     ]);
   });
 
+  test("names an empty tag, which is its own canonical form", () => {
+    // The trap: "" normalizes to "", so a check that only asks "did
+    // normalizing change it?" accepts it, and the site renders a blank chip.
+    expect(tagFormProblems([""])).toEqual(['tag "" is empty']);
+    expect(tagFormProblems(["rust", ""])).toEqual(['tag "" is empty']);
+    expect(tagFormProblems(["", ""])).toEqual([
+      'tag "" is empty',
+      'tag "" is empty',
+    ]);
+  });
+
   test(`counts more than ${TAG_LIMIT}`, () => {
     const tags = ["a", "b", "c", "d", "e", "f", "g"];
     expect(tagFormProblems(tags)).toEqual([`7 tags, at most ${TAG_LIMIT}`]);

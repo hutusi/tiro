@@ -91,11 +91,20 @@ export function tagFormProblems(tags: readonly string[]): string[] {
   const seen = new Set<string>();
   for (const tag of tags) {
     const canonical = normalizeTag(tag);
+    // Checked on its own, before the comparison below: `""` normalizes to
+    // itself, so as "is it canonical?" it passes — and the site would still
+    // give it a page and a blank chip.
+    if (canonical === "") {
+      problems.push(
+        tag === ""
+          ? 'tag "" is empty'
+          : `tag ${JSON.stringify(tag)} is empty once normalized`,
+      );
+      continue;
+    }
     if (canonical !== tag) {
       problems.push(
-        canonical === ""
-          ? `tag ${JSON.stringify(tag)} is empty once normalized`
-          : `tag ${JSON.stringify(tag)} is not in canonical form (${JSON.stringify(canonical)})`,
+        `tag ${JSON.stringify(tag)} is not in canonical form (${JSON.stringify(canonical)})`,
       );
     }
     if (seen.has(canonical)) {
