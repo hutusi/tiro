@@ -49,6 +49,7 @@ never needs updating for a fix to it.
 | `CLOUDFLARE_API_TOKEN` | tiro | Account → Cloudflare Pages: Edit | `wrangler pages deploy` |
 | `CLOUDFLARE_ACCOUNT_ID` | tiro | (not sensitive) | wrangler target account |
 | extension PAT | Chrome options page only (one per machine) | PAT: `tiro-vault`, Contents RW | clip commits |
+| phone PAT | the iPhone Shortcut only | PAT: `tiro-vault`, Contents RW | saving a link into `inbox/` (below). Its own token, with the extension PAT's expiry date |
 
 Rotate a GitHub secret with `gh secret set NAME -R hutusi/<repo>` (prompts for
 the value); the extension PAT is re-pasted in its options page.
@@ -635,6 +636,83 @@ git -C ../tiro-vault push
   …`. An
   unreadable collection stops the run before anything moves — fix it first,
   or its members would be stranded.
+
+## Saving from iPhone
+
+A link saved from the iPhone's Share Sheet becomes an article the same way a
+clip does, minus the browser (ADR 0034). The shortcut writes one file into the
+vault's `inbox/` — the URL, as text — and the next processing run, which that
+push starts, fetches the page, clips it and processes it. Nothing is computed on
+the phone; the slug is the processor's to make.
+
+**What it cannot save well** is what a fetch cannot see: a page behind a login
+or paywall, and a page that builds its text with scripts. Those come back as
+`tiro.fetch_failed` (Failure markers above), reported once by the run, and a clip
+from the desktop browser replaces them. Roughly one link in ten, measured on the
+vault's own pages.
+
+### The token
+
+Create a fine-grained PAT at <https://github.com/settings/personal-access-tokens>:
+repository access **only `tiro-vault`**, permission **Contents: Read and write**,
+and the same expiry date as the extension's PAT, so one reminder covers both. It
+lives in the shortcut and nowhere else — a lost phone is one revocation, not a
+rotation for every machine. **Never share the shortcut**: it carries the token.
+
+### Building the shortcut
+
+In Shortcuts, new shortcut "Save to Tiro". In its details, turn on **Show in
+Share Sheet** and accept **URLs** and **Safari web pages**. Then these actions,
+in order:
+
+1. **Get URLs from Input** — Shortcut Input.
+2. **Get Item from List** — First Item.
+3. **Expand URL**. This matters: a `t.co` or `bit.ly` link saved as it is would
+   become an article filed under the shortener, and the same page saved
+   from a browser would then be a second article.
+4. **Text** — the expanded URL, and nothing else. This is the file.
+5. **Base64 Encode** — the Text, with **Line Breaks: None**. The Contents API
+   rejects wrapped base64.
+6. **Format Date** — Current Date, custom format `yyyyMMdd-HHmmss`.
+7. **Random Number** — between 1000 and 9999, so two saves in one second do not
+   collide.
+8. **Text** — `Formatted Date-Random Number.url`. This is the file name.
+9. **Get Contents of URL**:
+   - URL: `https://api.github.com/repos/<owner>/tiro-vault/contents/inbox/` then
+     the file name from step 8
+   - Method: **PUT**
+   - Headers: `Authorization` = `Bearer <the phone PAT>`,
+     `Accept` = `application/vnd.github+json`,
+     `X-GitHub-Api-Version` = `2022-11-28`
+   - Request Body: **JSON**, with `message` = `save: ` then the expanded URL,
+     and `content` = the Base64 Encoded result
+10. **Get Dictionary Value** — `content` from the result of step 9.
+11. **If** it has any value: **Show Notification** "Saved to Tiro". Otherwise:
+    **Show Alert** with the result of step 9 — GitHub's own message says what
+    went wrong (a `401` is the token; a `404` is the repository name, or a token
+    that cannot see it).
+
+The same request from a terminal, to check a token before building the shortcut:
+
+```sh
+curl -X PUT \
+  -H "Authorization: Bearer $PHONE_PAT" \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  "https://api.github.com/repos/hutusi/tiro-vault/contents/inbox/$(date +%Y%m%d-%H%M%S)-test.url" \
+  -d "{\"message\":\"save: test\",\"content\":\"$(printf 'https://example.com/' | base64)\"}"
+```
+
+That saves `example.com` for real; delete the article it makes, or leave it.
+
+### What happens next
+
+- The push starts "Process articles". Its summary lists each saved link under
+  **Saved links**, with the article it became — or, if the file held no link, as
+  a failure: that file is deleted, and the run turns red so the save is not lost
+  without a word.
+- A link already in the vault keeps its article; saving it again is harmless.
+- The article appears on the site when the run deploys, like a clip.
 
 ## Extension
 

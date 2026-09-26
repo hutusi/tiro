@@ -67,6 +67,11 @@ members' own pictures (ADR 0030), so most collections never need one.
 4. For the Chrome extension, create another fine-grained PAT scoped to
    **this vault repository** with **Contents: Read and write**, and paste it
    into the extension's options page.
+5. Optional — to save links from an iPhone, create one more PAT the same way,
+   for the phone alone, and build the "Save to Tiro" shortcut described in the
+   Tiro repo's `docs/operations.md` ("Saving from iPhone"). A saved link is a
+   file the shortcut writes into `inbox/`; the workflow fetches the page and
+   makes it an article.
 
 > Fine-grained PATs expire (max ~1 year). `tokens.yml` checks
 > `TIRO_DISPATCH_TOKEN` weekly and fails 30 days before it expires, so GitHub
@@ -81,6 +86,9 @@ members' own pictures (ADR 0030), so most collections never need one.
 - **Reprocess everything**: run with "force" and no slug.
 - A re-run without "force" is always a safe no-op: articles are selected by
   the missing `tiro.processed_at` frontmatter marker, not by push diffs.
+- **A saved link that became `tiro.fetch_failed`**: its page could not be read
+  without a browser (a login, a bot check, text built by scripts). Clip it from
+  the browser, which replaces it — or delete it.
 - **Hand edits publish themselves.** Hiding an article (`unlisted: true`),
   deleting one, or any other push under `articles/` redeploys the site when the
   processing run it starts ends, even with nothing to process.

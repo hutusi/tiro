@@ -8,7 +8,9 @@ flowchart LR
     subgraph Chrome
         EXT[Extension\nReadability + Turndown]
     end
+    PHONE[iPhone Shortcut\nShare Sheet]
     subgraph tiro-vault
+        INBOX[inbox/&lt;file&gt;]
         MD[articles/&lt;slug&gt;/index.md]
         ZH[zh.md + assets/]
         WF[process.yml\nGitHub Actions]
@@ -22,6 +24,8 @@ flowchart LR
     CF[Cloudflare Pages]
 
     EXT -- "Contents API PUT" --> MD
+    PHONE -- "Contents API PUT" --> INBOX
+    INBOX -- "push triggers" --> WF
     MD -- "push triggers" --> WF
     WF -- "runs" --> PROC
     PROC -- "commit back" --> ZH
@@ -129,8 +133,22 @@ flowchart LR
    markdown can express (ADR 0011). It has to run second because Readability
    selects on the very attributes folding replaces; done first, a
    `<figure hidden>` became a plain `<p>` and its hidden image was published.
-2. **Process.** A push to `articles/**` triggers the vault's workflow, which
-   checks out this repo and runs `tiro-process`:
+   **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
+   the extension's "Clip link" — writes one file into the vault's `inbox/`
+   holding the URL, through the same Contents API. A file rather than an event,
+   so the save is in git before any workflow runs. Nothing else happens on the
+   phone: it cannot compute a slug, and does not need to.
+2. **Process.** A push to `articles/**` or `inbox/**` triggers the vault's
+   workflow, which checks out this repo and runs `tiro-process`:
+   - turn each `inbox/` file into a stub article — normalized URL, the domain
+     as a placeholder title, `tiro.capture: "link"`, no body — and delete it;
+     a URL that already has an article keeps it (ADR 0034),
+   - for a stub with `capture: "link"` and no body, fetch the page and clip it
+     with `@tiro/clip` — the extension's clipper — in a hardened happy-dom
+     document that runs no script and loads nothing. A failure retrying will
+     not change (a 404, a bot check, a page built by scripts) is recorded as
+     `tiro.fetch_failed` and the article left alone; a link that is a PDF goes
+     on to the PDF step,
    - for a PDF (`tiro.source_media: "pdf"`), build the body first. A web PDF is
      fetched under the same guards the image stage uses and read structurally:
      where its typography carries a heading hierarchy or a fixed-width face,
@@ -326,9 +344,19 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 | tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch, from `process.yml` and `publish.yml` |
 | tiro Actions | `VAULT_READ_TOKEN` (tiro-vault, Contents R; only if vault is private) | deploy checkout |
 | tiro Actions | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Pages deploy |
+| iPhone Shortcut | fine-grained PAT (tiro-vault, Contents RW) | writing a saved link into `inbox/` — its own token, so a lost phone is one revocation (ADR 0034) |
 
 ## Risk register
 
+- **A saved link reads less than a browser clip** (ADR 0034). The processor's
+  fetch carries no cookies and runs no script, so a paywall answers as to a
+  stranger and a script-built page arrives as a shell. Measured on the live
+  vault, about one page in ten; each becomes `tiro.fetch_failed`, reported
+  once, and a clip from the browser replaces it.
+- **A page parsed on the processor could try to act** — scripts, subresource
+  requests — in a job holding the LLM key and a vault-writing token. The
+  parser (`@tiro/clip/happy-dom`) runs none and fetches nothing, and both are
+  tested against a mutation that turns each guard off.
 - **Silently empty article list** when the vault path is wrong: the site
   asserts the vault dir exists and fails the build if the list is empty. The
   default `fixtures/vault` is found by searching upward rather than by counting
@@ -384,8 +412,9 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   (ADR 0008). `timeout-minutes` is a backstop above that budget, and the commit
   step runs `if: always()` so even a kill keeps the run's work. Ordering pending
   articles cheapest-first stops one such article from starving the rest.
-- **Expiring fine-grained PATs** (three kinds: `TIRO_DISPATCH_TOKEN`,
-  `VAULT_READ_TOKEN`, and an extension PAT per machine). A weekly
+- **Expiring fine-grained PATs** (four kinds: `TIRO_DISPATCH_TOKEN`,
+  `VAULT_READ_TOKEN`, an extension PAT per machine, and the phone's). Give the
+  phone's the extension's expiry date, so one reminder covers both. A weekly
   `tokens.yml` in each repo fails 30 days before a workflow token expires, and
   the extension's Test connection shows its own (ADR 0032).
 - **Pagefind index only exists after a build**: the search UI degrades
