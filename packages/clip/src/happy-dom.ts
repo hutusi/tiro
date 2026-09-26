@@ -32,6 +32,23 @@ export async function withHtmlDocument<T>(
   url: string,
   fn: (doc: Document) => T | Promise<T>,
 ): Promise<T> {
+  const { document, close } = openHtmlDocument(html, url);
+  try {
+    return await fn(document);
+  } finally {
+    await close();
+  }
+}
+
+/**
+ * The same hardened document, for a caller that must hand one over
+ * synchronously — the arXiv path's `parse`, which returns a document the
+ * clipper reads afterwards. The caller owns `close`, and must call it.
+ */
+export function openHtmlDocument(
+  html: string,
+  url: string,
+): { document: Document; close: () => Promise<void> } {
   const window = new Window({
     url,
     settings: {
@@ -64,15 +81,17 @@ export async function withHtmlDocument<T>(
       },
     },
   });
+  const close = () => window.happyDOM.close();
+  const document = window.document as unknown as Document;
   try {
-    const doc = window.document as unknown as Document;
-    doc.documentElement.innerHTML = html
+    document.documentElement.innerHTML = html
       .replace(/^[\s\S]*?<html[^>]*>/i, "")
       .replace(/<\/html>[\s\S]*$/i, "");
-    return await fn(doc);
-  } finally {
-    await window.happyDOM.close();
+  } catch (error) {
+    void close();
+    throw error;
   }
+  return { document, close };
 }
 
 /**

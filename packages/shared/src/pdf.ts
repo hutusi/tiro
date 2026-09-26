@@ -3,6 +3,7 @@ import {
   type PdfTextItem,
   readPdfLayout,
 } from "./pdf-layout.ts";
+import { PdfRefusal } from "./pdf-limits.ts";
 
 // One import for every consumer: the subpath is where anything touching pdf.js
 // lives, and splitting it across three specifiers would only invite the barrel
@@ -139,7 +140,7 @@ export async function extractPdfText(
   );
   const perPage = totalPages === 0 ? 0 : chars / totalPages;
   if (perPage < minCharsPerPage) {
-    throw new Error(
+    throw new PdfRefusal(
       `no usable text layer: ${Math.round(perPage)} chars/page across ${totalPages} page(s), below ${minCharsPerPage} — a scanned PDF needs OCR, which Tiro does not do`,
     );
   }
@@ -149,7 +150,7 @@ export async function extractPdfText(
   ).length;
   const coverage = totalPages === 0 ? 0 : withText / totalPages;
   if (coverage < minPageCoverage) {
-    throw new Error(
+    throw new PdfRefusal(
       `text layer covers only ${withText} of ${totalPages} page(s), below ${Math.round(minPageCoverage * 100)}% — the rest is probably scanned, and OCR is out of scope`,
     );
   }

@@ -53,7 +53,7 @@ const FACES = {
  * the layout reader cannot tell anything about — useful for asserting it says
  * so, useless for asserting what it finds.
  */
-export function makeStyledPdf(pages: StyledLine[][]): Uint8Array {
+export function makeStyledPdf(pages: StyledLine[][]): Uint8Array<ArrayBuffer> {
   const objs: string[] = [];
   const kids = pages.map((_, i) => `${7 + i * 2} 0 R`).join(" ");
   objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
@@ -89,7 +89,7 @@ export function makeStyledPdf(pages: StyledLine[][]): Uint8Array {
   return assemble(objs);
 }
 
-export function makePdf(pageTexts: string[]): Uint8Array {
+export function makePdf(pageTexts: string[]): Uint8Array<ArrayBuffer> {
   const objs: string[] = [];
   const kids = pageTexts.map((_, i) => `${4 + i * 2} 0 R`).join(" ");
   objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
@@ -120,7 +120,7 @@ export function makePdf(pageTexts: string[]): Uint8Array {
 }
 
 /** xref table, trailer and the bytes — the half neither builder cares about. */
-function assemble(objs: string[]): Uint8Array {
+function assemble(objs: string[]): Uint8Array<ArrayBuffer> {
   let out = "%PDF-1.4\n";
   const offsets: number[] = [];
   for (let i = 1; i < objs.length; i += 1) {
