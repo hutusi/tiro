@@ -171,6 +171,17 @@ const en = {
   connNetwork: (detail: string) => `Network error: ${detail}`,
   connTokenExpires: (date: string, days: number) =>
     `The token expires on ${date} (${days} ${days === 1 ? "day" : "days"} left).`,
+
+  // "Clip link", from the context menu on a link (ADR 0034). The menu label is
+  // short; the rest show as the toolbar button's tooltip beside its badge.
+  linkMenu: "Clip link to Tiro",
+  linkSaved: (url: string) => `Saved to Tiro — the next run clips it: ${url}`,
+  linkExists: (url: string) => `Already in Tiro: ${url}`,
+  linkNotALink: "Only http and https links can be saved.",
+  linkUnconfigured: "Set your repository and token in Tiro's Settings first.",
+  linkNoDisclosure:
+    "Open Tiro from the toolbar once first — it says what it sends where.",
+  linkFailed: (error: string) => `Could not save the link: ${error}`,
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `The token expires today (${date}) — make a new one now.`
@@ -351,6 +362,14 @@ const zh: Messages = {
   connNetwork: (detail: string) => `网络错误：${detail}`,
   connTokenExpires: (date: string, days: number) =>
     `令牌将于 ${date} 到期（还有 ${days} 天）。`,
+
+  linkMenu: "用 Tiro 剪藏链接",
+  linkSaved: (url: string) => `已保存到 Tiro，下次运行时剪藏：${url}`,
+  linkExists: (url: string) => `Tiro 里已有：${url}`,
+  linkNotALink: "只能保存 http 和 https 链接。",
+  linkUnconfigured: "请先在 Tiro 的设置中填写仓库和令牌。",
+  linkNoDisclosure: "请先从工具栏打开一次 Tiro，它会说明会把什么发送到哪里。",
+  linkFailed: (error: string) => `无法保存链接：${error}`,
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `令牌今天（${date}）到期，请立即更换。`

@@ -14,8 +14,15 @@ import { pathToFileURL } from "node:url";
 
 const listener = { addListener() {} };
 (globalThis as { chrome?: unknown }).chrome = {
-  runtime: { id: "check", onMessage: listener, onConnect: listener },
+  runtime: {
+    id: "check",
+    onMessage: listener,
+    onConnect: listener,
+    onInstalled: listener,
+    onStartup: listener,
+  },
   storage: { onChanged: listener, local: {}, sync: {} },
+  contextMenus: { onClicked: listener },
 };
 // Exactly what a worker lacks. It *has* `navigator` (a WorkerNavigator) and
 // `self`, and zod reads `navigator` while loading, so forbidding more than this
