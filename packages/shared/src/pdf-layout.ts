@@ -1,4 +1,5 @@
 import { getDocumentProxy } from "unpdf";
+import { PdfRefusal } from "./pdf-limits.ts";
 
 /**
  * Reading a PDF's layout — what size a run of text is set in, what font, and
@@ -251,10 +252,10 @@ export async function readPdfLayout(
   try {
     doc = await getDocumentProxy(bytes);
   } catch (error) {
-    throw new Error(`cannot read the PDF: ${String(error)}`);
+    throw new PdfRefusal(`cannot read the PDF: ${String(error)}`);
   }
   if (doc.numPages > options.maxPages) {
-    throw new Error(
+    throw new PdfRefusal(
       `too many pages: ${doc.numPages} (cap ${options.maxPages})`,
     );
   }

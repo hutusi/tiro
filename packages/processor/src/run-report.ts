@@ -17,7 +17,10 @@ import { type PipelineReport, PROVIDER_FAILURE_LIMIT } from "./pipeline.ts";
  */
 export function failureCount(report: PipelineReport): number {
   return (
-    report.errored.length + report.invalid.length + report.inbox.rejected.length
+    report.errored.length +
+    report.invalid.length +
+    report.inbox.rejected.length +
+    report.fetchFailed.length
   );
 }
 
@@ -65,6 +68,15 @@ export function formatRunSummary(report: PipelineReport): string {
     lines.push("", "**Saved links not used** — these turn the run red:");
     for (const bad of inbox.rejected) {
       lines.push(`- \`${bad.file}\`: ${oneLine(bad.reason)}`);
+    }
+  }
+  if (report.fetchFailed.length > 0) {
+    lines.push(
+      "",
+      "**Could not be built, and will not be retried** — these turn the run red once; reprocess with `force` + slug to ask again:",
+    );
+    for (const failure of report.fetchFailed) {
+      lines.push(`- \`${failure.slug}\`: ${oneLine(failure.reason)}`);
     }
   }
   if (report.errored.length > 0) {

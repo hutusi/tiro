@@ -84,6 +84,7 @@
         "tiro-process": "./src/cli.ts",
       },
       "dependencies": {
+        "@tiro/clip": "workspace:*",
         "@tiro/shared": "workspace:*",
         "zod": "^4.4.3",
       },

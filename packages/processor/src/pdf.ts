@@ -19,6 +19,7 @@ import {
   resolveViaDns,
   USER_AGENT,
 } from "./net-fetch.ts";
+import { httpFailure, SettledRefusal } from "./refusal.ts";
 
 /**
  * Turning a clipped PDF stub into text the structure pass can work on.
@@ -89,23 +90,25 @@ export async function fetchPdf(options: PdfFetchOptions): Promise<Uint8Array> {
     resolveHost,
     () => Math.min(timeoutMs, Math.max(0, deadline - Date.now())),
   );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw httpFailure(res.status);
 
   const contentType = res.headers.get("content-type");
   const media = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
   if (!PDF_CONTENT_TYPES.has(media)) {
-    throw new Error(`not a PDF: ${contentType ?? "no content type"}`);
+    throw new SettledRefusal(`not a PDF: ${contentType ?? "no content type"}`);
   }
   // Checked before the body is read so an oversized document costs one request
   // rather than one download. A server that omits or lies about it is caught by
   // readBodyCapped, which stops mid-stream.
   const declared = Number(res.headers.get("content-length") ?? "0");
-  if (declared > maxBytes) throw new Error(`too large: ${declared} bytes`);
+  if (declared > maxBytes) {
+    throw new SettledRefusal(`too large: ${declared} bytes`);
+  }
 
   const bytes = await readBodyCapped(res, maxBytes);
   const magic = new TextDecoder().decode(bytes.slice(0, PDF_MAGIC.length));
   if (magic !== PDF_MAGIC) {
-    throw new Error(`not a PDF: begins ${JSON.stringify(magic)}`);
+    throw new SettledRefusal(`not a PDF: begins ${JSON.stringify(magic)}`);
   }
   return bytes;
 }

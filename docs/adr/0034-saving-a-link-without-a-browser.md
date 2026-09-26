@@ -103,6 +103,55 @@ for it.
   word. The run's summary is where it is named.
 - **Not under `--slug`**, which is about one article, not about what was saved.
 
+### 5. The processor fetches the page and clips it
+
+A stub with `capture: "link"` and no body yet has its page fetched before
+anything else reads it, and clipped with `@tiro/clip` in the hardened document
+— the extension's own code, so a saved link and a browser clip of the same
+page cannot disagree about anything but what the fetch could see.
+
+- **Publisher rules first**, as in the extension: an arXiv paper is read from
+  its HTML rendering, a markdown file on GitHub from its raw bytes.
+- **Guarded like every processor fetch**: every redirect hop's host checked
+  (`fetchCheckedWithUrl`, which also reports where the redirects ended — the
+  page's base, and `tiro.source_url`), the body capped, the request clamped to
+  the run's budget. Running out mid-fetch is a deferral, never a failure
+  (invariant 8).
+- **Decoded as the page says**: the header's charset, then a `<meta>`, then
+  UTF-8. A GBK page read as UTF-8 is not a thin article but a wrong one.
+- **A PDF goes to the PDF stage**, which downloads it again under its own caps
+  and gates; the link fetch abandons its body rather than read 25 MB twice.
+  The article then records both `capture: "link"` and `source_media: "pdf"`.
+- **The page's title, excerpt, author and math flag** replace the stub's
+  placeholders before the summary is asked for, and are written with it.
+- **After the fetch, the body is the clip.** `--force` does not fetch again —
+  re-reading a page that has since changed would silently replace the article
+  and discard the translation checkpoint keyed on its blocks (invariant 8).
+  Only a stub with no body is fetched, which is also how `--force` on a
+  settled one asks again.
+
+What a fetch cannot see is what a tab can: no cookies, so a paywall answers as
+to a stranger; no script, so a page that builds its text in JavaScript
+arrives as a shell. Measured on the live vault with `sweep`, which reads pages
+the same way: of 180 articles, 12 refused a plain fetch outright (403, mostly
+one publisher) and 7 came back as shells — about one saved link in ten will
+need a browser.
+
+### 6. A failure retrying will not change is settled, not retried
+
+`SettledRefusal` (and `PdfRefusal` from `@tiro/shared`) mark a failure that is
+the answer rather than a mishap: a 4xx other than 408, 425 and 429; a
+Cloudflare challenge; a response that is not a page; a body past the cap; a
+host that is not public; a clip under `fetch.min_chars`; a PDF that is a scan,
+too long, or not a PDF. The pipeline writes the article as processed with
+`tiro.fetch_failed` and the reason — keeping whatever body it had, so a PDF
+whose source has gone keeps the text it already has — and reports it, which
+turns the run red once. A body built later drops the marker.
+
+This narrows ADR 0026, where every refusal left a PDF pending: with a daily
+run (ADR 0032) that is a download, a refusal and a red run a day, forever, for
+a document nothing will change.
+
 ## Consequences
 
 - The service worker's rule (invariant 6) covers `@tiro/clip` too: types only,

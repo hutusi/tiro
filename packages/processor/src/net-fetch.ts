@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import type { FetchLike } from "./llm/client.ts";
+import { SettledRefusal } from "./refusal.ts";
 
 /**
  * Fetching bytes the vault will publish, from a URL a clipped page chose.
@@ -216,7 +217,8 @@ async function assertPublicAddresses(
   }
   for (const address of addresses) {
     if (isForbiddenHost(address)) {
-      throw new Error(`${hostname} resolves to a non-public address`);
+      // Settled: where a name points does not change by asking again.
+      throw new SettledRefusal(`${hostname} resolves to a non-public address`);
     }
   }
 }
@@ -235,15 +237,46 @@ export async function fetchChecked(
    * request already respects, so six redirects cannot multiply it. */
   budgetMs: () => number,
 ): Promise<Response> {
+  return (
+    await fetchCheckedWithUrl(
+      url,
+      init,
+      fetchImpl,
+      allowPrivateHosts,
+      resolveHost,
+      budgetMs,
+    )
+  ).response;
+}
+
+/**
+ * `fetchChecked`, also saying where the redirects ended. A page read at an
+ * address other than the one saved needs that address as its base, or its
+ * relative links resolve against the wrong page — and `Response.url` cannot be
+ * trusted for it, being empty for a response this code did not get from
+ * `fetch` itself.
+ */
+export async function fetchCheckedWithUrl(
+  url: string,
+  init: RequestInit,
+  fetchImpl: FetchLike,
+  allowPrivateHosts: boolean,
+  resolveHost: ResolveHost,
+  budgetMs: () => number,
+): Promise<{ response: Response; url: string }> {
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const hostname = new URL(current).hostname;
     if (!allowPrivateHosts) {
-      if (isForbiddenHost(hostname)) throw new Error("non-public host");
+      if (isForbiddenHost(hostname)) {
+        throw new SettledRefusal("non-public host");
+      }
       await assertPublicAddresses(hostname, resolveHost, budgetMs());
     }
     const res = await fetchImpl(current, { ...init, redirect: "manual" });
-    if (res.status < 300 || res.status >= 400) return res;
+    if (res.status < 300 || res.status >= 400) {
+      return { response: res, url: current };
+    }
     const location = res.headers.get("location");
     if (location === null) {
       throw new Error(`redirect ${res.status} without a location header`);
@@ -258,12 +291,12 @@ export async function fetchChecked(
 export async function readBodyCapped(
   res: Response,
   maxBytes: number,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const reader = res.body?.getReader();
   if (reader === undefined) {
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.byteLength > maxBytes)
-      throw new Error(`too large: ${bytes.byteLength} bytes`);
+      throw new SettledRefusal(`too large: ${bytes.byteLength} bytes`);
     return bytes;
   }
   const chunks: Uint8Array[] = [];
@@ -274,7 +307,7 @@ export async function readBodyCapped(
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw new Error(`too large: exceeded ${maxBytes} bytes`);
+      throw new SettledRefusal(`too large: exceeded ${maxBytes} bytes`);
     }
     chunks.push(value);
   }

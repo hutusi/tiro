@@ -16,6 +16,7 @@ function report(overrides: Partial<PipelineReport> = {}): PipelineReport {
     skipped: [],
     halted: [],
     inbox: { saved: [], existing: [], rejected: [] },
+    fetchFailed: [],
     invalid: [],
     imagesDownloaded: 0,
     imagesFailed: 0,
