@@ -535,6 +535,29 @@ describe("summarize", () => {
     expect(result.tags).toEqual(["Rust", "新一", "新二", "新三"]);
   });
 
+  test("shows the model the tags a reprocessed article carries", async () => {
+    // The cap exemption applies after the reply; told the cap and not shown
+    // the article's own tags, the model drops them before it can (ADR 0035).
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
+    };
+    await summarize({
+      ...baseOptions,
+      chat,
+      vocabulary: ["Rust"],
+      currentTags: ["熵", "时间 之箭", "rust"],
+    });
+    expect(system).toContain("The article already carries these tags");
+    expect(system).toContain("never count against a limit on new tags");
+    // Respelled as the vault spells them, so what the model keeps is kept.
+    expect(system).toContain(": 熵, 时间之箭, Rust.");
+
+    await summarize({ ...baseOptions, chat, vocabulary: ["Rust"] });
+    expect(system).not.toContain("already carries");
+  });
+
   test("never counts a tag the article already carries as new", async () => {
     // Reprocessing an article must not prune its topics (ADR 0035).
     const { chat } = scripted([

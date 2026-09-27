@@ -18,10 +18,18 @@ import type { ChatFn, ChatMessage } from "./client.ts";
  * already has, and told the same cap, the model obeyed it — a pilot traded
  * `十二要素` for `软件架构` on the Twelve-Factor article, and Pull Request
  * for `工作流`.
+ *
+ * `current` is a run's version of the same lesson. Reprocessing an article
+ * never counts the tags it already carries against the cap (`writableTags`),
+ * but a model that is not shown them, and is told the cap, drops them before
+ * that exemption can apply — so a run that has them says so.
  */
 export function tagPromptLines(
   vocabulary: readonly string[],
-  { translating = false }: { translating?: boolean } = {},
+  {
+    translating = false,
+    current = [],
+  }: { translating?: boolean; current?: readonly string[] } = {},
 ): string[] {
   return [
     '- "tags": 3 to 6 short topic tags, the most central topic first. Write them in Simplified Chinese — 强化学习 rather than reinforcement learning, 软件工程, 熵 — keeping English where Chinese technical writing keeps it or its Chinese word is less precise: acronyms and the names of people, companies, products and projects in their usual case (AI rather than 人工智能, LLM, Git, OpenAI, Bill Gates), and terms such as Safety and Security (both 安全 in Chinese), Alignment and Agent, in Title Case. A tag may mix the two, with no space where Chinese meets English (AI编程); English words are separated by spaces (AI Safety).',
@@ -34,6 +42,11 @@ export function tagPromptLines(
         : [
             `  The vault already uses these tags. Reuse one, exactly as written, whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
           ]),
+    ...(translating || current.length === 0
+      ? []
+      : [
+          `  The article already carries these tags. Keep each one that still names a topic of it, exactly as written — they are not new, and never count against a limit on new tags: ${current.join(", ")}.`,
+        ]),
   ];
 }
 

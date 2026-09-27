@@ -93,7 +93,9 @@ pruning them is how the pilot lost `entropy`. An article whose tags only need
 respelling by the aliases is rewritten without a call, and one already in the
 vault's form is not asked again. A run's cap on new tags rises from two to
 three, and never counts a tag the article already carries, so reprocessing an
-article does not prune it either.
+article does not prune it either — and the prompt shows the model those tags
+and says so, since a model told the cap drops them before the exemption can
+apply.
 
 ## Consequences
 

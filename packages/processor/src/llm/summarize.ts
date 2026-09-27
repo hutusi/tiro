@@ -1,6 +1,6 @@
 import { plainText, splitBlocks } from "@tiro/shared";
 import { z } from "zod";
-import { writableTags } from "../tag-policy.ts";
+import { respell, writableTags } from "../tag-policy.ts";
 import type { ChatFn, ChatMessage } from "./client.ts";
 import { tagPromptLines } from "./tags.ts";
 import {
@@ -171,7 +171,9 @@ export async function summarize(
     "Respond with a single JSON object with exactly these keys:",
     `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`,
     `- "category": exactly one of: ${categories.join(", ")}.`,
-    ...tagPromptLines(vocabulary),
+    ...tagPromptLines(vocabulary, {
+      current: respell(currentTags, tagAliases, vocabulary),
+    }),
     ...(bilingual
       ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
       : []),
