@@ -72,7 +72,9 @@ endpoint works.
 - **Tags** are the model's, Chinese first (ADR 0035): `强化学习`, `软件工程`,
   `熵`, with English only where Chinese technical writing keeps it — acronyms
   and names of people, companies, products and projects (`AI`, `LLM`, `Git`,
-  `OpenAI`) — and mixed where that is natural (`AI安全`). Case is kept and
+  `OpenAI`, `Bill Gates`) or where the Chinese word is less precise (`Safety`
+  and `Security` are both `安全`; `Alignment`, `Agent`), and mixed where that
+  is natural (`AI编程`). Case is kept and
   compared away: `AI` and `ai` are one tag. No space where Chinese meets
   English (`AI 安全` is written `AI安全`); English words keep single spaces,
   and a hyphen only beside a digit (`GPT-4`). A tag in kana or hangul is
@@ -85,7 +87,8 @@ endpoint works.
     tags:
       aliases:
         reinforcement learning: 强化学习
-        ai safety: AI安全
+        ai safety: AI Safety
+        智能体: Agent
         ai: AI
         misc: null
     ```

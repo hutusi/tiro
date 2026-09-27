@@ -469,7 +469,8 @@ describe("summarize", () => {
     expect(system).toContain("Simplified Chinese");
     expect(system).toContain("强化学习 rather than reinforcement learning");
     expect(system).toContain("AI rather than 人工智能");
-    expect(system).toContain("with no space between them (AI安全)");
+    expect(system).toContain("no space where Chinese meets English (AI编程)");
+    expect(system).toContain("Safety and Security (both 安全 in Chinese)");
     expect(system).not.toContain("lowercase");
     expect(system).not.toContain("free-form");
   });

@@ -15,7 +15,7 @@ import type { ChatFn, ChatMessage } from "./client.ts";
  */
 export function tagPromptLines(vocabulary: readonly string[]): string[] {
   return [
-    '- "tags": 3 to 6 short topic tags, the most central topic first. Write them in Simplified Chinese — 强化学习 rather than reinforcement learning, 软件工程, 熵 — keeping English only where Chinese technical writing keeps it: acronyms, and the names of people, companies, products and projects, in their usual case (AI rather than 人工智能, LLM, Git, Rust, Claude, OpenAI). A tag may mix the two with no space between them (AI安全); English words are separated by spaces.',
+    '- "tags": 3 to 6 short topic tags, the most central topic first. Write them in Simplified Chinese — 强化学习 rather than reinforcement learning, 软件工程, 熵 — keeping English where Chinese technical writing keeps it or its Chinese word is less precise: acronyms and the names of people, companies, products and projects in their usual case (AI rather than 人工智能, LLM, Git, OpenAI, Bill Gates), and terms such as Safety and Security (both 安全 in Chinese), Alignment and Agent, in Title Case. A tag may mix the two, with no space where Chinese meets English (AI编程); English words are separated by spaces (AI Safety).',
     ...(vocabulary.length > 0
       ? [
           `  The vault already uses these tags. Reuse one, exactly as written, whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,

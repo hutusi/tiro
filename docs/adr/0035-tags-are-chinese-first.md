@@ -27,10 +27,13 @@ The live vault then: 189 articles, 188 of them English-source; tag occurrences
 
 A tag is written in Simplified Chinese — `强化学习`, `软件工程`, `熵` — and in
 English only where Chinese technical writing keeps English: acronyms (`AI`,
-`LLM`, `API`), and proper nouns and products (`Git`, `Rust`, `Claude`,
-`OpenAI`). A tag may mix them: `AI安全`. The owner's own examples are in the
-prompt, which asks for tags most central first, so the cap on new ones and the
-limit of six keep the core topic.
+`LLM`, `API`), proper nouns and products (`Git`, `Rust`, `Claude`, `OpenAI`,
+`Bill Gates`), and a term whose Chinese word is less precise — `Safety` and
+`Security` are both `安全`, so `AI Safety`; `Alignment`; `Agent` — the last in
+Title Case, as the owner chose them while reviewing the first alias table. A
+tag may mix them: `AI编程`. The owner's own examples are in the prompt, which
+asks for tags most central first, so the cap on new ones and the limit of six
+keep the core topic.
 
 The policy (`writableTags`) no longer drops Chinese. It drops a tag in kana or
 hangul — the vault holds Japanese articles, and a Japanese tag is neither
@@ -39,7 +42,7 @@ Simplified; an alias fixes those.
 
 ### 2. Case is spelling, not identity
 
-A tag keeps its case: `AI安全`, not `ai安全`. Every comparison — an alias, a
+A tag keeps its case: `AI编程`, not `ai编程`. Every comparison — an alias, a
 duplicate, the vocabulary — is made on its key (`tagKey`: the canonical form
 without case), so `AI` and `ai` are one tag, which the vault spells one way.
 The site already grouped tags this way (`tagSlug` folds case), so pages do not
@@ -56,7 +59,9 @@ page. Latin words keep single spaces between them (ADR 0033).
 ### 4. Aliases are the vault's spelling
 
 `tags.aliases` says how the vault spells a tag: `reinforcement learning:
-强化学习`, `ai safety: AI安全`, `ai: AI`. A target is also its own key's
+强化学习`, `ai safety: AI Safety`, `ai: AI` — and, the other way, `智能体: Agent`,
+so a model that writes the Chinese still lands on the vault's spelling. A
+target is also its own key's
 spelling — `large language models: LLM` makes the vault's forty `llm` tags
 `LLM` too, rather than the lowercase majority outvoting the table. Aliases
 stay one hop, and a table under which respelling would not settle — a chain,

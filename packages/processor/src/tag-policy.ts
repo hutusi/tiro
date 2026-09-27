@@ -33,7 +33,7 @@ const LATIN = /\p{Script=Latin}/u;
  * would pull every new article back to English.
  *
  * A mixed tag counts too: `ai治理` is the old lowercase beside Chinese, and
- * left alone it would sit settled beside the `AI安全` the vault now writes. A
+ * left alone it would sit settled beside the `AI编程` the vault now writes. A
  * tag with no Latin letter — `熵`, `2026` — has no case to decide.
  */
 export function undecided(

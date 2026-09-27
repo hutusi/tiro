@@ -63,7 +63,8 @@ versions follow the `0.x` line while Tiro is a personal system.
   had 768 tag pages, 85% of them holding a single article — including the same
   topic twice, as `ai安全` and `ai safety`. Tags are now Chinese first —
   `强化学习`, `熵` — with English only where Chinese writing keeps it (`AI`,
-  `LLM`, `Git`), in their natural case (`AI安全`), and `tags.aliases` in
+  `LLM`, `Git`) or where Chinese is less precise (`AI Safety`, `Agent`), in
+  their natural case, and `tags.aliases` in
   `tiro.yml` spells, merges or refuses tags as they are written. The model is
   also shown the vault's own vocabulary — every tag two articles share — and
   asked to reuse it; an article may coin at most three tags outside it. Two new
