@@ -111,7 +111,11 @@ anything else reads it, and clipped with `@tiro/clip` in the hardened document
 page cannot disagree about anything but what the fetch could see.
 
 - **Publisher rules first**, as in the extension: an arXiv paper is read from
-  its HTML rendering, a markdown file on GitHub from its raw bytes.
+  its HTML rendering, a markdown file on GitHub from its raw bytes. The stub's
+  `tiro.source_url` is where reading *starts* — a versioned arXiv link's
+  revision — and is replaced by where it ended: a revision with no HTML is read
+  from that revision's abstract, never the latest one's, and a body read from
+  the article's own URL leaves no `source_url` at all.
 - **Guarded like every processor fetch**: every redirect hop's host checked
   (`fetchCheckedWithUrl`, which also reports where the redirects ended — the
   page's base, and `tiro.source_url`), the body capped, the request clamped to

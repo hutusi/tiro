@@ -186,6 +186,18 @@ describe("clipArxivPaper", () => {
     expect(clip.sourceUrl).toBeUndefined();
   });
 
+  test("falls back to the abstract of the revision the reader named", async () => {
+    // `/abs/<id>` is the latest revision, whose title or abstract may not be
+    // the one saved. The article is still filed under the canonical URL, and
+    // records the versioned page as the one its body was read from.
+    const clip = await clipArxivPaper(
+      { id: "1412.6980", version: 1 },
+      deps({ "https://arxiv.org/abs/1412.6980v1": absHtml }),
+    );
+    expect(clip.payload.url).toBe("https://arxiv.org/abs/1412.6980");
+    expect(clip.sourceUrl).toBe("https://arxiv.org/abs/1412.6980v1");
+  });
+
   // arXiv writes authors surname-first, so a comma between them would read as
   // part of a name.
   test("joins citation authors with a separator that survives Last, First", async () => {

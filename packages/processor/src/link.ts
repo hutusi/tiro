@@ -10,7 +10,11 @@ import {
   plainTextShell,
   withHtmlDocument,
 } from "@tiro/clip/happy-dom";
-import { parseArxivUrl, parseGitHubMarkdownUrl } from "@tiro/shared";
+import {
+  arxivAbsUrl,
+  parseArxivUrl,
+  parseGitHubMarkdownUrl,
+} from "@tiro/shared";
 import type { Deadline } from "./deadline.ts";
 import type { FetchLike } from "./llm/client.ts";
 import {
@@ -39,12 +43,17 @@ import { httpFailure, isSettled, SettledRefusal } from "./refusal.ts";
  * HTML rendering, a markdown file on GitHub from its raw bytes.
  */
 
+/**
+ * What a saved link turned out to be, and `readFrom`: the URL its body was
+ * actually read from — where a redirect ended, a paper's HTML rendering or
+ * its (versioned) abstract, a file's raw bytes. Always the real one, so the
+ * article's `source_url` can be set from it outright rather than kept from
+ * the stub, which only says where reading was *asked* to start.
+ */
 export type LinkPage =
-  /** The page, clipped. `sourceUrl` when it was read somewhere other than the
-   * saved URL — a redirect, a paper's HTML rendering, a file's raw bytes. */
-  | { kind: "page"; payload: ClipPayload; sourceUrl?: string }
+  | { kind: "page"; payload: ClipPayload; readFrom: string }
   /** The link is a PDF, which the PDF stage builds a body from. */
-  | { kind: "pdf"; sourceUrl?: string };
+  | { kind: "pdf"; readFrom: string };
 
 export interface LinkFetchOptions {
   url: string;
@@ -145,7 +154,6 @@ export async function fetchLinkPage(
       resolveHost,
       requestMs,
     );
-    const sourceUrl = finalUrl !== url ? finalUrl : undefined;
     const contentType = response.headers.get("content-type");
     const media = mediaType(contentType);
     if (!response.ok) {
@@ -163,7 +171,7 @@ export async function fetchLinkPage(
       // The PDF stage downloads it again, under its own caps and gates;
       // reading it here too would be a second 25 MB for nothing.
       await response.body?.cancel();
-      return { kind: "pdf", ...(sourceUrl !== undefined ? { sourceUrl } : {}) };
+      return { kind: "pdf", readFrom: finalUrl };
     }
     const isHtml = HTML_TYPES.has(media);
     if (!isHtml && !TEXT_TYPES.has(media)) {
@@ -199,7 +207,7 @@ export async function fetchLinkPage(
     return {
       kind: "page",
       payload,
-      ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+      readFrom: finalUrl,
     };
   }
 
@@ -265,15 +273,14 @@ export async function fetchLinkPage(
         return {
           kind: "page",
           payload: clip.payload,
-          ...(clip.sourceUrl !== undefined
-            ? { sourceUrl: clip.sourceUrl }
-            : {}),
+          // No sourceUrl means the canonical abstract page was what was read.
+          readFrom: clip.sourceUrl ?? arxivAbsUrl(paper),
         };
       }
       const doc = parseGitHubMarkdownUrl(url);
       if (doc === null) throw new Error(`no publisher rule for ${url}`);
       const clip = await clipGitHubDoc(doc, { fetch: guarded });
-      return { kind: "page", payload: clip.payload, sourceUrl: clip.sourceUrl };
+      return { kind: "page", payload: clip.payload, readFrom: clip.sourceUrl };
     } catch (error) {
       if (isSettled(error)) throw error;
       // Settled only when every request the helper made was refused for good:

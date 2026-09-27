@@ -41,8 +41,9 @@ export interface ArxivClip {
   payload: ClipPayload;
   /**
    * The URL the body was read from, when that is not the article's own URL —
-   * `tiro.source_url`. Absent when the abstract page *is* what was read, since
-   * that is already the canonical URL.
+   * `tiro.source_url`. Absent when the unversioned abstract page is what was
+   * read, since that is already the canonical URL; present, as
+   * `…/abs/<id>v<n>`, when a named revision's abstract was.
    */
   sourceUrl?: string;
 }
@@ -82,13 +83,21 @@ export async function clipArxivPaper(
     };
   }
 
-  const abstract = await tryFetchDocument(absUrl, deps);
+  // The revision the reader named, when they named one: `/abs/<id>` is the
+  // latest, and its title or abstract may not be the one they saved. Filed
+  // under the canonical URL all the same — identity has no version.
+  const abstractUrl =
+    paper.version === undefined ? absUrl : `${absUrl}v${paper.version}`;
+  const abstract = await tryFetchDocument(abstractUrl, deps);
   if (abstract === null) {
     throw new Error(`arXiv did not serve ${paper.id}`);
   }
-  prepareFetchedDocument(abstract, absUrl);
+  prepareFetchedDocument(abstract, abstractUrl);
   const payload = clipPage(abstract, absUrl);
-  return { payload: { ...payload, ...readCitationMetadata(abstract) } };
+  return {
+    payload: { ...payload, ...readCitationMetadata(abstract) },
+    ...(abstractUrl !== absUrl ? { sourceUrl: abstractUrl } : {}),
+  };
 }
 
 async function tryFetchDocument(

@@ -45,7 +45,7 @@ describe("fetchLinkPage", () => {
     if (page.kind !== "page") return;
     expect(page.payload.title).toBe("A Page Worth Keeping");
     expect(page.payload.markdown).toContain("https://example.net/next");
-    expect(page.sourceUrl).toBeUndefined();
+    expect(page.readFrom).toBe("https://example.net/post");
   });
 
   test("follows a redirect, and reads relative links from where it landed", async () => {
@@ -62,7 +62,7 @@ describe("fetchLinkPage", () => {
       }),
     });
     if (page.kind !== "page") throw new Error("expected a page");
-    expect(page.sourceUrl).toBe("https://example.net/2026/post");
+    expect(page.readFrom).toBe("https://example.net/2026/post");
     expect(page.payload.markdown).toContain("https://example.net/next");
   });
 
@@ -133,7 +133,10 @@ describe("fetchLinkPage", () => {
           { headers: { "content-type": "application/pdf" } },
         ),
     });
-    expect(page).toEqual({ kind: "pdf" });
+    expect(page).toEqual({
+      kind: "pdf",
+      readFrom: "https://example.net/paper",
+    });
     expect(cancelled).toBe(true);
   });
 
@@ -198,7 +201,7 @@ describe("fetchLinkPage", () => {
     });
     if (page.kind !== "page") throw new Error("expected a page");
     expect(page.payload.markdown).toBe("# Guide\n\nThe guide.");
-    expect(page.sourceUrl).toBe(
+    expect(page.readFrom).toBe(
       "https://raw.githubusercontent.com/owner/repo/main/docs/GUIDE.md",
     );
   });

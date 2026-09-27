@@ -52,9 +52,10 @@ flowchart LR
    body that *is* the document, and gate the Clip button until that is settled.
 
    - **An arXiv paper.** The popup fetches `arxiv.org/html/<id>`, falling back
-     to the abstract page when arXiv has no usable HTML (a `\includepdf`
-     submission renders as a stub arXiv still serves with HTTP 200). A fetched
-     document is given a `<base>` and has its `src`/`href` attributes rewritten
+     to the abstract page — of the same revision, when the URL named one — when
+     arXiv has no usable HTML (a `\includepdf` submission renders as a stub
+     arXiv still serves with HTTP 200). A fetched document is given a `<base>`
+     and has its `src`/`href` attributes rewritten
      before extraction: Readability absolutizes against `doc.baseURI`, which for
      a `DOMParser` document is the popup's URL, and the processor downloads only
      `https?://` URLs — so without it every figure would vanish without an error
@@ -251,7 +252,8 @@ helpers, and the `tiro.yml` config schema. Key invariants:
     safe to claim where the clipper can read the file.
 
   `tiro.source_url` records the URL the body was read from when that is not the
-  article's own — for arXiv the versioned HTML page, for GitHub the raw file.
+  article's own — for arXiv the versioned HTML page (or that revision's
+  abstract, when it has no HTML), for GitHub the raw file.
   Changing a rule renames existing articles: `validate` detects it,
   `sweep --recanonicalize` repairs it.
 - **Short links are derived, not assigned** (ADR 0019). `/s/<id>` redirects to

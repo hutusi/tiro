@@ -732,6 +732,58 @@ describe("saved links", () => {
     expect(hits[0]).toBe("https://arxiv.org/html/2404.19756v1");
   });
 
+  describe("an arXiv link whose full text is missing", () => {
+    const ABSTRACT = `<html><head><title>A Paper</title>
+      <meta name="citation_title" content="A Paper"></head><body>
+      <h1 class="title">A Paper</h1><blockquote class="abstract">
+      ${"An abstract long enough to be read as the article's own text. ".repeat(6)}
+      </blockquote></body></html>`;
+    const abstract = () =>
+      new Response(ABSTRACT, { headers: { "content-type": "text/html" } });
+    const paperSlug = () => slugForUrl("https://arxiv.org/abs/2404.19756");
+    const tiroOf = async (vault: string) =>
+      parseArticle(
+        readFileSync(
+          join(vault, "articles", await paperSlug(), "index.md"),
+          "utf8",
+        ),
+      ).frontmatter.tiro;
+
+    test("falls back to the saved revision's abstract, and says so", async () => {
+      // The whole pipeline, past the first request: the fallback used to ask
+      // for the latest abstract while the article went on naming v1's HTML
+      // as its source.
+      const vault = withInbox("https://arxiv.org/html/2404.19756v1");
+      const config = await loadVaultConfig(vault);
+      const hits: string[] = [];
+      await runPipeline({ vaultDir: vault }, config, {
+        ...deps,
+        fetchImpl: serving(
+          { "https://arxiv.org/abs/2404.19756v1": abstract },
+          hits,
+        ),
+      });
+      expect(hits).toContain("https://arxiv.org/abs/2404.19756v1");
+      expect(hits).not.toContain("https://arxiv.org/abs/2404.19756");
+      expect((await tiroOf(vault)).source_url).toBe(
+        "https://arxiv.org/abs/2404.19756v1",
+      );
+    });
+
+    test("drops the stub's source when the body came from the article's own URL", async () => {
+      // Saved unversioned `…/html/…`, read from the canonical abstract: the
+      // stub's source_url named a page that was never read, and is replaced
+      // with nothing rather than kept.
+      const vault = withInbox("https://arxiv.org/html/2404.19756");
+      const config = await loadVaultConfig(vault);
+      await runPipeline({ vaultDir: vault }, config, {
+        ...deps,
+        fetchImpl: serving({ "https://arxiv.org/abs/2404.19756": abstract }),
+      });
+      expect((await tiroOf(vault)).source_url).toBeUndefined();
+    });
+  });
+
   test("--force does not fetch a built article's page again", async () => {
     // After the fetch, the body is the clip; re-reading it would also throw
     // away the translation checkpoint keyed on it (invariant 8).

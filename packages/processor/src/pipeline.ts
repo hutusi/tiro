@@ -829,17 +829,25 @@ async function discardCheckpointQuietly(
  */
 /**
  * The stub's frontmatter with what the fetched page said about itself: its
- * title, excerpt and author, whether it holds math, and where it was read
- * when that is not the saved URL. A link that turned out to be a PDF records
- * that, and the PDF stage builds its body.
+ * title, excerpt and author, whether it holds math, and where it was actually
+ * read. A link that turned out to be a PDF records that, and the PDF stage
+ * builds its body.
+ *
+ * `source_url` is replaced, not merged. The stub's says where reading was
+ * asked to start — `…/html/2404.19756v1` — and a fallback can end somewhere
+ * else, such as that revision's abstract. Kept whenever the page reported
+ * nothing new, the article claimed a source its body never came from.
  */
 function withLinkPage(
   frontmatter: ArticleFrontmatter,
   page: LinkPage,
 ): ArticleFrontmatter {
+  const { source_url: _asked, ...others } = frontmatter.tiro;
   const tiro = {
-    ...frontmatter.tiro,
-    ...(page.sourceUrl !== undefined ? { source_url: page.sourceUrl } : {}),
+    // Assigned over the stub's key rather than re-added, so it keeps its place.
+    ...(page.readFrom === frontmatter.url
+      ? others
+      : { ...frontmatter.tiro, source_url: page.readFrom }),
     ...(page.kind === "pdf" ? { source_media: "pdf" as const } : {}),
   };
   if (page.kind === "pdf") return { ...frontmatter, tiro };
