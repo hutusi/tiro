@@ -148,11 +148,13 @@ repository — a declaration that reads narrower than the code is a rejection.
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 5, having been bumped when the disclosure
+this disclosure ever changes; it is at 6, having been bumped when the disclosure
 gained the optional arxiv.org fetch, again when it gained opt-in settings sync,
-again when it gained the raw.githubusercontent.com fetch, and again when
+again when it gained the raw.githubusercontent.com fetch, again when
 collections made the popup keep a change after it closes — which falsified the
-sentence promising that closing it discards everything.
+sentence promising that closing it discards everything — and again when "Clip
+link" began sending a link's address to the repository from a context-menu
+click, with no popup open.
 
 Required certifications, all true of this extension:
 
