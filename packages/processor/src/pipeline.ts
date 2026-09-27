@@ -1,5 +1,10 @@
 import { rm } from "node:fs/promises";
-import { splitBlocks, stringifyArticle } from "@tiro/shared";
+import {
+  normalizeTags,
+  splitBlocks,
+  stringifyArticle,
+  tagAliases,
+} from "@tiro/shared";
 import {
   modelFor,
   parseTiroConfig,
@@ -33,6 +38,7 @@ import {
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
 import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
+import { buildVocabulary } from "./tag-policy.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -52,6 +58,14 @@ export interface PipelineDeps {
    * production builds one from `config.processing.run_budget_ms`. */
   deadline?: Deadline;
   log?: (message: string) => void;
+}
+
+/** How this run writes tags, settled once before any article runs
+ * (ADR 0033). */
+interface Tagging {
+  aliases: ReadonlyMap<string, string | null>;
+  /** The vault's recurring tags, most used first. */
+  vocabulary: readonly string[];
 }
 
 export interface PipelineOptions {
@@ -147,6 +161,48 @@ function keepBetterSummary(
   };
 }
 
+/**
+ * Keep an article's category and tags when this run has nothing but
+ * placeholders to put in their place.
+ *
+ * The excerpt fallback means no reply was usable, so it writes the taxonomy's
+ * fallback category and no tags at all. On a first run that is all there is.
+ * On a `--force` run over a processed article it overwrote a real answer with
+ * those placeholders — `[]` for tags, which took the article off every tag
+ * page — while `keepBetterSummary` was already keeping the summary beside
+ * them. A cut reply is different: its category and tags are the model's
+ * reading, and win as fresh output does.
+ *
+ * The category is kept only while it is still in the taxonomy, so a stale one
+ * cannot outlive a change to `tiro.yml`.
+ */
+function keepExistingTerms(
+  produced: SummaryResult,
+  frontmatter: { category?: string; tags?: string[] },
+  categories: readonly string[],
+  aliases: ReadonlyMap<string, string | null>,
+  log: (line: string) => void,
+): SummaryResult {
+  if (produced.fromExcerpt !== true) return produced;
+  // Normalized, not held to the model's policy: these were already the
+  // article's, and dropping one here would be a run deciding for a person.
+  const tags = normalizeTags(frontmatter.tags ?? [], aliases);
+  const category =
+    frontmatter.category !== undefined &&
+    categories.includes(frontmatter.category)
+      ? frontmatter.category
+      : undefined;
+  if (tags.length === 0 && category === undefined) return produced;
+  log(
+    "summary fell back to an excerpt; keeping the existing category and tags",
+  );
+  return {
+    ...produced,
+    ...(category !== undefined ? { category } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
+  };
+}
+
 /** True when `candidate` is the one a reader is better served by. */
 function isBetterSummary(candidate: string, incumbent: string): boolean {
   const candidateFinished = summaryIsFinished(candidate);
@@ -188,11 +244,21 @@ export async function runPipeline(
   // the next one, so it neither counts nor resets the streak (ADR 0032).
   const outages = createBreaker(PROVIDER_FAILURE_LIMIT);
 
-  const { pending, invalid } = await discoverArticles(options.vaultDir, {
-    ...(options.slug !== undefined ? { slug: options.slug } : {}),
-    force: options.force === true,
-  });
+  const { pending, invalid, tagLists } = await discoverArticles(
+    options.vaultDir,
+    {
+      ...(options.slug !== undefined ? { slug: options.slug } : {}),
+      force: options.force === true,
+    },
+  );
   report.invalid = invalid;
+  // Built once and held for the whole run, so every article in it is offered
+  // the same list, and the order articles run in cannot change their tags.
+  const aliases = tagAliases(config.tags.aliases);
+  const tagging: Tagging = {
+    aliases,
+    vocabulary: buildVocabulary(tagLists, aliases),
+  };
   for (const bad of invalid)
     log(`invalid article skipped: ${bad.path}: ${bad.error}`);
   log(`${pending.length} article(s) to process`);
@@ -245,6 +311,7 @@ export async function runPipeline(
         log,
         deadline,
         options.force === true,
+        tagging,
       );
       outages.succeeded();
     } catch (error) {
@@ -337,6 +404,7 @@ async function processOne(
   /** A forced redo asks for the work to be done again, which for a checkpoint
    * means starting from nothing rather than resuming. */
   force: boolean,
+  tagging: Tagging,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
   const { frontmatter } = article.parsed;
@@ -387,6 +455,7 @@ async function processOne(
   const body = imageResult.body;
   const blocks = splitBlocks(body);
 
+  const { aliases, vocabulary } = tagging;
   const summary = await summarize({
     chat: deps.chat,
     model: modelFor(config, "summary"),
@@ -399,10 +468,18 @@ async function processOne(
     // language to summarize itself in.
     bilingual: lang !== config.translation.target,
     cjkThreshold: config.translation.cjk_threshold,
+    tagAliases: aliases,
+    vocabulary,
     log,
   });
   const chosen = summary.failed
-    ? keepBetterSummary(summary, frontmatter, log)
+    ? keepExistingTerms(
+        keepBetterSummary(summary, frontmatter, log),
+        frontmatter,
+        config.categories,
+        aliases,
+        log,
+      )
     : summary;
   if (chosen.failed) {
     report.summaryFailed.push(article.slug);

@@ -14,7 +14,7 @@ import { allTagsLabel, resultsLabel, STRINGS } from "../lib/strings.ts";
 const byCount = (a: ArticleGroup, b: ArticleGroup): number =>
   b.articles.length - a.articles.length || a.label.localeCompare(b.label, "zh");
 const tags = (await tagIndex()).sort(byCount);
-// The live vault has ~190 tags; the long tail folds away behind a summary.
+// The long tail folds away behind a summary; the most used stay in view.
 const TOP_TAGS = 30;
 const t = STRINGS.search;
 ---

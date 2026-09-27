@@ -28,6 +28,14 @@ categories:
   - life
   - other
 
+# Tags are the model's, in English and lowercase, reusing the vault's own
+# vocabulary where one fits (ADR 0033). An alias rewrites a tag as it is
+# written, or drops it with null; either side may be spelled any way.
+# tags:
+#   aliases:
+#     large language models: llm
+#     misc: null
+
 translation:
   # zh is the only supported target: the artifact is always zh.md and the
   # language detector only tells Chinese from non-Chinese.

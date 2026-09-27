@@ -30,10 +30,15 @@ export async function discoverArticles(
 ): Promise<{
   pending: DiscoveredArticle[];
   invalid: { path: string; error: string }[];
+  /** Every readable article's tags, pending or not and whatever `slug`
+   * narrows the run to — the vault's vocabulary is the whole vault's, and a
+   * one-article run must not see an empty one (ADR 0033). */
+  tagLists: string[][];
 }> {
   const articlesDir = `${vaultDir}/articles`;
   const pending: DiscoveredArticle[] = [];
   const invalid: { path: string; error: string }[] = [];
+  const tagLists: string[][] = [];
 
   const relPaths = Array.from(
     new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
@@ -41,10 +46,19 @@ export async function discoverArticles(
   for (const relPath of relPaths) {
     const [slug] = relPath.split("/");
     if (slug === undefined) continue;
-    if (options.slug !== undefined && options.slug !== slug) continue;
     const indexAbs = `${articlesDir}/${relPath}`;
+    if (options.slug !== undefined && options.slug !== slug) {
+      // Read for its tags only. It is not this run's article, so a file that
+      // will not parse is not this run's to report either.
+      try {
+        const parsed = parseArticle(await Bun.file(indexAbs).text());
+        tagLists.push(parsed.frontmatter.tags ?? []);
+      } catch {}
+      continue;
+    }
     try {
       const parsed = parseArticle(await Bun.file(indexAbs).text());
+      tagLists.push(parsed.frontmatter.tags ?? []);
       if (options.force === true || needsProcessing(parsed.frontmatter)) {
         pending.push({
           slug,
@@ -72,5 +86,5 @@ export async function discoverArticles(
       (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0),
   );
 
-  return { pending, invalid };
+  return { pending, invalid, tagLists };
 }

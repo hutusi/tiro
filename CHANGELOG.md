@@ -43,6 +43,18 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
+- **Tags are written in English, in one form.** The model used to write
+  free-form tags in whatever language and spelling it picked, and ~180 articles
+  had 768 tag pages, 85% of them holding a single article — including the same
+  topic twice, as `ai安全` and `ai safety`. Tags are now lowercase English with
+  spaces between words, a tag in another script is dropped, and `tags.aliases`
+  in `tiro.yml` merges or refuses tags as they are written. The model is also
+  shown the vault's own vocabulary — every tag two articles share — and asked
+  to reuse it; an article may coin at most two tags outside it. Two new
+  commands: `tiro-process tags` measures the vault's tags, and `tiro-process
+  retag` brings already-processed articles up to the same rules, one small call
+  each (ADR 0033).
+
 - **A hand edit to the vault publishes itself.** Hiding an article, deleting
   one, a repair or a slug migration used to end with "then dispatch a deploy",
   because the vault workflow only deployed when it had processed something. It
@@ -85,6 +97,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   goes to the library (ADR 0031).
 
 ### Fixed
+
+- **A failed reprocess no longer strips an article's tags.** When every summary
+  reply was unusable, the pipeline kept the old summary but wrote the
+  fallback category and an empty tag list over the article's real ones, taking
+  it off every tag page. It now keeps them.
 
 - **In dev, list pages and term links now pick up vault edits.** The listed
   articles and the term-page index each outlived the vault read they came from,

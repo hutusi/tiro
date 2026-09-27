@@ -1,6 +1,8 @@
 import { plainText, splitBlocks } from "@tiro/shared";
 import { z } from "zod";
+import { writableTags } from "../tag-policy.ts";
 import type { ChatFn, ChatMessage } from "./client.ts";
+import { tagPromptLines } from "./tags.ts";
 import {
   acceptableSourceSummary,
   acceptableTitleZh,
@@ -32,6 +34,12 @@ export interface SummarizeOptions {
    * a second place that number lives.
    */
   cjkThreshold: number;
+  /** `tags.aliases` from the vault config, as `tagAliases` built it. */
+  tagAliases?: ReadonlyMap<string, string | null>;
+  /** The vault's recurring tags, most used first (`buildVocabulary`), offered
+   * for reuse; tags outside it are capped (ADR 0033). Empty on a vault too
+   * young to have one. */
+  vocabulary?: readonly string[];
   maxBodyChars?: number;
   log?: (message: string) => void;
 }
@@ -53,6 +61,13 @@ export interface SummaryResult {
    * the log line says which happened.
    */
   failed: boolean;
+  /**
+   * True only on the excerpt route: no reply was usable, so `category` is the
+   * taxonomy's fallback and `tags` is empty — placeholders, not a reading of
+   * the article. The pipeline keeps an article's existing ones over these.
+   * A cut reply's category and tags are the model's, and are not flagged.
+   */
+  fromExcerpt?: true;
 }
 
 /**
@@ -67,7 +82,9 @@ export interface SummaryResult {
 const ResponseSchema = z.object({
   summary: z.string().min(1),
   category: z.string().min(1),
-  tags: z.array(z.string().min(1)).max(8),
+  // Lenient on purpose: `writableTags` normalizes, filters and caps them, so a
+  // reply with nine tags or an empty one costs a tag, not a whole retry.
+  tags: z.array(z.string()),
   title_zh: z.string().min(1).optional(),
   summary_orig: z.string().min(1).optional(),
 });
@@ -135,6 +152,8 @@ export async function summarize(
     targetLang,
     bilingual = false,
     cjkThreshold,
+    tagAliases = new Map<string, string | null>(),
+    vocabulary = [],
     maxBodyChars = 30_000,
     log = () => {},
   } = options;
@@ -148,7 +167,7 @@ export async function summarize(
     "Respond with a single JSON object with exactly these keys:",
     `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`,
     `- "category": exactly one of: ${categories.join(", ")}.`,
-    '- "tags": 3 to 6 short free-form topic tags, lowercase.',
+    ...tagPromptLines(vocabulary),
     ...(bilingual
       ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
       : []),
@@ -163,6 +182,7 @@ export async function summarize(
     },
   ];
 
+  const known = new Set(vocabulary);
   // The best cut summary seen so far, kept in case every attempt is cut.
   let unfinished: z.infer<typeof ResponseSchema> | undefined;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -204,7 +224,7 @@ export async function summarize(
         return {
           ...accept(
             parsed.data,
-            { bilingual, title, targetLang, cjkThreshold },
+            { bilingual, title, targetLang, cjkThreshold, tagAliases, known },
             log,
           ),
           failed: false,
@@ -245,7 +265,7 @@ export async function summarize(
     return {
       ...accept(
         unfinished,
-        { bilingual, title, targetLang, cjkThreshold },
+        { bilingual, title, targetLang, cjkThreshold, tagAliases, known },
         log,
       ),
       failed: true,
@@ -264,6 +284,7 @@ export async function summarize(
     category: fallbackCategory(categories),
     tags: [],
     failed: true,
+    fromExcerpt: true,
   };
 }
 
@@ -281,10 +302,18 @@ function accept(
     title: string;
     targetLang: string;
     cjkThreshold: number;
+    tagAliases: ReadonlyMap<string, string | null>;
+    known: ReadonlySet<string>;
   },
   log: (message: string) => void,
 ): Omit<SummaryResult, "failed"> {
-  const { title_zh, summary_orig, ...rest } = data;
+  const { title_zh, summary_orig, ...reply } = data;
+  // Both routes that keep a reply come through here, so a cut summary's tags
+  // are held to the same policy as a finished one's (ADR 0033).
+  const rest = {
+    ...reply,
+    tags: writableTags(reply.tags, context.tagAliases, log, context.known),
+  };
   // Gated on `bilingual` here as well as in the prompt, so a title volunteered
   // for an article that has no source language is discarded in one place and
   // the pipeline's write stays a plain spread.
