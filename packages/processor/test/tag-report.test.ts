@@ -40,6 +40,17 @@ describe("tagReport", () => {
     ]);
   });
 
+  test("lists tags that are empty once normalized, the literal empty one too", () => {
+    // normalizeTags drops them before anything is counted, so this list is
+    // the only place the report can show a tag that needs removing. "" is its
+    // own canonical form, so asking only "did normalizing change it?" hid it.
+    const report = tagReport([done("a", ["--", "", "rust"])], none);
+    expect(report.nonCanonical).toEqual([
+      { tag: "", canonical: "" },
+      { tag: "--", canonical: "" },
+    ]);
+  });
+
   test("lists tags that are not in English", () => {
     const report = tagReport(
       [done("a", ["知识管理"]), done("b", ["知识管理", "rust"])],

@@ -198,7 +198,13 @@ async function tags(vault: string): Promise<number> {
   if (report.nonCanonical.length > 0) {
     console.log(
       `not in canonical form: ${report.nonCanonical.length} spelling(s): ` +
-        report.nonCanonical.map((t) => `${t.tag} → ${t.canonical}`).join(", "),
+        report.nonCanonical
+          .map((t) =>
+            t.canonical === ""
+              ? `${JSON.stringify(t.tag)} → (empty, remove it)`
+              : `${t.tag} → ${t.canonical}`,
+          )
+          .join(", "),
     );
   }
   if (report.plurals.length > 0) {

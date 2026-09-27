@@ -30,7 +30,8 @@ export interface TagReport {
   /** What the next run would offer the model (`buildVocabulary`). */
   vocabulary: number;
   top: TagCount[];
-  /** Spellings as written that are not their canonical form. */
+  /** Spellings as written that are not their canonical form, including
+   * tags that are empty once normalized (`canonical` is then ""). */
   nonCanonical: { tag: string; canonical: string }[];
   nonEnglish: TagCount[];
   /** Canonical tags whose plural is also a tag: `agent` beside `agents`. */
@@ -62,8 +63,13 @@ export function tagReport(
   for (const article of articles) {
     for (const raw of article.tags) {
       const canonical = normalizeTag(raw);
-      if (canonical !== "" && canonical !== raw)
+      // An empty result is listed too — it is a tag to remove — and checked on
+      // its own, because "" normalizes to itself and would pass the second
+      // test. normalizeTags below drops empties, so this is the only place
+      // the report can see one.
+      if (canonical === "" || canonical !== raw) {
         nonCanonical.set(raw, canonical);
+      }
     }
     const tags = normalizeTags(article.tags, aliases, Number.POSITIVE_INFINITY);
     for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
