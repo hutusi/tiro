@@ -6,7 +6,7 @@ import {
   prepareFetchedDocument,
 } from "../src/arxiv.ts";
 import { clipPage } from "../src/clip-page.ts";
-import type { FetchLike } from "../src/github.ts";
+import type { FetchLike } from "../src/fetch-like.ts";
 
 /** Parse a whole document, the way DOMParser does in the popup — `<head>` and
  * all, since prepareFetchedDocument inserts a `<base>` into it. */
@@ -184,6 +184,18 @@ describe("clipArxivPaper", () => {
       deps({ "https://arxiv.org/abs/1412.6980": absHtml }),
     );
     expect(clip.sourceUrl).toBeUndefined();
+  });
+
+  test("falls back to the abstract of the revision the reader named", async () => {
+    // `/abs/<id>` is the latest revision, whose title or abstract may not be
+    // the one saved. The article is still filed under the canonical URL, and
+    // records the versioned page as the one its body was read from.
+    const clip = await clipArxivPaper(
+      { id: "1412.6980", version: 1 },
+      deps({ "https://arxiv.org/abs/1412.6980v1": absHtml }),
+    );
+    expect(clip.payload.url).toBe("https://arxiv.org/abs/1412.6980");
+    expect(clip.sourceUrl).toBe("https://arxiv.org/abs/1412.6980v1");
   });
 
   // arXiv writes authors surname-first, so a comma between them would read as

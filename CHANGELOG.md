@@ -9,6 +9,21 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Save a link from your iPhone.** A Share Sheet shortcut writes the link into
+  the vault's `inbox/`, and the next run fetches the page, clips it with the
+  extension's own clipper and processes it like any clip. A page that cannot be
+  read without a browser — a login, a bot check, text built by scripts — is
+  marked `tiro.fetch_failed` and reported once rather than retried every day;
+  a clip from the browser replaces it. The same marker now settles a PDF that
+  is a scan or too long, which used to stay pending forever (ADR 0034). Setup
+  is in the runbook, "Saving from iPhone".
+
+- **"Clip link to Tiro" in the extension's right-click menu** saves a link
+  without opening it, the same way the phone does. The toolbar button shows
+  whether it was saved, already there, or refused. It adds the
+  `contextMenus` permission, which Chrome grants without a warning, and the
+  data disclosure moves to version 6, so every install re-accepts it once.
+
 - **Collections, and favorites.** A collection is a hand-picked, ordered list
   of articles kept in the vault as `collections/<id>.md`; favorites is the one
   every vault has. They are the first thing in the vault written by a person

@@ -4,8 +4,13 @@ import "@fontsource/spectral/latin-600.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "../ui/tokens.css";
 import "./popup.css";
-import { collectionId, readingMinutes, slugForUrl } from "@tiro/shared";
-import { buildClipFile, tabSourceUrl } from "../clip.ts";
+import {
+  collectionId,
+  readingMinutes,
+  slugForUrl,
+  sourceUrlOf,
+} from "@tiro/shared";
+import { buildClipFile } from "../clip.ts";
 import {
   type ClipCandidate,
   clipReady,
@@ -712,7 +717,7 @@ async function main(): Promise<void> {
   chrome.runtime.onMessage.addListener((message: unknown, sender) => {
     if (sender.tab?.id !== tabId || !isClipResult(message)) return;
     tabResolved = true;
-    offer(message.payload, false, tabSourceUrl(message.payload.url));
+    offer(message.payload, false, sourceUrlOf(message.payload.url));
   });
 
   let extracted = false;

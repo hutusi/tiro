@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
-import type { FetchLike } from "../src/github.ts";
+import type { FetchLike } from "../src/fetch-like.ts";
 import { clipGitHubDoc, needsRawFetch, RAW_ORIGIN } from "../src/github-doc.ts";
 
 const DOC = parseGitHubMarkdownUrl(

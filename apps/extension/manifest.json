@@ -33,7 +33,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
   "host_permissions": ["https://api.github.com/*"],
   "optional_host_permissions": [
     "https://arxiv.org/*",

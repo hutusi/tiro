@@ -76,6 +76,8 @@ import {
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { clipPage } from "@tiro/clip";
+import { plainTextShell, withHtmlDocument } from "@tiro/clip/happy-dom";
 import {
   type ArticleFrontmatter,
   COLLECTIONS_DIR,
@@ -97,8 +99,6 @@ import {
   stringifyArticle,
   stringifyCollection,
 } from "@tiro/shared";
-import { Window } from "happy-dom";
-import { clipPage } from "../src/clip-page.ts";
 import type { ClipPayload } from "../src/messages.ts";
 
 /**
@@ -299,69 +299,21 @@ export function isPlainText(header: string | null): boolean {
   return (header ?? "").split(";")[0]?.trim().toLowerCase() === "text/plain";
 }
 
-/**
- * What Chrome builds for a `text/plain` response: the bytes in one `<pre>`.
- *
- * Cached in that form because the cache is meant to hold what a browser would
- * have shown, and this is the one response type where the bytes and the
- * document differ. Without it a markdown file replays as markdown *parsed as
- * HTML* — which is neither what the clipper sees nor anything at all, since
- * `# Heading` is not a tag — and the clipper's markdown branch, which keys on
- * exactly this shape, would never fire. The sweep would then report a phantom
- * diff on every markdown article in the corpus, forever.
- */
-export function plainTextShell(text: string): string {
-  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-  return `<html><head></head><body><pre>${escaped}</pre></body></html>`;
-}
-
 type Clip = (doc: Document, url: string) => { markdown: string };
 
 /**
- * Clip one page with a given implementation.
- *
- * `documentElement.innerHTML` rather than a full parse because happy-dom has
- * no document parser that keeps `<head>`; the regex trims the wrapper so the
- * head's `<link>` and `<meta>` still land where Readability looks for them.
- *
- * Subresource loading is off because it is not inert: happy-dom really does
- * issue a request for every `<link rel=preload as=style|script>`, through its
- * own Fetch rather than the global one, and nine pages in the corpus carry
- * them. Left on, a sweep quietly reaches the network while parsing a cached
- * page — which is both slower and a straight contradiction of the reason the
- * cache exists, since a `--baseline` run would be comparing two clips taken
- * against whatever those CDNs served each time. (JavaScript evaluation needs no
- * flag; happy-dom disables it by default.)
- *
- * Each window is closed rather than dropped. One per article per side, held for
- * the life of the process, is exactly the shape that turns a long corpus into a
- * memory problem.
+ * Clip one page with a given implementation, in the one hardened document
+ * the processor uses too (`withHtmlDocument`): no script runs and nothing the
+ * page names is fetched. That matters here as much as there — a sweep reaching
+ * the network while parsing a cached page would compare two clips taken against
+ * whatever some CDN served each time.
  */
-async function clipHtml<T>(
+function clipHtml<T>(
   html: string,
   url: string,
   clip: (doc: Document, url: string) => T,
 ): Promise<T> {
-  const window = new Window({
-    url,
-    settings: {
-      disableCSSFileLoading: true,
-      disableJavaScriptFileLoading: true,
-      navigation: {
-        disableChildFrameNavigation: true,
-        disableChildPageNavigation: true,
-      },
-    },
-  });
-  try {
-    const doc = window.document as unknown as Document;
-    doc.documentElement.innerHTML = html
-      .replace(/^[\s\S]*?<html[^>]*>/i, "")
-      .replace(/<\/html>[\s\S]*$/i, "");
-    return clip(doc, url);
-  } finally {
-    await window.happyDOM.close();
-  }
+  return withHtmlDocument(html, url, (doc) => clip(doc, url));
 }
 
 function describe(before: Counts, after: Counts): string | null {
@@ -1192,12 +1144,20 @@ async function loadBaseline(ref: string, baselines: string): Promise<Clip> {
     );
   }
 
-  const entry = join(dir, "apps/extension/src/clip-page.ts");
-  if (!existsSync(entry)) {
+  // Where the clipper lived at that ref: in its own package since ADR 0034,
+  // in the extension before it. Newest first, so a ref from either side of
+  // the move can be compared against today.
+  const entry = [
+    "packages/clip/src/clip-page.ts",
+    "apps/extension/src/clip-page.ts",
+  ]
+    .map((path) => join(dir, path))
+    .find((path) => existsSync(path));
+  if (entry === undefined) {
     // Before clip-page.ts existed the pipeline lived inside the injected IIFE,
     // which cannot be imported. Say so rather than failing on a module error.
     throw new Error(
-      `${ref} (${sha.slice(0, 8)}) predates apps/extension/src/clip-page.ts, so its clipper cannot be imported`,
+      `${ref} (${sha.slice(0, 8)}) predates clip-page.ts, so its clipper cannot be imported`,
     );
   }
   const module = (await import(pathToFileURL(entry).href)) as {

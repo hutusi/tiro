@@ -633,6 +633,255 @@ describe("tags", () => {
   });
 });
 
+describe("saved links", () => {
+  function withInbox(text: string): string {
+    const vault = freshVault();
+    mkdirSync(join(vault, "inbox"), { recursive: true });
+    writeFileSync(join(vault, "inbox", "saved.url"), text);
+    return vault;
+  }
+
+  const SAVED = "https://example.net/saved";
+  const PAGE = `<html><head><title>Saved From a Phone</title></head><body><article>
+    <h1>Saved From a Phone</h1>
+    ${"<p>A paragraph of the saved page, long enough to be read as the article and not as a shell.</p>".repeat(8)}
+    </article></body></html>`;
+
+  /** Serves `routes`, and 404s everything else — images included. */
+  function serving(
+    routes: Record<string, () => Response>,
+    hits: string[] = [],
+  ): FetchLike {
+    return async (input) => {
+      hits.push(String(input));
+      return routes[String(input)]?.() ?? new Response("", { status: 404 });
+    };
+  }
+  const page = () =>
+    new Response(PAGE, { headers: { "content-type": "text/html" } });
+
+  async function savedArticle(vault: string) {
+    const slug = await slugForUrl(SAVED);
+    const path = join(vault, "articles", slug, "index.md");
+    return { slug, path, read: () => parseArticle(readFileSync(path, "utf8")) };
+  }
+
+  test("fetches a saved link's page and processes it like a clip", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({ [SAVED]: page }),
+    });
+    const { slug, read } = await savedArticle(vault);
+    expect(report.processed).toContain(slug);
+    const { frontmatter, body } = read();
+    expect(frontmatter.title).toBe("Saved From a Phone");
+    expect(frontmatter.tiro.capture).toBe("link");
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(needsProcessing(frontmatter)).toBe(false);
+    expect(body).toContain("A paragraph of the saved page");
+    expect(existsSync(join(vault, "articles", slug, "zh.md"))).toBe(true);
+    expect(readdirSync(join(vault, "inbox"))).toEqual([]);
+  });
+
+  test("a link that is gone is settled, not retried", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({}),
+    });
+    const { slug, read } = await savedArticle(vault);
+    expect(report.fetchFailed).toEqual([{ slug, reason: "Error: HTTP 404" }]);
+    const { frontmatter, body } = read();
+    expect(needsProcessing(frontmatter)).toBe(false);
+    expect(frontmatter.tiro.fetch_failed).toBe("Error: HTTP 404");
+    expect(body).toBe("");
+  });
+
+  test("a link that is a PDF becomes a PDF article", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const prose =
+      "A document long enough on every page to count as having a text layer, which is what the density gate asks of it before it reads anything.";
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response(makePdf([prose, prose]), {
+            headers: { "content-type": "application/pdf" },
+          }),
+      }),
+    });
+    const { frontmatter, body } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.capture).toBe("link");
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+    expect(body).toContain("density gate");
+  });
+
+  test("a PDF served as a plain download becomes a PDF article", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const prose =
+      "A document long enough on every page to count as having a text layer, which is what the density gate asks of it before it reads anything.";
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response(makePdf([prose, prose]), {
+            headers: { "content-type": "application/octet-stream" },
+          }),
+      }),
+    });
+    const { frontmatter, body } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(body).toContain("density gate");
+  });
+
+  test("a plain download that is not a PDF is settled, not retried", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response("PK\u0003\u0004 a zip, not a paper", {
+            headers: { "content-type": "application/octet-stream" },
+          }),
+      }),
+    });
+    const { frontmatter } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.processed_at).toBeDefined();
+    expect(frontmatter.tiro.fetch_failed).toContain("not a PDF");
+  });
+
+  test("a versioned arXiv link is read at the version saved", async () => {
+    // The article is the paper's; the body is the revision the reader saved.
+    const vault = withInbox("https://arxiv.org/html/2404.19756v1");
+    const config = await loadVaultConfig(vault);
+    const hits: string[] = [];
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({}, hits),
+    });
+    expect(hits[0]).toBe("https://arxiv.org/html/2404.19756v1");
+  });
+
+  describe("an arXiv link whose full text is missing", () => {
+    const ABSTRACT = `<html><head><title>A Paper</title>
+      <meta name="citation_title" content="A Paper"></head><body>
+      <h1 class="title">A Paper</h1><blockquote class="abstract">
+      ${"An abstract long enough to be read as the article's own text. ".repeat(6)}
+      </blockquote></body></html>`;
+    const abstract = () =>
+      new Response(ABSTRACT, { headers: { "content-type": "text/html" } });
+    const paperSlug = () => slugForUrl("https://arxiv.org/abs/2404.19756");
+    const tiroOf = async (vault: string) =>
+      parseArticle(
+        readFileSync(
+          join(vault, "articles", await paperSlug(), "index.md"),
+          "utf8",
+        ),
+      ).frontmatter.tiro;
+
+    test("falls back to the saved revision's abstract, and says so", async () => {
+      // The whole pipeline, past the first request: the fallback used to ask
+      // for the latest abstract while the article went on naming v1's HTML
+      // as its source.
+      const vault = withInbox("https://arxiv.org/html/2404.19756v1");
+      const config = await loadVaultConfig(vault);
+      const hits: string[] = [];
+      await runPipeline({ vaultDir: vault }, config, {
+        ...deps,
+        fetchImpl: serving(
+          { "https://arxiv.org/abs/2404.19756v1": abstract },
+          hits,
+        ),
+      });
+      expect(hits).toContain("https://arxiv.org/abs/2404.19756v1");
+      expect(hits).not.toContain("https://arxiv.org/abs/2404.19756");
+      expect((await tiroOf(vault)).source_url).toBe(
+        "https://arxiv.org/abs/2404.19756v1",
+      );
+    });
+
+    test("drops the stub's source when the body came from the article's own URL", async () => {
+      // Saved unversioned `…/html/…`, read from the canonical abstract: the
+      // stub's source_url named a page that was never read, and is replaced
+      // with nothing rather than kept.
+      const vault = withInbox("https://arxiv.org/html/2404.19756");
+      const config = await loadVaultConfig(vault);
+      await runPipeline({ vaultDir: vault }, config, {
+        ...deps,
+        fetchImpl: serving({ "https://arxiv.org/abs/2404.19756": abstract }),
+      });
+      expect((await tiroOf(vault)).source_url).toBeUndefined();
+    });
+  });
+
+  test("--force does not fetch a built article's page again", async () => {
+    // After the fetch, the body is the clip; re-reading it would also throw
+    // away the translation checkpoint keyed on it (invariant 8).
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({ [SAVED]: page }),
+    });
+    const { slug } = await savedArticle(vault);
+    const hits: string[] = [];
+    await runPipeline({ vaultDir: vault, force: true, slug }, config, {
+      ...deps,
+      fetchImpl: serving({ [SAVED]: page }, hits),
+    });
+    expect(hits).not.toContain(SAVED);
+  });
+
+  test("--force asks again about a link that was settled", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({}),
+    });
+    const { slug, read } = await savedArticle(vault);
+    await runPipeline({ vaultDir: vault, force: true, slug }, config, {
+      ...deps,
+      fetchImpl: serving({ [SAVED]: page }),
+    });
+    const { frontmatter, body } = read();
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(body).toContain("A paragraph of the saved page");
+  });
+
+  test("a run drains the inbox before it chooses articles", async () => {
+    const vault = withInbox("https://example.net/saved");
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, dryRun: true },
+      config,
+      deps,
+    );
+    expect(report.inbox.saved.map((s) => s.url)).toEqual([
+      "https://example.net/saved",
+    ]);
+  });
+
+  test("a one-article run leaves the inbox alone", async () => {
+    const vault = withInbox("https://example.net/saved");
+    const config = await loadVaultConfig(vault);
+    const report = await runPipeline(
+      { vaultDir: vault, slug: RAW },
+      config,
+      deps,
+    );
+    expect(report.inbox).toEqual({ saved: [], existing: [], rejected: [] });
+    expect(existsSync(join(vault, "inbox", "saved.url"))).toBe(true);
+  });
+});
+
 describe("a provider outage", () => {
   /** Five pending articles with equal bodies, so they run in slug order, and
    * the fixture's own pending clip moved out of the way. Each body names its
@@ -1660,7 +1909,7 @@ describe("runPipeline with a PDF stub", () => {
   }
 
   const servePdf =
-    (bytes: Uint8Array): FetchLike =>
+    (bytes: Uint8Array<ArrayBuffer>): FetchLike =>
     async (input) =>
       String(input).endsWith(".pdf")
         ? new Response(bytes, {
@@ -1929,9 +2178,10 @@ describe("runPipeline with a PDF stub", () => {
     expect(article.body).toContain("## Section 1");
   });
 
-  test("leaves the article pending when the PDF cannot be read", async () => {
-    // Invariant 7: a hard failure leaves it pending and never fails the run, so
-    // a later run — or a later version of the extractor — retries it.
+  test("settles a PDF that cannot be read, rather than retrying it every day", async () => {
+    // A scan stays a scan. Left pending (ADR 0026 as first written) it was
+    // downloaded again by every run — and by a daily one, a red run a day, for
+    // ever. Settled, it is marked with the reason and left alone (ADR 0034).
     const { dir, slug } = await stubVault();
     const scanned = makePdf(["", "", ""]);
     const config = await loadVaultConfig(dir);
@@ -1943,13 +2193,16 @@ describe("runPipeline with a PDF stub", () => {
     const article = parseArticle(
       readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
     );
-    expect(needsProcessing(article.frontmatter)).toBe(true);
+    expect(needsProcessing(article.frontmatter)).toBe(false);
+    expect(article.frontmatter.tiro.fetch_failed).toContain(
+      "no usable text layer",
+    );
     expect(article.body).toBe("");
-    // Other articles in the vault still processed.
-    expect(report.errored.length).toBeGreaterThan(0);
+    expect(report.fetchFailed.map((f) => f.slug)).toEqual([slug]);
+    expect(report.errored).toEqual([]);
   });
 
-  test("leaves the article pending when the URL does not serve a PDF", async () => {
+  test("settles a URL that does not serve a PDF", async () => {
     // A rate-limit interstitial or a login page must never be filed as the
     // document: the magic-byte check is what refuses it.
     const { dir, slug } = await stubVault();
@@ -1965,7 +2218,25 @@ describe("runPipeline with a PDF stub", () => {
     const article = parseArticle(
       readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
     );
+    expect(article.frontmatter.tiro.fetch_failed).toContain("not a PDF");
+  });
+
+  test("leaves the article pending when the server fails for now", async () => {
+    // Invariant 7: a failure that may pass leaves it pending, so a later run
+    // retries it.
+    const { dir, slug } = await stubVault();
+    const config = await loadVaultConfig(dir);
+    const report = await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: async () => new Response("busy", { status: 503 }),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
     expect(needsProcessing(article.frontmatter)).toBe(true);
+    expect(article.frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(report.errored.map((e) => e.slug)).toContain(slug);
   });
 });
 

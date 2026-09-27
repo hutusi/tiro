@@ -15,7 +15,10 @@ const fetchOptions = {
   allowPrivateHosts: true,
 };
 
-const pdfResponse = (bytes: Uint8Array, headers: Record<string, string> = {}) =>
+const pdfResponse = (
+  bytes: Uint8Array<ArrayBuffer>,
+  headers: Record<string, string> = {},
+) =>
   new Response(bytes, {
     headers: { "content-type": "application/pdf", ...headers },
   });

@@ -125,6 +125,22 @@ export const TiroConfigSchema = z
           .default(PDF_MIN_PAGE_COVERAGE),
       })
       .prefault({}),
+    // Fetching a page saved as a link (ADR 0034). A page is text, so the cap
+    // is far below a PDF's; one past it is refused rather than truncated.
+    // `min_chars`: a clip shorter than this is taken to be a page that builds
+    // its text with scripts, which a fetch cannot run — the same threshold
+    // `sweep` uses to flag one.
+    fetch: z
+      .object({
+        max_bytes: z
+          .number()
+          .int()
+          .positive()
+          .default(5 * 1024 * 1024),
+        timeout_ms: z.number().int().positive().default(30_000),
+        min_chars: z.number().int().min(0).default(500),
+      })
+      .prefault({}),
     processing: z
       .object({
         // Wall-clock budget for one processor run. The point is to stop the

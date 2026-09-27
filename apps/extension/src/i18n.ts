@@ -108,7 +108,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -171,6 +171,17 @@ const en = {
   connNetwork: (detail: string) => `Network error: ${detail}`,
   connTokenExpires: (date: string, days: number) =>
     `The token expires on ${date} (${days} ${days === 1 ? "day" : "days"} left).`,
+
+  // "Clip link", from the context menu on a link (ADR 0034). The menu label is
+  // short; the rest show as the toolbar button's tooltip beside its badge.
+  linkMenu: "Clip link to Tiro",
+  linkSaved: (url: string) => `Saved to Tiro — the next run clips it: ${url}`,
+  linkExists: (url: string) => `Already in Tiro: ${url}`,
+  linkNotALink: "Only http and https links can be saved.",
+  linkUnconfigured: "Set your repository and token in Tiro's Settings first.",
+  linkNoDisclosure:
+    "Open Tiro from the toolbar once first — it says what it sends where.",
+  linkFailed: (error: string) => `Could not save the link: ${error}`,
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `The token expires today (${date}) — make a new one now.`
@@ -296,7 +307,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -351,6 +362,14 @@ const zh: Messages = {
   connNetwork: (detail: string) => `网络错误：${detail}`,
   connTokenExpires: (date: string, days: number) =>
     `令牌将于 ${date} 到期（还有 ${days} 天）。`,
+
+  linkMenu: "用 Tiro 剪藏链接",
+  linkSaved: (url: string) => `已保存到 Tiro，下次运行时剪藏：${url}`,
+  linkExists: (url: string) => `Tiro 里已有：${url}`,
+  linkNotALink: "只能保存 http 和 https 链接。",
+  linkUnconfigured: "请先在 Tiro 的设置中填写仓库和令牌。",
+  linkNoDisclosure: "请先从工具栏打开一次 Tiro，它会说明会把什么发送到哪里。",
+  linkFailed: (error: string) => `无法保存链接：${error}`,
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `令牌今天（${date}）到期，请立即更换。`

@@ -34,6 +34,15 @@ export const MAX_SERVED_ASSET_BYTES = 20 * 1024 * 1024;
  * `articles/`, so nothing here is ever mistaken for an article. */
 export const COLLECTIONS_DIR = "collections";
 
+/**
+ * Where a link saved without its page waits to become an article (ADR 0034):
+ * one file per save, dropped by a phone's shortcut or the extension's "Clip
+ * link", holding the URL as text. The processor turns each into a stub under
+ * `articles/` and deletes it. A file rather than a message, because a file is
+ * in git the moment it is saved, whatever happens to the run it starts.
+ */
+export const INBOX_DIR = "inbox";
+
 export function collectionPath(id: string): string {
   return `${COLLECTIONS_DIR}/${id}.md`;
 }

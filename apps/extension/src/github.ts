@@ -430,6 +430,25 @@ async function readTextAt(
   );
 }
 
+/**
+ * Whether the vault already has an article at `slug`, on the configured
+ * branch: its `index.md`, not just a directory — an orphan `zh.md` is not an
+ * article. One listing request, however large the article (see `listAt`).
+ */
+export async function articleExists(
+  config: TiroExtensionConfig,
+  slug: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<boolean> {
+  const names = await listAt(
+    config,
+    `articles/${slug}`,
+    config.branch,
+    fetchImpl,
+  );
+  return names?.includes("index.md") ?? false;
+}
+
 /** Whether anything — file or directory — exists at `path` in one commit. A
  * directory listing is cheap whatever the files inside it weigh, which is why
  * an article is checked for by its directory rather than its `index.md`. */

@@ -1,8 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // DOM, because the link stage (ADR 0034) runs @tiro/clip, which is DOM
-    // code, and its TypeScript source is checked as part of this program.
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["bun"]
   },
