@@ -1200,19 +1200,27 @@ summary and the tags alongside it.
 
 ### Measuring the vault's tags
 
-`tags` reads every article and reports what its tags look like (ADR 0033): how
-many distinct tags there are, how many only one article carries, what the next
-run would offer the model as its vocabulary, and the tags that are not in
-English, not in canonical form, or used in both singular and plural. No model,
-no writes — safe on the live clone at any time.
+`tags` reads every article and reports what its tags look like (ADR 0033, ADR
+0035): how many distinct tags there are, how many only one article carries,
+what the next run would offer the model as its vocabulary, and the tags that
+are *undecided* (lowercase English no alias spells yet, most carried first),
+spelled more than one way (`Git/git`), not in canonical form, or used in both
+singular and plural. No model, no writes — safe on the live clone at any time.
 
 ```sh
 bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
 ```
 
-Read it for what to alias. A singular and plural pair (`ai agent/ai agents`) or
-two names for one thing is a line under `tags.aliases` in `tiro.yml`; it applies
-from the next run on.
+Read it for what to alias; each is a line under `tags.aliases` in `tiro.yml`,
+applied from the next run on:
+
+- **An undecided tag** gets its spelling: a translation
+  (`reinforcement learning: 强化学习`), a respelling (`git: Git`), or itself
+  where lowercase is right (`npm: npm`). Those two or more articles carry are
+  the ones `retag` waits for.
+- **A tag spelled more than one way** gets the one the vault should use.
+- **A singular and plural pair** (`ai agent/ai agents`), or two names for one
+  thing, gets merged into one.
 
 ### Retagging the vault
 

@@ -7,9 +7,9 @@ import {
 } from "@tiro/shared";
 import {
   buildVocabulary,
-  isEnglishTag,
   MIN_TAGS,
   spellingOf,
+  undecided,
 } from "./tag-policy.ts";
 
 export interface TaggedArticle {
@@ -24,7 +24,8 @@ export interface TagCount {
   articles: number;
 }
 
-/** What the vault's tags look like — the numbers ADR 0033 was measured by. */
+/** What the vault's tags look like — the numbers ADR 0033 was measured by, and
+ * what ADR 0035's alias table is drafted from. */
 export interface TagReport {
   articles: number;
   /** Distinct tags in canonical form, and how many of them only one article
@@ -38,7 +39,14 @@ export interface TagReport {
   /** Spellings as written that are not their canonical form, including
    * tags that are empty once normalized (`canonical` is then ""). */
   nonCanonical: { tag: string; canonical: string }[];
-  nonEnglish: TagCount[];
+  /** Tags still in ADR 0033's form — lowercase English no alias spells —
+   * most carried first: what the alias table is drafted from, and those two
+   * articles share are what `retag` refuses to start over (ADR 0035). */
+  undecided: TagCount[];
+  /** Tags the vault spells more than one way, differing only in case: one
+   * tag and one page, whose chips read differently until an alias or a
+   * retag settles the spelling. The most used spelling first. */
+  variants: string[][];
   /** Canonical tags whose plural is also a tag: `agent` beside `agents`. */
   plurals: [string, string][];
   /** Processed articles outside the 3 to 6 the prompt asks for. */
@@ -111,7 +119,21 @@ export function tagReport(
     nonCanonical: [...nonCanonical]
       .map(([tag, canonical]) => ({ tag, canonical }))
       .sort((a, b) => (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0)),
-    nonEnglish: all.filter((t) => !isEnglishTag(t.tag)),
+    undecided: [...counts]
+      .flatMap(([key, n]) =>
+        [...(spellings.get(key)?.keys() ?? [])]
+          .filter((tag) => undecided(tag, aliases))
+          .map((tag) => ({ tag, articles: n })),
+      )
+      .sort(byCount),
+    variants: [...spellings.values()]
+      .filter((written) => written.size > 1)
+      .map((written) =>
+        [...written]
+          .sort(([a, na], [b, nb]) => nb - na || (a < b ? -1 : a > b ? 1 : 0))
+          .map(([tag]) => tag),
+      )
+      .sort(([a = ""], [b = ""]) => (a < b ? -1 : a > b ? 1 : 0)),
     plurals,
     fewTags,
     manyTags,

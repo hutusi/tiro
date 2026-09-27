@@ -3,24 +3,12 @@ import { TAG_LIMIT, tagAliases } from "@tiro/shared";
 import {
   buildVocabulary,
   inVaultScripts,
-  isEnglishTag,
   MAX_NEW_TAGS,
   undecided,
   undecidedTags,
   VOCABULARY_LIMIT,
   writableTags,
 } from "../src/tag-policy.ts";
-
-describe("isEnglishTag", () => {
-  test("Han, kana and hangul are not; accented Latin is", () => {
-    expect(isEnglishTag("ai安全")).toBe(false);
-    expect(isEnglishTag("十二要素")).toBe(false);
-    expect(isEnglishTag("カタカナ")).toBe(false);
-    expect(isEnglishTag("한국어")).toBe(false);
-    expect(isEnglishTag("gödel")).toBe(true);
-    expect(isEnglishTag("c++")).toBe(true);
-  });
-});
 
 describe("inVaultScripts", () => {
   test("Chinese and English are the vault's; kana and hangul are not", () => {

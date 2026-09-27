@@ -51,12 +51,29 @@ describe("tagReport", () => {
     ]);
   });
 
-  test("lists tags that are not in English", () => {
+  test("lists the undecided tags an alias table is drafted from", () => {
+    // Lowercase English nothing spells yet (ADR 0035): not a Chinese tag, not
+    // a capitalized one, not one an alias spells.
     const report = tagReport(
-      [done("a", ["知识管理"]), done("b", ["知识管理", "rust"])],
+      [
+        done("a", ["digital habits", "知识管理", "Git", "npm"]),
+        done("b", ["digital habits", "rss", "npm"]),
+      ],
+      tagAliases({ npm: "npm" }),
+    );
+    expect(report.undecided).toEqual([
+      { tag: "digital habits", articles: 2 },
+      { tag: "rss", articles: 1 },
+    ]);
+  });
+
+  test("lists a tag the vault spells more than one way", () => {
+    const report = tagReport(
+      [done("a", ["Git"]), done("b", ["git"]), done("c", ["Git", "熵"])],
       none,
     );
-    expect(report.nonEnglish).toEqual([{ tag: "知识管理", articles: 2 }]);
+    expect(report.variants).toEqual([["Git", "git"]]);
+    expect(report.distinct).toBe(2);
   });
 
   test("finds a tag used in both singular and plural", () => {

@@ -175,8 +175,9 @@ async function run(vault: string): Promise<number> {
 }
 
 /**
- * Measure the vault's tags (ADR 0033). Reads only — no model, no writes — so
- * it is safe to run on the live clone at any time, before and after a retag.
+ * Measure the vault's tags (ADR 0033, ADR 0035). Reads only — no model, no
+ * writes — so it is safe to run on the live clone at any time, before and
+ * after a retag.
  */
 async function tags(vault: string): Promise<number> {
   const config = await loadVaultConfig(vault);
@@ -194,9 +195,14 @@ async function tags(vault: string): Promise<number> {
       `a run would offer ${report.vocabulary} as the vocabulary`,
   );
   console.log(`most used: ${list(report.top)}`);
-  if (report.nonEnglish.length > 0) {
+  if (report.undecided.length > 0) {
     console.log(
-      `not in English: ${report.nonEnglish.length}: ${list(report.nonEnglish)}`,
+      `undecided — no spelling yet, give each an alias: ${report.undecided.length}: ${list(report.undecided)}`,
+    );
+  }
+  if (report.variants.length > 0) {
+    console.log(
+      `spelled more than one way: ${report.variants.map((v) => v.join("/")).join(", ")}`,
     );
   }
   if (report.nonCanonical.length > 0) {

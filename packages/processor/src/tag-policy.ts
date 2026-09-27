@@ -11,15 +11,6 @@ export const VOCABULARY_MIN_ARTICLES = 2;
 /** The most tags offered to the model, most used first. */
 export const VOCABULARY_LIMIT = 150;
 
-/** Scripts that mark a tag as not English. Only the tags report still asks,
- * to list the vault's tags by language. */
-const NON_ENGLISH =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
-
-export function isEnglishTag(tag: string): boolean {
-  return !NON_ENGLISH.test(tag);
-}
-
 /** Kana and hangul: a tag in either is in neither of the vault's languages
  * (ADR 0035). Japanese kanji and traditional characters are Han, and pass —
  * only an alias can tell them from Simplified Chinese. */
