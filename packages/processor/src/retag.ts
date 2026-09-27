@@ -80,7 +80,7 @@ const CONSECUTIVE_FAILURE_LIMIT = 3;
 function alreadyTagged(
   tags: readonly string[],
   aliases: ReadonlyMap<string, string | null>,
-  known: ReadonlySet<string>,
+  knownKeys: ReadonlySet<string>,
 ): boolean {
   const normal = normalizeTags(tags, aliases, Number.POSITIVE_INFINITY);
   return (
@@ -88,7 +88,8 @@ function alreadyTagged(
     normal.length <= TAG_LIMIT &&
     sameTags(normal, tags) &&
     normal.every(isEnglishTag) &&
-    normal.filter((tag) => !known.has(tag)).length <= MAX_NEW_TAGS
+    normal.filter((tag) => !knownKeys.has(tag.toLowerCase())).length <=
+      MAX_NEW_TAGS
   );
 }
 
@@ -173,6 +174,7 @@ export async function retagVault(
     aliases,
   );
   const known = new Set(report.vocabulary);
+  const knownKeys = new Set(report.vocabulary.map((tag) => tag.toLowerCase()));
 
   const breaker = createBreaker(CONSECUTIVE_FAILURE_LIMIT);
   let stopped = false;
@@ -188,7 +190,7 @@ export async function retagVault(
       report.skipped.push({ slug, reason: "pending" });
       continue;
     }
-    if (options.force !== true && alreadyTagged(before, aliases, known)) {
+    if (options.force !== true && alreadyTagged(before, aliases, knownKeys)) {
       report.skipped.push({ slug, reason: "already-tagged" });
       continue;
     }

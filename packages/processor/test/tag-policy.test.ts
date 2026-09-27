@@ -22,12 +22,19 @@ describe("isEnglishTag", () => {
 describe("writableTags", () => {
   const none = new Map<string, string | null>();
 
-  test("writes the model's tags in canonical form", () => {
+  test("writes the model's tags in canonical form, case kept", () => {
     expect(writableTags(["Open-Source", "AI_Safety", "GPT-4"], none)).toEqual([
-      "open source",
-      "ai safety",
-      "gpt-4",
+      "Open Source",
+      "AI Safety",
+      "GPT-4",
     ]);
+  });
+
+  test("writes a vocabulary tag the way the vault spells it", () => {
+    // By key: the model's `git` is the vault's `Git`, not a new tag beside it.
+    expect(
+      writableTags(["git", "RUST", "zig"], none, () => {}, ["Git", "rust"]),
+    ).toEqual(["Git", "rust", "zig"]);
   });
 
   test("drops tags that are not in English, and says so", () => {
@@ -131,7 +138,18 @@ describe("buildVocabulary", () => {
       buildVocabulary([["Open-Source", "open source"], ["zig"]], none),
     ).toEqual([]);
     expect(buildVocabulary([["Open-Source"], ["open_source"]], none)).toEqual([
-      "open source",
+      "Open Source",
+    ]);
+  });
+
+  test("offers each tag in the spelling most of the vault uses", () => {
+    expect(buildVocabulary([["Git"], ["git"], ["Git"]], none)).toEqual(["Git"]);
+    // A tie goes by code point, never by the order the vault was read in.
+    expect(buildVocabulary([["git"], ["Git"]], none)).toEqual(["Git"]);
+    // An alias settles it outright, however few articles use its spelling.
+    const aliases = tagAliases({ "large language models": "LLM" });
+    expect(buildVocabulary([["llm"], ["llm"], ["llm"]], aliases)).toEqual([
+      "LLM",
     ]);
   });
 

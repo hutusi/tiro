@@ -5,6 +5,7 @@ import {
   PDF_MIN_CHARS_PER_PAGE,
   PDF_MIN_PAGE_COVERAGE,
 } from "./pdf-limits.ts";
+import { aliasProblems } from "./tags.ts";
 
 /**
  * Schema for the vault's `config/tiro.yml`. Subpath export
@@ -24,18 +25,25 @@ export const TiroConfigSchema = z
       max_retries: z.number().int().min(0).default(3),
     }),
     categories: z.array(z.string().min(1)).min(1),
-    // Tags stay the model's; this is how a person steers them (ADR 0033).
-    // `aliases` rewrites one tag to another as it is written, or drops it
-    // with `null` — `large language models: llm`, `misc: null`. Both sides
-    // are normalized first, so an entry matches however either is spelled.
-    // One hop: a target is not looked up again.
+    // Tags stay the model's; this is how a person steers them (ADR 0033, ADR
+    // 0035). `aliases` is the vault's spelling of a tag: it rewrites one tag
+    // to another as it is written — `reinforcement learning: 强化学习`,
+    // `ai: AI` — or drops it with `null`. An entry matches however either side
+    // is spelled, case included. One hop, so a table whose output it would
+    // rewrite again — a chain, a cycle, one tag spelled two ways — is refused
+    // here rather than left to rewrite the same articles on every run.
     tags: z
       .object({
         aliases: z
           .record(z.string().min(1), z.string().min(1).nullable())
           .default({}),
       })
-      .prefault({}),
+      .prefault({})
+      .superRefine((tags, ctx) => {
+        for (const message of aliasProblems(tags.aliases)) {
+          ctx.addIssue({ code: "custom", path: ["aliases"], message });
+        }
+      }),
     translation: z
       .object({
         // zh-only, deliberately. Two things hardcode it: `translationPath()`

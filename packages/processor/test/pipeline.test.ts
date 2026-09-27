@@ -629,7 +629,7 @@ describe("tags", () => {
       }),
     });
     const { frontmatter } = parseArticle(readFileSync(path, "utf8"));
-    expect(frontmatter.tags).toEqual(["open source", "知识管理"]);
+    expect(frontmatter.tags).toEqual(["Open Source", "知识管理"]);
   });
 });
 

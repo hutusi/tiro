@@ -125,8 +125,9 @@ describe("retagVault", () => {
         log: (m) => logs.push(m),
       },
     );
-    // English only, canonical, and two new tags beside the listed one.
-    expect(tagsOf(vault, ATTENTION)).toEqual(["attention", "contract", "a"]);
+    // English only, canonical in the model's own case, and two new tags
+    // beside the listed one.
+    expect(tagsOf(vault, ATTENTION)).toEqual(["Attention", "contract", "a"]);
     expect(logs).toContain("dropped non-English tag(s): 注意力");
   });
 

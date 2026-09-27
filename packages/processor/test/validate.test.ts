@@ -46,7 +46,7 @@ describe("validateVault", () => {
     );
     const report = await validateVault(vault);
     expect(report.errors).toEqual([
-      `${EN}/index.md: tag "Open-Source" is not in canonical form ("open source")`,
+      `${EN}/index.md: tag "Open-Source" is not in canonical form ("Open Source")`,
     ]);
     rmSync(vault, { recursive: true, force: true });
   });

@@ -140,6 +140,21 @@ describe("tags", () => {
     });
   });
 
+  test("an alias table that would not settle is refused, naming why", () => {
+    // A chain rewrites the same articles on every run, which nothing else
+    // would ever flag.
+    expect(() =>
+      parseTiroConfig(
+        `${minimalConfig}tags:\n  aliases:\n    a: B\n    b: C\n`,
+      ),
+    ).toThrow(/rewritten again/);
+    expect(() =>
+      parseTiroConfig(
+        `${minimalConfig}tags:\n  aliases:\n    ai: AI\n    ai safety: AI安全\n`,
+      ),
+    ).not.toThrow();
+  });
+
   test("an alias to an empty tag is refused rather than read as a drop", () => {
     // `null` is the one way to drop a tag; an empty string is more likely a
     // half-written entry than a decision.

@@ -4,6 +4,10 @@ Status: accepted (2026-09). Supersedes, in part, ADR 0002's "free-form tags":
 tags are still the model's, but written in one form, in English, and reused
 from the vault's own vocabulary before new ones are coined.
 
+> **Superseded in part by [ADR 0035](0035-tags-are-chinese-first.md).** Tags
+> are now Chinese first and keep their case; the vocabulary, aliases, report
+> and retag below stand, as that record adjusts them.
+
 ## Context
 
 The processor asks the model for "3 to 6 short free-form topic tags,

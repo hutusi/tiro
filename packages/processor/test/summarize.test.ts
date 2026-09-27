@@ -478,7 +478,7 @@ describe("summarize", () => {
       }),
     ]);
     const result = await summarize({ ...baseOptions, chat });
-    expect(result.tags).toEqual(["open source", "ai safety"]);
+    expect(result.tags).toEqual(["Open Source", "AI Safety"]);
   });
 
   test("a reply with too many tags costs tags, not a retry", async () => {
@@ -505,7 +505,7 @@ describe("summarize", () => {
     const { chat } = scripted([cut, cut, cut]);
     const result = await summarize({ ...baseOptions, chat });
     expect(result.failed).toBe(true);
-    expect(result.tags).toEqual(["rust"]);
+    expect(result.tags).toEqual(["Rust"]);
   });
 
   test("offers the vault's vocabulary, and holds new tags to the cap", async () => {

@@ -275,6 +275,24 @@ describe("tagSlug", () => {
     expect(tagSlug("x".repeat(300))).toBe(tagSlug("x".repeat(300)));
   });
 
+  test("one page for every spelling of one tag", () => {
+    // ADR 0035: case and a gap beside a Chinese character are spelling.
+    for (const tag of [
+      "AI安全",
+      "ai安全",
+      "AI 安全",
+      "AI-安全",
+      "AI/安全",
+      "AI_安全",
+    ]) {
+      expect(tagSlug(tag)).toBe("ai安全");
+    }
+    expect(tagSlug("GPT-4 发布")).toBe("gpt-4发布");
+    // Hashed as cleaned, so casing a long tag does not move its page either.
+    expect(tagSlug("X".repeat(300))).toBe(tagSlug("x".repeat(300)));
+    expect(tagSlug("智能 ".repeat(40))).toBe(tagSlug("智能".repeat(40)));
+  });
+
   test("leaves a tag that already fits untouched", () => {
     expect(tagSlug("ci/cd")).toBe("ci-cd");
     expect(tagSlug("人工智能")).toBe("人工智能");

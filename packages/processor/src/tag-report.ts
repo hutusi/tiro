@@ -5,7 +5,12 @@ import {
   parseArticle,
   TAG_LIMIT,
 } from "@tiro/shared";
-import { buildVocabulary, isEnglishTag, MIN_TAGS } from "./tag-policy.ts";
+import {
+  buildVocabulary,
+  isEnglishTag,
+  MIN_TAGS,
+  spellingOf,
+} from "./tag-policy.ts";
 
 export interface TaggedArticle {
   slug: string;
@@ -49,14 +54,16 @@ function byCount(a: TagCount, b: TagCount): number {
 
 /**
  * Measure the vault's tags without changing anything. Counts are per article
- * in canonical form, so a tag an article spells two ways counts once, and
- * aliases are applied as a run would apply them.
+ * by key, so a tag an article spells two ways — case included — counts once,
+ * under the spelling most of the vault uses, and aliases are applied as a run
+ * would apply them.
  */
 export function tagReport(
   articles: readonly TaggedArticle[],
   aliases: ReadonlyMap<string, string | null>,
 ): TagReport {
   const counts = new Map<string, number>();
+  const spellings = new Map<string, Map<string, number>>();
   const nonCanonical = new Map<string, string>();
   const fewTags: string[] = [];
   const manyTags: string[] = [];
@@ -72,16 +79,24 @@ export function tagReport(
       }
     }
     const tags = normalizeTags(article.tags, aliases, Number.POSITIVE_INFINITY);
-    for (const tag of tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const tag of tags) {
+      const key = tag.toLowerCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const written = spellings.get(key) ?? new Map<string, number>();
+      written.set(tag, (written.get(tag) ?? 0) + 1);
+      spellings.set(key, written);
+    }
     if (article.processed && tags.length < MIN_TAGS) fewTags.push(article.slug);
     if (tags.length > TAG_LIMIT) manyTags.push(article.slug);
   }
+  const spelled = (key: string) =>
+    spellingOf(spellings.get(key) ?? new Map([[key, 1]]));
   const all = [...counts]
-    .map(([tag, n]) => ({ tag, articles: n }))
+    .map(([key, n]) => ({ tag: spelled(key), articles: n }))
     .sort(byCount);
   const plurals: [string, string][] = [];
-  for (const { tag } of all) {
-    if (counts.has(`${tag}s`)) plurals.push([tag, `${tag}s`]);
+  for (const key of counts.keys()) {
+    if (counts.has(`${key}s`)) plurals.push([spelled(key), spelled(`${key}s`)]);
   }
   plurals.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return {

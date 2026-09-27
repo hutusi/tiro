@@ -36,7 +36,7 @@ describe("tagReport", () => {
   test("lists spellings that are not canonical, and what they become", () => {
     const report = tagReport([done("a", ["Open-Source", "rust"])], none);
     expect(report.nonCanonical).toEqual([
-      { tag: "Open-Source", canonical: "open source" },
+      { tag: "Open-Source", canonical: "Open Source" },
     ]);
   });
 
