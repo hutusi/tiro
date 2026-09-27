@@ -48,13 +48,40 @@ export interface InboxOptions {
  * anything bigger is not what the inbox is for. */
 const MAX_INBOX_FILE_BYTES = 64 * 1024;
 
-/** The first http(s) URL in a file's text. The shortcut writes the URL alone,
- * but a hand-made file, or text a share sheet included, is read the same way. */
-function firstLink(text: string): string | null {
+/**
+ * The link a file holds.
+ *
+ * A file that is one URL and nothing else — what the shortcut and "Clip link"
+ * write — is taken exactly as written: a URL may end in anything a URL can,
+ * `…/wiki/Function_(mathematics)` included. Only a link found inside other
+ * text, which a share sheet or a hand-made file can hold, has the sentence
+ * around it trimmed off (`trimProse`).
+ */
+export function firstLink(text: string): string | null {
+  const whole = text.trim();
+  if (/^https?:\/\/\S+$/i.test(whole)) return whole;
   const match = /https?:\/\/[^\s<>"'`]+/i.exec(text);
-  if (match === null) return null;
-  // Sentence punctuation that trails a pasted link is not part of it.
-  return match[0].replace(/[).,;:!?\]]+$/, "");
+  return match === null ? null : trimProse(match[0]);
+}
+
+/** Punctuation that ends the sentence a link sits in, not the link: trailing
+ * `.,;:!?`, and a closing bracket only while the link has more closers than
+ * openers — so `(see …/Function_(mathematics)).` keeps the one it opened. */
+function trimProse(link: string): string {
+  const count = (text: string, char: string) => text.split(char).length - 1;
+  let url = link;
+  for (;;) {
+    const last = url.at(-1);
+    if (last !== undefined && ".,;:!?".includes(last)) {
+      url = url.slice(0, -1);
+    } else if (last === ")" && count(url, ")") > count(url, "(")) {
+      url = url.slice(0, -1);
+    } else if (last === "]" && count(url, "]") > count(url, "[")) {
+      url = url.slice(0, -1);
+    } else {
+      return url;
+    }
+  }
 }
 
 export async function drainInbox(

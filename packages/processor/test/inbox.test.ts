@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { indexPath, parseArticle, slugForUrl } from "@tiro/shared";
-import { drainInbox } from "../src/inbox.ts";
+import { drainInbox, firstLink } from "../src/inbox.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const now = () => new Date("2026-09-26T08:00:00.000Z");
@@ -27,6 +27,38 @@ function vaultWithInbox(files: Record<string, string>): string {
 }
 
 const inboxFiles = (vault: string) => readdirSync(join(vault, "inbox")).sort();
+
+describe("firstLink", () => {
+  test("takes a file that is only a URL exactly as written", () => {
+    for (const url of [
+      "https://en.wikipedia.org/wiki/Function_(mathematics)",
+      "https://example.net/a.",
+      "https://example.net/q?x=[1]",
+    ]) {
+      expect(firstLink(`  ${url}\n`)).toBe(url);
+    }
+  });
+
+  test("trims the sentence around a link in prose", () => {
+    expect(firstLink("Read https://example.net/essay. Later.")).toBe(
+      "https://example.net/essay",
+    );
+    expect(firstLink("(from https://example.net/post)")).toBe(
+      "https://example.net/post",
+    );
+  });
+
+  test("keeps a bracket the link itself opened, even in prose", () => {
+    expect(
+      firstLink("(see https://en.wikipedia.org/wiki/Function_(mathematics))."),
+    ).toBe("https://en.wikipedia.org/wiki/Function_(mathematics)");
+  });
+
+  test("finds nothing where there is no http(s) link", () => {
+    expect(firstLink("just words")).toBeNull();
+    expect(firstLink("ftp://example.net/file")).toBeNull();
+  });
+});
 
 describe("drainInbox", () => {
   test("turns a saved link into a stub, and consumes the file", async () => {
@@ -63,6 +95,18 @@ describe("drainInbox", () => {
     });
     const report = await drainInbox(vault, { now });
     expect(report.saved[0]?.url).toBe("https://example.net/essay");
+  });
+
+  test("keeps a URL that ends in a bracket of its own", async () => {
+    // The shortcut writes the URL alone; trimming it as if it ended a sentence
+    // saved a different page under a different slug, and consumed the file.
+    const vault = vaultWithInbox({
+      a: "https://en.wikipedia.org/wiki/Function_(mathematics)\n",
+    });
+    const report = await drainInbox(vault, { now });
+    expect(report.saved[0]?.url).toBe(
+      "https://en.wikipedia.org/wiki/Function_(mathematics)",
+    );
   });
 
   test("never overwrites an article that is already there", async () => {
