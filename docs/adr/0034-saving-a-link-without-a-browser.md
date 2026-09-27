@@ -148,6 +148,14 @@ too long, or not a PDF. The pipeline writes the article as processed with
 whose source has gone keeps the text it already has — and reports it, which
 turns the run red once. A body built later drops the marker.
 
+The publisher helpers need care here, because they catch their own failures:
+arXiv's falls back from the full text to the abstract, so a refusal inside it
+surfaces only as "arXiv did not serve". The link stage therefore records how
+each request the helper made ended, and settles the article only when every one
+was refused for good. It also caps GitHub fetches at the helper's own 2 MB, so
+an oversized file is refused by the guard, which knows the refusal is final,
+rather than by the helper, which does not say.
+
 This narrows ADR 0026, where every refusal left a PDF pending: with a daily
 run (ADR 0032) that is a download, a refusal and a red run a day, forever, for
 a document nothing will change.

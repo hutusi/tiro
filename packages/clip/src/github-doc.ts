@@ -34,7 +34,7 @@ export const RAW_ORIGIN = "https://raw.githubusercontent.com/*";
  * the vault keeps it forever, and the processor would translate it block by
  * block. Generated API references run to tens of megabytes.
  */
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
+export const GITHUB_DOC_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
  * Would clipping this payload file a rendering under the file's slug?
@@ -82,14 +82,14 @@ export async function clipGitHubDoc(
   // Asked before reading the body where the server says, so an enormous file
   // is refused rather than downloaded to be refused.
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_FILE_BYTES) {
+  if (Number.isFinite(declared) && declared > GITHUB_DOC_MAX_BYTES) {
     throw new Error(`${rawUrl} is too large to clip`);
   }
   const text = await response.text();
   // Characters rather than bytes, which under-counts multi-byte text — this is
   // a guard against the absurd, not an accounting of it, and the header above
   // is the exact answer whenever there is one.
-  if (text.length > MAX_FILE_BYTES) {
+  if (text.length > GITHUB_DOC_MAX_BYTES) {
     throw new Error(`${rawUrl} is too large to clip`);
   }
   return {

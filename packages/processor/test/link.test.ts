@@ -212,6 +212,69 @@ describe("fetchLinkPage", () => {
     expect(isSettled(error)).toBe(true);
   });
 
+  test("a GitHub file past the helper's own cap is settled", async () => {
+    // The helper refuses past 2 MB with a plain error, which read as worth
+    // retrying — so a 2.1 MB file was downloaded again on every run.
+    const error = await fetchLinkPage({
+      ...base,
+      url: "https://github.com/o/r/blob/main/BIG.md",
+      fetchImpl: async () =>
+        new Response("x".repeat(2_100_000), {
+          headers: { "content-type": "text/plain" },
+        }),
+    }).catch((e) => e);
+    expect(isSettled(error)).toBe(true);
+    expect(String(error)).toContain("too large");
+  });
+
+  describe("an arXiv link whose helper swallows the refusal", () => {
+    const HTML = "https://arxiv.org/html/2404.19756";
+    const ABS = "https://arxiv.org/abs/2404.19756";
+    const ABSTRACT = `<html><head><title>A Paper</title>
+      <meta name="citation_title" content="A Paper"></head><body>
+      <h1 class="title">A Paper</h1><blockquote class="abstract">
+      ${"An abstract long enough to be read as the article's own text. ".repeat(6)}
+      </blockquote></body></html>`;
+    const big = () => html("x".repeat(4000));
+
+    test("is settled when every request was refused for good", async () => {
+      // Both too large: the helper falls back, fails again, and says only
+      // "arXiv did not serve". The refusals behind that are the answer.
+      const error = await fetchLinkPage({
+        ...base,
+        maxBytes: 2000,
+        url: ABS,
+        fetchImpl: site({ [HTML]: big, [ABS]: big }),
+      }).catch((e) => e);
+      expect(isSettled(error)).toBe(true);
+      expect(String(error)).toContain("too large");
+    });
+
+    test("still reads the abstract when only the full text is too large", async () => {
+      const page = await fetchLinkPage({
+        ...base,
+        maxBytes: 2000,
+        url: ABS,
+        fetchImpl: site({ [HTML]: big, [ABS]: () => html(ABSTRACT) }),
+      });
+      expect(page.kind).toBe("page");
+    });
+
+    test("is not settled when any request failed only for now", async () => {
+      // A 404 and a 503: the second may pass, so the article stays pending.
+      const error = await fetchLinkPage({
+        ...base,
+        url: ABS,
+        fetchImpl: site({
+          [HTML]: () => new Response("", { status: 404 }),
+          [ABS]: () => new Response("", { status: 503 }),
+        }),
+      }).catch((e) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(isSettled(error)).toBe(false);
+    });
+  });
+
   test("a run that runs out mid-fetch defers the article", async () => {
     // Invariant 8: the budget binds the request, and running out is an
     // orderly stop — not a broken link, and not a settled one.

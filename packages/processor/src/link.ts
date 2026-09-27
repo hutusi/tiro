@@ -3,6 +3,7 @@ import {
   clipArxivPaper,
   clipGitHubDoc,
   clipPage,
+  GITHUB_DOC_MAX_BYTES,
 } from "@tiro/clip";
 import {
   openHtmlDocument,
@@ -203,34 +204,55 @@ export async function fetchLinkPage(
   }
 
   async function publisherPage(): Promise<LinkPage> {
+    const paper = parseArxivUrl(url);
+    // The GitHub helper refuses a file past its own cap, as a plain error.
+    // Capping the guard at the same size makes the guard refuse it first,
+    // and the guard's refusal is settled.
+    const cap =
+      paper === null ? Math.min(maxBytes, GITHUB_DOC_MAX_BYTES) : maxBytes;
     // The guards of the plain path, for the requests the publisher helpers
     // make themselves: every hop's host checked, the body capped, the time
-    // bounded. Statuses are kept, so a paper or file that is gone reads as
-    // settled rather than as a network fault.
-    const statuses: number[] = [];
+    // bounded — and how each request ended, kept here, because a helper may
+    // swallow it. arXiv's does, on purpose: a failed full-text fetch falls
+    // back to the abstract page, and a size refusal then surfaces only as
+    // "arXiv did not serve".
+    const refusals: unknown[] = [];
+    let otherwise = 0;
     const guarded: FetchLike = async (input) => {
-      const res = await fetchChecked(
-        String(input),
-        {
-          headers: { "User-Agent": USER_AGENT },
-          signal: AbortSignal.timeout(requestMs()),
-        },
-        fetchImpl,
-        allowPrivateHosts,
-        resolveHost,
-        requestMs,
-      );
-      statuses.push(res.status);
-      if (!res.ok) {
-        await res.body?.cancel();
-        return new Response(null, { status: res.status });
+      try {
+        const res = await fetchChecked(
+          String(input),
+          {
+            headers: { "User-Agent": USER_AGENT },
+            signal: AbortSignal.timeout(requestMs()),
+          },
+          fetchImpl,
+          allowPrivateHosts,
+          resolveHost,
+          requestMs,
+        );
+        if (!res.ok) {
+          await res.body?.cancel();
+          const failure = httpFailure(res.status);
+          if (isSettled(failure)) refusals.push(failure);
+          else otherwise += 1;
+          return new Response(null, { status: res.status });
+        }
+        const bytes = await readBodyCapped(res, cap);
+        otherwise += 1;
+        // The body's length is known now; a header claiming otherwise must not
+        // reach a helper that would refuse on it with a plain error.
+        const headers = new Headers(res.headers);
+        headers.delete("content-length");
+        return new Response(bytes, { status: res.status, headers });
+      } catch (error) {
+        if (isSettled(error)) refusals.push(error);
+        else otherwise += 1;
+        throw error;
       }
-      const bytes = await readBodyCapped(res, maxBytes);
-      return new Response(bytes, { status: res.status, headers: res.headers });
     };
     const closers: (() => Promise<void>)[] = [];
     try {
-      const paper = parseArxivUrl(url);
       if (paper !== null) {
         const clip = await clipArxivPaper(paper, {
           fetch: guarded,
@@ -253,11 +275,12 @@ export async function fetchLinkPage(
       const clip = await clipGitHubDoc(doc, { fetch: guarded });
       return { kind: "page", payload: clip.payload, sourceUrl: clip.sourceUrl };
     } catch (error) {
-      const last = statuses.at(-1);
-      if (!isSettled(error) && last !== undefined && last >= 400) {
-        const failure = httpFailure(last);
-        if (failure instanceof SettledRefusal) throw failure;
-      }
+      if (isSettled(error)) throw error;
+      // Settled only when every request the helper made was refused for good:
+      // one that failed for now, or one that came back, leaves it worth
+      // asking again.
+      const last = refusals.at(-1);
+      if (last !== undefined && otherwise === 0) throw last;
       throw error;
     } finally {
       await Promise.all(closers.map((close) => close()));
