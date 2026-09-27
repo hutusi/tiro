@@ -140,6 +140,23 @@ describe("fetchLinkPage", () => {
     expect(cancelled).toBe(true);
   });
 
+  test("hands a plain download to the PDF stage, which checks what it is", async () => {
+    // S3 and many file servers send a PDF as a download. Only the PDF stage
+    // reads the bytes, so only it can say whether one is a PDF.
+    const page = await fetchLinkPage({
+      ...base,
+      url: "https://files.example.net/paper",
+      fetchImpl: async () =>
+        new Response("%PDF-1.4", {
+          headers: { "content-type": "binary/octet-stream" },
+        }),
+    });
+    expect(page).toEqual({
+      kind: "pdf",
+      readFrom: "https://files.example.net/paper",
+    });
+  });
+
   test("refuses, for good, something that is not a document", async () => {
     const error = await fetchLinkPage({
       ...base,

@@ -720,6 +720,43 @@ describe("saved links", () => {
     expect(body).toContain("density gate");
   });
 
+  test("a PDF served as a plain download becomes a PDF article", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const prose =
+      "A document long enough on every page to count as having a text layer, which is what the density gate asks of it before it reads anything.";
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response(makePdf([prose, prose]), {
+            headers: { "content-type": "application/octet-stream" },
+          }),
+      }),
+    });
+    const { frontmatter, body } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(body).toContain("density gate");
+  });
+
+  test("a plain download that is not a PDF is settled, not retried", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response("PK\u0003\u0004 a zip, not a paper", {
+            headers: { "content-type": "application/octet-stream" },
+          }),
+      }),
+    });
+    const { frontmatter } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.processed_at).toBeDefined();
+    expect(frontmatter.tiro.fetch_failed).toContain("not a PDF");
+  });
+
   test("a versioned arXiv link is read at the version saved", async () => {
     // The article is the paper's; the body is the revision the reader saved.
     const vault = withInbox("https://arxiv.org/html/2404.19756v1");

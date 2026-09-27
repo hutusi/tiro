@@ -41,8 +41,9 @@ import { httpFailure, SettledRefusal } from "./refusal.ts";
  * download is routinely served as, and refusing it would refuse real documents.
  * That laxity is affordable only because `PDF_MAGIC` below is checked against
  * the bytes themselves — the content type decides whether to spend the
- * download, the magic bytes decide whether it was a PDF. */
-const PDF_CONTENT_TYPES = new Set([
+ * download, the magic bytes decide whether it was a PDF. The link stage hands
+ * this stage whatever it accepts, so the two cannot disagree about a PDF. */
+export const PDF_CONTENT_TYPES = new Set([
   "application/pdf",
   "application/x-pdf",
   "application/octet-stream",

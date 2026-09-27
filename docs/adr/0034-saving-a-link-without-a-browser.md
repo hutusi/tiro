@@ -123,8 +123,10 @@ page cannot disagree about anything but what the fetch could see.
   (invariant 8).
 - **Decoded as the page says**: the header's charset, then a `<meta>`, then
   UTF-8. A GBK page read as UTF-8 is not a thin article but a wrong one.
-- **A PDF goes to the PDF stage**, which downloads it again under its own caps
-  and gates; the link fetch abandons its body rather than read 25 MB twice.
+- **A PDF goes to the PDF stage** — anything that stage accepts, a plain
+  download (`application/octet-stream`) included, since only its magic-byte
+  check can say whether one is a PDF — which downloads it again under its own
+  caps and gates; the link fetch abandons its body rather than read 25 MB twice.
   The article then records both `capture: "link"` and `source_media: "pdf"`.
 - **The page's title, excerpt, author and math flag** replace the stub's
   placeholders before the summary is asked for, and are written with it.

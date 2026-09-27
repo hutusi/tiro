@@ -25,6 +25,7 @@ import {
   resolveViaDns,
   USER_AGENT,
 } from "./net-fetch.ts";
+import { PDF_CONTENT_TYPES } from "./pdf.ts";
 import { httpFailure, isSettled, SettledRefusal } from "./refusal.ts";
 
 /**
@@ -72,7 +73,6 @@ export interface LinkFetchOptions {
 
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/x-markdown"]);
-const PDF_TYPES = new Set(["application/pdf", "application/x-pdf"]);
 
 function mediaType(contentType: string | null): string {
   return contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
@@ -167,9 +167,12 @@ export async function fetchLinkPage(
       }
       throw httpFailure(response.status);
     }
-    if (PDF_TYPES.has(media)) {
+    if (PDF_CONTENT_TYPES.has(media)) {
       // The PDF stage downloads it again, under its own caps and gates;
-      // reading it here too would be a second 25 MB for nothing.
+      // reading it here too would be a second 25 MB for nothing. Its list,
+      // not one of our own: a PDF served as a plain download
+      // (`application/octet-stream`) was refused here as "not a page" before
+      // the stage that accepts it — and checks its magic bytes — could look.
       await response.body?.cancel();
       return { kind: "pdf", readFrom: finalUrl };
     }
