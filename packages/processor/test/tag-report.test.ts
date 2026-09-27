@@ -24,19 +24,19 @@ describe("tagReport", () => {
         done("b", ["Rust", "Open-Source"]),
         done("c", ["rust"]),
       ],
-      none,
+      tagAliases({ rust: "Rust" }),
     );
     expect(report.articles).toBe(3);
     expect(report.distinct).toBe(3);
     expect(report.singletons).toBe(2);
     expect(report.vocabulary).toBe(1);
-    expect(report.top[0]).toEqual({ tag: "rust", articles: 3 });
+    expect(report.top[0]).toEqual({ tag: "Rust", articles: 3 });
   });
 
   test("lists spellings that are not canonical, and what they become", () => {
     const report = tagReport([done("a", ["Open-Source", "rust"])], none);
     expect(report.nonCanonical).toEqual([
-      { tag: "Open-Source", canonical: "open source" },
+      { tag: "Open-Source", canonical: "Open Source" },
     ]);
   });
 
@@ -51,12 +51,29 @@ describe("tagReport", () => {
     ]);
   });
 
-  test("lists tags that are not in English", () => {
+  test("lists the undecided tags an alias table is drafted from", () => {
+    // Lowercase English nothing spells yet (ADR 0035): not a Chinese tag, not
+    // a capitalized one, not one an alias spells.
     const report = tagReport(
-      [done("a", ["知识管理"]), done("b", ["知识管理", "rust"])],
+      [
+        done("a", ["digital habits", "知识管理", "Git", "npm"]),
+        done("b", ["digital habits", "rss", "npm"]),
+      ],
+      tagAliases({ npm: "npm" }),
+    );
+    expect(report.undecided).toEqual([
+      { tag: "digital habits", articles: 2 },
+      { tag: "rss", articles: 1 },
+    ]);
+  });
+
+  test("lists a tag the vault spells more than one way", () => {
+    const report = tagReport(
+      [done("a", ["Git"]), done("b", ["git"]), done("c", ["Git", "熵"])],
       none,
     );
-    expect(report.nonEnglish).toEqual([{ tag: "知识管理", articles: 2 }]);
+    expect(report.variants).toEqual([["Git", "git"]]);
+    expect(report.distinct).toBe(2);
   });
 
   test("finds a tag used in both singular and plural", () => {

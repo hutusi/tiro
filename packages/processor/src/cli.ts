@@ -175,8 +175,9 @@ async function run(vault: string): Promise<number> {
 }
 
 /**
- * Measure the vault's tags (ADR 0033). Reads only — no model, no writes — so
- * it is safe to run on the live clone at any time, before and after a retag.
+ * Measure the vault's tags (ADR 0033, ADR 0035). Reads only — no model, no
+ * writes — so it is safe to run on the live clone at any time, before and
+ * after a retag.
  */
 async function tags(vault: string): Promise<number> {
   const config = await loadVaultConfig(vault);
@@ -194,9 +195,14 @@ async function tags(vault: string): Promise<number> {
       `a run would offer ${report.vocabulary} as the vocabulary`,
   );
   console.log(`most used: ${list(report.top)}`);
-  if (report.nonEnglish.length > 0) {
+  if (report.undecided.length > 0) {
     console.log(
-      `not in English: ${report.nonEnglish.length}: ${list(report.nonEnglish)}`,
+      `undecided — no spelling yet, give each an alias: ${report.undecided.length}: ${list(report.undecided)}`,
+    );
+  }
+  if (report.variants.length > 0) {
+    console.log(
+      `spelled more than one way: ${report.variants.map((v) => v.join("/")).join(", ")}`,
     );
   }
   if (report.nonCanonical.length > 0) {
@@ -384,6 +390,25 @@ async function retag(vault: string): Promise<number> {
   );
 
   const list = (tags: readonly string[]) => `[${tags.join(", ")}]`;
+  const undecidedList = report.undecided
+    .map((t) => `${t.tag} (${t.articles})`)
+    .join(", ");
+  if (report.refused) {
+    console.error(
+      `refusing to retag: ${report.undecided.length} tag(s) that two or more articles share have no spelling yet — give each an alias in config/tiro.yml first (ADR 0035): ${undecidedList}`,
+    );
+    return 2;
+  }
+  if (report.undecided.length > 0) {
+    console.warn(
+      `warning: a real run would refuse until these have aliases: ${undecidedList}`,
+    );
+  }
+  for (const article of report.respelled) {
+    console.log(
+      `${dryRun ? "would respell" : "respelled"} ${article.slug}: ${list(article.before)} → ${list(article.after)}`,
+    );
+  }
   for (const article of report.retagged) {
     console.log(
       article.after === null
@@ -400,7 +425,8 @@ async function retag(vault: string): Promise<number> {
   const pending = report.skipped.filter((s) => s.reason === "pending").length;
   console.log(
     `${dryRun ? "would retag" : "retagged"} ${report.retagged.length} of ${report.scanned} article(s), ` +
-      `${report.unchanged.length} unchanged, ${report.skipped.length - pending} already meeting the policy, ` +
+      `${dryRun ? "would respell" : "respelled"} ${report.respelled.length} with no call, ` +
+      `${report.unchanged.length} unchanged, ${report.skipped.length - pending} already in the vault's form, ` +
       `${pending} pending, ${report.failed.length} failed, ${report.invalid.length} unreadable, ` +
       `${report.remaining.length} left for a re-run; vocabulary offered: ${report.vocabulary.length} tag(s)`,
   );

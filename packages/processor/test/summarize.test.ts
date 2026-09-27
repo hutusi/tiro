@@ -457,15 +457,21 @@ describe("summarize", () => {
     expect(result.summaryOrig).toBeUndefined();
   });
 
-  test("asks for English tags, lowercase, with spaces", async () => {
+  test("asks for Chinese-first tags, most central first", async () => {
     let system = "";
     const chat: ChatFn = async (request) => {
       system = request.messages.find((m) => m.role === "system")?.content ?? "";
       return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
     };
     await summarize({ ...baseOptions, chat });
-    expect(system).toContain("in English even when the article is not");
-    expect(system).toContain("words separated by spaces");
+    // ADR 0035, with the owner's own examples.
+    expect(system).toContain("the most central topic first");
+    expect(system).toContain("Simplified Chinese");
+    expect(system).toContain("强化学习 rather than reinforcement learning");
+    expect(system).toContain("AI rather than 人工智能");
+    expect(system).toContain("no space where Chinese meets English (AI编程)");
+    expect(system).toContain("Safety and Security (both 安全 in Chinese)");
+    expect(system).not.toContain("lowercase");
     expect(system).not.toContain("free-form");
   });
 
@@ -474,11 +480,11 @@ describe("summarize", () => {
       JSON.stringify({
         summary: "摘要。",
         category: "ai",
-        tags: ["Open-Source", "ai安全", "open source", "AI Safety"],
+        tags: ["AI 安全", "ベクトル", "ai安全", "Open-Source", "open source"],
       }),
     ]);
     const result = await summarize({ ...baseOptions, chat });
-    expect(result.tags).toEqual(["open source", "ai safety"]);
+    expect(result.tags).toEqual(["AI安全", "Open Source"]);
   });
 
   test("a reply with too many tags costs tags, not a retry", async () => {
@@ -500,12 +506,12 @@ describe("summarize", () => {
     const cut = JSON.stringify({
       summary: "本文提出了三个论点，第一个是",
       category: "ai",
-      tags: ["Rust", "内存安全"],
+      tags: ["Rust", "内存 安全", "メモリ"],
     });
     const { chat } = scripted([cut, cut, cut]);
     const result = await summarize({ ...baseOptions, chat });
     expect(result.failed).toBe(true);
-    expect(result.tags).toEqual(["rust"]);
+    expect(result.tags).toEqual(["Rust", "内存安全"]);
   });
 
   test("offers the vault's vocabulary, and holds new tags to the cap", async () => {
@@ -515,17 +521,65 @@ describe("summarize", () => {
       return JSON.stringify({
         summary: "摘要。",
         category: "ai",
-        tags: ["rust", "new one", "new two", "new three"],
+        tags: ["rust", "新一", "新二", "新三", "新四"],
       });
     };
     const result = await summarize({
       ...baseOptions,
       chat,
-      vocabulary: ["rust", "databases"],
+      vocabulary: ["Rust", "数据库"],
     });
     expect(system).toContain("The vault already uses these tags");
-    expect(system).toContain("rust, databases.");
-    expect(result.tags).toEqual(["rust", "new one", "new two"]);
+    expect(system).toContain("Reuse one, exactly as written");
+    expect(system).toContain("Rust, 数据库.");
+    expect(result.tags).toEqual(["Rust", "新一", "新二", "新三"]);
+  });
+
+  test("shows the model the tags a reprocessed article carries", async () => {
+    // The cap exemption applies after the reply; told the cap and not shown
+    // the article's own tags, the model drops them before it can (ADR 0035).
+    let system = "";
+    const chat: ChatFn = async (request) => {
+      system = request.messages.find((m) => m.role === "system")?.content ?? "";
+      return JSON.stringify({ summary: "摘要。", category: "ai", tags: [] });
+    };
+    await summarize({
+      ...baseOptions,
+      chat,
+      vocabulary: ["Rust"],
+      currentTags: ["熵", "时间 之箭", "rust"],
+    });
+    expect(system).toContain("The article already carries these tags");
+    expect(system).toContain("never count against a limit on new tags");
+    // Respelled as the vault spells them, so what the model keeps is kept.
+    expect(system).toContain(": 熵, 时间之箭, Rust.");
+
+    await summarize({ ...baseOptions, chat, vocabulary: ["Rust"] });
+    expect(system).not.toContain("already carries");
+  });
+
+  test("never counts a tag the article already carries as new", async () => {
+    // Reprocessing an article must not prune its topics (ADR 0035).
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "摘要。",
+        category: "ai",
+        tags: ["熵", "热力学", "统计力学", "时间之箭", "科普"],
+      }),
+    ]);
+    const result = await summarize({
+      ...baseOptions,
+      chat,
+      vocabulary: ["Rust"],
+      currentTags: ["熵", "时间之箭"],
+    });
+    expect(result.tags).toEqual([
+      "熵",
+      "热力学",
+      "统计力学",
+      "时间之箭",
+      "科普",
+    ]);
   });
 
   test("says nothing about a vocabulary the vault does not have yet", async () => {

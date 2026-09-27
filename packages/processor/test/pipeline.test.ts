@@ -563,8 +563,9 @@ describe("hard failures", () => {
 describe("tags", () => {
   test("a one-article run is offered the whole vault's vocabulary", async () => {
     // Discovery skips other articles under --slug; the vocabulary must not.
-    // In the fixture vault, `contract` and `rendering` are the English tags
-    // two articles share.
+    // In the fixture vault, `知识管理` is the tag two articles share that is
+    // in the vault's form; `contract` and `rendering` are shared too, but
+    // lowercase English nothing has spelled, so they are not offered.
     const vault = freshVault();
     const config = await loadVaultConfig(vault);
     let system = "";
@@ -580,7 +581,46 @@ describe("tags", () => {
       }),
     });
     expect(system).toContain("The vault already uses these tags");
-    expect(system).toContain("contract, rendering.");
+    expect(system).toContain("these tags. Reuse one");
+    expect(system).toMatch(/new ones: 知识管理\.$/m);
+  });
+
+  test("a reprocessed article keeps topics nothing else in the vault has", async () => {
+    // `run --force` holds new tags to the cap, but never counts one the
+    // article already carries (ADR 0035) — or reprocessing would prune it.
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const path = join(vault, "articles", ZH, "index.md");
+    const before = parseArticle(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      stringifyArticle(
+        {
+          ...before.frontmatter,
+          tags: ["熵", "热力学", "统计力学", "时间之箭"],
+        },
+        before.body,
+      ),
+    );
+    await runPipeline({ vaultDir: vault, slug: ZH, force: true }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        summary: {
+          summary: "摘要。",
+          category: "ai",
+          tags: ["熵", "热力学", "统计力学", "时间之箭", "科普", "物理学"],
+        },
+      }),
+    });
+    const { frontmatter } = parseArticle(readFileSync(path, "utf8"));
+    expect(frontmatter.tags).toEqual([
+      "熵",
+      "热力学",
+      "统计力学",
+      "时间之箭",
+      "科普",
+      "物理学",
+    ]);
   });
 
   test("writes tags through the vault's aliases", async () => {
@@ -629,7 +669,7 @@ describe("tags", () => {
       }),
     });
     const { frontmatter } = parseArticle(readFileSync(path, "utf8"));
-    expect(frontmatter.tags).toEqual(["open source", "知识管理"]);
+    expect(frontmatter.tags).toEqual(["Open Source", "知识管理"]);
   });
 });
 

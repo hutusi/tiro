@@ -153,20 +153,27 @@ function shortHash(text: string): string {
  * The result is capped in *bytes*, because a path component must fit NAME_MAX
  * (255) and a 100-character Chinese tag is already 300 bytes — which this has
  * to expect, since summaries are written in the target language.
+ *
+ * Case never makes a second page, and neither does a gap beside a Chinese
+ * character: `AI安全`, `ai安全` and `AI 安全` are one tag (ADR 0035), so they
+ * are one URL, however long.
  */
 export function tagSlug(tag: string): string {
-  const cleaned = tag
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[/\\?#%\s]+/g, "-")
+  const folded = tag.normalize("NFKC").toLowerCase();
+  const cleaned = folded
+    .replace(/[/\\?#%\s_]+/g, "-")
+    // After the step above, so a separator it made beside a Chinese character
+    // goes too: `ai/安全` is the page `ai安全` is.
+    .replace(/(?<=\p{Script=Han})-+|-+(?=\p{Script=Han})/gu, "")
     .replace(/-{2,}/g, "-")
     .replace(/^[.-]+|[.-]+$/g, "");
-  if (cleaned === "") return `tag-${shortHash(tag)}`;
+  if (cleaned === "") return `tag-${shortHash(folded)}`;
   const truncated = truncateUtf8(cleaned, TAG_SLUG_MAX_BYTES);
   if (truncated === cleaned) return cleaned;
-  // Same shape as slugForUrl: a readable base plus a hash of the whole input,
-  // so two long tags sharing a prefix do not collapse into one route.
-  return `${truncated.replace(/-+$/, "")}-${shortHash(tag)}`;
+  // Same shape as slugForUrl: a readable base plus a hash of the whole tag,
+  // so two long tags sharing a prefix do not collapse into one route — hashed
+  // as cleaned, so two spellings of one long tag do.
+  return `${truncated.replace(/-+$/, "")}-${shortHash(cleaned)}`;
 }
 
 /** Cut to at most `maxBytes` of UTF-8 without splitting a character. Iterating

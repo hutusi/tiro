@@ -41,6 +41,18 @@ describe("groupByTerm", () => {
     expect(groups[0]?.items).toHaveLength(1);
   });
 
+  test("one page for every spelling of a tag (ADR 0035)", () => {
+    const groups = group([
+      { id: "a", tags: ["AI安全"] },
+      { id: "b", tags: ["ai安全"] },
+      { id: "c", tags: ["AI安全"] },
+      { id: "d", tags: ["AI 安全"] },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.slug).toBe("ai安全");
+    expect(groups[0]?.label).toBe("AI安全");
+  });
+
   test("keeps non-ASCII terms apart", () => {
     const groups = group([
       { id: "a", tags: ["阅读"] },
