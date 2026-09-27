@@ -31,8 +31,9 @@ export interface InboxReport {
   saved: { file: string; slug: string; url: string }[];
   /** Named an article that already exists, which is kept as it is. */
   existing: { file: string; slug: string }[];
-  /** Held no usable link. Deleted, and reported as a run failure, since the
-   * save it came from is otherwise lost without a word. */
+  /** Not used, and reported as a run failure, since the save it came from is
+   * otherwise lost without a word: a file holding no usable link (deleted), or
+   * one — or the inbox itself — that could not be read (left for next run). */
   rejected: { file: string; reason: string }[];
 }
 
@@ -97,8 +98,16 @@ export async function drainInbox(
   let names: string[];
   try {
     names = (await readdir(inboxDir)).filter((name) => !name.startsWith("."));
-  } catch {
-    return report; // no inbox yet: nothing was ever saved
+  } catch (error) {
+    // No inbox yet: nothing was ever saved. Anything else — `inbox` committed
+    // as a file, say — is saves this run cannot see, so it is reported rather
+    // than taken for an empty inbox. Reported, not thrown: an unreadable inbox
+    // is no reason to leave every pending article unprocessed (invariant 7).
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      report.rejected.push({ file: INBOX_DIR, reason: String(error) });
+      log(`inbox: ${INBOX_DIR} could not be read: ${String(error)}`);
+    }
+    return report;
   }
   names.sort();
 

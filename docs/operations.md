@@ -710,7 +710,8 @@ That saves `example.com` for real; delete the article it makes, or leave it.
 - The push starts "Process articles". Its summary lists each saved link under
   **Saved links**, with the article it became — or, if the file held no link, as
   a failure: that file is deleted, and the run turns red so the save is not lost
-  without a word.
+  without a word. A file the run could not read — or an `inbox` that is not a
+  folder at all — turns it red the same way, but is left in place to try again.
 - A link already in the vault keeps its article; saving it again is harmless.
 - The article appears on the site when the run deploys, like a clip.
 

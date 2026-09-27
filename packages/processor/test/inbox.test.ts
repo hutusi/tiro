@@ -199,6 +199,17 @@ describe("drainInbox", () => {
     expect(existsSync(join(vault, indexPath(slug)))).toBe(false);
   });
 
+  test("an inbox that cannot be listed is reported, not taken for empty", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-inbox-"));
+    cpSync(fixtureVault, dir, { recursive: true });
+    writeFileSync(join(dir, "inbox"), "https://example.net/not-a-folder");
+    const report = await drainInbox(dir, { now });
+    expect(report.saved).toEqual([]);
+    expect(report.rejected).toHaveLength(1);
+    expect(report.rejected[0]?.file).toBe("inbox");
+    expect(report.rejected[0]?.reason).toContain("ENOTDIR");
+  });
+
   test("a vault with no inbox has nothing to drain", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tiro-inbox-"));
     cpSync(fixtureVault, dir, { recursive: true });
