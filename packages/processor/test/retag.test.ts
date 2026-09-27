@@ -190,7 +190,7 @@ describe("retagVault", () => {
     );
     expect(report.vocabulary).toEqual(["契约", "渲染", "知识管理"]);
     expect(messageOf(requests[0], "system")).toContain(
-      "new ones: 契约, 渲染, 知识管理.",
+      "keeps a tag of its own: 契约, 渲染, 知识管理.",
     );
     expect(requests[0]?.response_format).toEqual({ type: "json_object" });
   });
@@ -207,7 +207,13 @@ describe("retagVault", () => {
     expect(user).toContain(`Summary:\n${frontmatter.summary}`);
     expect(user).toContain(`Original summary:\n${frontmatter.summary_orig}`);
     expect(user).toContain("Current tags: llm, introduction, tutorial, ci/cd");
-    expect(messageOf(requests[0], "system")).toContain("Keep those topics");
+    const system = messageOf(requests[0], "system");
+    expect(system).toContain("Keep every one of them");
+    expect(system).toContain("Never trade a specific topic for a broader one");
+    // A run's cap on new tags is not retag's question: told it, the model
+    // obeyed it and dropped the Twelve-Factor article's `十二要素`.
+    expect(system).not.toContain("at most");
+    expect(system).toContain("a topic none of them names keeps a tag");
   });
 
   test("respells with no call where the aliases alone settle an article", async () => {

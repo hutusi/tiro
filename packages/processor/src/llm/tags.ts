@@ -12,15 +12,28 @@ import type { ChatFn, ChatMessage } from "./client.ts";
  * central first, because the cap on new tags and `TAG_LIMIT` keep the head of
  * the list: asked in no order, the model once led with `mathematics` and
  * `physics` and an article on entropy lost `entropy`.
+ *
+ * `translating` is retag's question, which differs in one line. A run coins
+ * tags and is told the cap on new ones; a retag keeps topics an article
+ * already has, and told the same cap, the model obeyed it — a pilot traded
+ * `十二要素` for `软件架构` on the Twelve-Factor article, and Pull Request
+ * for `工作流`.
  */
-export function tagPromptLines(vocabulary: readonly string[]): string[] {
+export function tagPromptLines(
+  vocabulary: readonly string[],
+  { translating = false }: { translating?: boolean } = {},
+): string[] {
   return [
     '- "tags": 3 to 6 short topic tags, the most central topic first. Write them in Simplified Chinese — 强化学习 rather than reinforcement learning, 软件工程, 熵 — keeping English where Chinese technical writing keeps it or its Chinese word is less precise: acronyms and the names of people, companies, products and projects in their usual case (AI rather than 人工智能, LLM, Git, OpenAI, Bill Gates), and terms such as Safety and Security (both 安全 in Chinese), Alignment and Agent, in Title Case. A tag may mix the two, with no space where Chinese meets English (AI编程); English words are separated by spaces (AI Safety).',
-    ...(vocabulary.length > 0
-      ? [
-          `  The vault already uses these tags. Reuse one, exactly as written, whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
-        ]
-      : []),
+    ...(vocabulary.length === 0
+      ? []
+      : translating
+        ? [
+            `  The vault already uses these tags. Where one names the same topic as a current tag, use it exactly as written; a topic none of them names keeps a tag of its own: ${vocabulary.join(", ")}.`,
+          ]
+        : [
+            `  The vault already uses these tags. Reuse one, exactly as written, whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
+          ]),
   ];
 }
 
@@ -75,11 +88,11 @@ export async function suggestTags(
   const system = [
     "You tag articles for a personal knowledge base.",
     "Respond with a single JSON object with exactly one key:",
-    ...tagPromptLines(vocabulary),
+    ...tagPromptLines(vocabulary, { translating: true }),
     // Translating, not pruning (ADR 0035): the old tags are the article's
     // topics, and a retag that dropped them lost what made a niche article
     // findable.
-    "The article's current tags name its topics. Keep those topics, writing each in the form above — translate it, respell it, or use the vault's tag for it; merge two that mean the same; drop one only if it is not a topic of the article.",
+    "The article's current tags name its topics. Keep every one of them, writing each in the form above — translate it (reinforcement learning → 强化学习), respell it (rss → RSS), or use the vault's tag for the same topic. Never trade a specific topic for a broader one: the specific tag is what makes the article findable. Merge two that mean the same; drop one only if it is not a topic of the article; add one only for a central topic none of them covers.",
     "Output JSON only, no markdown fences.",
   ].join("\n");
   const messages: ChatMessage[] = [
