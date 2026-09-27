@@ -68,9 +68,10 @@ every run and nothing would ever say so.
 
 The vocabulary is counted by key and offered in the vault's spelling — an
 alias target, or else the spelling most articles use. A tag that is still in
-the old regime's form — Latin letters, no Han, all lowercase, and not an alias
-target — is *undecided*: it is left out of the vocabulary, so the English the
-vault has today does not pull the model back to it.
+the old regime's form — Latin letters, all lowercase, and not an alias target —
+is *undecided*: it is left out of the vocabulary, so the English the vault has
+today does not pull the model back to it. A mixed tag counts too: `ai治理` is
+the old lowercase beside Chinese.
 
 That makes the order of a migration load-bearing. The alias table has to land
 after this code (the old policy drops a Chinese target) and before a retag (or

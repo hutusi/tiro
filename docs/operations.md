@@ -100,8 +100,8 @@ endpoint works.
   - **The vocabulary is the vault's own**: every tag at least two articles
     carry, up to 150, most used first, rebuilt at the start of each run and
     offered in the vault's spelling. A tag still in the old English form —
-    lowercase Latin with no alias spelling it, which the tags report lists as
-    *undecided* — is left out, so the vault's old English does not pull the
+    lowercase Latin, alone or beside Chinese (`ai治理`), with no alias spelling
+    it, which the tags report lists as *undecided* — is left out, so the vault's old English does not pull the
     model back to it. The model is asked to reuse a listed tag when it fits,
     and an article may add at most three tags from outside it — fewer only if
     that would leave it with under three; a tag the article already carries is

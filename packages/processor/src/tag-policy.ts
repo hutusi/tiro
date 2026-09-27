@@ -21,27 +21,27 @@ export function inVaultScripts(tag: string): boolean {
   return !FOREIGN_SCRIPT.test(tag);
 }
 
-const HAN = /\p{Script=Han}/u;
 const LATIN = /\p{Script=Latin}/u;
 
 /**
  * Whether a tag, as respelled, is still in the form ADR 0033 wrote — Latin
- * letters, no Chinese, all lowercase — with nothing saying that is how the
- * vault spells it (ADR 0035). Every tag the vault held before Chinese-first
- * tags looks like this, so it is how the vocabulary tells an English tag the
- * vault chose (`Git`, `LLM`, `npm: npm` in the aliases) from one it has not
- * decided on yet, and keeps the second out: offered as "reuse exactly as
- * written", it would pull every new article back to English.
+ * letters, all lowercase — with nothing saying that is how the vault spells it
+ * (ADR 0035). Every tag the vault held before Chinese-first tags looks like
+ * this, so it is how the vocabulary tells an English tag the vault chose
+ * (`Git`, `LLM`, `npm: npm` in the aliases) from one it has not decided on
+ * yet, and keeps the second out: offered as "reuse exactly as written", it
+ * would pull every new article back to English.
+ *
+ * A mixed tag counts too: `ai治理` is the old lowercase beside Chinese, and
+ * left alone it would sit settled beside the `AI安全` the vault now writes. A
+ * tag with no Latin letter — `熵`, `2026` — has no case to decide.
  */
 export function undecided(
   tag: string,
   aliases: ReadonlyMap<string, string | null>,
 ): boolean {
   return (
-    !HAN.test(tag) &&
-    LATIN.test(tag) &&
-    tag === tag.toLowerCase() &&
-    aliases.get(tag) !== tag
+    LATIN.test(tag) && tag === tag.toLowerCase() && aliases.get(tag) !== tag
   );
 }
 

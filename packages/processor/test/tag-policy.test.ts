@@ -29,7 +29,16 @@ describe("undecided", () => {
     expect(undecided("c++", none)).toBe(true);
   });
 
-  test("not a tag with Chinese in it, or a capital, or no letters at all", () => {
+  test("a mixed tag whose English is still lowercase", () => {
+    // Left alone, `ai治理` would sit settled beside the vault's `AI安全`.
+    expect(undecided("ai治理", none)).toBe(true);
+    // Unless an alias keeps it lowercase on purpose: Google's `udm` is.
+    expect(undecided("udm参数", tagAliases({ udm参数: "udm参数" }))).toBe(
+      false,
+    );
+  });
+
+  test("not a tag with a capital, or with no Latin letter at all", () => {
     expect(undecided("熵", none)).toBe(false);
     expect(undecided("AI安全", none)).toBe(false);
     expect(undecided("Git", none)).toBe(false);
