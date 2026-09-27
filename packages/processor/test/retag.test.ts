@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   appendFileSync,
+  chmodSync,
   cpSync,
   mkdtempSync,
   readdirSync,
@@ -246,6 +247,26 @@ describe("retagVault", () => {
     expect(real.respelled).toHaveLength(1);
     expect(real.retagged).toEqual([]);
     expect(tagsOf(vault, ATTENTION)).toEqual(["契约", "渲染", "知识管理"]);
+  });
+
+  test("a respelling it cannot write is one failure, not the end of the run", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    setTags(vault, ATTENTION, ["contract", "rendering", "知识管理"]);
+    const path = join(vault, "articles", ATTENTION, "index.md");
+    chmodSync(path, 0o444);
+    try {
+      const { chat, requests } = tagChat();
+      const report = await retagVault(vault, config, {}, { ...quiet, chat });
+      expect(report.failed).toHaveLength(1);
+      expect(report.failed[0]?.slug).toBe(ATTENTION);
+      expect(report.respelled).toEqual([]);
+      // Every other article still ran.
+      expect(requests).toHaveLength(PROCESSED - 1);
+      expect(report.retagged).toHaveLength(PROCESSED - 1);
+    } finally {
+      chmodSync(path, 0o644);
+    }
   });
 
   test("a second run asks about nothing, and skips pending articles", async () => {

@@ -223,10 +223,18 @@ export async function retagVault(
     attempted += 1;
     if (needsNoCall) {
       if (options.dryRun !== true) {
-        await Bun.write(
-          `${articlesDir}/${relPath}`,
-          stringifyArticle(withTags(frontmatter, respelled), body),
-        );
+        try {
+          await Bun.write(
+            `${articlesDir}/${relPath}`,
+            stringifyArticle(withTags(frontmatter, respelled), body),
+          );
+        } catch (error) {
+          // One article, like any other failure here: recorded, and the run
+          // goes on. Not counted toward the breaker, which is for a provider
+          // failing the same small request — no request was made.
+          report.failed.push({ slug, error: String(error) });
+          continue;
+        }
       }
       report.respelled.push({ slug, before: [...before], after: respelled });
       continue;
