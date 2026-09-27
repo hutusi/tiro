@@ -384,6 +384,25 @@ async function retag(vault: string): Promise<number> {
   );
 
   const list = (tags: readonly string[]) => `[${tags.join(", ")}]`;
+  const undecidedList = report.undecided
+    .map((t) => `${t.tag} (${t.articles})`)
+    .join(", ");
+  if (report.refused) {
+    console.error(
+      `refusing to retag: ${report.undecided.length} tag(s) that two or more articles share have no spelling yet — give each an alias in config/tiro.yml first (ADR 0035): ${undecidedList}`,
+    );
+    return 2;
+  }
+  if (report.undecided.length > 0) {
+    console.warn(
+      `warning: a real run would refuse until these have aliases: ${undecidedList}`,
+    );
+  }
+  for (const article of report.respelled) {
+    console.log(
+      `${dryRun ? "would respell" : "respelled"} ${article.slug}: ${list(article.before)} → ${list(article.after)}`,
+    );
+  }
   for (const article of report.retagged) {
     console.log(
       article.after === null
@@ -400,7 +419,8 @@ async function retag(vault: string): Promise<number> {
   const pending = report.skipped.filter((s) => s.reason === "pending").length;
   console.log(
     `${dryRun ? "would retag" : "retagged"} ${report.retagged.length} of ${report.scanned} article(s), ` +
-      `${report.unchanged.length} unchanged, ${report.skipped.length - pending} already meeting the policy, ` +
+      `${dryRun ? "would respell" : "respelled"} ${report.respelled.length} with no call, ` +
+      `${report.unchanged.length} unchanged, ${report.skipped.length - pending} already in the vault's form, ` +
       `${pending} pending, ${report.failed.length} failed, ${report.invalid.length} unreadable, ` +
       `${report.remaining.length} left for a re-run; vocabulary offered: ${report.vocabulary.length} tag(s)`,
   );

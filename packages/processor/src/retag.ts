@@ -1,6 +1,5 @@
 import {
   type ArticleFrontmatter,
-  normalizeTags,
   parseArticle,
   stringifyArticle,
   TAG_LIMIT,
@@ -13,30 +12,37 @@ import type { ChatFn } from "./llm/client.ts";
 import { suggestTags } from "./llm/tags.ts";
 import {
   buildVocabulary,
-  isEnglishTag,
-  MAX_NEW_TAGS,
+  inVaultScripts,
   MIN_TAGS,
+  respell,
+  undecided,
+  undecidedTags,
+  VOCABULARY_MIN_ARTICLES,
   writableTags,
 } from "./tag-policy.ts";
 
 /**
- * Give already-processed articles the tags a run would give them now
- * (ADR 0033): in English, in canonical form, through the aliases, and reusing
- * the vault's vocabulary.
+ * Give already-processed articles their tags in the vault's form (ADR 0033,
+ * ADR 0035): Chinese first, spelled as the aliases and the vocabulary spell
+ * them, the article's topics kept.
  *
  * A one-shot command beside `backfill-titles`, for its reasons: it needs
  * exactly the articles `run` skips, must not touch their processing markers,
  * and a `--force` over the vault would re-translate whole bodies and
- * re-download every image to change one line each. One small call per article,
- * from its title and summary.
+ * re-download every image to change one line each. An article whose tags only
+ * need respelling by the aliases is rewritten with no call; the rest take one
+ * small call each, from the title and summary.
  */
 
 export type RetagSkipReason = "pending" | "already-tagged";
 
 export interface RetagReport {
   scanned: number;
-  /** `after` is null under --dry-run, which makes no call. */
+  /** Asked the model. `after` is null under --dry-run, which makes no call. */
   retagged: { slug: string; before: string[]; after: string[] | null }[];
+  /** Rewritten with no call: the aliases alone put its tags in the vault's
+   * form. Under --dry-run, what they would be. */
+  respelled: { slug: string; before: string[]; after: string[] }[];
   /** Asked, and the answer was the tags it already had. */
   unchanged: string[];
   skipped: { slug: string; reason: RetagSkipReason }[];
@@ -48,6 +54,11 @@ export interface RetagReport {
   invalid: { path: string; error: string }[];
   /** The vocabulary every article in the run was offered, frozen at the start. */
   vocabulary: string[];
+  /** `undecided` tags two or more articles share. Until each has an alias, the
+   * run is `refused`: those are the tags the vocabulary should offer, and it
+   * cannot offer them in a spelling the vault has not chosen (ADR 0035). */
+  undecided: { tag: string; articles: number }[];
+  refused: boolean;
 }
 
 export interface RetagOptions {
@@ -68,28 +79,25 @@ export interface RetagDeps {
 const CONSECUTIVE_FAILURE_LIMIT = 3;
 
 /**
- * Whether an article's tags already meet the policy a run holds new tags to:
- * written in canonical form, in English, `MIN_TAGS` to `TAG_LIMIT` of them,
- * and at most `MAX_NEW_TAGS` outside the vocabulary. Such an article is
- * skipped unless `--force`. That is what makes the command resumable — nearly
- * every article it retags meets this, so a re-run picks up where the last
- * stopped — and what keeps it from paying to ask about tags nothing would
- * change. The exceptions are articles the model gave fewer than three tags, or
- * that needed a third new one to reach three; a re-run asks about those again.
+ * Whether tags, already respelled, are in the vault's form: `MIN_TAGS` to
+ * `TAG_LIMIT` of them, none in kana or hangul, none still `undecided`. An
+ * article whose respelled tags pass needs no call — written as respelled, or
+ * skipped when that is what it already has — unless `--force`. That is what
+ * makes the command resumable: a retagged article passes, so a re-run asks
+ * about none of them. There is no cap on new tags here, since translating an
+ * article's tags makes each one new to the vocabulary by spelling; what a
+ * re-run does ask about again is a tag the model left in lowercase English,
+ * until an alias settles it.
  */
-function alreadyTagged(
+function settled(
   tags: readonly string[],
   aliases: ReadonlyMap<string, string | null>,
-  knownKeys: ReadonlySet<string>,
 ): boolean {
-  const normal = normalizeTags(tags, aliases, Number.POSITIVE_INFINITY);
   return (
-    normal.length >= MIN_TAGS &&
-    normal.length <= TAG_LIMIT &&
-    sameTags(normal, tags) &&
-    normal.every(isEnglishTag) &&
-    normal.filter((tag) => !knownKeys.has(tag.toLowerCase())).length <=
-      MAX_NEW_TAGS
+    tags.length >= MIN_TAGS &&
+    tags.length <= TAG_LIMIT &&
+    tags.every(inVaultScripts) &&
+    !tags.some((tag) => undecided(tag, aliases))
   );
 }
 
@@ -146,12 +154,15 @@ export async function retagVault(
   const report: RetagReport = {
     scanned: 0,
     retagged: [],
+    respelled: [],
     unchanged: [],
     skipped: [],
     failed: [],
     remaining: [],
     invalid: [],
     vocabulary: [],
+    undecided: [],
+    refused: false,
   };
   for (const relPath of relPaths) {
     const [slug] = relPath.split("/");
@@ -169,12 +180,19 @@ export async function retagVault(
       if (inScope) report.invalid.push({ path: relPath, error: String(error) });
     }
   }
-  report.vocabulary = buildVocabulary(
-    articles.map((a) => a.parsed.frontmatter.tags ?? []),
-    aliases,
+  const tagLists = articles.map((a) => a.parsed.frontmatter.tags ?? []);
+  report.vocabulary = buildVocabulary(tagLists, aliases);
+  report.undecided = undecidedTags(tagLists, aliases).filter(
+    (t) => t.articles >= VOCABULARY_MIN_ARTICLES,
   );
-  const known = new Set(report.vocabulary);
-  const knownKeys = new Set(report.vocabulary.map((tag) => tag.toLowerCase()));
+  // The order a migration to Chinese-first tags needs, enforced: aliases
+  // first. Retagged against a vocabulary missing the vault's own recurring
+  // tags, articles would each coin their own spelling of them. A dry run
+  // still shows what it would do.
+  if (report.undecided.length > 0 && options.dryRun !== true) {
+    report.refused = true;
+    return report;
+  }
 
   const breaker = createBreaker(CONSECUTIVE_FAILURE_LIMIT);
   let stopped = false;
@@ -190,7 +208,9 @@ export async function retagVault(
       report.skipped.push({ slug, reason: "pending" });
       continue;
     }
-    if (options.force !== true && alreadyTagged(before, aliases, knownKeys)) {
+    const respelled = respell(before, aliases, report.vocabulary);
+    const needsNoCall = options.force !== true && settled(respelled, aliases);
+    if (needsNoCall && sameTags(respelled, before)) {
       report.skipped.push({ slug, reason: "already-tagged" });
       continue;
     }
@@ -201,6 +221,16 @@ export async function retagVault(
       continue;
     }
     attempted += 1;
+    if (needsNoCall) {
+      if (options.dryRun !== true) {
+        await Bun.write(
+          `${articlesDir}/${relPath}`,
+          stringifyArticle(withTags(frontmatter, respelled), body),
+        );
+      }
+      report.respelled.push({ slug, before: [...before], after: respelled });
+      continue;
+    }
     if (options.dryRun === true) {
       report.retagged.push({ slug, before: [...before], after: null });
       continue;
@@ -211,7 +241,9 @@ export async function retagVault(
       continue;
     }
 
-    const summary = frontmatter.summary_orig ?? frontmatter.summary;
+    // The Chinese summary the site shows, with the original beside it for
+    // exact names; a Chinese article has only the first.
+    const summary = frontmatter.summary ?? frontmatter.summary_orig;
     if (summary === undefined || summary.trim() === "") {
       report.failed.push({
         slug,
@@ -223,17 +255,37 @@ export async function retagVault(
       const offered = await suggestTags({
         chat: deps.chat,
         model,
-        title: frontmatter.title,
+        title: frontmatter.title_zh ?? frontmatter.title,
+        ...(frontmatter.title_zh !== undefined
+          ? { originalTitle: frontmatter.title }
+          : {}),
         summary,
-        currentTags: before,
+        ...(frontmatter.summary_orig !== undefined &&
+        frontmatter.summary_orig !== summary
+          ? { originalSummary: frontmatter.summary_orig }
+          : {}),
+        currentTags: respelled,
         vocabulary: report.vocabulary,
         log,
       });
+      // No cap on new tags: each tag translated is new to the vocabulary by
+      // spelling, and capping them is how a pilot lost an article's topic.
       const after =
-        offered === null ? [] : writableTags(offered, aliases, log, known);
-      if (after.length === 0) {
-        // Its old tags stay: no tags at all would take it off every tag page.
-        report.failed.push({ slug, error: "no usable tags in the reply" });
+        offered === null
+          ? []
+          : writableTags(offered, aliases, log, report.vocabulary, {
+              maxNew: Number.POSITIVE_INFINITY,
+            });
+      if (after.length < MIN_TAGS) {
+        // Its old tags stay: fewer than three would take it off tag pages it
+        // was on, for a reply that did not follow the prompt.
+        report.failed.push({
+          slug,
+          error:
+            after.length === 0
+              ? "no usable tags in the reply"
+              : `only ${after.length} usable tag(s) in the reply`,
+        });
         breaker.failed();
       } else if (sameTags(after, before)) {
         report.unchanged.push(slug);

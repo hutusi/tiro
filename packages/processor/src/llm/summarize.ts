@@ -40,6 +40,9 @@ export interface SummarizeOptions {
    * for reuse; tags outside it are capped (ADR 0033). Empty on a vault too
    * young to have one. */
   vocabulary?: readonly string[];
+  /** The article's tags before this run, which the cap on new ones never
+   * counts: reprocessing an article does not prune its topics (ADR 0035). */
+  currentTags?: readonly string[];
   maxBodyChars?: number;
   log?: (message: string) => void;
 }
@@ -154,6 +157,7 @@ export async function summarize(
     cjkThreshold,
     tagAliases = new Map<string, string | null>(),
     vocabulary = [],
+    currentTags = [],
     maxBodyChars = 30_000,
     log = () => {},
   } = options;
@@ -224,7 +228,15 @@ export async function summarize(
         return {
           ...accept(
             parsed.data,
-            { bilingual, title, targetLang, cjkThreshold, tagAliases, known },
+            {
+              bilingual,
+              title,
+              targetLang,
+              cjkThreshold,
+              tagAliases,
+              known,
+              currentTags,
+            },
             log,
           ),
           failed: false,
@@ -265,7 +277,15 @@ export async function summarize(
     return {
       ...accept(
         unfinished,
-        { bilingual, title, targetLang, cjkThreshold, tagAliases, known },
+        {
+          bilingual,
+          title,
+          targetLang,
+          cjkThreshold,
+          tagAliases,
+          known,
+          currentTags,
+        },
         log,
       ),
       failed: true,
@@ -304,6 +324,7 @@ function accept(
     cjkThreshold: number;
     tagAliases: ReadonlyMap<string, string | null>;
     known: ReadonlySet<string>;
+    currentTags: readonly string[];
   },
   log: (message: string) => void,
 ): Omit<SummaryResult, "failed"> {
@@ -312,7 +333,9 @@ function accept(
   // are held to the same policy as a finished one's (ADR 0033).
   const rest = {
     ...reply,
-    tags: writableTags(reply.tags, context.tagAliases, log, context.known),
+    tags: writableTags(reply.tags, context.tagAliases, log, context.known, {
+      current: context.currentTags,
+    }),
   };
   // Gated on `bilingual` here as well as in the prompt, so a title volunteered
   // for an article that has no source language is discarded in one place and

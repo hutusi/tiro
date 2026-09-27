@@ -3,16 +3,22 @@ import { MAX_NEW_TAGS } from "../tag-policy.ts";
 import type { ChatFn, ChatMessage } from "./client.ts";
 
 /**
- * How the model is asked for tags (ADR 0033), in one place so the summary
- * call and `retag` ask the same question: a retagged article should carry the
- * tags a fresh run would give it.
+ * How the model is asked for tags (ADR 0033, ADR 0035), in one place so the
+ * summary call and `retag` ask the same question: a retagged article should
+ * carry the tags a fresh run would give it.
+ *
+ * Chinese first, with the owner's own examples, since which terms Chinese
+ * writing keeps in English is a judgment the rule alone does not make. Most
+ * central first, because the cap on new tags and `TAG_LIMIT` keep the head of
+ * the list: asked in no order, the model once led with `mathematics` and
+ * `physics` and an article on entropy lost `entropy`.
  */
 export function tagPromptLines(vocabulary: readonly string[]): string[] {
   return [
-    '- "tags": 3 to 6 short topic tags, in English even when the article is not — lowercase, words separated by spaces, a proper noun by its usual English name.',
+    '- "tags": 3 to 6 short topic tags, the most central topic first. Write them in Simplified Chinese — 强化学习 rather than reinforcement learning, 软件工程, 熵 — keeping English only where Chinese technical writing keeps it: acronyms, and the names of people, companies, products and projects, in their usual case (AI rather than 人工智能, LLM, Git, Rust, Claude, OpenAI). A tag may mix the two with no space between them (AI安全); English words are separated by spaces.',
     ...(vocabulary.length > 0
       ? [
-          `  The vault already uses these tags. Reuse one whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
+          `  The vault already uses these tags. Reuse one, exactly as written, whenever it fits; coin a new tag only for a central topic none of them covers, at most ${MAX_NEW_TAGS} new ones: ${vocabulary.join(", ")}.`,
         ]
       : []),
   ];
@@ -25,13 +31,20 @@ const MAX_ATTEMPTS = 2;
 export interface SuggestTagsOptions {
   chat: ChatFn;
   model: string;
+  /** The title as the site shows it: `title_zh` where there is one. */
   title: string;
-  /** The article's summary — its own language's if it has one. Tags are about
-   * what an article covers, which the summary states in a paragraph; sending
-   * the body would cost a full summary call per article to learn the same. */
+  /** The article's own title, where the one above is a translation. */
+  originalTitle?: string;
+  /** The summary as the site shows it, in Chinese — the wording tags that are
+   * Chinese first should match (ADR 0035). Tags are about what an article
+   * covers, which the summary states in a paragraph; sending the body would
+   * cost a full summary call per article to learn the same. */
   summary: string;
-  /** Offered as hints, not kept by right: an old tag survives if it is a good
-   * tag by the rules the model is given. */
+  /** The summary in the article's own language, where it has one, so a name
+   * the Chinese summary transliterated can still be tagged as it is spelled. */
+  originalSummary?: string;
+  /** The article's topics as tagged before, respelled: kept as topics and
+   * written in the vault's form, not kept as spelled. */
   currentTags: readonly string[];
   vocabulary: readonly string[];
   log?: (message: string) => void;
@@ -50,7 +63,9 @@ export async function suggestTags(
     chat,
     model,
     title,
+    originalTitle,
     summary,
+    originalSummary,
     currentTags,
     vocabulary,
     log = () => {},
@@ -61,7 +76,10 @@ export async function suggestTags(
     "You tag articles for a personal knowledge base.",
     "Respond with a single JSON object with exactly one key:",
     ...tagPromptLines(vocabulary),
-    "The article's current tags are hints: keep one only if it is a good tag by these rules.",
+    // Translating, not pruning (ADR 0035): the old tags are the article's
+    // topics, and a retag that dropped them lost what made a niche article
+    // findable.
+    "The article's current tags name its topics. Keep those topics, writing each in the form above — translate it, respell it, or use the vault's tag for it; merge two that mean the same; drop one only if it is not a topic of the article.",
     "Output JSON only, no markdown fences.",
   ].join("\n");
   const messages: ChatMessage[] = [
@@ -70,9 +88,15 @@ export async function suggestTags(
       role: "user",
       content: [
         `Title: ${title}`,
+        ...(originalTitle !== undefined
+          ? [`Original title: ${originalTitle}`]
+          : []),
         "",
         "Summary:",
         summary,
+        ...(originalSummary !== undefined
+          ? ["", "Original summary:", originalSummary]
+          : []),
         "",
         `Current tags: ${currentTags.length > 0 ? currentTags.join(", ") : "(none)"}`,
       ].join("\n"),

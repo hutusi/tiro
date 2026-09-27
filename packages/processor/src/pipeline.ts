@@ -1,9 +1,9 @@
 import { rm } from "node:fs/promises";
 import {
   type ArticleFrontmatter,
-  normalizeTags,
   splitBlocks,
   stringifyArticle,
+  TAG_LIMIT,
   tagAliases,
 } from "@tiro/shared";
 import {
@@ -42,7 +42,7 @@ import {
 import { translateBlocks } from "./llm/translate.ts";
 import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
 import { isSettled } from "./refusal.ts";
-import { buildVocabulary } from "./tag-policy.ts";
+import { buildVocabulary, respell } from "./tag-policy.ts";
 
 export const PROCESSOR_VERSION = "0.1.0";
 
@@ -192,13 +192,17 @@ function keepExistingTerms(
   produced: SummaryResult,
   frontmatter: { category?: string; tags?: string[] },
   categories: readonly string[],
-  aliases: ReadonlyMap<string, string | null>,
+  tagging: Tagging,
   log: (line: string) => void,
 ): SummaryResult {
   if (produced.fromExcerpt !== true) return produced;
-  // Normalized, not held to the model's policy: these were already the
+  // Respelled, not held to the model's policy: these were already the
   // article's, and dropping one here would be a run deciding for a person.
-  const tags = normalizeTags(frontmatter.tags ?? [], aliases);
+  const tags = respell(
+    frontmatter.tags ?? [],
+    tagging.aliases,
+    tagging.vocabulary,
+  ).slice(0, TAG_LIMIT);
   const category =
     frontmatter.category !== undefined &&
     categories.includes(frontmatter.category)
@@ -537,6 +541,7 @@ async function processOne(
     cjkThreshold: config.translation.cjk_threshold,
     tagAliases: aliases,
     vocabulary,
+    currentTags: frontmatter.tags ?? [],
     log,
   });
   const chosen = summary.failed
@@ -544,7 +549,7 @@ async function processOne(
         keepBetterSummary(summary, frontmatter, log),
         frontmatter,
         config.categories,
-        aliases,
+        tagging,
         log,
       )
     : summary;

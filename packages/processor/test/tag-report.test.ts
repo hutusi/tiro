@@ -24,13 +24,13 @@ describe("tagReport", () => {
         done("b", ["Rust", "Open-Source"]),
         done("c", ["rust"]),
       ],
-      none,
+      tagAliases({ rust: "Rust" }),
     );
     expect(report.articles).toBe(3);
     expect(report.distinct).toBe(3);
     expect(report.singletons).toBe(2);
     expect(report.vocabulary).toBe(1);
-    expect(report.top[0]).toEqual({ tag: "rust", articles: 3 });
+    expect(report.top[0]).toEqual({ tag: "Rust", articles: 3 });
   });
 
   test("lists spellings that are not canonical, and what they become", () => {

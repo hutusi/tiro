@@ -69,29 +69,46 @@ endpoint works.
   values on purpose: the artifact is always named `zh.md` and the language
   detector only distinguishes Chinese from non-Chinese, so any other target
   would translate every article — Chinese originals included.
-- **Tags** are the model's, written in English and in one form: lowercase,
-  words separated by spaces, a hyphen kept only beside a digit (`gpt-4`)
-  (ADR 0033). A tag in another script is dropped, and the run log says which.
-  To steer them, `tags.aliases` in `tiro.yml` rewrites one tag to another as it
-  is written, or drops it with `null`:
+- **Tags** are the model's, Chinese first (ADR 0035): `强化学习`, `软件工程`,
+  `熵`, with English only where Chinese technical writing keeps it — acronyms
+  and names of people, companies, products and projects (`AI`, `LLM`, `Git`,
+  `OpenAI`) — and mixed where that is natural (`AI安全`). Case is kept and
+  compared away: `AI` and `ai` are one tag. No space where Chinese meets
+  English (`AI 安全` is written `AI安全`); English words keep single spaces,
+  and a hyphen only beside a digit (`GPT-4`). A tag in kana or hangul is
+  dropped, and the run log says which.
+  - **`tags.aliases` is how the vault spells a tag.** It rewrites one tag to
+    another as it is written — a translation, a respelling, a merge — or drops
+    it with `null`:
 
-  ```yaml
-  tags:
-    aliases:
-      large language models: llm
-      misc: null
-  ```
+    ```yaml
+    tags:
+      aliases:
+        reinforcement learning: 强化学习
+        ai safety: AI安全
+        ai: AI
+        misc: null
+    ```
 
-  Either side may be spelled any way — both are normalized first — and an alias
-  is one hop, not a chain. It applies from the next run on; articles already
-  processed keep their tags until they are reprocessed or retagged.
-  - **The vocabulary is the vault's own**: every English tag at least two
-    articles carry, up to 150, most used first, rebuilt at the start of each
-    run. The model is asked to reuse one when it fits, and an article may add
-    at most two tags from outside it — fewer only if that would leave it with
-    under three. A run log line `left out new tag(s) past the 2 allowed`
-    shows the cap working. There is nothing to maintain: a tag enters the list
-    by being used twice.
+    Either side may be spelled any way, case included. A target is also how
+    every tag with its key is spelled, so `large language models: LLM` turns
+    existing `llm` tags into `LLM` too. One hop: a table under which that
+    would not settle — a chain, a cycle, one tag spelled two ways — fails
+    config loading with the entries named. It applies from the next run on;
+    articles already processed keep their tags until they are reprocessed or
+    retagged.
+  - **The vocabulary is the vault's own**: every tag at least two articles
+    carry, up to 150, most used first, rebuilt at the start of each run and
+    offered in the vault's spelling. A tag still in the old English form —
+    lowercase Latin with no alias spelling it, which the tags report lists as
+    *undecided* — is left out, so the vault's old English does not pull the
+    model back to it. The model is asked to reuse a listed tag when it fits,
+    and an article may add at most three tags from outside it — fewer only if
+    that would leave it with under three; a tag the article already carries is
+    never counted, so reprocessing does not prune it. A run log line
+    `left out new tag(s) past the 3 allowed` shows the cap working. There is
+    nothing to maintain beyond the aliases: a tag enters the list by being used
+    twice.
 - **Image downloads** are bounded per image (`images.max_bytes`,
   `images.timeout_ms`) and per article (`images.max_count`,
   `images.total_max_bytes`, `images.stage_timeout_ms`). Hitting an aggregate
@@ -340,7 +357,8 @@ so re-runs are always safe no-ops for finished articles.
   `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
   Checks frontmatter schema, that each directory name still equals the slug
   derived from its `url` (invariant 2), that no article is nested below
-  `articles/<slug>/`, that tags are written in their canonical form (ADR 0033),
+  `articles/<slug>/`, that tags are written in their canonical form (ADR 0033,
+  ADR 0035: any case, but `AI` and `ai` in one article are listed twice),
   and that every `zh.md` belongs to an article that should have one and stays
   block-aligned with it. A vault not yet retagged reports its old spellings
   here — `retag` (below) is the fix, and a clean `validate` is how you know it
@@ -1198,26 +1216,42 @@ from the next run on.
 
 ### Retagging the vault
 
-Articles processed before ADR 0033 keep the tags they were given — any
-language, any spelling, mostly one-offs — until they are reprocessed. `retag`
-gives them the tags a run would give them now: one small JSON-mode call per
-article, from its title and summary (the source-language one where there is
-one) with its old tags as hints, held to the same policy and offered the same
-vocabulary as a run. It rewrites only `tags` and never touches `processed_at`,
-so nothing is re-queued.
+Articles processed before ADR 0035 keep the tags they were given — mostly
+lowercase English, some Chinese, mostly one-offs — until they are reprocessed.
+`retag` puts them in the vault's form without touching anything else: it
+rewrites only `tags` and never touches `processed_at`, so nothing is re-queued.
+Per article:
+
+- **Respelled, with no call,** when the aliases alone make its tags three to
+  six, none in kana or hangul and none undecided.
+- **Asked, otherwise:** one small JSON-mode call from its Chinese title and
+  summary, with the originals beside them for exact names and its respelled
+  tags as the topics to keep — translated, respelled or merged, not pruned.
+  The reply is held to the run's policy except the cap on new tags, since
+  every translated tag is new by spelling; a reply with fewer than three
+  usable tags fails and the old ones stay.
 
 Not `--force` over the vault: that re-translates whole bodies and re-downloads
 every image to change one line.
 
+**Aliases first — `retag` enforces it.** While any undecided tag (see the tags
+report) is carried by two or more articles, a real run refuses to start and
+lists them, exit 2: those are the vault's recurring topics, and retagged
+against a vocabulary without them, each article would coin its own translation
+of each. Give every one an alias — a translation, a respelling such as
+`git: Git`, or `npm: npm` for a name that is lowercase on purpose — and the
+refusal lifts. The same order is why the alias table can only land after the
+code that reads it: an older processor drops every Chinese target.
+
 ```sh
-# Baseline, then what it would touch (no LLM calls, no writes)
+# Baseline, then the undecided tags to alias (no LLM calls, no writes)
 bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
 bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --dry-run
 
-# A few first, then read the diff in the vault
-TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --limit 5
+# After the aliases are in config/tiro.yml: a few first, then read the diff
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault --slug <slug>
 
-# The rest, then measure again
+# The rest, then measure again, and once more — a second run asks about none
 TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts retag --vault ../tiro-vault
 bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
 ```
@@ -1225,9 +1259,10 @@ bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
 - **Run it from `main`**, after the change that brought it has merged — a
   command run from an unmerged branch writes to the live vault all the same.
 - It skips pending articles (`run` tags those, from the body) and articles
-  whose tags already meet the policy: canonical, English, three to six, at most
-  two outside the vocabulary. That skip is what makes it resumable — run it
-  again to continue — and `--force` asks about every processed article.
+  already in the vault's form. That skip is what makes it resumable — run it
+  again to continue, and a finished vault asks nothing — and `--force` asks
+  about every processed article. What a re-run does ask about again is a tag
+  the model left in lowercase English: undecided until an alias spells it.
 - The vocabulary is built once, before the first call, from the whole vault,
   so every article in a run is offered the same list.
 - **Expect the diff to be tag lines.** Articles last written by something other
@@ -1235,7 +1270,9 @@ bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
   places in their `tiro:` block — the serializer's own order, applied once.
 - It stops after three failures in a row and at `processing.run_budget_ms`;
   failures exit non-zero and keep the article's old tags. Commit and push the
-  vault: the push redeploys (ADR 0032).
+  vault — the alias table and the articles in one push: the push redeploys
+  (ADR 0032), and translated tags move their pages (`/tags/强化学习/`), the old
+  URLs no longer served.
 
 ### Cutting an extension release
 

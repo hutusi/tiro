@@ -58,17 +58,18 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Changed
 
-- **Tags are written in English, in one form.** The model used to write
+- **Tags are written Chinese first, in one form.** The model used to write
   free-form tags in whatever language and spelling it picked, and ~180 articles
   had 768 tag pages, 85% of them holding a single article — including the same
-  topic twice, as `ai安全` and `ai safety`. Tags are now lowercase English with
-  spaces between words, a tag in another script is dropped, and `tags.aliases`
-  in `tiro.yml` merges or refuses tags as they are written. The model is also
-  shown the vault's own vocabulary — every tag two articles share — and asked
-  to reuse it; an article may coin at most two tags outside it. Two new
+  topic twice, as `ai安全` and `ai safety`. Tags are now Chinese first —
+  `强化学习`, `熵` — with English only where Chinese writing keeps it (`AI`,
+  `LLM`, `Git`), in their natural case (`AI安全`), and `tags.aliases` in
+  `tiro.yml` spells, merges or refuses tags as they are written. The model is
+  also shown the vault's own vocabulary — every tag two articles share — and
+  asked to reuse it; an article may coin at most three tags outside it. Two new
   commands: `tiro-process tags` measures the vault's tags, and `tiro-process
-  retag` brings already-processed articles up to the same rules, one small call
-  each (ADR 0033).
+  retag` brings already-processed articles up to the same rules, translating
+  their tags rather than pruning them (ADR 0033, ADR 0035).
 
 - **A hand edit to the vault publishes itself.** Hiding an article, deleting
   one, a repair or a slug migration used to end with "then dispatch a deploy",
