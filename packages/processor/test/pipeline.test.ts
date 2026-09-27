@@ -720,6 +720,18 @@ describe("saved links", () => {
     expect(body).toContain("density gate");
   });
 
+  test("a versioned arXiv link is read at the version saved", async () => {
+    // The article is the paper's; the body is the revision the reader saved.
+    const vault = withInbox("https://arxiv.org/html/2404.19756v1");
+    const config = await loadVaultConfig(vault);
+    const hits: string[] = [];
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({}, hits),
+    });
+    expect(hits[0]).toBe("https://arxiv.org/html/2404.19756v1");
+  });
+
   test("--force does not fetch a built article's page again", async () => {
     // After the fetch, the body is the clip; re-reading it would also throw
     // away the translation checkpoint keyed on it (invariant 8).

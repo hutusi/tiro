@@ -109,6 +109,33 @@ describe("drainInbox", () => {
     );
   });
 
+  test("files a versioned arXiv link under the paper, and keeps the version to read", async () => {
+    // Identity is the paper; the body is the revision that was saved. Without
+    // source_url, the link stage asked for the latest one.
+    const vault = vaultWithInbox({
+      a: "https://arxiv.org/html/2404.19756v1\n",
+    });
+    const report = await drainInbox(vault, { now });
+    expect(report.saved[0]?.url).toBe("https://arxiv.org/abs/2404.19756");
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, indexPath(report.saved[0]?.slug ?? "")), "utf8"),
+    );
+    expect(frontmatter.tiro.source_url).toBe(
+      "https://arxiv.org/html/2404.19756v1",
+    );
+  });
+
+  test("an ordinary link records no separate source", async () => {
+    const vault = vaultWithInbox({
+      a: "https://example.net/post?utm_source=x",
+    });
+    const report = await drainInbox(vault, { now });
+    const { frontmatter } = parseArticle(
+      readFileSync(join(vault, indexPath(report.saved[0]?.slug ?? "")), "utf8"),
+    );
+    expect(frontmatter.tiro.source_url).toBeUndefined();
+  });
+
   test("never overwrites an article that is already there", async () => {
     // A browser clip is always the better body; saving its URL again from a
     // phone must not replace it with a stub.

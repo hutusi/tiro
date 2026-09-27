@@ -6,6 +6,7 @@ import {
   indexPath,
   normalizeUrl,
   slugForUrl,
+  sourceUrlOf,
   stringifyArticle,
   TIRO_SCHEMA_VERSION,
 } from "@tiro/shared";
@@ -141,6 +142,11 @@ export async function drainInbox(
       log(`inbox: ${file} → ${slug}`);
       if (options.dryRun === true) continue;
       const domain = new URL(url).hostname;
+      // Where the link said to read, when a publisher rule files the article
+      // elsewhere: a saved `…/html/2404.19756v1` is the paper's article, but
+      // its body is v1, not the latest revision. The rule the extension uses
+      // for a tab it clips.
+      const sourceUrl = sourceUrlOf(raw);
       const frontmatter: ArticleFrontmatter = ArticleFrontmatterSchema.parse({
         url,
         // A placeholder until the page is fetched; the site hides an article
@@ -154,6 +160,7 @@ export async function drainInbox(
           options.clipperCommit !== ""
             ? { clipper_commit: options.clipperCommit }
             : {}),
+          ...(sourceUrl !== undefined ? { source_url: sourceUrl } : {}),
           capture: "link",
         },
       });

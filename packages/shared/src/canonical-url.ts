@@ -300,3 +300,32 @@ export function canonicalizeUrl(rawUrl: string): string {
   if (doc !== null) return githubBlobUrl(doc);
   return rawUrl;
 }
+
+/**
+ * Where a body was read from, when a publisher rule files its article
+ * somewhere else — `tiro.source_url`. Undefined for an ordinary page, whose
+ * body and article share a URL.
+ *
+ * Shared by the extension, for the tab it clipped, and the processor, for a
+ * link saved without its page (ADR 0034): a saved `…/html/2404.19756v1` is
+ * filed under the paper, but its body must still be read from v1, not from
+ * whatever revision is current.
+ */
+export function sourceUrlOf(rawUrl: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return undefined;
+  }
+  // A reading position is not a source: `?context=cs` and `#S3` describe where
+  // in the document the reader was, not where the document came from.
+  url.search = "";
+  url.hash = "";
+  const stripped = url.toString();
+  // Asked of canonicalization rather than of a named publisher. The question is
+  // "did a rule file this body somewhere other than where it was read", and
+  // every rule creates it: keyed on arXiv alone, a raw.githubusercontent.com
+  // tab was filed under the blob page while claiming that page as its source.
+  return canonicalizeUrl(stripped) === stripped ? undefined : stripped;
+}

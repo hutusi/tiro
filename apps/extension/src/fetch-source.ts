@@ -25,7 +25,7 @@ import type { ClipPayload } from "./messages.ts";
  * Its own module rather than a corner of popup.ts because nothing can import
  * popup.ts — it pulls in CSS and reaches for `document` at module scope — and
  * this is where the policy that decides what may be committed now lives. The
- * same reason `tabSourceUrl` moved to `clip.ts`.
+ * same reason `buildClipFile` lives in `clip.ts`.
  */
 interface FetchableSourceBase {
   kind: FetchSourceKind;
