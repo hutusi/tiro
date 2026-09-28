@@ -15,6 +15,7 @@ config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
 .github/workflows/publish.yml     # redeploys the site when a collection changes
 .github/workflows/tokens.yml      # warns before TIRO_DISPATCH_TOKEN expires
+.gitignore                        # keeps Finder's .DS_Store out of the vault
 ```
 
 Articles arrive via the Tiro Chrome extension; the workflow summarizes, tags,
