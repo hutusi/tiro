@@ -532,7 +532,9 @@ devDependencies — the action must log "using pre-installed wrangler".
     deployment — still listing the article — stays live.
   - Remove refuses, naming the file, when a collection that names the article
     cannot be parsed; fix that file and try again. A broken collection that
-    does not name it is ignored.
+    does not name it is ignored. It also refuses — `lists 1000 entries, the
+    most GitHub returns` — at 1,000 collections or an article of 1,000 files,
+    where GitHub's directory listing may be cut off; remove that one by hand.
 - Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
   frontmatter and push; the push redeploys. It drops out of the library,
   the pager, the tag and category pages, search, RSS and the sitemap, and stays

@@ -507,8 +507,20 @@ interface DirEntry {
  * says nothing when it stops there. */
 const CONTENTS_LISTING_CAP = 1000;
 
-/** The entries directly inside a directory in one commit, or null when there
- * is no directory there. */
+/**
+ * The entries directly inside a directory in one commit, or null when there
+ * is no directory there.
+ *
+ * A listing that reaches the API's cap is refused, for every caller, rather
+ * than returned: it may have been cut off, and nothing downstream can tell. A
+ * removal that trusted one reported success while leaving the article named by
+ * every collection past the cut (ADR 0036). Refused here rather than in each
+ * caller because every use of a listing — "is it there", "what is there" — is
+ * answered wrongly by a partial one, and a check that lived in one caller
+ * missed the next. A vault reaches the cap only with 1,000 collections or an
+ * article of 1,000 images, so the price of refusing is a loud error nobody
+ * meets.
+ */
 async function entriesAt(
   config: TiroExtensionConfig,
   path: string,
@@ -523,6 +535,11 @@ async function entriesAt(
   const body = (await res.json()) as unknown;
   // A file where a directory was expected is not a directory.
   if (!Array.isArray(body)) return null;
+  if (body.length >= CONTENTS_LISTING_CAP) {
+    throw new Error(
+      `${path} lists ${body.length} entries, the most GitHub returns — refusing to act on what may be part of it`,
+    );
+  }
   return body.flatMap((entry) => {
     const { name, type } = entry as { name?: unknown; type?: unknown };
     return typeof name === "string"
@@ -551,10 +568,10 @@ async function listAt(
  * there is no directory there. One listing per directory — an article is two,
  * itself and its `assets/`.
  *
- * Built to delete by (ADR 0036), so it refuses rather than answer partly. A
- * listing of exactly the API's cap may have been cut off, and deleting what it
- * showed would leave the rest behind as an orphan the site still publishes. A
- * symlink or a submodule is not something the pipeline writes, and not a
+ * Built to delete by (ADR 0036), so it refuses rather than answer partly: a
+ * listing at the API's cap is refused by `entriesAt`, since deleting what it
+ * showed would leave the rest behind as an orphan the site still publishes;
+ * and a symlink or a submodule is not something the pipeline writes, and not a
  * blob a `sha: null` entry is known to remove.
  */
 async function filesAt(
@@ -565,11 +582,6 @@ async function filesAt(
 ): Promise<string[]> {
   const entries = await entriesAt(config, dir, commit, fetchImpl);
   if (entries === null) return [];
-  if (entries.length >= CONTENTS_LISTING_CAP) {
-    throw new Error(
-      `${dir} lists ${entries.length} entries, the most GitHub returns — refusing to act on what may be part of it`,
-    );
-  }
   const files: string[] = [];
   for (const entry of entries) {
     const path = `${dir}/${entry.name}`;

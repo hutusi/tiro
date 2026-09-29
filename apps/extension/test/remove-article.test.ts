@@ -207,6 +207,26 @@ describe("removeArticle", () => {
     expect(gh.log()).toEqual(["root"]);
   });
 
+  // GitHub lists at most 1,000 entries of a directory and says nothing when it
+  // stops. A removal that trusted such a listing would report success and
+  // leave the article in every collection past the cut.
+  test("a collections listing that may be cut off stops the removal", async () => {
+    const many: Record<string, string> = {};
+    for (let i = 0; i < 1000; i++) {
+      many[`collections/c${String(i).padStart(4, "0")}.md`] = collectionFile([
+        B,
+      ]);
+    }
+    // Sorts last, so a truncated listing is the one that leaves it out.
+    many["collections/zz-last.md"] = collectionFile([A]);
+    const gh = fakeGitHub(vault(many));
+    await expect(removeArticle(config, A, {}, gh.fetch)).rejects.toThrow(
+      "the most GitHub returns",
+    );
+    expect(gh.log()).toEqual(["root"]);
+    expect(members(gh.files(), "zz-last")).toEqual([A]);
+  });
+
   test("a slug that is not a path segment is refused before any request", async () => {
     const gh = fakeGitHub(vault());
     for (const bad of ["../config", "a/b", "", "UPPER"]) {

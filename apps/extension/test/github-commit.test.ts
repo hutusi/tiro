@@ -349,6 +349,32 @@ describe("TreeReader.files", () => {
     expect(await filesOf(full.slice(1))).toHaveLength(999);
   });
 
+  // Every listing, not only the recursive one: a removal reads `collections/`
+  // through `list`, and a cut-off one there left the removed article named by
+  // every collection past the cut.
+  test("list refuses a listing at the cap too", async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => ({
+      name: `c${i}.md`,
+      type: "file",
+    }));
+    const listOf = async (entries: unknown[]) => {
+      let out: string[] | null = null;
+      await commitFiles(
+        config,
+        {
+          build: async (reader) => {
+            out = await reader.list("collections");
+            return null;
+          },
+        },
+        listingOnly(entries),
+      );
+      return out;
+    };
+    await expect(listOf(full)).rejects.toThrow("the most GitHub returns");
+    expect(await listOf(full.slice(1))).toHaveLength(999);
+  });
+
   test("refuses what the pipeline never writes: a symlink, a submodule", async () => {
     await expect(
       filesOf([{ name: "index.md", type: "symlink" }]),

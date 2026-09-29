@@ -65,6 +65,15 @@ contains the slug. Slugs end in a hash, so a file that does not contain it does
 not name the article, and a broken collection unrelated to this one should not
 make an article impossible to remove.
 
+Both lists — the article's files and the collections — come from the Contents
+API, which returns at most 1,000 entries of a directory and says nothing when
+it stops. A listing that reaches that cap is refused, not trusted: acting on
+part of `collections/` would report the removal done while leaving the article
+named in every collection past the cut. It is refused for every listing the
+extension reads, not only these two, since a partial one answers "is it there"
+wrongly too. A vault meets it only with 1,000 collections, or an article with
+1,000 images.
+
 ### 3. One commit, through the Git Data API
 
 The article's files and the changed collections go in one commit made the way

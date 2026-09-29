@@ -114,14 +114,18 @@ export function fakeGitHub(
           });
         }
         // Direct children only, each with its `name` and `type`, as GitHub
-        // lists them.
+        // lists them: by name, and no more than the first 1,000 — past that
+        // the real API stops without saying so, which is exactly what a
+        // caller has to be able to survive.
         const listing = [
           ...new Set(
             [...at.keys()]
               .filter((p) => p.startsWith(`${file}/`))
               .map((p) => p.slice(file.length + 1).split("/")[0] ?? ""),
           ),
-        ];
+        ]
+          .sort()
+          .slice(0, 1000);
         return listing.length > 0
           ? json(
               200,
