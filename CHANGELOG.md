@@ -115,6 +115,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An article split around ads is clipped whole.** Ars Technica serves each
+  stretch of an article in its own container, with an ad slot between, and
+  Readability kept only the last — a saved link came back as five of fourteen
+  paragraphs, opening mid-argument. The clipper now joins such stretches
+  before extracting, and only when nothing but page chrome lies between them;
+  a sweep over the vault showed no other article changes.
+
 - **A failed reprocess no longer strips an article's tags.** When every summary
   reply was unusable, the pipeline kept the old summary but wrote the
   fallback category and an empty tag list over the article's real ones, taking

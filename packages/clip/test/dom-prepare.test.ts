@@ -2402,3 +2402,104 @@ describe("a footnote reference the page replaced with a button", () => {
     expect(clipped(markup)).not.toContain("](#fn-1)");
   });
 });
+
+describe("an article split into several bodies", () => {
+  const para = (n: number) =>
+    `<p>Paragraph ${n} of the story, with enough words in it that Readability reads it as prose rather than chrome around the page.</p>`;
+  const body = (...ns: number[]) =>
+    `<div class="post-content post-content-double">${ns.map(para).join("")}</div>`;
+  /** The shape Ars Technica serves: each stretch in its own grid row, an ad
+   * row between, all in one <article>. */
+  const ars = (...bodies: string[]) =>
+    `<article class="double-column h-entry">${bodies
+      .map(
+        (b) =>
+          `<div class="my-2.5 mx-auto"><div class="relative">${b}</div></div><div class="ad-wrapper"><p>Advertisement</p></div>`,
+      )
+      .join("")}</article>`;
+
+  function clip(html: string): string {
+    const window = new Window();
+    window.document.body.innerHTML = html;
+    return clipPage(
+      window.document as unknown as Document,
+      "https://arstechnica.com/science/2026/09/a-story/",
+    ).markdown;
+  }
+
+  test("keeps every stretch, in the page's order", () => {
+    // Before: Readability scored the bodies apart and kept the longest, the
+    // last — the clip opened at paragraph 8 of 14.
+    const md = clip(
+      ars(body(1, 2, 3), body(4, 5, 6, 7), body(8, 9, 10, 11, 12)),
+    );
+    for (let n = 1; n <= 12; n++) expect(md).toContain(`Paragraph ${n} of`);
+    expect(md.indexOf("Paragraph 1 of")).toBeLessThan(
+      md.indexOf("Paragraph 4 of"),
+    );
+    expect(md.indexOf("Paragraph 7 of")).toBeLessThan(
+      md.indexOf("Paragraph 8 of"),
+    );
+  });
+
+  test("never runs an index page's teasers together", () => {
+    // Each teaser its own <article>, even nested inside the page's own.
+    const { doc } = prepare(
+      `<article><article>${body(1, 2)}</article><article>${body(3, 4)}</article></article>`,
+    );
+    expect(doc.querySelectorAll(".post-content")).toHaveLength(2);
+  });
+
+  test("never merges a comment thread, whose class Readability scores down", () => {
+    // Two paragraphs each and nothing between, so only the class stops it.
+    const comment = (a: number, b: number) =>
+      `<div class="comment-content">${para(a)}${para(b)}</div>`;
+    const { doc } = prepare(
+      `<article>${body(1, 2)}${comment(3, 4)}${comment(5, 6)}</article>`,
+    );
+    expect(doc.querySelectorAll(".comment-content")).toHaveLength(2);
+  });
+
+  test("never merges one-paragraph blocks: footnotes, callouts, quotes", () => {
+    // Substack's footnotes: a `footnote-content` block each, one paragraph,
+    // and anchors that break if they are run together.
+    const note = (n: number) =>
+      `<div class="footnote-content">${para(n)}</div>`;
+    const { doc } = prepare(
+      `<article>${body(1, 2)}${note(3)}${note(4)}${note(5)}</article>`,
+    );
+    expect(doc.querySelectorAll(".footnote-content")).toHaveLength(3);
+  });
+
+  test("never pulls section bodies away from the headings between them", () => {
+    // An org-mode export or a wiki: the same body class under each heading.
+    const section = (h: string, ...ns: number[]) =>
+      `<h2>${h}</h2><div class="outline-text-2">${ns.map(para).join("")}</div>`;
+    const { doc } = prepare(
+      `<article>${section("One", 1, 2)}${section("Two", 3, 4)}</article>`,
+    );
+    expect(doc.querySelectorAll(".outline-text-2")).toHaveLength(2);
+  });
+
+  test("never closes up over a figure, or prose, between two stretches", () => {
+    const figure = prepare(
+      `<article>${body(1, 2)}<figure><img src="a.png"></figure>${body(3, 4)}</article>`,
+    );
+    expect(figure.doc.querySelectorAll(".post-content")).toHaveLength(2);
+    const prose = prepare(
+      `<article>${body(1, 2)}<div>${"Words between the two stretches. ".repeat(8)}</div>${body(3, 4)}</article>`,
+    );
+    expect(prose.doc.querySelectorAll(".post-content")).toHaveLength(2);
+    const rule = prepare(`<article>${body(1, 2)}<hr>${body(3, 4)}</article>`);
+    expect(rule.doc.querySelectorAll(".post-content")).toHaveLength(2);
+  });
+
+  test("leaves a single body, and one with no paragraphs of its own, alone", () => {
+    const one = prepare(`<article>${body(1, 2)}</article>`);
+    expect(one.doc.querySelectorAll(".post-content")).toHaveLength(1);
+    const wrappers = prepare(
+      '<article><div class="entry"><div>x</div></div><div class="entry"><div>y</div></div></article>',
+    );
+    expect(wrappers.doc.querySelectorAll(".entry")).toHaveLength(2);
+  });
+});

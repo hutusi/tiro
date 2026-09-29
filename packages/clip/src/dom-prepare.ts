@@ -1664,6 +1664,9 @@ export function prepareForClipping(doc: Document): void {
   // First, and order-independent: it changes no structure, only a tag name the
   // passes below have no opinion about.
   retagFontsAsSpans(doc);
+  // Early: it only moves whole blocks, and every pass below should see the
+  // article as the one body it is.
+  joinSplitArticleBodies(doc);
   normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);
@@ -1691,6 +1694,132 @@ export function prepareForClipping(doc: Document): void {
   // `markCodeLanguages` gives — everything above may move or replace the very
   // elements a link points at, and the marker has to land on what survives.
   markInDocumentAnchors(doc);
+}
+
+/** Readability's own words for a class that holds an article (its
+ * `REGEXPS.positive`) and for one that does not (`REGEXPS.negative`). */
+const BODY_CLASS =
+  /article|body|content|entry|hentry|h-entry|main|page|post|text|blog|story/i;
+const NOT_BODY_CLASS =
+  /-ad-|hidden|banner|combx|comment|com-|contact|footer|gdpr|masthead|media|meta|outbrain|promo|related|scroll|share|shoutbox|sidebar|skyscraper|sponsor|shopping|tags|widget/i;
+
+/** A stretch of body has paragraphs of its own; a footnote, a callout or a
+ * pull quote has one. */
+const MIN_PART_PARAGRAPHS = 2;
+/** What may sit between two stretches: an ad slot's label, not prose. */
+const MAX_GAP_TEXT = 100;
+/** Anything a reader would miss if the stretches closed up over it. */
+const GAP_CONTENT = new Set([
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "FIGURE",
+  "IMG",
+  "PICTURE",
+  "VIDEO",
+  "AUDIO",
+  "IFRAME",
+  "TABLE",
+  "PRE",
+  "BLOCKQUOTE",
+  "UL",
+  "OL",
+  // A thematic break is the page saying the stretches are apart: Dario
+  // Amodei's essay rules one off before its acknowledgments.
+  "HR",
+]);
+
+/**
+ * An article the page split into several bodies, joined back into one.
+ *
+ * Ars Technica puts each stretch of an article in its own
+ * `div.post-content.post-content-double`, each in its own grid row with an ad
+ * slot between, all inside one `<article>`. They are cousins, not siblings, so
+ * Readability's joining of a top candidate's siblings never reaches them: it
+ * scored the three bodies apart and kept the last — five of fourteen
+ * paragraphs, opening mid-argument.
+ *
+ * Joined, into the first and in page order, only when every one of these holds
+ * — because the same shape, a class repeated inside one article, is also how
+ * pages mark things that must stay apart:
+ *
+ * - **One `<article>`**, so an index page's teasers never run together.
+ * - **The same class, one Readability scores as the body**, so a thread of
+ *   `comment-content` blocks is never merged.
+ * - **Each a real stretch**: at least two paragraphs of its own. Substack's
+ *   `footnote-content` blocks, callouts and pull quotes have one or two.
+ * - **Nothing between them a reader would miss**: no heading, figure, table,
+ *   list, quote or code, and no more text than an ad slot's label. That is
+ *   what tells Ars's ad-split body from an org-mode export or a wiki, whose
+ *   same-class section bodies each follow their own heading and would be
+ *   pulled away from it. All or nothing: one gap with content keeps the
+ *   whole group apart.
+ */
+export function joinSplitArticleBodies(doc: Document): void {
+  for (const article of Array.from(doc.querySelectorAll("article"))) {
+    const groups = new Map<string, Element[]>();
+    for (const el of Array.from(article.querySelectorAll("[class]"))) {
+      const cls = (el.getAttribute("class") ?? "").trim();
+      if (!BODY_CLASS.test(cls) || NOT_BODY_CLASS.test(cls)) continue;
+      // A nested <article> is its own article, joined on its own turn.
+      if (el.parentElement?.closest("article") !== article) continue;
+      const paragraphs = Array.from(el.children).filter(
+        (c) => c.tagName === "P",
+      ).length;
+      if (paragraphs < MIN_PART_PARAGRAPHS) continue;
+      const key = cls.split(/\s+/).sort().join(" ");
+      groups.set(key, [...(groups.get(key) ?? []), el]);
+    }
+    for (const parts of groups.values()) {
+      const outermost = parts.filter(
+        (part) =>
+          !parts.some((other) => other !== part && other.contains(part)),
+      );
+      if (outermost.length < 2 || !onlyChromeBetween(doc, article, outermost)) {
+        continue;
+      }
+      const [first, ...rest] = outermost;
+      if (first === undefined) continue;
+      for (const part of rest) {
+        while (part.firstChild !== null) first.appendChild(part.firstChild);
+        part.remove();
+      }
+    }
+  }
+}
+
+/** Whether what lies between consecutive `parts` (in document order) is
+ * chrome — wrappers and an ad label — rather than content. */
+function onlyChromeBetween(
+  doc: Document,
+  article: Element,
+  parts: readonly Element[],
+): boolean {
+  const gapText = parts.map(() => 0);
+  // SHOW_ELEMENT | SHOW_TEXT, as numbers: the constants live on the window.
+  const walker = doc.createTreeWalker(article, 0x1 | 0x4);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (parts.some((part) => part.contains(node))) continue;
+    // How many parts come before this node; 1..n-1 is a gap between two.
+    const before = parts.filter(
+      (part) =>
+        (part.compareDocumentPosition(node) &
+          0x4) /* DOCUMENT_POSITION_FOLLOWING */ !==
+        0,
+    ).length;
+    if (before < 1 || before >= parts.length) continue;
+    if (node.nodeType === 1) {
+      if (GAP_CONTENT.has((node as Element).tagName)) return false;
+      continue;
+    }
+    gapText[before] =
+      (gapText[before] ?? 0) + (node.textContent ?? "").trim().length;
+    if ((gapText[before] ?? 0) > MAX_GAP_TEXT) return false;
+  }
+  return true;
 }
 
 /**
