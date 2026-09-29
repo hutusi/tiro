@@ -27,6 +27,9 @@
         "vite": "^8.2.2",
       },
     },
+    "apps/shortcut": {
+      "name": "@tiro/shortcut",
+    },
     "apps/site": {
       "name": "@tiro/site",
       "dependencies": {
@@ -480,6 +483,8 @@
     "@tiro/processor": ["@tiro/processor@workspace:packages/processor"],
 
     "@tiro/shared": ["@tiro/shared@workspace:packages/shared"],
+
+    "@tiro/shortcut": ["@tiro/shortcut@workspace:apps/shortcut"],
 
     "@tiro/site": ["@tiro/site@workspace:apps/site"],
 

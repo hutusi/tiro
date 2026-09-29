@@ -23,6 +23,7 @@ Product decisions that look odd but are deliberate:
 | `packages/clip` | Page → Markdown (Readability + Turndown, the DOM repair pass, arXiv and GitHub-markdown fetches). Needs a DOM, nothing else from its host: bundled into the extension, and run by `sweep` under happy-dom |
 | `packages/processor` | LLM pipeline CLI (`tiro-process run\|validate`), run by the vault's workflow |
 | `apps/extension` | Chrome MV3 clipper: popup, options, service worker, GitHub Contents/Git Data API — clips with `@tiro/clip` |
+| `apps/shortcut` | Builds the "Save to Tiro" iPhone shortcut (share sheet → the vault's `inbox/`) and signs it on a Mac. The signed file is a build output tied to the builder's Apple account — `dist/`, never committed |
 | `apps/site` | Astro site (side-by-side reader, Pagefind search), deployed to Cloudflare Pages |
 | `vault-template/` | Files to bootstrap a new vault repo |
 | `fixtures/vault` | Fake vault for tests and local site dev — its articles must stay contract-valid (test-enforced) |
@@ -39,6 +40,7 @@ bun test                             # bun test across all packages
 bun run --cwd apps/extension build   # two-pass Vite build → dist/ (load unpacked from there)
 bun run --cwd apps/site dev          # site dev against fixtures/vault — no vault clone needed
 bun run --cwd apps/site build        # assets + astro build + pagefind — part of the verify gate
+bun run --cwd apps/shortcut build -- --repo <owner>/tiro-vault  # the iPhone shortcut, signed on a Mac
 bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 bun run --cwd apps/extension sweep -- --vault <dir> [--baseline <ref>] [--only S]
 bun run --cwd apps/extension sweep -- --vault <dir> --fill-languages [--write]

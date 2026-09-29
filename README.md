@@ -18,6 +18,7 @@ This monorepo holds all the code; content lives in a separate vault repo
 | `packages/clip` | Page → Markdown (Readability + Turndown and the repair pass around them), shared by the extension and `sweep` |
 | `packages/processor` | LLM pipeline CLI, run by the vault's GitHub Actions workflow |
 | `apps/extension` | Chrome MV3 clipper: popup, options, worker; clips with `packages/clip`, commits via the GitHub API |
+| `apps/shortcut` | The "Save to Tiro" iPhone shortcut: saves a shared link into the vault's inbox (`bun run --cwd apps/shortcut build` on a Mac) |
 | `apps/site` | Astro site, deployed to Cloudflare Pages (<https://tiro.ainaive.com/>) |
 | `vault-template/` | Files to bootstrap a new `tiro-vault` repo |
 | `fixtures/vault` | A tiny fake vault for tests and local site development |

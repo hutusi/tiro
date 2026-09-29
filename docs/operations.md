@@ -680,36 +680,64 @@ and the same expiry date as the extension's PAT, so one reminder covers both. It
 lives in the shortcut and nowhere else — a lost phone is one revocation, not a
 rotation for every machine. **Never share the shortcut**: it carries the token.
 
-### Building the shortcut
+### Installing the shortcut
 
-In Shortcuts, new shortcut "Save to Tiro". In its details, turn on **Show in
-Share Sheet** and accept **URLs** and **Safari web pages**. Then these actions,
-in order:
+Build it on a Mac, which is the only thing that can sign a shortcut an iPhone
+will import:
+
+```sh
+bun run --cwd apps/shortcut build -- --repo hutusi/tiro-vault
+```
+
+That writes `apps/shortcut/dist/Save to Tiro.shortcut`. AirDrop it to the
+iPhone and open it: Shortcuts asks two import questions — paste the phone PAT,
+and keep the repository — then **Add Shortcut**. The first save asks to connect
+to `api.github.com`; **Always Allow**. The built file holds no token (the import
+question puts it in), but its signature is tied to the Apple account that built
+it: AirDrop it to your own phone, don't share it, and never commit it —
+`dist/` is ignored for that reason.
+
+For a Home Screen icon with Tiro's mark, **Add to Home Screen** from the
+shortcut's details and choose a photo of the mark; run from there, it saves the
+link on the clipboard. The share-sheet icon can only be one of Apple's glyphs,
+picked in the shortcut's details.
+
+### What the shortcut does
+
+The steps, for reading it in the editor or building it by hand. In its
+details: **Show in Share Sheet**, accepting **URLs, Safari web pages, Text,
+Rich text and Articles** — a type left off that list reaches the shortcut as
+no input at all, which is how the first build saved nothing. Where a step takes
+a variable in a text field, put it *inside* the field; a bare variable there
+came through empty.
 
 1. **Get URLs from Input** — Shortcut Input.
 2. **Get Item from List** — First Item.
 3. **Expand URL**. This matters: a `t.co` or `bit.ly` link saved as it is would
    become an article filed under the shortener, and the same page saved
    from a browser would then be a second article.
-4. **Text** — the expanded URL, and nothing else. This is the file.
-5. **Base64 Encode** — the Text, with **Line Breaks: None**. The Contents API
+4. **If** the Expanded URL **does not have any value**: **Show Alert** "No link
+   to save", with the Shortcut Input in its message, then **Stop This
+   Shortcut**. Never upload nothing — the processor could only reject it.
+5. **Text** — the expanded URL, and nothing else. This is the file.
+6. **Base64 Encode** — the Text, with **Line Breaks: None**. The Contents API
    rejects wrapped base64.
-6. **Format Date** — Current Date, custom format `yyyyMMdd-HHmmss`.
-7. **Random Number** — between 1000 and 9999, so two saves in one second do not
+7. **Format Date** — Current Date, custom format `yyyyMMdd-HHmmss`.
+8. **Random Number** — between 1000 and 9999, so two saves in one second do not
    collide.
-8. **Text** — `Formatted Date-Random Number.url`. This is the file name.
-9. **Get Contents of URL**:
+9. **Text** — `Formatted Date-Random Number.url`. This is the file name.
+10. **Get Contents of URL**:
    - URL: `https://api.github.com/repos/<owner>/tiro-vault/contents/inbox/` then
-     the file name from step 8
+     the file name from step 9
    - Method: **PUT**
    - Headers: `Authorization` = `Bearer <the phone PAT>`,
      `Accept` = `application/vnd.github+json`,
      `X-GitHub-Api-Version` = `2022-11-28`
    - Request Body: **JSON**, with `message` = `save: ` then the expanded URL,
      and `content` = the Base64 Encoded result
-10. **Get Dictionary Value** — `content` from the result of step 9.
-11. **If** it has any value: **Show Notification** "Saved to Tiro". Otherwise:
-    **Show Alert** with the result of step 9 — GitHub's own message says what
+11. **Get Dictionary Value** — `content` from the result of step 10.
+12. **If** it has any value: **Show Notification** "Saved to Tiro". Otherwise:
+    **Show Alert** with the result of step 10 — GitHub's own message says what
     went wrong (a `401` is the token; a `404` is the repository name, or a token
     that cannot see it).
 

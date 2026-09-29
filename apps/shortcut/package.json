@@ -1,0 +1,9 @@
+{
+  "name": "@tiro/shortcut",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run src/build.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

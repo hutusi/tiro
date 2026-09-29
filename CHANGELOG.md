@@ -15,8 +15,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   read without a browser — a login, a bot check, text built by scripts — is
   marked `tiro.fetch_failed` and reported once rather than retried every day;
   a clip from the browser replaces it. The same marker now settles a PDF that
-  is a scan or too long, which used to stay pending forever (ADR 0034). Setup
-  is in the runbook, "Saving from iPhone".
+  is a scan or too long, which used to stay pending forever (ADR 0034). The
+  shortcut is built, not assembled by hand: `bun run --cwd apps/shortcut
+  build` writes it and signs it on a Mac, and importing it asks for the phone
+  token, so the file carries none. Setup is in the runbook, "Saving from
+  iPhone".
 
 - **"Clip link to Tiro" in the extension's right-click menu** saves a link
   without opening it, the same way the phone does. The toolbar button shows
