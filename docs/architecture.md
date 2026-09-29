@@ -24,6 +24,7 @@ flowchart LR
     CF[Cloudflare Pages]
 
     EXT -- "Contents API PUT" --> MD
+    EXT -- "Git Data API: toggles, Remove" --> COL
     PHONE -- "Contents API PUT" --> INBOX
     INBOX -- "push triggers" --> WF
     MD -- "push triggers" --> WF
@@ -148,6 +149,15 @@ flowchart LR
    holding the URL, through the same Contents API. A file rather than an event,
    so the save is in git before any workflow runs. Nothing else happens on the
    phone: it cannot compute a slug, and does not need to.
+
+   **Removing one** (ADR 0036). "Remove from Tiro…" in the popup — on the
+   article's Tiro page, or on a page this machine clipped — reads the article
+   from the vault to name it, then, on confirm, deletes every file under
+   `articles/<slug>/` (`sha: null` tree entries) and drops the slug and any
+   pinned cover from every collection, as one Git Data API commit built
+   against the head it lands on. That push runs `process.yml`, which has
+   nothing to process and deploys. A run already working on the article lets
+   the deletion win at its commit-back and commits the rest.
 2. **Process.** A push to `articles/**` or `inbox/**` triggers the vault's
    workflow, which checks out this repo and runs `tiro-process`:
    - turn each `inbox/` file into a stub article — normalized URL, the domain
@@ -350,7 +360,7 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 
 | Where | Secret / token | Purpose |
 | --- | --- | --- |
-| Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
+| Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip, collection and removal commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
 | tiro-vault Actions | `TIRO_LLM_API_KEY` | LLM calls |
 | tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch, from `process.yml` and `publish.yml` |
 | tiro Actions | `VAULT_READ_TOKEN` (tiro-vault, Contents R; only if vault is private) | deploy checkout |

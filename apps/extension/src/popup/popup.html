@@ -20,6 +20,8 @@
         file on GitHub, it can fetch the document itself — from arxiv.org or
         raw.githubusercontent.com — instead, once you allow it.
       </p>
+      <!-- Replaced by localize() from i18n.ts before it is seen; kept in
+        step with the English string there so the markup never says less. -->
       <p id="disclosure-body-2">
         None of it is sent to your vault until you press “Clip to vault”, which
         commits it to the GitHub repository you configured. Close this popup
@@ -27,6 +29,15 @@
         page carrying Tiro's marker — the popup offers collections instead: a
         box you tick is kept, and committed to the same repository when you
         close the popup or press “Save now”, for an article it already holds.
+        “Clip link to Tiro”, in a link's right-click menu, sends only that
+        link's address to the same repository, the moment you choose it — the
+        page itself is read later, by the processor in your repository, not by
+        the extension. “Remove from Tiro…”, offered for an article you clipped
+        or are reading on a Tiro site, looks the article up in the same
+        repository and, once you confirm, deletes it there — its files, and
+        its place in your collections — in one commit. Your token and settings
+        stay on this machine unless you turn on settings sync, which lets
+        Chrome copy them to your other devices.
       </p>
       <div class="actions">
         <button id="accept" type="button" class="btn btn-primary">
@@ -117,6 +128,33 @@
         Clip to vault
       </button>
     </div>
+
+    <!-- Remove from Tiro (ADR 0036): offered on a page this machine clipped
+      and on a Tiro article page, and confirmed here, inline — never through a
+      browser dialog. -->
+    <section id="remove" hidden>
+      <button id="remove-offer" type="button" class="linklike">
+        Remove from Tiro…
+      </button>
+      <div id="remove-confirm" hidden>
+        <p id="remove-confirm-text">Remove this article from your vault?</p>
+        <div class="actions">
+          <button id="remove-cancel" type="button" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button
+            id="remove-confirm-button"
+            type="button"
+            class="btn btn-primary"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+      <p id="remove-status" data-tone="neutral" aria-live="polite" hidden>
+        Removing it from your vault…
+      </p>
+    </section>
 
     <!-- Pending collection changes, on any page: a queue that could only be
       seen from a Tiro page would be one the reader loses track of. -->

@@ -10,6 +10,11 @@ import { describeFlushError } from "../errors.ts";
 import type { Messages } from "../i18n.ts";
 import type { FlushStatus } from "../storage.ts";
 import type { TiroPage } from "../tiro-page.ts";
+import {
+  type RemovalState,
+  type RemovalView,
+  removalView,
+} from "./removal-view.ts";
 import type { Tone } from "./view.ts";
 
 /**
@@ -35,6 +40,8 @@ export interface CollectionsState {
   unrecorded: number;
   /** The last "Save now" could not reach the worker at all. */
   saveUnreachable: boolean;
+  /** Remove from Tiro (ADR 0036), for the article this page shows. */
+  removal?: RemovalState | null;
 }
 
 export interface CollectionRow {
@@ -53,10 +60,20 @@ export interface CollectionsFooter {
 }
 
 export interface CollectionsView {
-  intro: string;
-  /** Null on a Tiro page that is not an article: nothing to toggle. */
+  /** The header label: "Tiro site", unless a removal has something to say. */
+  label: { text: string; tone: Tone };
+  /** Null once the article has been removed: there is nothing to introduce. */
+  intro: string | null;
+  /** Null on a Tiro page that is not an article, or one just removed: nothing
+   * to toggle. */
   rows: CollectionRow[] | null;
+  /** The rows stay on screen but take no clicks — while a removal is being
+   * confirmed or made, a toggle for the same article would race it. */
+  locked: boolean;
+  /** "Clip this page anyway" is on offer. */
+  clipAnyway: boolean;
   footer: CollectionsFooter | null;
+  remove: RemovalView;
 }
 
 /**
@@ -136,8 +153,33 @@ export function collectionsView(
   m: Messages,
 ): CollectionsView {
   const footer = collectionsFooter(s, m);
+  const siteLabel = { text: m.labelTiroPage, tone: "neutral" as const };
   if (s.page.kind === "site") {
-    return { intro: m.tiroSiteIntro, rows: null, footer };
+    return {
+      label: siteLabel,
+      intro: m.tiroSiteIntro,
+      rows: null,
+      locked: false,
+      clipAnyway: true,
+      footer,
+      remove: removalView(null, m),
+    };
+  }
+  const remove = removalView(s.removal, m);
+  const label = remove.label ?? siteLabel;
+  if (remove.settled) {
+    // The article is gone from the vault, whatever this page still shows until
+    // the next deploy: no collection can take it, and clipping the site's own
+    // rendering of it is not a way back.
+    return {
+      label,
+      intro: null,
+      rows: null,
+      locked: true,
+      clipAnyway: false,
+      footer,
+      remove,
+    };
   }
   const { slug, member, catalog } = s.page;
   const checked = effectiveMembership(member, s.queue, slug);
@@ -168,5 +210,13 @@ export function collectionsView(
       favorite: id === FAVORITES_ID,
     }),
   );
-  return { intro: m.tiroArticleIntro, rows, footer };
+  return {
+    label,
+    intro: m.tiroArticleIntro,
+    rows,
+    locked: remove.active,
+    clipAnyway: !remove.active,
+    footer,
+    remove,
+  };
 }

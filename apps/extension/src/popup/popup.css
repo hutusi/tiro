@@ -201,9 +201,40 @@ body {
 #collection-sync-text[data-tone="neutral"] {
   color: var(--ink-soft);
 }
-/* Disabled while a save is in flight. Scoped here rather than added to
+/* Disabled while a save is in flight, and the new-collection form while a
+   removal is being confirmed or made. Scoped here rather than added to
    `.btn-secondary` in tokens.css, which the options page shares. */
-#sync-now:disabled {
+#sync-now:disabled,
+#collection-new input:disabled,
+#collection-new-add:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ------------------------------------------------ remove (ADR 0036) */
+
+#remove {
+  margin-top: 12px;
+}
+#remove-confirm p,
+#remove-status {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  /* The confirmation quotes the article's title, which may be one long word. */
+  overflow-wrap: anywhere;
+}
+#remove-confirm p {
+  color: var(--ink);
+}
+#remove-confirm .actions {
+  margin-top: 10px;
+}
+#remove-status {
+  margin-top: 8px;
+}
+/* As for #collection-sync-text: an id selector outranks tokens.css's
+   `[data-tone]` colours, so only the neutral tone is set here. */
+#remove-status[data-tone="neutral"] {
+  color: var(--ink-soft);
 }

@@ -282,3 +282,59 @@ describe("toggles the popup could not hand to the worker", () => {
     });
   });
 });
+
+describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
+  const removal = (step: "offered" | "confirming" | "removed" | "gone") => ({
+    step,
+    vault: "o/r",
+    title: "An article",
+    problem: null,
+  });
+  const at = (step: "offered" | "confirming" | "removed" | "gone") =>
+    collectionsView(
+      { ...reached, page: article, queue: [], ...idle, removal: removal(step) },
+      m,
+    );
+
+  test("an article page offers it beside the collections", () => {
+    const view = at("offered");
+    expect(view.remove.offer.visible).toBe(true);
+    expect(view.rows).not.toBeNull();
+    expect(view.locked).toBe(false);
+    expect(view.clipAnyway).toBe(true);
+    expect(view.label.text).toBe(m.labelTiroPage);
+  });
+
+  test("a Tiro page that is not an article offers nothing to remove", () => {
+    const view = collectionsView(
+      {
+        ...reached,
+        page: { kind: "site" },
+        queue: [],
+        ...idle,
+        removal: removal("offered"),
+      },
+      m,
+    );
+    expect(view.remove.offer.visible).toBe(false);
+  });
+
+  test("while confirming, the rows stay but take no clicks", () => {
+    const view = at("confirming");
+    expect(view.rows).not.toBeNull();
+    expect(view.locked).toBe(true);
+    expect(view.clipAnyway).toBe(false);
+  });
+
+  test("once removed or gone, there is nothing left to toggle or clip", () => {
+    for (const step of ["removed", "gone"] as const) {
+      const view = at(step);
+      expect(view.rows).toBeNull();
+      expect(view.intro).toBeNull();
+      expect(view.clipAnyway).toBe(false);
+      expect(view.label.text).toBe(
+        step === "removed" ? m.labelRemoved : m.labelNotInVault,
+      );
+    }
+  });
+});

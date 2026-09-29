@@ -22,7 +22,7 @@ import {
 } from "../clip-candidate.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
 import type { FlushReport } from "../collections-worker.ts";
-import { describeClipError } from "../errors.ts";
+import { describeClipError, describeRemoveError } from "../errors.ts";
 import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
 import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
 import {
@@ -38,9 +38,11 @@ import {
   isClipResult,
   POPUP_PORT,
 } from "../messages.ts";
+import { lookupArticle, removeArticle } from "../remove-article.ts";
 import {
   acceptDisclosure,
   type FlushStatus,
+  forgetClip,
   isConfigComplete,
   lastClippedAt,
   loadCollectionQueue,
@@ -60,6 +62,7 @@ import {
   visibleQueue,
 } from "./collections-view.ts";
 import { createToggleChannel, type ToggleOp } from "./recorder.ts";
+import type { RemovalState, RemovalView } from "./removal-view.ts";
 import {
   articleUrl,
   type Phase,
@@ -126,6 +129,19 @@ const el = {
     "collection-sync-text",
   ) as HTMLParagraphElement,
   syncNow: document.getElementById("sync-now") as HTMLButtonElement,
+  remove: document.getElementById("remove") as HTMLElement,
+  removeOffer: document.getElementById("remove-offer") as HTMLButtonElement,
+  removeConfirm: document.getElementById("remove-confirm") as HTMLDivElement,
+  removeConfirmText: document.getElementById(
+    "remove-confirm-text",
+  ) as HTMLParagraphElement,
+  removeCancel: document.getElementById("remove-cancel") as HTMLButtonElement,
+  removeConfirmButton: document.getElementById(
+    "remove-confirm-button",
+  ) as HTMLButtonElement,
+  removeStatus: document.getElementById(
+    "remove-status",
+  ) as HTMLParagraphElement,
 };
 
 /** Paint a view. The only place the DOM is written after startup. */
@@ -149,7 +165,8 @@ function apply(view: PopupView): void {
     el.warning.textContent = view.preview.warning ?? "";
     el.note.hidden = view.preview.note === null;
     el.note.textContent = view.preview.note ?? "";
-    el.notice.textContent = view.preview.notice;
+    el.notice.hidden = view.preview.notice === null;
+    el.notice.textContent = view.preview.notice ?? "";
   }
   el.sourceFetch.hidden = !view.sourceFetch.visible;
   el.sourceFetch.textContent = view.sourceFetch.label;
@@ -164,6 +181,26 @@ function apply(view: PopupView): void {
     el.open.href = view.links.site;
     el.openHint.hidden = !view.links.hint;
   }
+  applyRemoval(view.remove);
+}
+
+/** Paint Remove from Tiro (ADR 0036) — one block, in both modes. The title in
+ * the confirmation goes in as text: it came from the vault, and before that
+ * from a page. */
+function applyRemoval(view: RemovalView): void {
+  el.remove.hidden =
+    !view.offer.visible && view.confirm === null && view.status === null;
+  el.removeOffer.hidden = !view.offer.visible;
+  el.removeOffer.textContent = view.offer.label;
+  el.removeConfirm.hidden = view.confirm === null;
+  if (view.confirm !== null) {
+    el.removeConfirmText.textContent = view.confirm.text;
+    el.removeConfirmButton.textContent = view.confirm.confirmLabel;
+    el.removeCancel.textContent = view.confirm.cancelLabel;
+  }
+  el.removeStatus.hidden = view.status === null;
+  el.removeStatus.textContent = view.status?.text ?? "";
+  el.removeStatus.dataset.tone = view.status?.tone ?? "neutral";
 }
 
 /** Paint the queue's status line. Shown on any page while something is
@@ -182,14 +219,21 @@ function applyCollectionFooter(footer: CollectionsFooter | null): void {
  * page, and any page can claim to be a Tiro page. */
 function applyCollections(view: CollectionsView): void {
   el.collections.hidden = false;
-  el.collectionsIntro.textContent = view.intro;
+  el.label.textContent = view.label.text;
+  el.label.dataset.tone = view.label.tone;
+  el.collectionsIntro.hidden = view.intro === null;
+  el.collectionsIntro.textContent = view.intro ?? "";
   el.collectionList.hidden = view.rows === null;
   el.collectionNew.hidden = view.rows === null;
+  el.collectionNewTitle.disabled = view.locked;
+  el.collectionNewAdd.disabled = view.locked;
+  el.clipAnyway.hidden = !view.clipAnyway;
   el.collectionList.replaceChildren(
     ...(view.rows ?? []).map((row) => {
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = row.checked;
+      input.disabled = view.locked;
       input.dataset.id = row.id;
       input.dataset.title = row.title;
       const title = document.createElement("span");
@@ -205,6 +249,7 @@ function applyCollections(view: CollectionsView): void {
     }),
   );
   applyCollectionFooter(view.footer);
+  applyRemoval(view.remove);
 }
 
 el.options.addEventListener("click", () => {
@@ -313,6 +358,47 @@ async function main(): Promise<void> {
   /** The last Save now could not reach the worker at all. */
   let saveUnreachable = false;
 
+  /* ------------------------------------------- remove from Tiro (ADR 0036) */
+
+  /** The article Remove would act on — this tab's, if this machine clipped
+   * it, or the Tiro page's — and where that removal has got to. Null while
+   * there is none to offer. */
+  let removeSlug: string | null = null;
+  let removal: RemovalState | null = null;
+  /** The article's title as the vault has it, for the commit message. */
+  let removeTitle: string | null = null;
+  /** The slug this popup just clipped. GitHub's read side can trail its write
+   * by a moment, so "not there" right after a clip is not yet an answer. */
+  let clippedSlug: string | null = null;
+
+  function offerRemoval(slug: string): void {
+    removeSlug = slug;
+    removeTitle = null;
+    removal = {
+      step: "offered",
+      vault: `${config.owner}/${config.repo}`,
+      title: null,
+      problem: null,
+    };
+  }
+
+  /** Move the removal on. A no-op once there is none — the popup never
+   * invents one mid-flight. */
+  function updateRemoval(patch: Partial<RemovalState>): void {
+    if (removal !== null) removal = { ...removal, ...patch };
+  }
+
+  /** Checking, confirming, removing, or done: nothing else may act on the
+   * article meanwhile — a toggle would race the commit, a clip would re-add
+   * what is being removed. */
+  function removalHolds(): boolean {
+    return (
+      removal !== null &&
+      removal.step !== "offered" &&
+      removal.step !== "failed"
+    );
+  }
+
   async function refreshQueue(): Promise<void> {
     const [loaded, status] = await Promise.all([
       loadCollectionQueue(config),
@@ -338,7 +424,7 @@ async function main(): Promise<void> {
       saveUnreachable,
     };
     if (tiroPage !== null) {
-      applyCollections(collectionsView({ page: tiroPage, ...s }, m));
+      applyCollections(collectionsView({ page: tiroPage, ...s, removal }, m));
     } else {
       applyCollectionFooter(collectionsFooter(s, m));
     }
@@ -371,7 +457,7 @@ async function main(): Promise<void> {
   const channel = createToggleChannel(send);
 
   async function toggle(op: ToggleOp): Promise<void> {
-    if (tiroPage?.kind !== "article") return;
+    if (tiroPage?.kind !== "article" || removalHolds()) return;
     const page = tiroPage;
     const entry = {
       op,
@@ -615,6 +701,7 @@ async function main(): Promise<void> {
           ? m.fetchSources[source.kind].partial
           : null),
       links: saved?.links ?? previousLinks,
+      removal,
     };
     apply(popupView(state, m));
   }
@@ -917,6 +1004,7 @@ async function main(): Promise<void> {
 
   function enterCollections(page: TiroPage): void {
     tiroPage = page;
+    if (page.kind === "article") offerRemoval(page.slug);
     el.label.textContent = m.labelTiroPage;
     el.label.dataset.tone = "neutral";
     // A Tiro site — whoever runs it — has nothing worth clipping, so the clip
@@ -930,8 +1018,13 @@ async function main(): Promise<void> {
   }
 
   el.clipAnyway.addEventListener("click", () => {
+    if (removalHolds()) return;
     clipRequested = true;
     tiroPage = null;
+    // The page's article is not the tab's: `prepare` offers Remove again only
+    // if this machine clipped the tab itself.
+    removeSlug = null;
+    removal = null;
     el.collections.hidden = true;
     el.clip.hidden = false;
     render();
@@ -953,6 +1046,7 @@ async function main(): Promise<void> {
     try {
       const slug = await slugForUrl(tabUrl);
       clippedAt = await lastClippedAt(config, slug);
+      if (clippedAt !== null) offerRemoval(slug);
       if (clippedAt !== null && homepage !== undefined) {
         previousLinks = {
           site: articleUrl(homepage, slug),
@@ -982,7 +1076,7 @@ async function main(): Promise<void> {
   }
 
   el.clip.addEventListener("click", () => {
-    if (result === null) return;
+    if (result === null || removalHolds()) return;
     // Both captured at the click, for one reason: `sourceUrl` describes the
     // body being committed, and reading it from the closure later would let a
     // body that arrived mid-upload retag the one already on its way.
@@ -1077,6 +1171,8 @@ async function main(): Promise<void> {
           },
         };
         phase = "saved";
+        clippedSlug = file.slug;
+        offerRemoval(file.slug);
         render();
         try {
           await recordClip(config, file.slug, nowIso);
@@ -1092,6 +1188,102 @@ async function main(): Promise<void> {
         render();
       }
     })(result, sourceUrl);
+  });
+
+  /** Paint whichever mode the popup is in. */
+  function repaint(): void {
+    if (tiroPage !== null) paintCollections();
+    else render();
+  }
+
+  /** Where a removal ends with the article not in the vault — removed now, or
+   * already gone. This machine stops calling it clipped either way. */
+  async function forgetRemoved(slug: string): Promise<void> {
+    clippedAt = null;
+    previousLinks = null;
+    try {
+      await forgetClip(config, slug);
+    } catch {
+      // The vault is what matters and it is settled; a stale hint costs a
+      // "not in your vault" the next time Remove is pressed here.
+    }
+  }
+
+  el.removeOffer.addEventListener("click", () => {
+    const slug = removeSlug;
+    if (slug === null || removal === null || removalHolds()) return;
+    void (async () => {
+      updateRemoval({ step: "checking", problem: null });
+      repaint();
+      try {
+        // Asked of the vault, not of the page: the slug is untrusted, and the
+        // confirmation must name what would really be deleted.
+        const found = await lookupArticle(config, slug);
+        if (found === null && clippedSlug === slug) {
+          updateRemoval({ step: "failed", problem: m.removeNotYetVisible });
+        } else if (found === null) {
+          updateRemoval({ step: "gone" });
+          await forgetRemoved(slug);
+        } else {
+          removeTitle = found.title;
+          updateRemoval({
+            step: "confirming",
+            title:
+              locale === "zh" ? (found.titleZh ?? found.title) : found.title,
+          });
+        }
+      } catch (error) {
+        console.error("remove lookup failed:", error);
+        updateRemoval({
+          step: "failed",
+          problem: describeRemoveError(error, m),
+        });
+      }
+      repaint();
+      // The safe answer is the one under the keyboard.
+      if (removal?.step === "confirming") el.removeCancel.focus();
+    })();
+  });
+
+  function cancelRemoval(): void {
+    if (removal?.step !== "confirming") return;
+    updateRemoval({ step: "offered", title: null });
+    repaint();
+    el.removeOffer.focus();
+  }
+  el.removeCancel.addEventListener("click", cancelRemoval);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && removal?.step === "confirming") {
+      event.preventDefault();
+      cancelRemoval();
+    }
+  });
+
+  el.removeConfirmButton.addEventListener("click", () => {
+    const slug = removeSlug;
+    if (slug === null || removal?.step !== "confirming") return;
+    void (async () => {
+      updateRemoval({ step: "removing" });
+      repaint();
+      try {
+        const outcome = await removeArticle(
+          config,
+          slug,
+          removeTitle === null ? {} : { title: removeTitle },
+        );
+        updateRemoval({
+          step: outcome.kind === "removed" ? "removed" : "gone",
+        });
+        await forgetRemoved(slug);
+      } catch (error) {
+        console.error("remove failed:", error);
+        updateRemoval({
+          step: "failed",
+          problem: describeRemoveError(error, m),
+        });
+      }
+      repaint();
+    })();
   });
 
   // The page is read to build the preview, which happens before the Clip
