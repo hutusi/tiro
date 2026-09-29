@@ -127,6 +127,13 @@ const en = {
     "Network error: could not reach GitHub. Check your connection and try again.",
   errClipFailed: (detail: string) => `Clip failed: ${detail}`,
 
+  // Removal errors (describeRemoveError, ADR 0036)
+  errRemoveBusy:
+    "The vault kept changing while Tiro tried to remove this — try again in a moment.",
+  errRemoveCollection: (path: string) =>
+    `${path} lists this article but could not be read, so nothing was removed. Fix that file in the vault, then try again.`,
+  errRemoveFailed: (detail: string) => `Could not remove it: ${detail}`,
+
   // Options page
   optionsTitle: "Tiro Settings",
   labelOwner: "GitHub owner",
@@ -322,6 +329,11 @@ const zh: Messages = {
   errHttp: (status: number) => `GitHub 返回了 ${status}，请稍后重试。`,
   errNetwork: "网络错误：无法连接 GitHub，请检查网络后重试。",
   errClipFailed: (detail: string) => `剪藏失败：${detail}`,
+
+  errRemoveBusy: "移除时仓库一直在变化，请稍后重试。",
+  errRemoveCollection: (path: string) =>
+    `${path} 列有这篇文章，但无法读取，因此没有移除任何内容。请先在仓库中修复该文件，再重试。`,
+  errRemoveFailed: (detail: string) => `移除失败：${detail}`,
 
   optionsTitle: "Tiro 设置",
   labelOwner: "GitHub 用户名",

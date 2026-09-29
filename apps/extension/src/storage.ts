@@ -582,6 +582,21 @@ export async function lastClippedAt(
   return (await loadClipHistory())[historyKey(config, slug)] ?? null;
 }
 
+/** Drop this machine's record of a clip, once the article is known to be gone
+ * from the vault (ADR 0036) — otherwise the popup keeps calling a removed page
+ * "already clipped" and offering to remove it again. Writes nothing when there
+ * was no record. */
+export async function forgetClip(
+  config: TiroExtensionConfig,
+  slug: string,
+): Promise<void> {
+  const history = await loadClipHistory();
+  const key = historyKey(config, slug);
+  if (!(key in history)) return;
+  const { [key]: _forgotten, ...rest } = history;
+  await chrome.storage.local.set({ [HISTORY_KEY]: rest });
+}
+
 /* ------------------------------------------------ collections (ADR 0029) */
 
 /**
