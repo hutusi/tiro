@@ -118,6 +118,16 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Deleting an article while a run is processing it no longer costs the
+  run.** The run's commit-back rebased onto `main` with `-X theirs`, which
+  cannot settle an edit of a file `main` deleted: the rebase stopped, the step
+  failed, and every article the run had finished — with every translation
+  checkpoint it wrote — was thrown away. Files it had only added under the
+  deleted article would have come back as an orphan directory. A deletion now
+  wins: the run drops what it wrote under that article, logs a notice, and
+  commits the rest (ADR 0036). The vault's `process.yml` must be copied in
+  from `vault-template/` for this to apply.
+
 - **An article split around ads is clipped whole.** Ars Technica serves each
   stretch of an article in its own container, with an ad slot between, and
   Readability kept only the last — a saved link came back as five of fourteen

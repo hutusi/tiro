@@ -93,6 +93,9 @@ members' own pictures (ADR 0030), so most collections never need one.
 - **Hand edits publish themselves.** Hiding an article (`unlisted: true`),
   deleting one, or any other push under `articles/` redeploys the site when the
   processing run it starts ends, even with nothing to process.
+- **Deleting an article a run is still processing is safe.** The run drops
+  what it wrote under that article, logs a notice, and commits everything else
+  — the deletion wins.
 - **Updating this vault's workflows**: the files under `.github/workflows/`
   are copies. When the Tiro repo's `vault-template/` changes them, copy the new
   versions in by hand — nothing propagates them.

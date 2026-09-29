@@ -417,6 +417,14 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 - **Workflow recursion**: pushes made with the default `GITHUB_TOKEN` do not
   retrigger workflows; the processing workflow also uses a concurrency group
   and rebase-retry pushes.
+- **An article deleted while a run processes it.** The run's commit-back
+  rebase cannot settle an edit to a file `main` deleted, and used to fail the
+  step and lose the whole run's work. It now measures which articles `main`
+  deleted since the run's checkout and drops the run's changes to each before
+  rebasing, so the deletion wins and the rest commits (ADR 0036). A test runs
+  the step's real shell against scratch repositories. Not covered: a single
+  file deleted by hand inside an article the run changed, which aborts the
+  rebase and is redone next run.
 - **An article too long to process in one run**: translation is checkpointed
   per batch and the processor stops on its own budget with time left to commit,
   so successive runs converge instead of each restarting from batch 1
