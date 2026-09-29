@@ -1791,18 +1791,51 @@ export function joinSplitArticleBodies(doc: Document): void {
   }
 }
 
-/** Whether what lies between consecutive `parts` (in document order) is
- * chrome — wrappers and an ad label — rather than content. */
+/** A class or id token that names an ad slot: `ad`, `ads`, `ad-wrapper`,
+ * `ad--mid-content`, `cns-ads-stage`, `advertisement`, `adsbygoogle`. Matched
+ * per token, never as a substring, so `load-more`, `shadow` and `header` do
+ * not. */
+const AD_TOKEN =
+  /^(?:ads?|advert\w*|adsbygoogle|sponsored)$|^ads?[-_]|[-_]ads?(?:[-_]|$)/i;
+
+function isAdSlot(el: Element): boolean {
+  const tokens = [
+    ...(el.getAttribute("class") ?? "").split(/\s+/),
+    ...(el.id === "" ? [] : [el.id]),
+  ];
+  return tokens.some((token) => token !== "" && AD_TOKEN.test(token));
+}
+
+/**
+ * Whether what lies between consecutive `parts` (in document order) is
+ * chrome — wrappers, and ad slots with whatever they hold — rather than
+ * content.
+ *
+ * An ad slot is skipped whole: Ars's are empty in the page as served, which
+ * is all the processor ever sees, but a reader's browser has filled them by
+ * the time they clip, with an iframe, an image and an "Advertisement" label —
+ * and taken for content, those kept every desktop clip at its last stretch.
+ */
 function onlyChromeBetween(
   doc: Document,
   article: Element,
   parts: readonly Element[],
 ): boolean {
   const gapText = parts.map(() => 0);
+  const adSlots: Element[] = [];
   // SHOW_ELEMENT | SHOW_TEXT, as numbers: the constants live on the window.
   const walker = doc.createTreeWalker(article, 0x1 | 0x4);
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
     if (parts.some((part) => part.contains(node))) continue;
+    if (adSlots.some((slot) => slot.contains(node))) continue;
+    if (
+      node.nodeType === 1 &&
+      !parts.some((part) => node.contains(part)) &&
+      isAdSlot(node as Element)
+    ) {
+      adSlots.push(node as Element);
+      continue;
+    }
     // How many parts come before this node; 1..n-1 is a gap between two.
     const before = parts.filter(
       (part) =>

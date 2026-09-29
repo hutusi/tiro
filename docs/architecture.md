@@ -125,7 +125,9 @@ flowchart LR
    inside one `<article>`, each at least two paragraphs, with nothing between
    them but chrome: a heading, figure, list, quote, rule or real text between
    keeps them apart, since that is how org-mode exports, wikis, footnotes and
-   callouts repeat a class too.
+   callouts repeat a class too. Ad slots are chrome whatever they hold — empty
+   in the page the processor fetches, filled with an iframe in the one a
+   reader clips.
 
    Two things then have to survive Readability, and only one of them can travel
    as itself. Readability strips `class` from everything it returns, so a

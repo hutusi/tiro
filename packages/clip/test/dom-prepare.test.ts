@@ -2442,6 +2442,35 @@ describe("an article split into several bodies", () => {
     );
   });
 
+  test("sees through ad slots a reader's browser has filled", () => {
+    // What Ars serves between stretches, once its ads have loaded: the
+    // processor sees these empty; a desktop clip sees them filled, and took
+    // the iframe for content, keeping only the last stretch.
+    const filledAd = (n: number) =>
+      `<div class="ad-wrapper with-label is-fullwidth"><div class="ad-wrapper-inner"><div class="ad ad--mid-content"><div class="cns-ads-stage cns-ads-slot-type-mid-content-${n}"><div class="cns-ads-container"><iframe src="https://ads.example/${n}"></iframe><img src="https://ads.example/${n}.gif"></div></div></div></div><span>Advertisement</span></div>`;
+    const html = `<article class="double-column h-entry">${[
+      body(1, 2, 3),
+      filledAd(1),
+      body(4, 5, 6),
+      filledAd(2),
+      body(7, 8, 9),
+    ]
+      .map(
+        (b) =>
+          `<div class="my-2.5 mx-auto"><div class="relative">${b}</div></div>`,
+      )
+      .join("")}</article>`;
+    const md = clip(html);
+    for (let n = 1; n <= 9; n++) expect(md).toContain(`Paragraph ${n} of`);
+  });
+
+  test("an embed outside any ad slot still keeps two stretches apart", () => {
+    const { doc } = prepare(
+      `<article>${body(1, 2)}<div class="video-embed"><iframe src="v"></iframe></div>${body(3, 4)}</article>`,
+    );
+    expect(doc.querySelectorAll(".post-content")).toHaveLength(2);
+  });
+
   test("never runs an index page's teasers together", () => {
     // Each teaser its own <article>, even nested inside the page's own.
     const { doc } = prepare(
