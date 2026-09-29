@@ -505,7 +505,7 @@ devDependencies — the action must log "using pre-installed wrangler".
   - `publish.yml` ships in `vault-template/`, which does not propagate — copy it
     into the live vault by hand. Without it a collections push stays unpublished
     until the next deploy from anywhere else.
-- Deleting an article: **"Remove from Tiro…" in the extension popup** (ADR
+- Deleting an article: **"Remove", at the foot of the extension popup** (ADR
   0036), on the article's page on the site or on its source page if this
   machine clipped it. It shows the vault's own title, and on confirm deletes
   the whole directory and drops the slug — and any pinned cover from its
@@ -812,8 +812,8 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   `build` before packaging. The collections panel has its own set at
   `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
   `created`, `saving`, `saved`, `refused`, `failed`, `site`, `not-recorded`,
-  `save-unreachable`, `remove-offered`, `remove-confirm`, `removing`,
-  `removed`, `remove-gone`.
+  `save-unreachable`, `remove-offered`, `remove-confirm`,
+  `remove-confirm-untitled`, `removing`, `removed`, `remove-gone`.
 - **On a Tiro page the popup offers collections, not a clip** (ADR 0029). It
   recognizes the page by the site's `tiro:site` meta and `#tiro-page` island,
   on any domain, and shows a tick-list drawn from the page itself. Ticks queue
@@ -846,11 +846,12 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   a grey ✓ if the article was already there, ! if it could not — with the
   reason as its tooltip. It sends nothing before the disclosure is accepted, so
   a fresh install asks to be opened once first.
-- **"Remove from Tiro…"** (ADR 0036) sits under the other controls on a Tiro
-  article page, and on a page this machine clipped — "Saved \<date\>", or
-  just saved. It first reads the article from the vault, so the confirmation
-  names the title the *vault* has, never the page's: a Tiro page's marker is
-  untrusted. Confirm deletes it in one commit; Cancel or Escape backs out.
+- **"Remove"** (ADR 0036) sits at the left of the popup's footer, opposite
+  Settings, on a Tiro article page and on a page this machine clipped —
+  "Saved \<date\>", or just saved. It first reads the article from the vault,
+  and the confirmation card above the footer names the title the *vault* has,
+  never the page's: a Tiro page's marker is untrusted. Confirm deletes it in
+  one commit; Cancel or Escape backs out.
   Afterwards the popup offers nothing else for that article — reopen it to
   clip the page again. "Not in vault" means there was nothing to remove, and
   both outcomes forget this machine's clip record. "GitHub has not caught up"
@@ -923,7 +924,7 @@ Two decisions worth not relitigating:
   when the manifest is unchanged. Do not "correct" it back to 4. 6 is "Clip
   link" (ADR 0034): a link's address now leaves the browser from a context-menu
   click with no popup open — the same destination, but a new way to reach it.
-  6 also names "Remove from Tiro…" (ADR 0036), the one write that deletes: it
+  6 also names the popup's "Remove" (ADR 0036), the one write that deletes: it
   joined 6 rather than bumping to 7 because neither 5 nor 6 had been released,
   so every user who sees 6 sees it with that sentence. Once a version has
   shipped, a change like that is a bump.

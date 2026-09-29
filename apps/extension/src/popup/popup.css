@@ -24,6 +24,12 @@ body {
 .actions {
   margin-top: 14px;
 }
+/* A row whose buttons are all hidden — the clip row on a Tiro page — takes no
+   room. Otherwise its margin stacks on the footer's and leaves a hole above
+   it. */
+.actions:not(:has(> :not([hidden]))) {
+  display: none;
+}
 #disclosure {
   margin-top: 16px;
 }
@@ -209,25 +215,81 @@ body {
 
 /* ------------------------------------------------ remove (ADR 0036) */
 
+/* The link, in the footer opposite Settings: quiet, and in the same place in
+   both of the popup's modes. Settings keeps the right edge when it is alone. */
+.foot {
+  align-items: center;
+}
+#options {
+  margin-left: auto;
+}
+#remove-offer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+#remove-offer:hover {
+  text-decoration: none;
+}
+/* 1.8, not a hairline: a thin stroke at 13px reads as faint grey, not as an
+   icon. */
+#remove-offer svg {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The confirmation: a card just above the footer. */
 #remove {
+  margin-top: 14px;
+}
+#remove-confirm {
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--field);
+}
+#remove-heading {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+#remove-title {
+  margin: 6px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+  /* The vault's title, which may be long, or one long word. */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#remove-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-mute);
+}
+#remove-confirm .actions {
   margin-top: 12px;
 }
-#remove-confirm p,
+/* `body [hidden]` in tokens.css is outranked by an id selector, so the ones
+   here that set `display` restate it. */
+#remove-offer[hidden],
+#remove-title[hidden] {
+  display: none;
+}
 #remove-status {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  /* The confirmation quotes the article's title, which may be one long word. */
   overflow-wrap: anywhere;
-}
-#remove-confirm p {
-  color: var(--ink);
-}
-#remove-confirm .actions {
-  margin-top: 10px;
-}
-#remove-status {
-  margin-top: 8px;
 }
 /* As for #collection-sync-text: an id selector outranks tokens.css's
    `[data-tone]` colours, so only the neutral tone is set here. */

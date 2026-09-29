@@ -32,8 +32,8 @@
         “Clip link to Tiro”, in a link's right-click menu, sends only that
         link's address to the same repository, the moment you choose it — the
         page itself is read later, by the processor in your repository, not by
-        the extension. “Remove from Tiro…”, offered for an article you clipped
-        or are reading on a Tiro site, looks the article up in the same
+        the extension. “Remove”, at the foot of the popup for an article you
+        clipped or are reading on a Tiro site, looks the article up in the same
         repository and, once you confirm, deletes it there — its files, and
         its place in your collections — in one commit. Your token and settings
         stay on this machine unless you turn on settings sync, which lets
@@ -126,15 +126,26 @@
       </button>
     </div>
 
-    <!-- Remove from Tiro (ADR 0036): offered on a page this machine clipped
-      and on a Tiro article page, and confirmed here, inline — never through a
-      browser dialog. -->
-    <section id="remove" hidden>
-      <button id="remove-offer" type="button" class="linklike">
-        Remove from Tiro…
+    <!-- Pending collection changes, on any page: a queue that could only be
+      seen from a Tiro page would be one the reader loses track of. -->
+    <div id="collection-sync" hidden aria-live="polite">
+      <p id="collection-sync-text" data-tone="neutral"></p>
+      <button id="sync-now" type="button" class="btn btn-secondary">
+        Save now
       </button>
+    </div>
+
+    <!-- Remove from Tiro (ADR 0036): confirmed here, inline — never through a
+      browser dialog — naming the article the way the vault has it. The link
+      that opens it sits in the footer. -->
+    <section id="remove" hidden>
       <div id="remove-confirm" hidden>
-        <p id="remove-confirm-text">Remove this article from your vault?</p>
+        <h2 id="remove-heading">Remove this article?</h2>
+        <p id="remove-title">Article title</p>
+        <p id="remove-note">
+          Its text, translation, images and collection entries are deleted from
+          your vault, in one commit. Git history keeps a copy.
+        </p>
         <div class="actions">
           <button id="remove-cancel" type="button" class="btn btn-secondary">
             Cancel
@@ -153,16 +164,28 @@
       </p>
     </section>
 
-    <!-- Pending collection changes, on any page: a queue that could only be
-      seen from a Tiro page would be one the reader loses track of. -->
-    <div id="collection-sync" hidden aria-live="polite">
-      <p id="collection-sync-text" data-tone="neutral"></p>
-      <button id="sync-now" type="button" class="btn btn-secondary">
-        Save now
-      </button>
-    </div>
-
     <footer class="foot">
+      <!-- Quiet, and in the same place in both of the popup's modes. -->
+      <button
+        id="remove-offer"
+        type="button"
+        class="linklike"
+        title="Remove this article from your vault"
+        hidden
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="13"
+          height="13"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5.5M14 11v5.5"
+          />
+        </svg>
+        <span id="remove-offer-label">Remove</span>
+      </button>
       <button id="options" type="button" class="linklike">Settings</button>
     </footer>
     <script type="module" src="./popup.ts"></script>

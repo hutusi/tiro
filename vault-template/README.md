@@ -41,7 +41,7 @@ filename is the id, so keep it to lowercase ASCII words joined by dashes. A
 push under `collections/` redeploys the site through `publish.yml` and never
 starts processing. Delete an article and you must also drop it from any
 collection that lists it — `tiro-process validate` reports which. The
-extension's "Remove from Tiro…" does both in one commit (ADR 0036).
+extension popup's "Remove" does both in one commit (ADR 0036).
 
 A collection may also carry a `description:` line, shown under its title, and
 a `cover:` naming one article image by its vault path,

@@ -130,10 +130,15 @@ const el = {
   syncNow: document.getElementById("sync-now") as HTMLButtonElement,
   remove: document.getElementById("remove") as HTMLElement,
   removeOffer: document.getElementById("remove-offer") as HTMLButtonElement,
+  removeOfferLabel: document.getElementById(
+    "remove-offer-label",
+  ) as HTMLSpanElement,
   removeConfirm: document.getElementById("remove-confirm") as HTMLDivElement,
-  removeConfirmText: document.getElementById(
-    "remove-confirm-text",
-  ) as HTMLParagraphElement,
+  removeHeading: document.getElementById(
+    "remove-heading",
+  ) as HTMLHeadingElement,
+  removeTitle: document.getElementById("remove-title") as HTMLParagraphElement,
+  removeNote: document.getElementById("remove-note") as HTMLParagraphElement,
   removeCancel: document.getElementById("remove-cancel") as HTMLButtonElement,
   removeConfirmButton: document.getElementById(
     "remove-confirm-button",
@@ -183,17 +188,20 @@ function apply(view: PopupView): void {
   applyRemoval(view.remove);
 }
 
-/** Paint Remove from Tiro (ADR 0036) — one block, in both modes. The title in
- * the confirmation goes in as text: it came from the vault, and before that
- * from a page. */
+/** Paint Remove from Tiro (ADR 0036), the same in both modes: the link in the
+ * footer, and the card or status line above it. The title goes in as text:
+ * it came from the vault, and before that the slug came from a page. */
 function applyRemoval(view: RemovalView): void {
-  el.remove.hidden =
-    !view.offer.visible && view.confirm === null && view.status === null;
   el.removeOffer.hidden = !view.offer.visible;
-  el.removeOffer.textContent = view.offer.label;
+  el.removeOfferLabel.textContent = view.offer.label;
+  el.removeOffer.title = view.offer.hint;
+  el.remove.hidden = view.confirm === null && view.status === null;
   el.removeConfirm.hidden = view.confirm === null;
   if (view.confirm !== null) {
-    el.removeConfirmText.textContent = view.confirm.text;
+    el.removeHeading.textContent = view.confirm.heading;
+    el.removeTitle.hidden = view.confirm.title === null;
+    el.removeTitle.textContent = view.confirm.title ?? "";
+    el.removeNote.textContent = view.confirm.note;
     el.removeConfirmButton.textContent = view.confirm.confirmLabel;
     el.removeCancel.textContent = view.confirm.cancelLabel;
   }

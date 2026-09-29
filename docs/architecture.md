@@ -150,7 +150,7 @@ flowchart LR
    so the save is in git before any workflow runs. Nothing else happens on the
    phone: it cannot compute a slug, and does not need to.
 
-   **Removing one** (ADR 0036). "Remove from Tiro…" in the popup — on the
+   **Removing one** (ADR 0036). "Remove", at the foot of the popup — on the
    article's Tiro page, or on a page this machine clipped — reads the article
    from the vault to name it, then, on confirm, deletes every file under
    `articles/<slug>/` (`sha: null` tree entries) and drops the slug and any

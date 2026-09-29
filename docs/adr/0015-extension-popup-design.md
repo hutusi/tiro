@@ -73,8 +73,9 @@ branch and the fixtures module.
   capability, not a restyle.
 
   > **Taken up by [ADR 0036](0036-removing-an-article-from-the-extension.md).**
-  > The popup offers "Remove from Tiro…" on a Tiro article page and on a page
-  > this machine clipped, confirmed inline against the vault's own title.
+  > "Remove" sits at the foot of the popup, on a Tiro article page and on a
+  > page this machine clipped, and is confirmed in a card naming the vault's
+  > own title.
 - **Reading progress.** Nothing records it.
 
 ## Consequences

@@ -126,13 +126,14 @@ describe("formatClipDate", () => {
 describe("the disclosure and Remove (ADR 0036)", () => {
   // Removal is the one write that deletes, and consent that never mentioned it
   // would not cover it — in either language.
-  test.each(["en", "zh"] as const)(
-    "%s disclosure names Remove by the words on its link",
-    (locale) => {
-      const t = messages(locale);
-      expect(t.disclosureBody2).toContain(t.removeOffer.replace(/…$/, ""));
-    },
-  );
+  // Quoted as the link shows it: a bare "Remove" would be found in any
+  // sentence that happens to use the word.
+  test("both disclosures name Remove by the words on its link, quoted", () => {
+    const en = messages("en");
+    const zh = messages("zh");
+    expect(en.disclosureBody2).toContain(`“${en.removeOffer}”`);
+    expect(zh.disclosureBody2).toContain(`「${zh.removeOffer}」`);
+  });
 
   /**
    * popup.html carries the English disclosure as pre-paint text, replaced by

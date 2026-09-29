@@ -27,10 +27,11 @@ describe("removalView", () => {
     }
   });
 
-  test("offered: the link, and only where the page allows it", () => {
+  test("offered: the footer link, and only where the page allows it", () => {
     expect(removalView(removal("offered"), m).offer).toEqual({
       visible: true,
       label: m.removeOffer,
+      hint: m.removeOfferHint,
     });
     expect(removalView(removal("offered"), m, false).offer.visible).toBe(false);
   });
@@ -43,27 +44,31 @@ describe("removalView", () => {
     expect(v.settled).toBe(false);
   });
 
-  test("confirming names the vault's title and the vault, and says history keeps it", () => {
+  test("confirming: a card with the vault's title, the vault, and that history keeps it", () => {
     const v = removalView(
       removal("confirming", { title: "Harness Engineering" }),
       m,
     );
-    expect(v.confirm?.text).toContain("“Harness Engineering”");
-    expect(v.confirm?.text).toContain("o/tiro-vault");
-    expect(v.confirm?.text).toContain("history");
+    expect(v.confirm?.heading).toBe(m.removeConfirmHeading);
+    expect(v.confirm?.title).toBe("Harness Engineering");
+    expect(v.confirm?.note).toContain("o/tiro-vault");
+    expect(v.confirm?.note).toContain("history");
     expect(v.confirm?.confirmLabel).toBe(m.removeConfirmButton);
     expect(v.confirm?.cancelLabel).toBe(m.removeCancel);
     expect(v.offer.visible).toBe(false);
     expect(v.active).toBe(true);
   });
 
-  test("an untitled article is confirmed as 'this article', in both languages", () => {
-    expect(removalView(removal("confirming"), m).confirm?.text).toContain(
-      "Remove this article from o/tiro-vault?",
+  test("an untitled article gets the heading alone, no filler, in both languages", () => {
+    for (const t of [m, zh]) {
+      const card = removalView(removal("confirming"), t).confirm;
+      expect(card?.title).toBeNull();
+      expect(card?.heading).toBe(t.removeConfirmHeading);
+      expect(card?.note).toContain("o/tiro-vault");
+    }
+    expect(removalView(removal("confirming"), zh).confirm?.note).toContain(
+      "历史",
     );
-    const text = removalView(removal("confirming"), zh).confirm?.text ?? "";
-    expect(text).toContain("这篇文章");
-    expect(text).toContain("历史");
   });
 
   test("removing: progress in the status and the label", () => {

@@ -36,11 +36,20 @@ export interface RemovalState {
 }
 
 export interface RemovalView {
-  /** The "Remove from Tiro…" link. */
-  offer: { visible: boolean; label: string };
-  /** The inline confirmation — never a browser dialog, which would block the
-   * popup and anything driving it. */
-  confirm: { text: string; confirmLabel: string; cancelLabel: string } | null;
+  /** The link in the footer: a short label, and the longer `hint` as its
+   * tooltip. */
+  offer: { visible: boolean; label: string; hint: string };
+  /** The confirmation card — never a browser dialog, which would block the
+   * popup and anything driving it. `title` is the vault's own, and null when
+   * it has none the lookup could read: the card then carries its heading
+   * alone rather than a filler. */
+  confirm: {
+    heading: string;
+    title: string | null;
+    note: string;
+    confirmLabel: string;
+    cancelLabel: string;
+  } | null;
   /** What is happening or has happened, under the confirmation's place. */
   status: { text: string; tone: Tone } | null;
   /** The header label while a removal is under way or done; null leaves the
@@ -54,7 +63,7 @@ export interface RemovalView {
 }
 
 const NOTHING: RemovalView = {
-  offer: { visible: false, label: "" },
+  offer: { visible: false, label: "", hint: "" },
   confirm: null,
   status: null,
   label: null,
@@ -74,7 +83,11 @@ export function removalView(
   offerable = true,
 ): RemovalView {
   if (r === null || r === undefined) return NOTHING;
-  const offer = { visible: false, label: m.removeOffer };
+  const offer = {
+    visible: false,
+    label: m.removeOffer,
+    hint: m.removeOfferHint,
+  };
   switch (r.step) {
     case "offered":
       return { ...NOTHING, offer: { ...offer, visible: offerable } };
@@ -90,7 +103,9 @@ export function removalView(
         ...NOTHING,
         offer,
         confirm: {
-          text: m.removeConfirm(r.vault, r.title),
+          heading: m.removeConfirmHeading,
+          title: r.title,
+          note: m.removeConfirmNote(r.vault),
           confirmLabel: m.removeConfirmButton,
           cancelLabel: m.removeCancel,
         },

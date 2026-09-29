@@ -9,12 +9,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
-- **Remove an article from the extension.** "Remove from Tiro…" in the popup —
-  on an article's Tiro page, or on a page this machine clipped — deletes the
+- **Remove an article from the extension.** "Remove", at the foot of the popup
+  — on an article's Tiro page, or on a page this machine clipped — deletes the
   article from your vault, with its images and translation, and takes it out
   of every collection, in one commit; the push redeploys the site. It first
-  reads the article from the vault, so the confirmation names the title your
-  vault has rather than anything the page claims, and it confirms inline. The
+  reads the article from the vault, so the confirmation card names the title
+  your vault has rather than anything the page claims. The
   vault's git history keeps a copy. The data disclosure's version 6, not yet
   released, now also describes it, so no second re-acceptance is asked for
   (ADR 0036).

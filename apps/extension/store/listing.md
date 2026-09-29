@@ -51,8 +51,8 @@ across machines, not for an audience.
 >   button files an article into your collections instead: favorites, or any
 >   list you name. The change is committed to the same repository when you
 >   close the popup, and only for an article your repository already holds.
-> - Change your mind: "Remove from Tiro…", on a page you clipped or on its
->   Tiro page, deletes the article from your repository — its files, and its
+> - Change your mind: "Remove", at the foot of the popup on a page you clipped
+>   or on its Tiro page, deletes the article from your repository — its files, and its
 >   place in your collections — in one commit, once you confirm. Your
 >   repository's history keeps a copy.
 > - Save a link without opening it: "Clip link to Tiro" in any link's
@@ -160,7 +160,7 @@ again when it gained the raw.githubusercontent.com fetch, again when
 collections made the popup keep a change after it closes — which falsified the
 sentence promising that closing it discards everything — and again when "Clip
 link" began sending a link's address to the repository from a context-menu
-click, with no popup open. Version 6 also names "Remove from Tiro…", which
+click, with no popup open. Version 6 also names "Remove", which
 deletes an article from the repository once the user confirms; neither 5 nor 6
 had been released, so it joined 6 rather than bumping to 7.
 

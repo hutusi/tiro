@@ -548,7 +548,7 @@ describe("popupView, Remove from Tiro (ADR 0036)", () => {
     // about clipping — "nothing is sent until you clip" — does not.
     expect(v.preview?.title).toBe("Writing, Briefly");
     expect(v.preview?.notice).toBeNull();
-    expect(v.remove.confirm?.text).toContain("Writing, Briefly");
+    expect(v.remove.confirm?.title).toBe("Writing, Briefly");
   });
 
   test("once removed, the popup ends there: no Clip, no links, the label says so", () => {

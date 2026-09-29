@@ -367,6 +367,14 @@ export function collectionFixtures(
       ...idle,
       removal: removal("confirming", { title: "注意力机制笔记" }),
     },
+    // Frontmatter the lookup could not read: the card carries its heading
+    // alone.
+    "remove-confirm-untitled": {
+      page: article,
+      queue: [],
+      ...idle,
+      removal: removal("confirming"),
+    },
     removing: {
       page: article,
       queue: [],

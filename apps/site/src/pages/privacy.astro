@@ -24,8 +24,7 @@ const updated = "2026-09-29";
       站点（任何带有 Tiro
       标记的页面）上勾选的合集改动，在你关闭弹窗或点击「立即保存」时上传；在链接的右键菜单中选择「用
       Tiro
-      剪藏链接」时，只上传该链接的地址，页面由你仓库中的处理程序稍后读取；「从
-      Tiro 移除…」则只在你确认之后，才从同一个仓库删除文章；令牌则出现在扩展
+      剪藏链接」时，只上传该链接的地址，页面由你仓库中的处理程序稍后读取；弹窗底部的「移除」则只在你确认之后，才从同一个仓库删除文章；令牌则出现在扩展
       发出的每个 GitHub API 请求的授权头里，也就是这些上传，以及你在设置页点击
       「测试连接」的时候。此外还有几方可能参与，且都只在你自己选择之后：一是
       arxiv.org，它会知道你在看哪一篇论文；二是
@@ -77,7 +76,7 @@ const updated = "2026-09-29";
         还有一份本机的剪藏记录：每次成功剪藏后，记下该页面地址对应的标识
         （slug）和时间，用于下次打开弹窗时提示「已剪藏过」。这份记录始终只存在
         <code>chrome.storage.local</code> 中（最多保留 500 条），即使开启同步也不会同步，
-        也不会发送到任何地方。用「从 Tiro 移除…」删除一篇文章后，它的记录也随之删除。
+        也不会发送到任何地方。用弹窗底部的「移除」删除一篇文章后，它的记录也随之删除。
       </li>
       <li>
         尚未保存的合集改动：每一项记录文章标识（slug）、合集名称、加入还是移出，以及时间；
@@ -149,7 +148,7 @@ const updated = "2026-09-29";
         GitHub 确认你的仓库里确有这篇文章—— 因为任何网页都可以自称是 Tiro 站点。
       </li>
       <li>
-        选择「从 Tiro 移除…」时（在你剪藏过的页面上，或在 Tiro
+        点击弹窗底部的「移除」时（在你剪藏过的页面上，或在 Tiro
         站点的文章页上），扩展先用同一个令牌从你的仓库读取这篇文章，以便显示它在仓库中的标题——
         同样因为任何网页都可以自称是 Tiro 站点。只有在你确认之后，
         它才会以一次提交删除这篇文章的全部文件，并把它从你的合集中移出。仓库的
@@ -166,9 +165,8 @@ const updated = "2026-09-29";
       </li>
       <li>在 GitHub 的设置中撤销该令牌，即可立即失效。</li>
       <li>
-        剪藏的文章保存在你自己的仓库里：可以在弹窗中用「从 Tiro
-        移除…」删除，也可以直接在仓库中删除。无论哪种方式，仓库的 Git
-        历史都会保留一份副本，除非你改写历史。
+        剪藏的文章保存在你自己的仓库里：可以用弹窗底部的「移除」删除，也可以直接在仓库中删除。无论哪种方式，仓库的
+        Git 历史都会保留一份副本，除非你改写历史。
       </li>
     </ul>
 
@@ -191,9 +189,9 @@ const updated = "2026-09-29";
       you press Clip, a collection change you make on a Tiro site when you close the
       popup or press "Save now", and a link you save with "Clip link to Tiro" from
       its right-click menu — only its address — the moment you choose it, the page
-      being read later by the processor in your repository; and "Remove from Tiro…"
-      deletes an article from that repository only once you confirm it. The token
-      travels in the
+      being read later by the processor in your repository; and "Remove", at the foot
+      of the popup, deletes an article from that repository only once you confirm
+      it. The token travels in the
       <code>Authorization</code> header of every GitHub API request the extension
       makes — those uploads, and the "Test connection" button on the options page.
       A few other parties can be involved, all only if you choose it: arxiv.org, which
@@ -262,7 +260,7 @@ const updated = "2026-09-29";
         "already clipped" status the next time the popup opens on that page. It
         always lives only in <code>chrome.storage.local</code> (at most 500 entries),
         is never synced even with the option above on, and is never sent anywhere.
-        Removing an article with "Remove from Tiro…" drops its entry.
+        Removing an article with the popup's "Remove" drops its entry.
       </li>
       <li>
         Collection changes not yet saved: for each, the article's identifier
@@ -351,13 +349,13 @@ const updated = "2026-09-29";
         has that article — any web page can claim to be a Tiro site.
       </li>
       <li>
-        When you choose "Remove from Tiro…" — on a page you clipped, or on an
-        article on a Tiro site — it first reads that article from your
-        repository, with the same token, to show you the title your repository
-        has for it: any web page can claim to be a Tiro site. Only once you
-        confirm does it delete the article's files and take it out of your
-        collections, as one commit. Your repository's git history keeps a copy,
-        and the site stops showing it after its next deploy.
+        When you choose "Remove", at the foot of the popup — on a page you
+        clipped, or on an article on a Tiro site — it first reads that article
+        from your repository, with the same token, to show you the title your
+        repository has for it: any web page can claim to be a Tiro site. Only
+        once you confirm does it delete the article's files and take it out of
+        your collections, as one commit. Your repository's git history keeps a
+        copy, and the site stops showing it after its next deploy.
       </li>
       <li>No remote code is loaded; all logic is bundled in the extension.</li>
     </ul>
@@ -373,8 +371,8 @@ const updated = "2026-09-29";
         Revoke the token in your GitHub settings to cut off access at once.
       </li>
       <li>
-        Clipped articles live in your own repository: remove one from the popup
-        with "Remove from Tiro…", or delete it there. Either way the
+        Clipped articles live in your own repository: remove one with "Remove"
+        at the foot of the popup, or delete it there. Either way the
         repository's git history keeps a copy until you rewrite it.
       </li>
     </ul>

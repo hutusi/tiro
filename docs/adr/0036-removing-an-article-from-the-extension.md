@@ -27,8 +27,15 @@ makes it the common case.
 
 ### 1. Two places offer Remove, and both ask the vault first
 
+The control is the same in both: "Remove" with a small trash icon at the left
+of the popup's footer, opposite Settings — quiet, and out of the way of the
+actions a page is opened for. It opens a confirmation card just above the
+footer: a heading, the article's title, a note saying what goes and that
+history keeps it, and Cancel beside Remove. Never a browser dialog.
+
 - **On a Tiro article page**, beside the collections the popup already shows
-  there. The slug comes from the page's `#tiro-page` marker.
+  there. The slug comes from the page's `#tiro-page` marker. The page itself is
+  never clipped — it is a rendering of an article that came from somewhere.
 - **On the page the article came from**, when this machine's clip record says
   it was clipped — the "already clipped" and just-saved states. The slug is
   derived from the tab's URL, as a clip derives it.
@@ -36,9 +43,9 @@ makes it the common case.
 Neither is trusted to name what gets deleted. The marker is deliberately not
 tied to a hostname (ADR 0029), so any page can carry one, and a slug in it
 could name a different article of yours than the page shows; the clip record
-is local and blind to other machines. So "Remove from Tiro…" first reads the
-article's `index.md` from the vault and the confirmation names **the vault's
-own title** and the repository. An article that is not there says so, and
+is local and blind to other machines. So Remove first reads the article's
+`index.md` from the vault, and the card names **the vault's own title** and
+the repository. An article that is not there says so, and
 nothing is committed.
 
 That lookup reads the branch ref before the file. The Contents API answers 404
