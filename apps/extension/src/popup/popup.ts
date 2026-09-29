@@ -123,7 +123,6 @@ const el = {
   collectionNewAdd: document.getElementById(
     "collection-new-add",
   ) as HTMLButtonElement,
-  clipAnyway: document.getElementById("clip-anyway") as HTMLButtonElement,
   collectionSync: document.getElementById("collection-sync") as HTMLDivElement,
   collectionSyncText: document.getElementById(
     "collection-sync-text",
@@ -227,7 +226,6 @@ function applyCollections(view: CollectionsView): void {
   el.collectionNew.hidden = view.rows === null;
   el.collectionNewTitle.disabled = view.locked;
   el.collectionNewAdd.disabled = view.locked;
-  el.clipAnyway.hidden = !view.clipAnyway;
   el.collectionList.replaceChildren(
     ...(view.rows ?? []).map((row) => {
       const input = document.createElement("input");
@@ -272,7 +270,6 @@ function localize(locale: Locale, m: Messages): void {
   el.collectionNewTitle.placeholder = m.newCollectionPlaceholder;
   el.collectionNewAdd.textContent = m.newCollectionAdd;
   el.collectionList.setAttribute("aria-label", m.collectionsLabel);
-  el.clipAnyway.textContent = m.clipAnyway;
   el.syncNow.textContent = m.collectionsSyncNow;
 }
 
@@ -985,8 +982,6 @@ async function main(): Promise<void> {
   // the popup does nothing at all before consent. Awaiting the lookup before
   // extraction means the clip-result listener always sees it settled. The
   // clip flow's own GitHub lookup stays the authority on overwrite-vs-create.
-  /** The reader chose "Clip this page anyway" on a Tiro page. */
-  let clipRequested = false;
 
   /** The tab as a Tiro page, or null for an ordinary one — including any page
    * the marker cannot be read from, which then clips exactly as before. */
@@ -1007,9 +1002,9 @@ async function main(): Promise<void> {
     if (page.kind === "article") offerRemoval(page.slug);
     el.label.textContent = m.labelTiroPage;
     el.label.dataset.tone = "neutral";
-    // A Tiro site — whoever runs it — has nothing worth clipping, so the clip
-    // controls go rather than sit disabled beside the toggles. "Clip this page
-    // anyway" is there for the case where that is wrong.
+    // A Tiro page is never clipped, whoever runs the site: it is a rendering of
+    // an article that came from somewhere, and that page is the one to clip.
+    // So the clip controls go rather than sit disabled beside the toggles.
     el.clip.hidden = true;
     el.sourceFetch.hidden = true;
     el.loading.hidden = true;
@@ -1017,26 +1012,11 @@ async function main(): Promise<void> {
     paintCollections();
   }
 
-  el.clipAnyway.addEventListener("click", () => {
-    if (removalHolds()) return;
-    clipRequested = true;
-    tiroPage = null;
-    // The page's article is not the tab's: `prepare` offers Remove again only
-    // if this machine clipped the tab itself.
-    removeSlug = null;
-    removal = null;
-    el.collections.hidden = true;
-    el.clip.hidden = false;
-    render();
-    paintCollections();
-    void prepare();
-  });
-
   async function prepare(): Promise<void> {
     // Before anything is read for a preview. On a Tiro page the popup edits
     // collections instead of clipping, and recognizing one takes two DOM reads
     // in the tab — the same page read the disclosure already covers.
-    if (configured && !clipRequested) {
+    if (configured) {
       const page = await detectTiroPage();
       if (page !== null) {
         enterCollections(page);

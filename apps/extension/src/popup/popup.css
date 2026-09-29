@@ -173,10 +173,6 @@ body {
 #collection-sync .btn {
   flex: none;
 }
-#clip-anyway {
-  margin-top: 12px;
-  font-size: 12px;
-}
 #collection-sync {
   display: flex;
   align-items: center;

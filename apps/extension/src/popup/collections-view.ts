@@ -70,8 +70,6 @@ export interface CollectionsView {
   /** The rows stay on screen but take no clicks — while a removal is being
    * confirmed or made, a toggle for the same article would race it. */
   locked: boolean;
-  /** "Clip this page anyway" is on offer. */
-  clipAnyway: boolean;
   footer: CollectionsFooter | null;
   remove: RemovalView;
 }
@@ -160,7 +158,6 @@ export function collectionsView(
       intro: m.tiroSiteIntro,
       rows: null,
       locked: false,
-      clipAnyway: true,
       footer,
       remove: removalView(null, m),
     };
@@ -169,14 +166,12 @@ export function collectionsView(
   const label = remove.label ?? siteLabel;
   if (remove.settled) {
     // The article is gone from the vault, whatever this page still shows until
-    // the next deploy: no collection can take it, and clipping the site's own
-    // rendering of it is not a way back.
+    // the next deploy: no collection can take it.
     return {
       label,
       intro: null,
       rows: null,
       locked: true,
-      clipAnyway: false,
       footer,
       remove,
     };
@@ -215,7 +210,6 @@ export function collectionsView(
     intro: m.tiroArticleIntro,
     rows,
     locked: remove.active,
-    clipAnyway: !remove.active,
     footer,
     remove,
   };

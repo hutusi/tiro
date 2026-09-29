@@ -228,7 +228,6 @@ const en = {
   collectionsLabel: "Collections",
   newCollectionPlaceholder: "New collection…",
   newCollectionAdd: "Add",
-  clipAnyway: "Clip this page anyway",
   collectionsPending: (n: number) =>
     `${n === 1 ? "1 change" : `${n} changes`} not yet saved — saved when you close this popup.`,
   collectionsSaving: "Saving to your vault…",
@@ -426,7 +425,6 @@ const zh: Messages = {
   collectionsLabel: "合集",
   newCollectionPlaceholder: "新建合集…",
   newCollectionAdd: "添加",
-  clipAnyway: "仍要剪藏此页",
   collectionsPending: (n: number) =>
     `${n} 处改动尚未保存，关闭弹窗时自动保存。`,
   collectionsSaving: "正在保存到仓库…",

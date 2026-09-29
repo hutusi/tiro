@@ -819,9 +819,11 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   on any domain, and shows a tick-list drawn from the page itself. Ticks queue
   in `chrome.storage.local` (`tiroCollectionQueue`, per vault) and are
   committed as **one** commit when the popup closes or on "Save now"; the
-  service worker is the queue's only writer. "Clip this page anyway" falls
-  back to the ordinary clip. A pending count shows on any page while something
-  is queued.
+  service worker is the queue's only writer. A Tiro page is never clipped —
+  it is a rendering of an article that came from somewhere; clip that source
+  page instead. A page whose marker cannot be read is not recognized as one,
+  and clips as any page does. A pending count shows on any page while
+  something is queued.
   - A save that fails keeps the queue and says why in the next popup; the next
     close or "Save now" retries, and retrying is always safe.
   - An add for an article the vault does not have is **dropped**, with a note

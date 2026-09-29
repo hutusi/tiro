@@ -301,7 +301,6 @@ describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
     expect(view.remove.offer.visible).toBe(true);
     expect(view.rows).not.toBeNull();
     expect(view.locked).toBe(false);
-    expect(view.clipAnyway).toBe(true);
     expect(view.label.text).toBe(m.labelTiroPage);
   });
 
@@ -323,15 +322,13 @@ describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
     const view = at("confirming");
     expect(view.rows).not.toBeNull();
     expect(view.locked).toBe(true);
-    expect(view.clipAnyway).toBe(false);
   });
 
-  test("once removed or gone, there is nothing left to toggle or clip", () => {
+  test("once removed or gone, there is nothing left to toggle", () => {
     for (const step of ["removed", "gone"] as const) {
       const view = at(step);
       expect(view.rows).toBeNull();
       expect(view.intro).toBeNull();
-      expect(view.clipAnyway).toBe(false);
       expect(view.label.text).toBe(
         step === "removed" ? m.labelRemoved : m.labelNotInVault,
       );
