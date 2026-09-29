@@ -71,6 +71,10 @@ branch and the fixtures module.
   opt-out needs a frontmatter flag the processor honours.
 - **Remove.** A delete path from the popup, with a confirmation, is a new
   capability, not a restyle.
+
+  > **Taken up by [ADR 0036](0036-removing-an-article-from-the-extension.md).**
+  > The popup offers "Remove from Tiro…" on a Tiro article page and on a page
+  > this machine clipped, confirmed inline against the vault's own title.
 - **Reading progress.** Nothing records it.
 
 ## Consequences
