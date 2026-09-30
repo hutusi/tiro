@@ -108,7 +108,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -126,6 +126,13 @@ const en = {
   errNetwork:
     "Network error: could not reach GitHub. Check your connection and try again.",
   errClipFailed: (detail: string) => `Clip failed: ${detail}`,
+
+  // Removal errors (describeRemoveError, ADR 0036)
+  errRemoveBusy:
+    "The vault kept changing while Tiro tried to remove this — try again in a moment.",
+  errRemoveCollection: (path: string) =>
+    `${path} lists this article but could not be read, so nothing was removed. Fix that file in the vault, then try again.`,
+  errRemoveFailed: (detail: string) => `Could not remove it: ${detail}`,
 
   // Options page
   optionsTitle: "Tiro Settings",
@@ -221,7 +228,6 @@ const en = {
   collectionsLabel: "Collections",
   newCollectionPlaceholder: "New collection…",
   newCollectionAdd: "Add",
-  clipAnyway: "Clip this page anyway",
   collectionsPending: (n: number) =>
     `${n === 1 ? "1 change" : `${n} changes`} not yet saved — saved when you close this popup.`,
   collectionsSaving: "Saving to your vault…",
@@ -238,6 +244,29 @@ const en = {
   /** Save now could not reach the extension's background worker. */
   collectionsSaveUnreachable:
     "Could not reach the extension to save. Your changes are kept; press Save now to try again.",
+
+  // Remove from Tiro (ADR 0036): a link in the footer, and a confirmation card
+  // naming the vault's own title for the article, never the page's — the slug
+  // came from untrusted input.
+  removeOffer: "Remove",
+  removeOfferHint: "Remove this article from your vault",
+  removeConfirmHeading: "Remove this article?",
+  removeConfirmNote: (vault: string) =>
+    `Its text, translation, images and collection entries are deleted from ${vault}, in one commit. Git history keeps a copy.`,
+  removeConfirmButton: "Remove",
+  removeCancel: "Cancel",
+  removeChecking: "Looking it up in your vault…",
+  removing: "Removing it from your vault…",
+  removed: (vault: string) =>
+    `Removed from ${vault}. The site drops it after its next deploy — usually within a few minutes.`,
+  removeGone: (vault: string) =>
+    `This article is not in ${vault} — nothing was changed.`,
+  /** Just clipped, and GitHub's read side has not caught up with the write. */
+  removeNotYetVisible:
+    "GitHub has not caught up with the clip you just made — try again in a moment.",
+  labelRemoving: "Removing…",
+  labelRemoved: "Removed ✓",
+  labelNotInVault: "Not in vault",
 };
 
 export type Messages = typeof en;
@@ -307,7 +336,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -322,6 +351,11 @@ const zh: Messages = {
   errHttp: (status: number) => `GitHub 返回了 ${status}，请稍后重试。`,
   errNetwork: "网络错误：无法连接 GitHub，请检查网络后重试。",
   errClipFailed: (detail: string) => `剪藏失败：${detail}`,
+
+  errRemoveBusy: "移除时仓库一直在变化，请稍后重试。",
+  errRemoveCollection: (path: string) =>
+    `${path} 列有这篇文章，但无法读取，因此没有移除任何内容。请先在仓库中修复该文件，再重试。`,
+  errRemoveFailed: (detail: string) => `移除失败：${detail}`,
 
   optionsTitle: "Tiro 设置",
   labelOwner: "GitHub 用户名",
@@ -394,7 +428,6 @@ const zh: Messages = {
   collectionsLabel: "合集",
   newCollectionPlaceholder: "新建合集…",
   newCollectionAdd: "添加",
-  clipAnyway: "仍要剪藏此页",
   collectionsPending: (n: number) =>
     `${n} 处改动尚未保存，关闭弹窗时自动保存。`,
   collectionsSaving: "正在保存到仓库…",
@@ -408,6 +441,23 @@ const zh: Messages = {
     "有改动未能记下。请点击「立即保存」重试——若先关闭弹窗，这项改动将丢失。",
   collectionsSaveUnreachable:
     "无法连接扩展以保存。改动已保留，请点击「立即保存」重试。",
+
+  removeOffer: "移除",
+  removeOfferHint: "从你的仓库移除这篇文章",
+  removeConfirmHeading: "移除这篇文章？",
+  removeConfirmNote: (vault: string) =>
+    `它的正文、译文、图片及合集条目将从 ${vault} 删除，作为一次提交完成。Git 历史中仍保留副本。`,
+  removeConfirmButton: "移除",
+  removeCancel: "取消",
+  removeChecking: "正在仓库中查找…",
+  removing: "正在从仓库移除…",
+  removed: (vault: string) =>
+    `已从 ${vault} 移除。站点会在下次部署后不再显示它，通常只需几分钟。`,
+  removeGone: (vault: string) => `${vault} 中没有这篇文章，未做任何更改。`,
+  removeNotYetVisible: "GitHub 尚未同步你刚才的剪藏，请稍后重试。",
+  labelRemoving: "移除中…",
+  labelRemoved: "已移除 ✓",
+  labelNotInVault: "不在仓库中",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

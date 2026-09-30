@@ -159,7 +159,8 @@ collections name a slug nothing will look at again.
 - The vault gains its first vault-level document that is not configuration, and
   so its first cross-reference: a collection names articles by slug. Deleting
   an article is no longer "remove its directory and nothing else refers to it"
-  — its collections must drop it too, and `validate` says which.
+  — its collections must drop it too, and `validate` says which. The popup's
+  Remove (ADR 0036) does both in one commit.
 - A collections-only push now redeploys on its own. Every other hand edit to the
   vault still needs a deploy dispatched by hand, as before.
   > **Superseded by [ADR 0032](0032-unattended-vault-operations.md)** for the

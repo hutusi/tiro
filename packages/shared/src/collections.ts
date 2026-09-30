@@ -318,3 +318,48 @@ export function renameCollectionMember(
   }
   return changed;
 }
+
+/**
+ * Take a removed article out of every collection, purely (ADR 0036).
+ *
+ * Without this a removal leaves each collection naming a slug with nothing
+ * behind it — a row the site silently skips and an error on every later
+ * `validate`. The other members keep their order and their `added_at`.
+ *
+ * A pinned cover that is one of the article's images goes too, whether or not
+ * the article is a member, since its file is being deleted; the site then
+ * builds the cover from the members' own images (ADR 0030). The key is
+ * dropped, not set to undefined, so the written file carries no trace of it.
+ *
+ * `updated_at` is left alone. The site orders collections by it, and a removal
+ * is not the owner deciding anything about the collection — without this,
+ * removing one article would float every shelf that held it to the top.
+ *
+ * Returns only the collections that changed, so the caller writes nothing it
+ * does not have to.
+ */
+export function dropCollectionMember(
+  collections: readonly ParsedCollection[],
+  slug: string,
+): ParsedCollection[] {
+  const changed: ParsedCollection[] = [];
+  for (const collection of collections) {
+    // Spread rather than rebuilt, in both branches: the file is written in
+    // key order, and a reordered frontmatter is a diff nobody asked for.
+    const { cover, ...withoutCover } = collection.frontmatter;
+    const member = collection.frontmatter.items.some(
+      (item) => item.slug === slug,
+    );
+    const coverGoes =
+      cover !== undefined && parseCoverPath(cover)?.slug === slug;
+    if (!member && !coverGoes) continue;
+    const items = collection.frontmatter.items.filter(
+      (item) => item.slug !== slug,
+    );
+    const frontmatter: CollectionFrontmatter = coverGoes
+      ? { ...withoutCover, items }
+      : { ...collection.frontmatter, items };
+    changed.push({ ...collection, frontmatter });
+  }
+  return changed;
+}

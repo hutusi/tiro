@@ -373,19 +373,30 @@ async function expectOk(res: Response, doing: string): Promise<Response> {
   return res;
 }
 
+/** The branch's head commit. A 404 here is the repository or the token — a
+ * branch the vault does not have, a repo the token cannot see — never "the
+ * file is not there", which is what makes it worth asking first. */
+async function headCommit(
+  config: TiroExtensionConfig,
+  fetchImpl: FetchLike,
+): Promise<string> {
+  const ref = await expectOk(
+    await fetchImpl(
+      `${API}/repos/${config.owner}/${config.repo}/git/ref/heads/${refPath(config.branch)}`,
+      { headers: headers(config) },
+    ),
+    `reading branch ${config.branch}`,
+  );
+  return ((await ref.json()) as { object: { sha: string } }).object.sha;
+}
+
 /** The branch's head commit and that commit's tree. */
 async function branchHead(
   config: TiroExtensionConfig,
   fetchImpl: FetchLike,
 ): Promise<{ commit: string; tree: string }> {
   const repo = `${API}/repos/${config.owner}/${config.repo}`;
-  const ref = await expectOk(
-    await fetchImpl(`${repo}/git/ref/heads/${refPath(config.branch)}`, {
-      headers: headers(config),
-    }),
-    `reading branch ${config.branch}`,
-  );
-  const commit = ((await ref.json()) as { object: { sha: string } }).object.sha;
+  const commit = await headCommit(config, fetchImpl);
   const detail = await expectOk(
     await fetchImpl(`${repo}/git/commits/${commit}`, {
       headers: headers(config),
@@ -431,6 +442,25 @@ async function readTextAt(
 }
 
 /**
+ * A text file at the head of the configured branch, or null when it is not
+ * there — and the commit that answer describes.
+ *
+ * The ref is read first, so a missing file and an unreachable repository are
+ * told apart. The Contents API answers 404 for both: read alone, a token that
+ * cannot see the vault would report every file as absent, and a caller acting
+ * on "absent" — forgetting a clip that is still there — would act on a lie.
+ * Here a 404 on the ref throws, and only a 404 on the file means null.
+ */
+export async function readAtHead(
+  config: TiroExtensionConfig,
+  path: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<{ commit: string; text: string | null }> {
+  const commit = await headCommit(config, fetchImpl);
+  return { commit, text: await readTextAt(config, path, commit, fetchImpl) };
+}
+
+/**
  * Whether the vault already has an article at `slug`, on the configured
  * branch: its `index.md`, not just a directory — an orphan `zh.md` is not an
  * article. One listing request, however large the article (see `listAt`).
@@ -466,6 +496,58 @@ async function existsAt(
   return true;
 }
 
+/** One entry of a Contents API directory listing. */
+interface DirEntry {
+  name: string;
+  /** `file`, `dir`, `symlink` or `submodule`, as GitHub names them. */
+  type: string;
+}
+
+/** The Contents API lists at most this many entries of one directory, and
+ * says nothing when it stops there. */
+const CONTENTS_LISTING_CAP = 1000;
+
+/**
+ * The entries directly inside a directory in one commit, or null when there
+ * is no directory there.
+ *
+ * A listing that reaches the API's cap is refused, for every caller, rather
+ * than returned: it may have been cut off, and nothing downstream can tell. A
+ * removal that trusted one reported success while leaving the article named by
+ * every collection past the cut (ADR 0036). Refused here rather than in each
+ * caller because every use of a listing — "is it there", "what is there" — is
+ * answered wrongly by a partial one, and a check that lived in one caller
+ * missed the next. A vault reaches the cap only with 1,000 collections or an
+ * article of 1,000 images, so the price of refusing is a loud error nobody
+ * meets.
+ */
+async function entriesAt(
+  config: TiroExtensionConfig,
+  path: string,
+  commit: string,
+  fetchImpl: FetchLike,
+): Promise<DirEntry[] | null> {
+  const res = await fetchImpl(contentsUrl(config, path, commit), {
+    headers: headers(config),
+  });
+  if (res.status === 404) return null;
+  await expectOk(res, `listing ${path}`);
+  const body = (await res.json()) as unknown;
+  // A file where a directory was expected is not a directory.
+  if (!Array.isArray(body)) return null;
+  if (body.length >= CONTENTS_LISTING_CAP) {
+    throw new Error(
+      `${path} lists ${body.length} entries, the most GitHub returns — refusing to act on what may be part of it`,
+    );
+  }
+  return body.flatMap((entry) => {
+    const { name, type } = entry as { name?: unknown; type?: unknown };
+    return typeof name === "string"
+      ? [{ name, type: typeof type === "string" ? type : "" }]
+      : [];
+  });
+}
+
 /** The names directly inside a directory in one commit, or null when there is
  * no directory there. One listing request whatever the files weigh — which is
  * why a file is looked for in its directory's listing rather than fetched,
@@ -477,17 +559,40 @@ async function listAt(
   commit: string,
   fetchImpl: FetchLike,
 ): Promise<string[] | null> {
-  const res = await fetchImpl(contentsUrl(config, path, commit), {
-    headers: headers(config),
-  });
-  if (res.status === 404) return null;
-  await expectOk(res, `listing ${path}`);
-  const body = (await res.json()) as unknown;
-  // A file where a directory was expected is not a directory.
-  if (!Array.isArray(body)) return null;
-  return body
-    .map((entry) => (entry as { name?: unknown }).name)
-    .filter((name): name is string => typeof name === "string");
+  const entries = await entriesAt(config, path, commit, fetchImpl);
+  return entries?.map((entry) => entry.name) ?? null;
+}
+
+/**
+ * Every file under a directory in one commit, as paths, sorted; empty when
+ * there is no directory there. One listing per directory — an article is two,
+ * itself and its `assets/`.
+ *
+ * Built to delete by (ADR 0036), so it refuses rather than answer partly: a
+ * listing at the API's cap is refused by `entriesAt`, since deleting what it
+ * showed would leave the rest behind as an orphan the site still publishes;
+ * and a symlink or a submodule is not something the pipeline writes, and not a
+ * blob a `sha: null` entry is known to remove.
+ */
+async function filesAt(
+  config: TiroExtensionConfig,
+  dir: string,
+  commit: string,
+  fetchImpl: FetchLike,
+): Promise<string[]> {
+  const entries = await entriesAt(config, dir, commit, fetchImpl);
+  if (entries === null) return [];
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.type === "file") files.push(path);
+    else if (entry.type === "dir") {
+      files.push(...(await filesAt(config, path, commit, fetchImpl)));
+    } else {
+      throw new Error(`${path} is a ${entry.type || "entry of unknown type"}`);
+    }
+  }
+  return files.sort();
 }
 
 /** What `commitFiles` hands its builder: reads, all pinned to one commit. */
@@ -495,12 +600,31 @@ export interface TreeReader {
   read(path: string): Promise<string | null>;
   exists(path: string): Promise<boolean>;
   list(path: string): Promise<string[] | null>;
+  /** Every file under a directory, recursively; empty when it is absent. */
+  files(dir: string): Promise<string[]>;
 }
+
+/** One file a commit writes, or one it deletes. */
+export type CommitFile =
+  | { path: string; content: string }
+  | { path: string; delete: true };
 
 export interface BuiltCommit {
   /** Describes these files, so it is recomputed with them on every attempt. */
   message: string;
-  files: readonly { path: string; content: string }[];
+  files: readonly CommitFile[];
+}
+
+/**
+ * A commit file as a tree entry. A deletion is `sha: null` on a blob path —
+ * what GitHub documents for removing a file from `base_tree`. It documents
+ * nothing for a directory, so a directory is removed file by file.
+ */
+function treeEntry(file: CommitFile): Record<string, unknown> {
+  const blob = { path: file.path, mode: "100644", type: "blob" };
+  return "delete" in file
+    ? { ...blob, sha: null }
+    : { ...blob, content: file.content };
 }
 
 export interface CommitFilesOptions {
@@ -521,14 +645,15 @@ export interface CommitFilesOptions {
 }
 
 /**
- * Write several files as one commit, through the Git Data API.
+ * Write — or delete — several files as one commit, through the Git Data API.
  *
  * The Contents API commits one file per request, so a flush touching two
  * collections would be two commits, two pushes, two workflow runs and two
- * builds. This makes it one (ADR 0029): read the head, build against it,
- * create a tree carrying the files inline (which creates their blobs too, so
- * there is no base64 and no blob round trip), commit that tree on the head,
- * and move the branch to it.
+ * builds, and removing an article with its images one commit per file. This
+ * makes it one (ADR 0029, ADR 0036): read the head, build against it, create a
+ * tree carrying the files inline (which creates their blobs too, so there is
+ * no base64 and no blob round trip) and the deletions as `sha: null`, commit
+ * that tree on the head, and move the branch to it.
  *
  * The ref update is never forced. If anything else committed in between —
  * the vault's processing workflow commits back on its own schedule — GitHub
@@ -550,9 +675,19 @@ export async function commitFiles(
       read: (path) => readTextAt(config, path, head.commit, fetchImpl),
       exists: (path) => existsAt(config, path, head.commit, fetchImpl),
       list: (path) => listAt(config, path, head.commit, fetchImpl),
+      files: (dir) => filesAt(config, dir, head.commit, fetchImpl),
     });
     if (built === null || built.files.length === 0) return { committed: null };
     const { files, message } = built;
+    // One path written and deleted in one commit is a builder bug, and which
+    // entry GitHub honours is not something to find out in a vault.
+    const paths = new Set<string>();
+    for (const file of files) {
+      if (paths.has(file.path)) {
+        throw new Error(`${file.path} appears twice in one commit`);
+      }
+      paths.add(file.path);
+    }
 
     const tree = await expectOk(
       await fetchImpl(`${repo}/git/trees`, {
@@ -560,12 +695,7 @@ export async function commitFiles(
         headers: { ...headers(config), "Content-Type": "application/json" },
         body: JSON.stringify({
           base_tree: head.tree,
-          tree: files.map(({ path, content }) => ({
-            path,
-            mode: "100644",
-            type: "blob",
-            content,
-          })),
+          tree: files.map(treeEntry),
         }),
       }),
       "creating the tree",

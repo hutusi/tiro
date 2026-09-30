@@ -481,7 +481,12 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * 6: "Clip link" (ADR 0034). A link's address is now sent to the repository
  * from a context-menu click, with no popup open — a new way for data to leave
  * the browser, even though the destination is the same, and the page behind it
- * is read later by the processor rather than by the extension. */
+ * is read later by the processor rather than by the extension.
+ *
+ * Also 6: "Remove from Tiro" (ADR 0036), the one write that deletes. Folded
+ * into 6 rather than bumped to 7 because neither 5 nor 6 has been released —
+ * the store build still asks for 4 — so every user who sees 6 sees it with
+ * this sentence, and a 7 would only have re-prompted the unpacked builds. */
 export const DISCLOSURE_VERSION = 6;
 
 export interface DisclosureState {
@@ -580,6 +585,21 @@ export async function lastClippedAt(
   slug: string,
 ): Promise<string | null> {
   return (await loadClipHistory())[historyKey(config, slug)] ?? null;
+}
+
+/** Drop this machine's record of a clip, once the article is known to be gone
+ * from the vault (ADR 0036) — otherwise the popup keeps calling a removed page
+ * "already clipped" and offering to remove it again. Writes nothing when there
+ * was no record. */
+export async function forgetClip(
+  config: TiroExtensionConfig,
+  slug: string,
+): Promise<void> {
+  const history = await loadClipHistory();
+  const key = historyKey(config, slug);
+  if (!(key in history)) return;
+  const { [key]: _forgotten, ...rest } = history;
+  await chrome.storage.local.set({ [HISTORY_KEY]: rest });
 }
 
 /* ------------------------------------------------ collections (ADR 0029) */

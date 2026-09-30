@@ -1,4 +1,4 @@
-import { isValidCollectionId } from "@tiro/shared";
+import { isValidCollectionId } from "@tiro/shared/documents"; // not the root: see there
 
 /**
  * Recognizing a Tiro page (ADR 0029).
@@ -58,6 +58,13 @@ export type TiroPage =
  * purpose: this only has to stop something that is not a path segment. */
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
+/** Whether a slug from untrusted input can safely become a vault path —
+ * checked before a page's slug is used for anything, and again before one is
+ * removed (ADR 0036). */
+export function isArticleSlug(slug: string): boolean {
+  return SLUG_RE.test(slug);
+}
+
 /** What the popup should make of the tab, or null for an ordinary page. */
 export function parseTiroPage(marker: unknown): TiroPage | null {
   if (typeof marker !== "object" || marker === null) return null;
@@ -75,7 +82,7 @@ export function parseTiroPage(marker: unknown): TiroPage | null {
   const d = data as Record<string, unknown>;
   // A future payload version is not something this build can read. Showing
   // it as a plain Tiro page is honest; guessing at its fields is not.
-  if (d.v !== 1 || typeof d.slug !== "string" || !SLUG_RE.test(d.slug)) {
+  if (d.v !== 1 || typeof d.slug !== "string" || !isArticleSlug(d.slug)) {
     return { kind: "site" };
   }
 

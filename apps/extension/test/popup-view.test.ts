@@ -481,3 +481,104 @@ describe("popupView while a fetch is in flight", () => {
     expect(v.preview?.note).toBe(m.fetchSources.arxiv.denied);
   });
 });
+
+describe("popupView, Remove from Tiro (ADR 0036)", () => {
+  const offered = {
+    step: "offered" as const,
+    vault: "o/r",
+    title: null,
+    problem: null,
+  };
+
+  test("is offered where the article is known to be in the vault", () => {
+    for (const s of [
+      state({ clippedOn: "Sep 2, 2026", links }),
+      state({ phase: "saved", links }),
+      state({
+        phase: "blocked",
+        clippedOn: "Sep 2, 2026",
+        links,
+        problem: { text: "x", error: true },
+      }),
+    ]) {
+      expect(
+        popupView({ ...s, removal: offered }, m).remove.offer.visible,
+      ).toBe(true);
+    }
+  });
+
+  test("is not offered mid-read, mid-fetch, mid-upload, after a failed clip, or unconfigured", () => {
+    for (const s of [
+      state({ phase: "reading", preview: null, clippedOn: "Sep 2, 2026" }),
+      state({ clippedOn: "Sep 2, 2026", fetching: true, source: "arxiv" }),
+      state({ phase: "clipping" }),
+      state({ phase: "failed", problem: { text: "x", error: true } }),
+      state({ phase: "blocked", configured: false, clippedOn: "Sep 2, 2026" }),
+      // A page this machine never clipped has nothing known to remove.
+      state({ clippedOn: null }),
+    ]) {
+      expect(
+        popupView({ ...s, removal: offered }, m).remove.offer.visible,
+      ).toBe(false);
+    }
+  });
+
+  test("without a removal on offer the page is exactly what it was", () => {
+    const s = state({ clippedOn: "Sep 2, 2026", links });
+    const { remove, ...rest } = popupView(s, m);
+    const { remove: _, ...withNull } = popupView({ ...s, removal: null }, m);
+    expect(rest).toEqual(withNull);
+    expect(remove.offer.visible).toBe(false);
+  });
+
+  test("while it is under way nothing else acts on the article", () => {
+    const v = popupView(
+      {
+        ...state({ phase: "saved", links }),
+        removal: { ...offered, step: "confirming", title: "Writing, Briefly" },
+      },
+      m,
+    );
+    expect(v.clip.visible).toBe(false);
+    expect(v.clip.enabled).toBe(false);
+    expect(v.sourceFetch.visible).toBe(false);
+    expect(v.links).toBeNull();
+    expect(v.message).toBeNull();
+    // The card stays: it shows what is about to be removed. What it says
+    // about clipping — "nothing is sent until you clip" — does not.
+    expect(v.preview?.title).toBe("Writing, Briefly");
+    expect(v.preview?.notice).toBeNull();
+    expect(v.remove.confirm?.title).toBe("Writing, Briefly");
+  });
+
+  test("once removed, the popup ends there: no Clip, no links, the label says so", () => {
+    for (const step of ["removed", "gone"] as const) {
+      const v = popupView(
+        {
+          ...state({ clippedOn: "Sep 2, 2026", links }),
+          removal: { ...offered, step },
+        },
+        m,
+      );
+      expect(v.clip.visible).toBe(false);
+      expect(v.links).toBeNull();
+      expect(v.label).toBe(
+        step === "removed" ? m.labelRemoved : m.labelNotInVault,
+      );
+    }
+  });
+
+  test("a failed removal leaves the page as it was, with the error and the retry", () => {
+    const v = popupView(
+      {
+        ...state({ clippedOn: "Sep 2, 2026", links }),
+        removal: { ...offered, step: "failed", problem: "Nope." },
+      },
+      m,
+    );
+    expect(v.clip.visible).toBe(true);
+    expect(v.links).not.toBeNull();
+    expect(v.remove.status).toEqual({ text: "Nope.", tone: "error" });
+    expect(v.remove.offer.visible).toBe(true);
+  });
+});

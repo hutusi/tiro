@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applyCollectionOps,
   type CollectionOp,
+  dropCollectionMember,
   FAVORITES_ID,
   type ParsedCollection,
   parseCollection,
@@ -426,6 +427,82 @@ describe("renameCollectionMember", () => {
     const existing = collection([{ slug: "old-slug" }]);
     renameCollectionMember([existing], "old-slug", "new-slug");
     expect(existing.frontmatter.items).toEqual([{ slug: "old-slug" }]);
+  });
+});
+
+describe("dropCollectionMember", () => {
+  test("drops the article and keeps everyone else's place and date", () => {
+    const existing = collection([
+      { slug: "first", added_at: T1 },
+      { slug: "gone", added_at: T2 },
+      { slug: "last", added_at: T3 },
+    ]);
+    const [dropped] = dropCollectionMember([existing], "gone");
+    expect(dropped?.frontmatter.items).toEqual([
+      { slug: "first", added_at: T1 },
+      { slug: "last", added_at: T3 },
+    ]);
+  });
+
+  test("leaves updated_at alone, so the shelf does not jump the list", () => {
+    const existing = collection([{ slug: "gone" }, { slug: "kept" }]);
+    const [dropped] = dropCollectionMember([existing], "gone");
+    expect(dropped?.frontmatter.updated_at).toBe(T1);
+  });
+
+  test("drops a pinned cover that is one of the article's images", () => {
+    const existing = collection([{ slug: "gone" }, { slug: "kept" }]);
+    existing.frontmatter.cover = "articles/gone/assets/c.png";
+    const [dropped] = dropCollectionMember([existing], "gone");
+    expect(dropped?.frontmatter.items).toEqual([{ slug: "kept" }]);
+    expect(dropped && "cover" in dropped.frontmatter).toBe(false);
+    // Written without a trace of it, and still a valid collection.
+    const text = stringifyCollection(
+      dropped?.frontmatter ?? existing.frontmatter,
+      "",
+    );
+    expect(text).not.toContain("cover");
+    expect(parseCollection(FAVORITES_ID, text).frontmatter.items).toEqual([
+      { slug: "kept" },
+    ]);
+  });
+
+  test("drops the cover even when its article is not a member", () => {
+    const existing = collection([{ slug: "x" }]);
+    existing.frontmatter.cover = "articles/gone/assets/c.png";
+    const changed = dropCollectionMember([existing], "gone");
+    expect(changed).toHaveLength(1);
+    expect(changed[0]?.frontmatter.items).toEqual([{ slug: "x" }]);
+    expect(changed[0]?.frontmatter.cover).toBeUndefined();
+  });
+
+  test("keeps a cover from another article, in its place", () => {
+    // Parsed, not assembled: a parse puts `cover` where the schema declares it,
+    // ahead of `items`, and that is the order a rewrite has to keep.
+    const existing = parseCollection(
+      FAVORITES_ID,
+      `---\ntitle: X\ncover: articles/x/assets/c.png\nitems:\n  - slug: gone\n  - slug: x\ntiro:\n  schema: 1\n---\n`,
+    );
+    const [dropped] = dropCollectionMember([existing], "gone");
+    if (dropped === undefined) throw new Error("expected a change");
+    expect(dropped.frontmatter.cover).toBe("articles/x/assets/c.png");
+    expect(stringifyCollection(dropped.frontmatter, "")).toBe(
+      `---\ntitle: X\ncover: articles/x/assets/c.png\nitems:\n  - slug: x\ntiro:\n  schema: 1\n---\n`,
+    );
+    // A slug that merely starts with the removed one is a different article.
+    const other = collection([{ slug: "gone-2" }]);
+    other.frontmatter.cover = "articles/gone-2/assets/c.png";
+    expect(dropCollectionMember([other], "gone")).toEqual([]);
+  });
+
+  test("returns only the collections that changed, and leaves the input alone", () => {
+    const holding = collection([{ slug: "gone" }]);
+    holding.frontmatter.cover = "articles/gone/assets/c.png";
+    const other = { ...collection([{ slug: "x" }]), id: "other" };
+    const changed = dropCollectionMember([holding, other], "gone");
+    expect(changed.map((c) => c.id)).toEqual([FAVORITES_ID]);
+    expect(holding.frontmatter.items).toEqual([{ slug: "gone" }]);
+    expect(holding.frontmatter.cover).toBe("articles/gone/assets/c.png");
   });
 });
 

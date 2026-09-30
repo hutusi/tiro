@@ -4,6 +4,7 @@ import {
   type ClipHistory,
   DISCLOSURE_VERSION,
   type DisclosureState,
+  forgetClip,
   isConfigComplete,
   lastClippedAt,
   loadConfig,
@@ -133,6 +134,34 @@ describe("clip history", () => {
       "2026-08-28T00:00:00.000Z",
     );
     expect(Object.keys(history)).toHaveLength(1);
+  });
+
+  test("forgetting a removed article drops its record, in that vault only", async () => {
+    const slug = "example-com-post-12345678";
+    await recordClip(vault, slug, "2026-08-27T00:00:00.000Z");
+    await recordClip(
+      vault,
+      "example-com-kept-87654321",
+      "2026-08-27T00:00:00.000Z",
+    );
+    await recordClip(
+      { ...vault, repo: "other" },
+      slug,
+      "2026-08-27T00:00:00.000Z",
+    );
+    await forgetClip(vault, slug);
+    expect(await lastClippedAt(vault, slug)).toBeNull();
+    expect(
+      await lastClippedAt(vault, "example-com-kept-87654321"),
+    ).not.toBeNull();
+    expect(
+      await lastClippedAt({ ...vault, repo: "other" }, slug),
+    ).not.toBeNull();
+  });
+
+  test("forgetting what was never recorded writes nothing", async () => {
+    await forgetClip(vault, "example-com-never-12345678");
+    expect("tiroClipHistory" in chrome.local.data).toBe(false);
   });
 });
 

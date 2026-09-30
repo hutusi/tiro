@@ -2,8 +2,8 @@ import type { FetchLike } from "../src/github.ts";
 
 /**
  * An in-memory repository that speaks just enough of the GitHub API for the
- * collection flush: the branch ref, commits, trees with inline content, and the
- * Contents API read side.
+ * collection flush and article removal: the branch ref, commits, trees with
+ * inline content or `sha: null` deletions, and the Contents API read side.
  *
  * It enforces the one rule the flush's correctness rests on — a ref update
  * that is not forced must be a fast-forward — so a concurrent commit is a real
@@ -113,18 +113,29 @@ export function fakeGitHub(
             content: Buffer.from(text, "utf8").toString("base64"),
           });
         }
-        // Direct children only, each with its `name`, as GitHub lists them.
+        // Direct children only, each with its `name` and `type`, as GitHub
+        // lists them: by name, and no more than the first 1,000 — past that
+        // the real API stops without saying so, which is exactly what a
+        // caller has to be able to survive.
         const listing = [
           ...new Set(
             [...at.keys()]
               .filter((p) => p.startsWith(`${file}/`))
               .map((p) => p.slice(file.length + 1).split("/")[0] ?? ""),
           ),
-        ];
+        ]
+          .sort()
+          .slice(0, 1000);
         return listing.length > 0
           ? json(
               200,
-              listing.map((name) => ({ name, path: `${file}/${name}` })),
+              listing.map((name) => {
+                const path = `${file}/${name}`;
+                const dir = [...at.keys()].some((p) =>
+                  p.startsWith(`${path}/`),
+                );
+                return { name, path, type: dir ? "dir" : "file" };
+              }),
             )
           : json(404, {});
       }
@@ -132,8 +143,29 @@ export function fakeGitHub(
         const base = trees.get(body.base_tree);
         if (base === undefined) return json(422, { message: "bad base_tree" });
         const next = new Map(base);
-        for (const entry of body.tree as { path: string; content: string }[]) {
-          next.set(entry.path, entry.content);
+        // GitHub's rules, enforced rather than assumed: `sha: null` removes a
+        // file that is there; an entry may not carry both a sha and content;
+        // and nothing here sends a tree entry, so the fake refuses one.
+        for (const entry of body.tree as {
+          path: string;
+          type: string;
+          content?: string;
+          sha?: string | null;
+        }[]) {
+          if (entry.type !== "blob") {
+            return json(422, { message: `fake: ${entry.type} entry` });
+          }
+          if ("sha" in entry && "content" in entry) {
+            return json(422, { message: "sha and content both given" });
+          }
+          if (entry.sha === null) {
+            if (!next.has(entry.path)) {
+              return json(422, { message: `no ${entry.path} to delete` });
+            }
+            next.delete(entry.path);
+          } else {
+            next.set(entry.path, entry.content ?? "");
+          }
         }
         const t = sha("t");
         trees.set(t, next);

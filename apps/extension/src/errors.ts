@@ -1,10 +1,11 @@
 import { GitHubHttpError } from "./github.ts";
 import type { Messages } from "./i18n.ts";
+import { UnreadableCollectionError } from "./remove-article.ts";
 
-/** Popup-facing failure text: what happened and what to do next, in the
- * popup's language. The raw error keeps its detail for the console; the user
- * gets an instruction, not a stack trace. */
-export function describeClipError(error: unknown, m: Messages): string {
+/** What a GitHub or network failure means for the user, whichever action ran
+ * into it — or null for an error that is neither, which each action phrases
+ * for itself. */
+function describeGitHubFailure(error: unknown, m: Messages): string | null {
   if (error instanceof GitHubHttpError) {
     switch (error.status) {
       case 401:
@@ -26,7 +27,31 @@ export function describeClipError(error: unknown, m: Messages): string {
   if (error instanceof TypeError && error.message === "Failed to fetch") {
     return m.errNetwork;
   }
-  return m.errClipFailed(String(error));
+  return null;
+}
+
+/** Popup-facing failure text: what happened and what to do next, in the
+ * popup's language. The raw error keeps its detail for the console; the user
+ * gets an instruction, not a stack trace. */
+export function describeClipError(error: unknown, m: Messages): string {
+  return describeGitHubFailure(error, m) ?? m.errClipFailed(String(error));
+}
+
+/**
+ * A failed removal (ADR 0036), phrased the way a failed clip is — a bad token
+ * reads the same whichever action ran into it — plus the two ways only a
+ * removal fails: a collection naming the article that cannot be parsed, and a
+ * branch that kept moving under it (`commitFiles` gives up as a 409 of its
+ * own). Neither is a token problem, and both say what to do.
+ */
+export function describeRemoveError(error: unknown, m: Messages): string {
+  if (error instanceof UnreadableCollectionError) {
+    return m.errRemoveCollection(error.path);
+  }
+  if (error instanceof GitHubHttpError && error.status === 409) {
+    return m.errRemoveBusy;
+  }
+  return describeGitHubFailure(error, m) ?? m.errRemoveFailed(String(error));
 }
 
 /**

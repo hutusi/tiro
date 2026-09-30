@@ -2,6 +2,7 @@ import type { QueuedOp } from "../collection-queue.ts";
 import type { Messages } from "../i18n.ts";
 import type { TiroPage } from "../tiro-page.ts";
 import type { CollectionsState } from "./collections-view.ts";
+import type { RemovalState, RemovalStep } from "./removal-view.ts";
 import type { PopupState } from "./view.ts";
 
 /**
@@ -28,6 +29,20 @@ const links = {
   vault:
     "https://github.com/hutusi/tiro-vault/blob/main/articles/lilianweng-github-io-posts-2026-07-04-harness-2c589c36/index.md",
 };
+
+/** Remove from Tiro (ADR 0036) at one step, for the vault the links name. */
+function removal(
+  step: RemovalStep,
+  extra: Partial<RemovalState> = {},
+): RemovalState {
+  return {
+    step,
+    vault: "hutusi/tiro-vault",
+    title: null,
+    problem: null,
+    ...extra,
+  };
+}
 
 const base: PopupState = {
   phase: "ready",
@@ -65,10 +80,80 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       ...base,
       preview: { ...preview, readabilityFailed: true, excerpt: "" },
     },
-    already: { ...base, clippedOn: "Sep 2, 2026", links },
+    already: {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("offered"),
+    },
     clipping: { ...base, phase: "clipping" },
-    saved: { ...base, phase: "saved", links },
-    updated: { ...base, phase: "saved", updated: true, links },
+    saved: { ...base, phase: "saved", links, removal: removal("offered") },
+    updated: {
+      ...base,
+      phase: "saved",
+      updated: true,
+      links,
+      removal: removal("offered"),
+    },
+    // Remove from Tiro, step by step, from a page this machine clipped.
+    "remove-checking": {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("checking"),
+    },
+    "remove-confirm": {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("confirming", { title: preview.title }),
+    },
+    // Frontmatter the lookup could not read: still removable, untitled.
+    "remove-confirm-untitled": {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("confirming"),
+    },
+    removing: {
+      ...base,
+      phase: "saved",
+      links,
+      removal: removal("removing"),
+    },
+    removed: {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("removed"),
+    },
+    "remove-gone": {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("gone"),
+    },
+    "remove-failed": {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("failed", { problem: m.errTokenInvalid }),
+    },
+    "remove-failed-collection": {
+      ...base,
+      clippedOn: "Sep 2, 2026",
+      links,
+      removal: removal("failed", {
+        problem: m.errRemoveCollection("collections/reading-notes.md"),
+      }),
+    },
+    // Just clipped: GitHub's read side has not caught up yet.
+    "remove-not-yet": {
+      ...base,
+      phase: "saved",
+      links,
+      removal: removal("failed", { problem: m.removeNotYetVisible }),
+    },
     failed: {
       ...base,
       phase: "failed",
@@ -268,6 +353,45 @@ export function collectionFixtures(
       queue: pending,
       ...idle,
       saveUnreachable: true,
+    },
+    // Remove from Tiro on a Tiro article page (ADR 0036).
+    "remove-offered": {
+      page: article,
+      queue: [],
+      ...idle,
+      removal: removal("offered"),
+    },
+    "remove-confirm": {
+      page: article,
+      queue: pending,
+      ...idle,
+      removal: removal("confirming", { title: "注意力机制笔记" }),
+    },
+    // Frontmatter the lookup could not read: the card carries its heading
+    // alone.
+    "remove-confirm-untitled": {
+      page: article,
+      queue: [],
+      ...idle,
+      removal: removal("confirming"),
+    },
+    removing: {
+      page: article,
+      queue: [],
+      ...idle,
+      removal: removal("removing"),
+    },
+    removed: {
+      page: article,
+      queue: [],
+      ...idle,
+      removal: removal("removed"),
+    },
+    "remove-gone": {
+      page: article,
+      queue: [],
+      ...idle,
+      removal: removal("gone"),
     },
   };
   return Object.fromEntries(

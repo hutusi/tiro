@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { describeClipError } from "../src/errors.ts";
+import { describeClipError, describeRemoveError } from "../src/errors.ts";
 import { GitHubHttpError } from "../src/github.ts";
 import { messages } from "../src/i18n.ts";
+import { UnreadableCollectionError } from "../src/remove-article.ts";
 
 const zh = messages("zh");
 
@@ -74,5 +75,44 @@ describe("describeClipError", () => {
     );
     expect(message).not.toContain("网络错误");
     expect(message).toContain("Failed to fetch metadata");
+  });
+});
+
+describe("describeRemoveError", () => {
+  const en = messages("en");
+
+  test("a GitHub or network failure reads as it would for a clip", () => {
+    for (const error of [
+      new GitHubHttpError(401, "x"),
+      new GitHubHttpError(404, "x"),
+      new GitHubHttpError(403, "x"),
+      new TypeError("Failed to fetch"),
+    ]) {
+      expect(describeRemoveError(error, zh)).toBe(describeClipError(error, zh));
+    }
+  });
+
+  test("a collection it cannot read names the file and says nothing was removed", () => {
+    const message = describeRemoveError(
+      new UnreadableCollectionError("collections/reading.md", new Error("bad")),
+      en,
+    );
+    expect(message).toContain("collections/reading.md");
+    expect(message).toContain("nothing was removed");
+  });
+
+  test("a branch that kept moving is a retry, not a token problem", () => {
+    const message = describeRemoveError(
+      new GitHubHttpError(409, "main kept moving — gave up after 3 attempts"),
+      en,
+    );
+    expect(message).toBe(en.errRemoveBusy);
+  });
+
+  test("anything else keeps its detail, as a failed removal rather than a clip", () => {
+    const message = describeRemoveError(new Error("boom"), en);
+    expect(message).toContain("boom");
+    expect(message).toContain("remove");
+    expect(message).not.toContain("Clip");
   });
 });

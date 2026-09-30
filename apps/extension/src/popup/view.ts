@@ -1,4 +1,9 @@
 import type { FetchSourceKind, Messages } from "../i18n.ts";
+import {
+  type RemovalState,
+  type RemovalView,
+  removalView,
+} from "./removal-view.ts";
 
 /**
  * What the popup shows, as a pure function of what it knows.
@@ -80,6 +85,9 @@ export interface PopupState {
    */
   pdfStub: boolean;
   links: PopupLinks | null;
+  /** Remove from Tiro (ADR 0036). Absent, or null, when there is nothing to
+   * offer it for — a page this machine never clipped. */
+  removal?: RemovalState | null;
 }
 
 export interface PopupView {
@@ -99,7 +107,9 @@ export interface PopupView {
     excerpt: string | null;
     warning: string | null;
     note: string | null;
-    notice: string;
+    /** How the preview was built — null while a removal has the card, where
+     * "nothing is sent until you clip" would be the wrong thing to say. */
+    notice: string | null;
   } | null;
   /** The button that asks for the publisher permission and fetches. Its label
    * names the document, so it comes from here rather than from the one-time
@@ -109,12 +119,60 @@ export interface PopupView {
    * is then the likelier intent, and Re-clip steps back to an outline. */
   clip: { visible: boolean; enabled: boolean; primary: boolean; label: string };
   links: (PopupLinks & { hint: boolean }) | null;
+  remove: RemovalView;
 }
 
 /** Phases an in-flight fetch may repaint. See the derivation below. */
 const FETCH_OVERRIDES: ReadonlySet<Phase> = new Set(["ready", "blocked"]);
 
+/**
+ * Whether this page is a moment to offer Remove: the article is known to be
+ * in the vault from here — this machine clipped it, or has just — and nothing
+ * else is under way. Not while the page is being read or fetched, not over a
+ * commit, and not after a failed clip, whose own retry is the one on offer.
+ */
+function removalOfferable(s: PopupState): boolean {
+  if (!s.configured || s.fetching) return false;
+  switch (s.phase) {
+    case "saved":
+      return true;
+    case "ready":
+    case "blocked":
+      return s.clippedOn !== null;
+    default:
+      return false;
+  }
+}
+
 export function popupView(s: PopupState, m: Messages): PopupView {
+  const view = phaseView(s, m);
+  const remove = removalView(s.removal, m, removalOfferable(s));
+  if (!remove.active && !remove.settled) return { ...view, remove };
+  // A removal under way, or done, is what the popup is about now. The preview
+  // stays — it shows what is being removed — and everything that would act on
+  // the article goes: Clip most of all, since re-adding an article a moment
+  // after removing it should take reopening the popup, not a stray click.
+  return {
+    ...view,
+    label: remove.label?.text ?? view.label,
+    labelTone: remove.label?.tone ?? view.labelTone,
+    // The card keeps what identifies the article and drops what describes
+    // clipping it.
+    preview:
+      view.preview === null
+        ? null
+        : { ...view.preview, warning: null, note: null, notice: null },
+    message: null,
+    loading: null,
+    progress: null,
+    sourceFetch: { ...view.sourceFetch, visible: false },
+    clip: { ...view.clip, visible: false, enabled: false },
+    links: null,
+    remove,
+  };
+}
+
+function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
   // Null on an ordinary page, where none of these strings are reachable: every
   // one of them is behind `s.source !== null` by way of `gated`, `fetching` or
   // `fetchOffered`, which only a publisher rule ever sets.
@@ -169,7 +227,7 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     primary: !reclip,
     label: clipLabel,
   };
-  const base: PopupView = {
+  const base: Omit<PopupView, "remove"> = {
     label: "",
     labelTone: "neutral",
     message: null,

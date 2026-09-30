@@ -433,7 +433,9 @@ the summary and recorded in the article.
 | PDF article stays unprocessed + run line `--force cannot reconvert` | the checkpoint could be neither removed nor emptied — almost always a permissions or read-only-filesystem problem in `articles/<slug>/`. Only on a path that was going to reconvert; a converted import never reaches it | fix the permissions; the article keeps the body it had and stays pending |
 | PDF article stays unprocessed + run line `pdf stage timed out` | past `pdf.stage_timeout_ms` for this document — a slow server, or more batches than fit | nothing: the checkpoint holds what it finished and the next run resumes. Repeated on a very long PDF, raise `pdf.stage_timeout_ms` |
 | PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, or a request was refused (400) or timed out, so those kept the raw text layer. A provider that was down — 5xx, 401/403/404, 429, no connection — does not land here: the article stays pending and the run turns red (ADR 0032) | **clipped:** reprocess with `force` + slug, which discards the checkpoint and reconverts. **Imported:** re-import the file — `--force` keeps the converted body and would change nothing. Either way an ordinary run resumes those fallbacks as settled; if it repeats, the article is readable but unformatted in places |
-| run fails at "Commit results back" with `could not apply` | rebase conflict with a concurrent commit (was: queued runs checking out the stale trigger SHA) | re-run the workflow; pending articles retry. Guarded by `ref: main` checkout + `git pull --rebase -X theirs` |
+| run log at "Commit results back": `articles/<slug> was deleted on main while this run worked on it` | the article was removed — from the popup or by hand — while this run was processing it (ADR 0036). The run dropped what it wrote there and committed everything else | nothing. If it was the run's only work, the step says `nothing left to commit` and the removal's own run deploys |
+| run fails at "Commit results back" with `hit a conflict a deletion does not explain` | a concurrent commit conflicted in a way neither `-X theirs` nor deletion-wins settles — typically a *single* file (a `zh.md`, say) deleted by hand inside an article this run changed. The rebase is aborted, so nothing half-applied is pushed | re-run the workflow; pending articles retry. (A vault on a `process.yml` older than ADR 0036 fails here with `could not apply` for a whole-article deletion too — copy the template's in) |
+| run fails at "Commit results back" with `main refused this run's push 4 times` | the push is being refused rather than raced: a branch rule on `main`, or a token that lost write access | fix the rule or the token, then re-run; pending articles retry |
 
 ## Deploys
 
@@ -499,17 +501,40 @@ devDependencies — the action must log "using pre-installed wrangler".
     re-clip can prune the asset a cover names, which is how a correct cover
     goes stale.
   - **Deleting an article now has a second step**: drop it from any collection
-    that names it. `validate` lists them.
+    that names it. `validate` lists them. The popup's Remove (below) does both.
   - `publish.yml` ships in `vault-template/`, which does not propagate — copy it
     into the live vault by hand. Without it a collections push stays unpublished
     until the next deploy from anywhere else.
-- Deleting an article: remove its directory from the vault. The whole article
-  is in that directory — `index.md`, `zh.md`, `assets/` and the
-  `.tiro-zh-cache.json` checkpoint — but since collections (ADR 0029) it is not
-  the only place that names it: drop the slug from every collection that lists
-  it, which `validate` names as `… is not an article in this vault`. Commit
-  both together and push; the push redeploys. Left behind, a member is a
-  row the site silently skips and an error on every later `validate`.
+- Deleting an article: **"Remove", at the foot of the extension popup** (ADR
+  0036), on the article's page on the site or on its source page if this
+  machine clipped it. It shows the vault's own title, and on confirm deletes
+  the whole directory and drops the slug — and any pinned cover from its
+  images — from every collection, in one commit whose message is
+  `remove: <title>`; that push redeploys. Removing an article a processing run
+  is still working on is safe: the run logs
+  `articles/<slug> was deleted on main while this run worked on it`, drops its
+  changes there and commits the rest — but only once the vault's `process.yml`
+  is the template's current one. By hand, the same thing: remove its directory
+  from the vault. The whole article is in that directory — `index.md`,
+  `zh.md`, `assets/` and the `.tiro-zh-cache.json` checkpoint — but since
+  collections (ADR 0029) it is not the only place that names it: drop the slug
+  from every collection that lists it, which `validate` names as
+  `… is not an article in this vault`. Commit both together and push; the push
+  redeploys. Left behind, a member is a row the site silently skips and an
+  error on every later `validate`.
+  - **Removal is not erasure**: the vault's git history keeps every version.
+    Erasing an article means rewriting that history.
+  - **It can come back.** A link to the same URL still waiting in `inbox/`
+    becomes a stub on the next run, and any later clip or save of the URL
+    lands at the same slug — slugs come from the URL.
+  - **Keep at least one article.** Removing the last one removes `articles/`
+    itself, the site build refuses a vault without it, and the previous
+    deployment — still listing the article — stays live.
+  - Remove refuses, naming the file, when a collection that names the article
+    cannot be parsed; fix that file and try again. A broken collection that
+    does not name it is ignored. It also refuses — `lists 1000 entries, the
+    most GitHub returns` — at 1,000 collections or an article of 1,000 files,
+    where GitHub's directory listing may be cut off; remove that one by hand.
 - Hiding an article (ADR 0017): add `unlisted: true` to its `index.md`
   frontmatter and push; the push redeploys. It drops out of the library,
   the pager, the tag and category pages, search, RSS and the sitemap, and stays
@@ -779,20 +804,26 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   `clipping`, `saved`, `updated`, `failed`, `unconfigured`, `pdf`,
   `arxiv-offer`, `arxiv-fetching`, `arxiv-pdf-fetching`, `arxiv-abstract`,
   `github-offer`, `github-fetching`, `github-refused`, `github-retrying`,
-  `reading`, `ready-zh`, `ready-raw`; add `&lang=zh` for the Chinese table. The list lives in
+  `reading`, `ready-zh`, `ready-raw`, and Remove's `remove-checking`,
+  `remove-confirm`, `remove-confirm-untitled`, `removing`, `removed`,
+  `remove-gone`, `remove-failed`, `remove-failed-collection`,
+  `remove-not-yet`; add `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging. The collections panel has its own set at
   `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
   `created`, `saving`, `saved`, `refused`, `failed`, `site`, `not-recorded`,
-  `save-unreachable`.
+  `save-unreachable`, `remove-offered`, `remove-confirm`,
+  `remove-confirm-untitled`, `removing`, `removed`, `remove-gone`.
 - **On a Tiro page the popup offers collections, not a clip** (ADR 0029). It
   recognizes the page by the site's `tiro:site` meta and `#tiro-page` island,
   on any domain, and shows a tick-list drawn from the page itself. Ticks queue
   in `chrome.storage.local` (`tiroCollectionQueue`, per vault) and are
   committed as **one** commit when the popup closes or on "Save now"; the
-  service worker is the queue's only writer. "Clip this page anyway" falls
-  back to the ordinary clip. A pending count shows on any page while something
-  is queued.
+  service worker is the queue's only writer. A Tiro page is never clipped —
+  it is a rendering of an article that came from somewhere; clip that source
+  page instead. A page whose marker cannot be read is not recognized as one,
+  and clips as any page does. A pending count shows on any page while
+  something is queued.
   - A save that fails keeps the queue and says why in the next popup; the next
     close or "Save now" retries, and retrying is always safe.
   - An add for an article the vault does not have is **dropped**, with a note
@@ -815,6 +846,16 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   a grey ✓ if the article was already there, ! if it could not — with the
   reason as its tooltip. It sends nothing before the disclosure is accepted, so
   a fresh install asks to be opened once first.
+- **"Remove"** (ADR 0036) sits at the left of the popup's footer, opposite
+  Settings, on a Tiro article page and on a page this machine clipped —
+  "Saved \<date\>", or just saved. It first reads the article from the vault,
+  and the confirmation card above the footer names the title the *vault* has,
+  never the page's: a Tiro page's marker is untrusted. Confirm deletes it in
+  one commit; Cancel or Escape backs out.
+  Afterwards the popup offers nothing else for that article — reopen it to
+  clip the page again. "Not in vault" means there was nothing to remove, and
+  both outcomes forget this machine's clip record. "GitHub has not caught up"
+  right after a clip is GitHub's read side trailing its write: wait a moment.
 - `Alt+Shift+C` (`Option+Shift+C` on macOS) opens the popup. If another
   extension already claimed it, Chrome leaves it unassigned — rebind at
   `chrome://extensions/shortcuts`.
@@ -883,6 +924,10 @@ Two decisions worth not relitigating:
   when the manifest is unchanged. Do not "correct" it back to 4. 6 is "Clip
   link" (ADR 0034): a link's address now leaves the browser from a context-menu
   click with no popup open — the same destination, but a new way to reach it.
+  6 also names the popup's "Remove" (ADR 0036), the one write that deletes: it
+  joined 6 rather than bumping to 7 because neither 5 nor 6 had been released,
+  so every user who sees 6 sees it with that sentence. Once a version has
+  shipped, a change like that is a bump.
   Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
@@ -897,8 +942,11 @@ Two decisions worth not relitigating:
   because
   the disclosure promises nothing is sent before the Clip click. The state is
   therefore blind to clips made on other machines; the clip flow itself still
-  checks GitHub and reports "Updated existing clip." Clearing the record
-  (remove the key, or reinstall) only costs the already-clipped statuses. It
+  checks GitHub and reports "Updated existing clip." Remove from Tiro
+  forgets the article's entry once the vault confirms it is gone; another
+  machine's record goes on saying "Saved" until its own Remove says "not in
+  vault". Clearing the record (remove the key, or reinstall) only costs the
+  already-clipped statuses — and the Remove offered beside them. It
   stays in `chrome.storage.local` even with settings sync on — see the cap
   below.
 - **UI language follows the browser, overridable in Settings.** Chrome's

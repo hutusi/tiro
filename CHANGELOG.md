@@ -9,6 +9,16 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Remove an article from the extension.** "Remove", at the foot of the popup
+  — on an article's Tiro page, or on a page this machine clipped — deletes the
+  article from your vault, with its images and translation, and takes it out
+  of every collection, in one commit; the push redeploys the site. It first
+  reads the article from the vault, so the confirmation card names the title
+  your vault has rather than anything the page claims. The
+  vault's git history keeps a copy. The data disclosure's version 6, not yet
+  released, now also describes it, so no second re-acceptance is asked for
+  (ADR 0036).
+
 - **Save a link from your iPhone.** A Share Sheet shortcut writes the link into
   the vault's `inbox/`, and the next run fetches the page, clips it with the
   extension's own clipper and processes it like any clip. A page that cannot be
@@ -117,6 +127,16 @@ versions follow the `0.x` line while Tiro is a personal system.
   goes to the library (ADR 0031).
 
 ### Fixed
+
+- **Deleting an article while a run is processing it no longer costs the
+  run.** The run's commit-back rebased onto `main` with `-X theirs`, which
+  cannot settle an edit of a file `main` deleted: the rebase stopped, the step
+  failed, and every article the run had finished — with every translation
+  checkpoint it wrote — was thrown away. Files it had only added under the
+  deleted article would have come back as an orphan directory. A deletion now
+  wins: the run drops what it wrote under that article, logs a notice, and
+  commits the rest (ADR 0036). The vault's `process.yml` must be copied in
+  from `vault-template/` for this to apply.
 
 - **An article split around ads is clipped whole.** Ars Technica serves each
   stretch of an article in its own container, with an ad slot between, and

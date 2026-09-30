@@ -20,6 +20,8 @@
         file on GitHub, it can fetch the document itself — from arxiv.org or
         raw.githubusercontent.com — instead, once you allow it.
       </p>
+      <!-- Replaced by localize() from i18n.ts before it is seen; kept in
+        step with the English string there so the markup never says less. -->
       <p id="disclosure-body-2">
         None of it is sent to your vault until you press “Clip to vault”, which
         commits it to the GitHub repository you configured. Close this popup
@@ -27,6 +29,15 @@
         page carrying Tiro's marker — the popup offers collections instead: a
         box you tick is kept, and committed to the same repository when you
         close the popup or press “Save now”, for an article it already holds.
+        “Clip link to Tiro”, in a link's right-click menu, sends only that
+        link's address to the same repository, the moment you choose it — the
+        page itself is read later, by the processor in your repository, not by
+        the extension. “Remove”, at the foot of the popup for an article you
+        clipped or are reading on a Tiro site, looks the article up in the same
+        repository and, once you confirm, deletes it there — its files, and
+        its place in your collections — in one commit. Your token and settings
+        stay on this machine unless you turn on settings sync, which lets
+        Chrome copy them to your other devices.
       </p>
       <div class="actions">
         <button id="accept" type="button" class="btn btn-primary">
@@ -73,9 +84,6 @@
           Add
         </button>
       </form>
-      <button id="clip-anyway" type="button" class="linklike">
-        Clip this page anyway
-      </button>
     </section>
 
     <div id="progress" hidden aria-live="polite">
@@ -127,7 +135,57 @@
       </button>
     </div>
 
+    <!-- Remove from Tiro (ADR 0036): confirmed here, inline — never through a
+      browser dialog — naming the article the way the vault has it. The link
+      that opens it sits in the footer. -->
+    <section id="remove" hidden>
+      <div id="remove-confirm" hidden>
+        <h2 id="remove-heading">Remove this article?</h2>
+        <p id="remove-title">Article title</p>
+        <p id="remove-note">
+          Its text, translation, images and collection entries are deleted from
+          your vault, in one commit. Git history keeps a copy.
+        </p>
+        <div class="actions">
+          <button id="remove-cancel" type="button" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button
+            id="remove-confirm-button"
+            type="button"
+            class="btn btn-primary"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+      <p id="remove-status" data-tone="neutral" aria-live="polite" hidden>
+        Removing it from your vault…
+      </p>
+    </section>
+
     <footer class="foot">
+      <!-- Quiet, and in the same place in both of the popup's modes. -->
+      <button
+        id="remove-offer"
+        type="button"
+        class="linklike"
+        title="Remove this article from your vault"
+        hidden
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="13"
+          height="13"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path
+            d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.8 12.5h9.4L17.5 7M10 11v5.5M14 11v5.5"
+          />
+        </svg>
+        <span id="remove-offer-label">Remove</span>
+      </button>
       <button id="options" type="button" class="linklike">Settings</button>
     </footer>
     <script type="module" src="./popup.ts"></script>

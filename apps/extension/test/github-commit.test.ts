@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { commitFiles, GitHubHttpError } from "../src/github.ts";
+import {
+  commitFiles,
+  type FetchLike,
+  GitHubHttpError,
+  readAtHead,
+} from "../src/github.ts";
 import type { TiroExtensionConfig } from "../src/storage.ts";
 import { fakeGitHub } from "./fake-github.ts";
 
@@ -189,5 +194,218 @@ describe("commitFiles", () => {
       gh.fetch,
     );
     expect(result.committed).not.toBeNull();
+  });
+});
+
+describe("commitFiles deletions (ADR 0036)", () => {
+  test("deletes and writes in one commit, and leaves the rest alone", async () => {
+    const gh = fakeGitHub({
+      "articles/a-1234abcd/index.md": "A",
+      "articles/a-1234abcd/assets/f.png": "png",
+      "articles/b-1234abcd/index.md": "B",
+      "collections/favorites.md": "v1",
+    });
+    const bodies: { tree: Record<string, unknown>[] }[] = [];
+    const spy: typeof gh.fetch = async (input, init) => {
+      if (init?.method === "POST" && String(input).endsWith("/git/trees")) {
+        bodies.push(JSON.parse(String(init.body)));
+      }
+      return gh.fetch(input, init);
+    };
+    const result = await commitFiles(
+      config,
+      {
+        build: async () => ({
+          message: "remove: a-1234abcd",
+          files: [
+            { path: "articles/a-1234abcd/assets/f.png", delete: true },
+            { path: "articles/a-1234abcd/index.md", delete: true },
+            { path: "collections/favorites.md", content: "v2" },
+          ],
+        }),
+      },
+      spy,
+    );
+    expect(result.committed).not.toBeNull();
+    expect(gh.log()).toEqual(["root", "remove: a-1234abcd"]);
+    expect([...gh.files().keys()].sort()).toEqual([
+      "articles/b-1234abcd/index.md",
+      "collections/favorites.md",
+    ]);
+    expect(gh.files().get("collections/favorites.md")).toBe("v2");
+    // The documented shape, and no content riding along with it.
+    expect(bodies[0]?.tree[0]).toEqual({
+      path: "articles/a-1234abcd/assets/f.png",
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    });
+  });
+
+  test("a deletion of a file the head lacks is refused, not ignored", async () => {
+    const gh = fakeGitHub({ "articles/b-1234abcd/index.md": "B" });
+    const run = commitFiles(
+      config,
+      {
+        build: async () => ({
+          message: "m",
+          files: [{ path: "articles/a-1234abcd/index.md", delete: true }],
+        }),
+      },
+      gh.fetch,
+    );
+    await expect(run).rejects.toBeInstanceOf(GitHubHttpError);
+    expect(gh.log()).toEqual(["root"]);
+  });
+
+  test("one path twice in a commit is a builder bug, refused before any write", async () => {
+    const gh = fakeGitHub({ x: "1" });
+    const run = commitFiles(
+      config,
+      {
+        build: async () => ({
+          message: "m",
+          files: [
+            { path: "x", content: "2" },
+            { path: "x", delete: true },
+          ],
+        }),
+      },
+      gh.fetch,
+    );
+    await expect(run).rejects.toThrow("appears twice");
+    expect(gh.requests.some((r) => r.startsWith("POST"))).toBe(false);
+  });
+});
+
+describe("TreeReader.files", () => {
+  test("lists every file under a directory, dotfiles and assets included", async () => {
+    const gh = fakeGitHub({
+      "articles/a-1234abcd/index.md": "A",
+      "articles/a-1234abcd/zh.md": "Z",
+      "articles/a-1234abcd/.tiro-zh-cache.json": "{}",
+      "articles/a-1234abcd/assets/1.png": "p",
+      "articles/a-1234abcd/assets/2.png": "p",
+      "articles/a-1234abcd-other/index.md": "not this one",
+    });
+    let listed: string[] = [];
+    let missing = null as string[] | null;
+    await commitFiles(
+      config,
+      {
+        build: async (reader) => {
+          listed = await reader.files("articles/a-1234abcd");
+          missing = await reader.files("articles/gone-1234abcd");
+          return null;
+        },
+      },
+      gh.fetch,
+    );
+    expect(listed).toEqual([
+      "articles/a-1234abcd/.tiro-zh-cache.json",
+      "articles/a-1234abcd/assets/1.png",
+      "articles/a-1234abcd/assets/2.png",
+      "articles/a-1234abcd/index.md",
+      "articles/a-1234abcd/zh.md",
+    ]);
+    expect(missing).toEqual([]);
+  });
+
+  /** A repository whose one directory lists as `entries`. */
+  function listingOnly(entries: unknown[]): FetchLike {
+    return async (input) => {
+      const url = String(input);
+      if (url.includes("/git/ref/")) {
+        return new Response(JSON.stringify({ object: { sha: "c1" } }));
+      }
+      if (url.includes("/git/commits/")) {
+        return new Response(JSON.stringify({ tree: { sha: "t1" } }));
+      }
+      return new Response(JSON.stringify(entries));
+    };
+  }
+
+  async function filesOf(entries: unknown[]): Promise<string[]> {
+    let out: string[] = [];
+    await commitFiles(
+      config,
+      {
+        build: async (reader) => {
+          out = await reader.files("articles/a-1234abcd");
+          return null;
+        },
+      },
+      listingOnly(entries),
+    );
+    return out;
+  }
+
+  test("refuses a listing that may have been cut off at the API's cap", async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => ({
+      name: `${i}.png`,
+      type: "file",
+    }));
+    await expect(filesOf(full)).rejects.toThrow("the most GitHub returns");
+    expect(await filesOf(full.slice(1))).toHaveLength(999);
+  });
+
+  // Every listing, not only the recursive one: a removal reads `collections/`
+  // through `list`, and a cut-off one there left the removed article named by
+  // every collection past the cut.
+  test("list refuses a listing at the cap too", async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => ({
+      name: `c${i}.md`,
+      type: "file",
+    }));
+    const listOf = async (entries: unknown[]) => {
+      let out: string[] | null = null;
+      await commitFiles(
+        config,
+        {
+          build: async (reader) => {
+            out = await reader.list("collections");
+            return null;
+          },
+        },
+        listingOnly(entries),
+      );
+      return out;
+    };
+    await expect(listOf(full)).rejects.toThrow("the most GitHub returns");
+    expect(await listOf(full.slice(1))).toHaveLength(999);
+  });
+
+  test("refuses what the pipeline never writes: a symlink, a submodule", async () => {
+    await expect(
+      filesOf([{ name: "index.md", type: "symlink" }]),
+    ).rejects.toThrow("is a symlink");
+    await expect(
+      filesOf([{ name: "vendor", type: "submodule" }]),
+    ).rejects.toThrow("is a submodule");
+  });
+});
+
+describe("readAtHead", () => {
+  test("reads a file at the head, and says which commit that was", async () => {
+    const gh = fakeGitHub({ "articles/a-1234abcd/index.md": "A" });
+    const found = await readAtHead(
+      config,
+      "articles/a-1234abcd/index.md",
+      gh.fetch,
+    );
+    expect(found.text).toBe("A");
+    expect(found.commit).toMatch(/^c/);
+    const absent = await readAtHead(config, "articles/gone/index.md", gh.fetch);
+    expect(absent.text).toBeNull();
+  });
+
+  // The Contents API says 404 for a missing file and for a repository the
+  // token cannot see. Only the first may read as "not there".
+  test("a repository it cannot reach throws, never reads as absent", async () => {
+    const unreachable: FetchLike = async () =>
+      new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+    const read = readAtHead(config, "articles/a/index.md", unreachable);
+    await expect(read).rejects.toBeInstanceOf(GitHubHttpError);
+    await expect(read).rejects.toMatchObject({ status: 404 });
   });
 });

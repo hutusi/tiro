@@ -40,7 +40,8 @@ machine. Each file is a title and an ordered list of article slugs; the
 filename is the id, so keep it to lowercase ASCII words joined by dashes. A
 push under `collections/` redeploys the site through `publish.yml` and never
 starts processing. Delete an article and you must also drop it from any
-collection that lists it — `tiro-process validate` reports which.
+collection that lists it — `tiro-process validate` reports which. The
+extension popup's "Remove" does both in one commit (ADR 0036).
 
 A collection may also carry a `description:` line, shown under its title, and
 a `cover:` naming one article image by its vault path,
@@ -93,6 +94,9 @@ members' own pictures (ADR 0030), so most collections never need one.
 - **Hand edits publish themselves.** Hiding an article (`unlisted: true`),
   deleting one, or any other push under `articles/` redeploys the site when the
   processing run it starts ends, even with nothing to process.
+- **Deleting an article a run is still processing is safe.** The run drops
+  what it wrote under that article, logs a notice, and commits everything else
+  — the deletion wins.
 - **Updating this vault's workflows**: the files under `.github/workflows/`
   are copies. When the Tiro repo's `vault-template/` changes them, copy the new
   versions in by hand — nothing propagates them.

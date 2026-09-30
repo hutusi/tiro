@@ -122,3 +122,35 @@ describe("formatClipDate", () => {
     expect(formatClipDate("zh", iso)).toContain("2026");
   });
 });
+
+describe("the disclosure and Remove (ADR 0036)", () => {
+  // Removal is the one write that deletes, and consent that never mentioned it
+  // would not cover it — in either language.
+  // Quoted as the link shows it: a bare "Remove" would be found in any
+  // sentence that happens to use the word.
+  test("both disclosures name Remove by the words on its link, quoted", () => {
+    const en = messages("en");
+    const zh = messages("zh");
+    expect(en.disclosureBody2).toContain(`“${en.removeOffer}”`);
+    expect(zh.disclosureBody2).toContain(`「${zh.removeOffer}」`);
+  });
+
+  /**
+   * popup.html carries the English disclosure as pre-paint text, replaced by
+   * `localize()` before anyone reads it — and it had fallen a whole sentence
+   * behind i18n.ts, the Clip-link one, without anything noticing. It is what
+   * shows if the script never runs, so it may not say less than the product.
+   */
+  test("popup.html's fallback text is the English disclosure, word for word", async () => {
+    const html = await Bun.file(
+      new URL("../src/popup/popup.html", import.meta.url),
+    ).text();
+    const text = (id: string) =>
+      (new RegExp(`<p id="${id}">([\\s\\S]*?)</p>`).exec(html)?.[1] ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const en = messages("en");
+    expect(text("disclosure-body-1")).toBe(en.disclosureBody1);
+    expect(text("disclosure-body-2")).toBe(en.disclosureBody2);
+  });
+});
