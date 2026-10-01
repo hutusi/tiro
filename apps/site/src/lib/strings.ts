@@ -63,10 +63,6 @@ export const STRINGS = {
     title: "合集",
     /** Favorites' title before the vault has a `favorites.md` to give it one. */
     favorites: "收藏",
-    // Says what a collection *is*, because nothing else on the site does:
-    // tags and categories are written by the model, and this is the one list
-    // that was chosen by hand.
-    intro: "手选的文章。标签与分类由模型给出，合集不是。",
     /** No collections in the vault at all. */
     empty: "还没有合集。",
     /** A collection that exists and holds nothing — what you get the moment

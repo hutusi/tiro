@@ -8,11 +8,8 @@ const collections = await getCollections();
 const t = STRINGS.collections;
 ---
 
-<Base title={t.title} description={t.intro}>
-  <div class="mb-7">
-    <h1 class="text-[34px] font-medium tracking-[-0.01em]">{t.title}</h1>
-    <p class="mt-2 font-ui text-sm text-ink-mute">{t.intro}</p>
-  </div>
+<Base title={t.title}>
+  <h1 class="mb-7 text-[34px] font-medium tracking-[-0.01em]">{t.title}</h1>
 
   {collections.length === 0 && <p class="text-ink-soft">{t.empty}</p>}
 
