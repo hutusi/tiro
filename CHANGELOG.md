@@ -15,6 +15,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   clipped as its poster frame, linking to the file it plays, and a captioned
   one keeps its caption; one with no poster becomes a plain link. Articles
   clipped before this need a re-clip to get their videos back.
+- **An arXiv figure no longer says "Refer to caption".** LaTeXML gives every
+  figure image that alt text — or "[Uncaptioned image]" — which is all a
+  screen reader or a broken image had to go on. The clipper now leaves it
+  empty; the caption is already printed beside the image.
 
 ## [0.10.0] - 2026-10-02
 

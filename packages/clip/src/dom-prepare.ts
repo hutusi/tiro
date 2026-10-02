@@ -650,6 +650,38 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * The alt text LaTeXML writes on every figure image, which describes nothing:
+ * "Refer to caption" on a captioned one, "[Uncaptioned image]" on the rest.
+ */
+const LATEXML_PLACEHOLDER_ALTS: ReadonlySet<string> = new Set([
+  "Refer to caption",
+  "[Uncaptioned image]",
+]);
+
+/**
+ * Clear the alt text LaTeXML fills in when a paper gives none.
+ *
+ * Every image on an arXiv paper read "Refer to caption" — all 19 of KAN's —
+ * which is a screen reader's whole account of the figure and the text that
+ * stands in when the image fails to load. It says less
+ * than an empty alt: the caption it points at is folded beside the image anyway
+ * (ADR 0011), and "[Uncaptioned image]" points at nothing at all, landing in
+ * the markdown as `![\[Uncaptioned image\]](…)`.
+ *
+ * Emptied rather than replaced with the caption, which would repeat the line
+ * printed directly under it. Only on LaTeXML's own `ltx_graphics` and only on
+ * an exact match, so an author who wrote either phrase keeps it.
+ */
+function clearLatexmlPlaceholderAlts(doc: Document): void {
+  for (const image of Array.from(doc.querySelectorAll("img.ltx_graphics"))) {
+    const alt = image.getAttribute("alt");
+    if (alt !== null && LATEXML_PLACEHOLDER_ALTS.has(alt.trim())) {
+      image.setAttribute("alt", "");
+    }
+  }
+}
+
+/**
  * Re-tag every `<font>` as a `<span>`, before Readability reads the page.
  *
  * Not about the tag's own output — Turndown discards `color`, `size` and `face`
@@ -1775,6 +1807,7 @@ export function prepareForClipping(doc: Document): void {
   declassifyCodeWrappers(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
+  clearLatexmlPlaceholderAlts(doc);
   // After normalizeMath, so a MathJax formula has already become its TeX
   // marker rather than an <svg> this could delete.
   dropChartSvgs(doc);

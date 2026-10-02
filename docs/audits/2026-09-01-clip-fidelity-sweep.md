@@ -124,6 +124,11 @@ render as none; LaTeXML puts the mark and the footnote body adjacent inline, pro
 `FIG-SEMANTICS` (32 figures flattened; the 16 `Figure N.M:` captions survive only as plain
 paragraphs).
 
+**`ALT-PLACEHOLDER` fixed at clip time, 2026-10-02.** LaTeXML writes "Refer to caption" (and
+"[Uncaptioned image]" where there is none) as the alt of every `img.ltx_graphics`; the clipper now
+empties exactly those two on exactly that class. Emptied rather than filled from the caption, which
+is already folded beside the image. Needs a re-clip.
+
 ### 5. `simonwillison…understanding-chatgpt-work` — two independent defects
 `CODE-FLAT`: the JavaScript example renders as a proportional-font `<p>`, wrapped as prose
 (`preInPane: 0`). Because it is a paragraph rather than a code block, `VERBATIM_BLOCK_TYPES` no

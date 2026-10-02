@@ -42,7 +42,7 @@ const paperHtml = (id = "2404.19756", version = 1) => `<!doctype html>
 <div class="ltx_abstract"><h6 class="ltx_title ltx_title_abstract">Abstract</h6>
 <p class="ltx_p">Inspired by the representation theorem.</p></div>
 <section class="ltx_section"><p class="ltx_p">${"Body sentence. ".repeat(40)}</p>
-<figure><img src="${id}v${version}/figs/sr.png" alt="Refer to caption"></figure>
+<figure class="ltx_figure"><img src="${id}v${version}/figs/sr.png" class="ltx_graphics ltx_centering ltx_img_landscape" alt="Refer to caption"></figure>
 <p><a href="#S2">Section 2</a> and <a href="../abs/2101.00001">a paper</a>.</p>
 </section></article></body></html>`;
 
@@ -145,6 +145,20 @@ describe("clipArxivPaper", () => {
       "https://arxiv.org/html/2404.19756v1/figs/sr.png",
     );
     expect(clip.payload.markdown).not.toContain("](2404.19756v1/figs");
+  });
+
+  // The sweep's ALT-PLACEHOLDER: all 19 of KAN's images were "Refer to
+  // caption", which tells a screen reader nothing the caption beside it
+  // does not.
+  test("an image keeps no placeholder alt text", async () => {
+    const clip = await clipArxivPaper(
+      { id: "2404.19756", version: 1 },
+      deps({ "https://arxiv.org/html/2404.19756v1": paperHtml() }),
+    );
+    expect(clip.payload.markdown).toContain(
+      "![](https://arxiv.org/html/2404.19756v1/figs/sr.png)",
+    );
+    expect(clip.payload.markdown).not.toContain("Refer to caption");
   });
 
   test("records the version arXiv served when the URL named none", async () => {

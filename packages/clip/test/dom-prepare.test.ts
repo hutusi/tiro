@@ -2634,3 +2634,31 @@ describe("a video keeps its place in the article", () => {
     );
   });
 });
+
+describe("LaTeXML's placeholder alt text", () => {
+  const graphic = (alt: string) =>
+    `<img src="f.png" class="ltx_graphics ltx_centering" alt="${alt}">`;
+
+  test("clears both of LaTeXML's placeholders", () => {
+    for (const alt of ["Refer to caption", "[Uncaptioned image]"]) {
+      const { doc } = prepare(graphic(alt));
+      expect(doc.querySelector("img")?.getAttribute("alt")).toBe("");
+    }
+  });
+
+  test("keeps alt text a paper actually wrote", () => {
+    const { doc } = prepare(graphic("Loss curves for KAN and MLP"));
+    expect(doc.querySelector("img")?.getAttribute("alt")).toBe(
+      "Loss curves for KAN and MLP",
+    );
+  });
+
+  test("keeps the phrase on an image LaTeXML did not make", () => {
+    // Anyone may write the words; only LaTeXML's own image is known to mean
+    // nothing by them.
+    const { doc } = prepare('<img src="f.png" alt="Refer to caption">');
+    expect(doc.querySelector("img")?.getAttribute("alt")).toBe(
+      "Refer to caption",
+    );
+  });
+});
