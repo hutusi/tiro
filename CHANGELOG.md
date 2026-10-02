@@ -15,9 +15,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   of every collection, in one commit; the push redeploys the site. It first
   reads the article from the vault, so the confirmation card names the title
   your vault has rather than anything the page claims. The
-  vault's git history keeps a copy. The data disclosure's version 6, not yet
-  released, now also describes it, so no second re-acceptance is asked for
-  (ADR 0036).
+  vault's git history keeps a copy. The data disclosure's version 6, which
+  ships in this release with "Clip link", also describes it, so it asks for no
+  second re-acceptance (ADR 0036).
 
 - **Save a link from your iPhone.** A Share Sheet shortcut writes the link into
   the vault's `inbox/`, and the next run fetches the page, clips it with the
