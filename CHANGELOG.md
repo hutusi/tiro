@@ -7,6 +7,15 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A video in an article is kept.** The clipper used to drop every `<video>`
+  silently — poster frame and all — or publish the page's "your browser does
+  not support video" fallback as if the author had written it. A video is now
+  clipped as its poster frame, linking to the file it plays, and a captioned
+  one keeps its caption; one with no poster becomes a plain link. Articles
+  clipped before this need a re-clip to get their videos back.
+
 ## [0.10.0] - 2026-10-02
 
 ### Added

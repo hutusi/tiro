@@ -172,6 +172,14 @@ in the served HTML, so no clipper change recovers the text — but the orphan sp
 `EMBED-LOSS`. `<video src=led-before-after.mp4 poster=led-before-after.jpg>` — a before/after LED
 demo, the payoff of a DIY post — is dropped silently, poster frame included.
 
+**Fixed at clip time, 2026-10-02.** Readability keeps the `<video>`; Turndown has no rule for one
+and writes out its text — nothing, or the page's "your browser does not support video" fallback,
+which then publishes as prose. The clipper now rewrites each video, after Readability, into its
+poster linking to the file it plays, `[![Video](poster)](video.mp4)`, the shape every later stage
+already handles: the fold captions it, the processor downloads the poster, the site renders a
+figure. No poster → a plain link; a `blob:` source → the poster unlinked. `schlarp` needs a
+re-clip.
+
 ## Non-findings — do not re-investigate
 
 - **`brennan.day` loses four `<pre>` blocks to Readability, correctly.** They are citation-export

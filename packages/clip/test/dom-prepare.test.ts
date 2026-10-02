@@ -10,6 +10,7 @@ import {
   MATH_ATTR,
   placeAnchorsIn,
   prepareForClipping,
+  videosAsPostersIn,
 } from "../src/dom-prepare.ts";
 import { htmlToMarkdown } from "../src/markdown.ts";
 
@@ -2530,5 +2531,106 @@ describe("an article split into several bodies", () => {
       '<article><div class="entry"><div>x</div></div><div class="entry"><div>y</div></div></article>',
     );
     expect(wrappers.doc.querySelectorAll(".entry")).toHaveLength(2);
+  });
+});
+
+describe("a video keeps its place in the article", () => {
+  const PAGE = "https://schlarp.example/posts/led-strip/";
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The whole clip, as the extension runs it, on a page at `PAGE`. */
+  function clip(markup: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<article><h1>LED</h1>${filler}${markup}${filler}</article>`;
+    return clipPage(window.document as unknown as Document, PAGE).markdown;
+  }
+
+  test("a video becomes its poster, linking to the file it plays", () => {
+    // The audit's EMBED-LOSS case: the before/after demo that was the payoff
+    // of a DIY post was dropped silently, poster frame included.
+    const markdown = clip(
+      '<video src="led-before-after.mp4" poster="led-before-after.jpg" controls></video>',
+    );
+    expect(markdown).toContain(
+      `[![Video](${PAGE}led-before-after.jpg)](${PAGE}led-before-after.mp4)`,
+    );
+  });
+
+  test("its fallback text is never published as prose", () => {
+    const markdown = clip(
+      '<video poster="/p.jpg" controls><source src="/v.mp4" type="video/mp4">' +
+        "Your browser does not support the video tag.</video>",
+    );
+    expect(markdown).not.toContain("does not support");
+    expect(markdown).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("an MP4 source is linked before one listed ahead of it", () => {
+    const markdown = clip(
+      '<video poster="/p.jpg"><source src="/v.webm" type="video/webm">' +
+        '<source src="/v.mp4" type="video/mp4"></video>',
+    );
+    expect(markdown).toContain("(https://schlarp.example/v.mp4)");
+    expect(markdown).not.toContain("v.webm");
+  });
+
+  test("a captioned video folds its caption like a captioned image", () => {
+    const markdown = clip(
+      '<figure><video src="/v.mp4" poster="/p.jpg" autoplay muted loop></video>' +
+        "<figcaption>Before and after the fix.</figcaption></figure>",
+    );
+    expect(markdown).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)  \nBefore and after the fix.",
+    );
+  });
+
+  test("the page's own label names it", () => {
+    const markdown = clip(
+      '<video src="/v.mp4" poster="/p.jpg" aria-label="LED strip, before and after"></video>',
+    );
+    expect(markdown).toContain("[![LED strip, before and after](");
+  });
+
+  test("a video with no poster becomes a plain link", () => {
+    expect(clip('<video src="/v.mp4" controls></video>')).toContain(
+      "[Video](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("a blob: source is not linked, and its poster still shows", () => {
+    // What a streaming player hands its <video>: an address that means
+    // nothing outside the tab that made it.
+    const markdown = clip(
+      '<video src="blob:https://schlarp.example/0d1e" poster="/p.jpg"></video>',
+    );
+    expect(markdown).toContain("![Video](https://schlarp.example/p.jpg)");
+    expect(markdown).not.toContain("blob:");
+    expect(markdown).not.toContain("[![");
+  });
+
+  test("a video with nothing to show is dropped, fallback and all", () => {
+    const markdown = clip(
+      '<video src="blob:https://schlarp.example/0d1e">Your browser cannot play this.</video>',
+    );
+    expect(markdown).not.toContain("blob:");
+    expect(markdown).not.toContain("cannot play");
+    expect(markdown).not.toContain("Video");
+  });
+
+  test("relative addresses resolve against the page on the raw-body path", () => {
+    // Readability resolves URLs; its fallback does not, and this pass must not
+    // depend on which of the two produced the HTML.
+    const window = new Window({ url: PAGE });
+    const doc = window.document as unknown as Document;
+    const html = videosAsPostersIn(
+      '<video src="clip.mp4" poster="../frame.png"></video>',
+      doc,
+    );
+    expect(htmlToMarkdown(html).markdown).toBe(
+      "[![Video](https://schlarp.example/posts/frame.png)](https://schlarp.example/posts/led-strip/clip.mp4)",
+    );
   });
 });

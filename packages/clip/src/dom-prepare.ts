@@ -999,6 +999,105 @@ function captionSource(caption: Element): Element | null {
 }
 
 /**
+ * What a video becomes when nothing better can be said: its link text, and its
+ * poster's alt text. The page's own label wins when it gives one.
+ */
+const VIDEO_LABEL = "Video";
+
+/** A video address a reader can follow: http(s), resolved against the page.
+ * `blob:` is what a streaming player hands its `<video>`, and it means nothing
+ * outside the tab that made it; `data:` would put the file in the markdown. */
+function followableUrl(value: string | null, base: string): string | null {
+  if (value === null || value.trim() === "") return null;
+  try {
+    const url = new URL(value.trim(), base);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The file a `<video>` plays: its own `src`, else one of its `<source>`s —
+ * MP4 first, since it is the one format every browser opens from a bare link.
+ */
+function videoSource(video: Element, base: string): string | null {
+  const own = followableUrl(video.getAttribute("src"), base);
+  if (own !== null) return own;
+  const sources = Array.from(video.querySelectorAll("source"))
+    .map((source) => ({
+      url: followableUrl(source.getAttribute("src"), base),
+      mp4: /^video\/mp4\b/i.test(source.getAttribute("type") ?? ""),
+    }))
+    .filter((source) => source.url !== null);
+  return (sources.find((source) => source.mp4) ?? sources[0])?.url ?? null;
+}
+
+/**
+ * Give every `<video>` in already-extracted article HTML a shape markdown can
+ * carry: its poster frame, linking to the file it plays.
+ *
+ * Readability keeps a `<video>`; Turndown has no rule for one and writes out
+ * its text, which is either nothing — the demo that was the payoff of a DIY
+ * post vanished, poster frame and all — or the fallback a page leaves for
+ * browsers without video, so "Your browser does not support the video tag."
+ * landed in the article as the author's prose. Markdown has no video, and raw
+ * HTML is opaque to everything after the clip (the reason ADR 0011 reverted a
+ * raw `<figure>`), so the element is rewritten into what markdown does have:
+ * `<a href=video><img src=poster></a>`, which converts to `[![](poster)](video)`.
+ *
+ * That shape is one every later stage already understands, which is why it was
+ * chosen over anything new. The figure fold treats it as a linked image and
+ * folds a `<figcaption>` beside it; the processor downloads the poster as it
+ * would any image, while the link stays on the publisher's copy of the video —
+ * a file too large to belong in the vault; the site renders the pair as a
+ * figure that opens the video when clicked.
+ *
+ * A video with no poster becomes a plain link, and one whose only source is
+ * `blob:` keeps its poster unlinked. One with neither has nothing to show a
+ * reader and is dropped — its fallback text with it, which is never content.
+ *
+ * Runs after Readability for the reason `foldFiguresIn` does, and before it,
+ * because the fold has to see the image this builds. Resolved against the
+ * page's address rather than trusted to be absolute: on the raw-body fallback
+ * Readability never resolved anything.
+ */
+export function videosAsPostersIn(html: string, doc: Document): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  const base = doc.baseURI;
+  for (const video of Array.from(scratch.querySelectorAll("video"))) {
+    const source = videoSource(video, base);
+    const poster = followableUrl(video.getAttribute("poster"), base);
+    const label =
+      (
+        video.getAttribute("aria-label") ??
+        video.getAttribute("title") ??
+        ""
+      ).trim() || VIDEO_LABEL;
+    let replacement: Element | null = null;
+    if (poster !== null) {
+      const image = scratch.createElement("img");
+      image.setAttribute("src", poster);
+      image.setAttribute("alt", label);
+      replacement = image;
+    }
+    if (source !== null) {
+      const link = scratch.createElement("a");
+      link.setAttribute("href", source);
+      if (replacement === null) link.textContent = label;
+      else link.appendChild(replacement);
+      replacement = link;
+    }
+    if (replacement === null) video.remove();
+    else video.replaceWith(replacement);
+  }
+  return scratch.body.innerHTML;
+}
+
+/**
  * Fold a `<figure>`'s caption into the same paragraph as its image.
  *
  * Turndown has no figure rule, so `<figure>`/`<figcaption>` convert as two
