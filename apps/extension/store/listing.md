@@ -34,7 +34,8 @@ across machines, not for an audience.
 >
 > - Readable Markdown with frontmatter, not an archived blob of HTML.
 > - Your repository, your token. There is no Tiro account and no Tiro server —
->   the extension talks to api.github.com, and to arxiv.org only if you allow it.
+>   the extension talks to api.github.com, and to arxiv.org and
+>   raw.githubusercontent.com only if you allow it.
 > - arXiv papers are clipped in full where arXiv has a full text to give.
 >   Whichever of a paper's addresses you are on — abstract, PDF or HTML — it is
 >   one article, and Tiro fetches the HTML edition for it. That needs your
