@@ -181,13 +181,18 @@ used as a word keeps its gap, the text being unrecoverable from the element. Nee
 `EMBED-LOSS`. `<video src=led-before-after.mp4 poster=led-before-after.jpg>` — a before/after LED
 demo, the payoff of a DIY post — is dropped silently, poster frame included.
 
-**Fixed at clip time, 2026-10-02.** Readability keeps the `<video>`; Turndown has no rule for one
-and writes out its text — nothing, or the page's "your browser does not support video" fallback,
-which then publishes as prose. The clipper now rewrites each video, after Readability, into its
-poster linking to the file it plays, `[![Video](poster)](video.mp4)`, the shape every later stage
-already handles: the fold captions it, the processor downloads the poster, the site renders a
-figure. No poster → a plain link; a `blob:` source → the poster unlinked. `schlarp` needs a
-re-clip.
+**Fixed at clip time, 2026-10-02.** Two losses, one behind the other. The page wraps its video in
+a `<p>`, and Readability deletes a paragraph with no text and no `img`/`embed`/`object`/`iframe` —
+`<video>` is not on that list. A video that does get through meets Turndown, which has no rule for
+one and writes out its text: nothing, or the page's "your browser does not support video" fallback,
+published as prose. The clipper now gives every `<video>` text of its own before Readability, so
+its paragraph is kept on the same terms as one with fallback text (a hidden paragraph or video is
+still dropped), and after Readability rewrites it into its poster linking to the file it plays,
+`[![Video](poster)](video.mp4)` — the shape every later stage already handles: the fold captions
+it, the processor downloads the poster, the site renders a figure. No poster → a plain link; a
+`blob:` source → the poster unlinked. The first version of this fix handled only a video loose in
+the article, and a review clip of the live page caught it unchanged; the regression test now uses
+the paragraph-wrapped shape. `schlarp` needs a re-clip, which is also the live confirmation.
 
 ## Non-findings — do not re-investigate
 

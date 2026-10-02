@@ -1105,6 +1105,35 @@ function videoSource(video: Element, base: string): string | null {
 }
 
 /**
+ * Give every `<video>` text of its own, so Readability keeps the paragraph it
+ * sits in.
+ *
+ * `_prepArticle` deletes a `<p>` that has no text and holds no `img`, `embed`,
+ * `object` or `iframe` — and `<video>` is not on that list. The page the audit
+ * named wraps its video in exactly such a paragraph, so the video was gone
+ * before `videosAsPostersIn` could see it, and a test with the video loose in
+ * the article passed regardless. A lone `<div><video></div>` goes the same
+ * way, one step later: Readability turns a `<div>` with no block children into
+ * a `<p>`, and then deletes that.
+ *
+ * Text is the one signal that rule reads which can be added without changing
+ * any element or attribute. A video whose page left fallback text already
+ * survived — that is how "your browser does not support video" reached the
+ * vault — so this makes every video the shape that already works. Unwrapping
+ * the paragraph instead, as `unwrapMediaWrappers` does for a figure's `<div>`,
+ * would discard the very attributes Readability reads to decide what is
+ * hidden; here a hidden paragraph, or a hidden video, is still dropped with
+ * everything in it. The text never reaches the markdown: `videosAsPostersIn`
+ * replaces the whole element, fallback and all.
+ */
+function keepVideosThroughReadability(doc: Document): void {
+  for (const video of Array.from(doc.querySelectorAll("video"))) {
+    if ((video.textContent ?? "").trim() !== "") continue;
+    video.appendChild(doc.createTextNode(VIDEO_LABEL));
+  }
+}
+
+/**
  * Give every `<video>` in already-extracted article HTML a shape markdown can
  * carry: its poster frame, linking to the file it plays.
  *
@@ -1129,14 +1158,22 @@ function videoSource(video: Element, base: string): string | null {
  * reader and is dropped — its fallback text with it, which is never content.
  *
  * Runs after Readability for the reason `foldFiguresIn` does, and before it,
- * because the fold has to see the image this builds. Resolved against the
- * page's address rather than trusted to be absolute: on the raw-body fallback
- * Readability never resolved anything.
+ * because the fold has to see the image this builds. Readability only gets
+ * that far with the video because `keepVideosThroughReadability` gave it
+ * text. Resolved against the page's address rather than trusted to be
+ * absolute: on the raw-body fallback Readability never resolved anything.
  */
-export function videosAsPostersIn(html: string, doc: Document): string {
+export function videosAsPostersIn(
+  html: string,
+  doc: Document,
+  pageUrl?: string,
+): string {
   const scratch = doc.implementation.createHTMLDocument("");
   scratch.body.innerHTML = html;
-  const base = doc.baseURI;
+  // The document's own base where it has one, since that is what the page's
+  // relative addresses were written against; the page's URL where it does not,
+  // for a document built somewhere that never learned where it came from.
+  const base = /^https?:/i.test(doc.baseURI) ? doc.baseURI : (pageUrl ?? "");
   for (const video of Array.from(scratch.querySelectorAll("video"))) {
     const source = videoSource(video, base);
     const poster = followableUrl(video.getAttribute("poster"), base);
@@ -1160,8 +1197,17 @@ export function videosAsPostersIn(html: string, doc: Document): string {
       else link.appendChild(replacement);
       replacement = link;
     }
-    if (replacement === null) video.remove();
-    else video.replaceWith(replacement);
+    if (replacement === null) {
+      video.remove();
+      continue;
+    }
+    // A link may point at the video. The marker moves to what replaces it and
+    // `placeAnchorsIn` decides as it would for any element: a text link gets
+    // its anchor, and a poster is refused the way every picture is, since an
+    // anchor in front of one would cost the caption fold.
+    const anchor = video.getAttribute(ANCHOR_ATTR);
+    if (anchor !== null) replacement.setAttribute(ANCHOR_ATTR, anchor);
+    video.replaceWith(replacement);
   }
   return scratch.body.innerHTML;
 }
@@ -1846,6 +1892,7 @@ export function prepareForClipping(doc: Document): void {
   unwrapPictures(doc);
   clearLatexmlPlaceholderAlts(doc);
   dropEmptyCitations(doc);
+  keepVideosThroughReadability(doc);
   // After normalizeMath, so a MathJax formula has already become its TeX
   // marker rather than an <svg> this could delete.
   dropChartSvgs(doc);

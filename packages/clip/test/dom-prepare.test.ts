@@ -2547,13 +2547,56 @@ describe("a video keeps its place in the article", () => {
   }
 
   test("a video becomes its poster, linking to the file it plays", () => {
-    // The audit's EMBED-LOSS case: the before/after demo that was the payoff
-    // of a DIY post was dropped silently, poster frame included.
+    // The audit's EMBED-LOSS case, in the shape the page really has: the
+    // video inside a paragraph, which Readability deletes as empty because
+    // `<video>` is not among the media it counts. A first version of this
+    // test put the video loose in the article and passed while the real page
+    // still lost it.
     const markdown = clip(
-      '<video src="led-before-after.mp4" poster="led-before-after.jpg" controls></video>',
+      '<p><video src="led-before-after.mp4" poster="led-before-after.jpg" controls></video></p>',
     );
     expect(markdown).toContain(
       `[![Video](${PAGE}led-before-after.jpg)](${PAGE}led-before-after.mp4)`,
+    );
+  });
+
+  test("a video alone in a <div> survives too", () => {
+    // Readability turns a <div> with no block children into a <p>, and then
+    // deletes that as empty: the same loss one step later.
+    expect(
+      clip('<div><video src="/v.mp4" poster="/p.jpg"></video></div>'),
+    ).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("a video loose in the article survives", () => {
+    expect(clip('<video src="/v.mp4" poster="/p.jpg"></video>')).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("a video the page hid stays hidden", () => {
+    // Keeping the paragraph must not keep what Readability drops for being
+    // invisible — on the paragraph or on the video itself.
+    for (const markup of [
+      '<p hidden><video src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p style="display: none"><video src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p><video hidden src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p><video aria-hidden="true" src="/v.mp4" poster="/p.jpg"></video></p>',
+    ]) {
+      const markdown = clip(markup);
+      expect(markdown).not.toContain("v.mp4");
+      expect(markdown).not.toContain("Video");
+    }
+  });
+
+  test("a link to a video keeps its target when the video becomes a link", () => {
+    const markdown = clip(
+      '<p>See <a href="#demo">the demo</a>.</p><p><video id="demo" src="/v.mp4"></video> before and after.</p>',
+    );
+    expect(markdown).toContain(
+      '<span id="demo"></span>[Video](https://schlarp.example/v.mp4) before and after.',
     );
   });
 
@@ -2618,6 +2661,20 @@ describe("a video keeps its place in the article", () => {
     expect(markdown).not.toContain("blob:");
     expect(markdown).not.toContain("cannot play");
     expect(markdown).not.toContain("Video");
+  });
+
+  test("a document with no base of its own resolves against the page URL", () => {
+    // A document built without a URL has `about:blank` as its base, against
+    // which nothing relative resolves; the address it was clipped from does.
+    const doc = new Window().document as unknown as Document;
+    const html = videosAsPostersIn(
+      '<video src="clip.mp4" poster="frame.png"></video>',
+      doc,
+      PAGE,
+    );
+    expect(htmlToMarkdown(html).markdown).toBe(
+      `[![Video](${PAGE}frame.png)](${PAGE}clip.mp4)`,
+    );
   });
 
   test("relative addresses resolve against the page on the raw-body path", () => {

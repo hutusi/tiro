@@ -89,7 +89,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // an image figure by the time the fold looks (videosAsPostersIn).
   const html = foldFiguresIn(
     placeAnchorsIn(
-      restoreCodeLanguagesIn(videosAsPostersIn(extracted, doc), doc),
+      restoreCodeLanguagesIn(videosAsPostersIn(extracted, doc, url), doc),
       doc,
     ),
     doc,
