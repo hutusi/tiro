@@ -1124,13 +1124,50 @@ function videoSource(video: Element, base: string): string | null {
  * would discard the very attributes Readability reads to decide what is
  * hidden; here a hidden paragraph, or a hidden video, is still dropped with
  * everything in it. The text never reaches the markdown: `videosAsPostersIn`
- * replaces the whole element, fallback and all.
+ * replaces the whole element, fallback and all, and `excerptWithoutVideos`
+ * keeps it out of the one thing Readability reads from the text directly.
  */
 function keepVideosThroughReadability(doc: Document): void {
   for (const video of Array.from(doc.querySelectorAll("video"))) {
     if ((video.textContent ?? "").trim() !== "") continue;
     video.appendChild(doc.createTextNode(VIDEO_LABEL));
   }
+}
+
+/**
+ * Readability's excerpt, unless it was read out of a video.
+ *
+ * With no description in the page's metadata, Readability uses the text of the
+ * article's first `<p>`. When that paragraph holds a video, its text is the
+ * video's: the label `keepVideosThroughReadability` adds, or the page's own
+ * "your browser does not support video" — so an article opening on its demo was
+ * summarised as `Video`, in the popup, the frontmatter and the site's feed,
+ * even when the video itself was then dropped from the body.
+ *
+ * Recognised by shape rather than by the label: the excerpt is exactly that
+ * paragraph's text, which an authored description never is, so one of those
+ * passes through untouched. Rebuilt from the first paragraph that still says
+ * something once every video is gone — the one Readability would have taken
+ * had the video's paragraph been deleted, as it was before videos were kept.
+ */
+export function excerptWithoutVideos(
+  excerpt: string,
+  content: string,
+  doc: Document,
+): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = content;
+  const first = scratch.querySelector("p");
+  if (first === null || first.querySelector("video") === null) return excerpt;
+  if (excerpt.trim() !== (first.textContent ?? "").trim()) return excerpt;
+  for (const video of Array.from(scratch.querySelectorAll("video"))) {
+    video.remove();
+  }
+  for (const paragraph of Array.from(scratch.querySelectorAll("p"))) {
+    const text = (paragraph.textContent ?? "").trim();
+    if (text !== "") return text;
+  }
+  return "";
 }
 
 /**

@@ -13,8 +13,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   silently — poster frame and all — or publish the page's "your browser does
   not support video" fallback as if the author had written it. A video is now
   clipped as its poster frame, linking to the file it plays, and a captioned
-  one keeps its caption; one with no poster becomes a plain link. Articles
-  clipped before this need a re-clip to get their videos back.
+  one keeps its caption; one with no poster becomes a plain link. A page that
+  opens on a video is no longer summarised by that fallback text either.
+  Articles clipped before this need a re-clip to get their videos back.
 - **An arXiv figure no longer says "Refer to caption".** LaTeXML gives every
   figure image that alt text — or "[Uncaptioned image]" — which is all a
   screen reader or a broken image had to go on. The clipper now leaves it

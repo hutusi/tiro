@@ -2663,6 +2663,56 @@ describe("a video keeps its place in the article", () => {
     expect(markdown).not.toContain("Video");
   });
 
+  describe("the excerpt", () => {
+    const INTRO =
+      "I fixed the LED strip under my desk, and here is how it went.";
+
+    /** The excerpt of a page opening on `lead`, with no description of its
+     * own unless `head` gives one. */
+    function excerptOf(lead: string, head = ""): string {
+      const window = new Window({ url: PAGE });
+      window.document.write(
+        `<html><head><title>LED</title>${head}</head><body><article>${lead}<p>${INTRO}</p>${filler}</article></body></html>`,
+      );
+      return clipPage(window.document as unknown as Document, PAGE).excerpt;
+    }
+
+    test("is the introduction, not the opening video's label", () => {
+      // Readability's fallback excerpt is the first paragraph's text, and the
+      // label that keeps the video's paragraph alive is that text.
+      expect(
+        excerptOf('<p><video src="/demo.mp4" poster="/demo.jpg"></video></p>'),
+      ).toBe(INTRO);
+    });
+
+    test("is the introduction when the opening video is then dropped", () => {
+      // Nothing of the video reaches the body, so nothing of it may reach
+      // the summary either.
+      expect(
+        excerptOf(
+          '<p><video src="blob:https://schlarp.example/1"></video></p>',
+        ),
+      ).toBe(INTRO);
+    });
+
+    test("is never the page's fallback for browsers without video", () => {
+      expect(
+        excerptOf(
+          '<p><video src="/demo.mp4">Your browser does not support video.</video></p>',
+        ),
+      ).toBe(INTRO);
+    });
+
+    test("an authored description is kept", () => {
+      expect(
+        excerptOf(
+          '<p><video src="/demo.mp4" poster="/demo.jpg"></video></p>',
+          '<meta name="description" content="Authored summary.">',
+        ),
+      ).toBe("Authored summary.");
+    });
+  });
+
   test("a document with no base of its own resolves against the page URL", () => {
     // A document built without a URL has `about:blank` as its base, against
     // which nothing relative resolves; the address it was clipped from does.
