@@ -19,6 +19,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   figure image that alt text — or "[Uncaptioned image]" — which is all a
   screen reader or a broken image had to go on. The clipper now leaves it
   empty; the caption is already printed beside the image.
+- **A Distill citation no longer leaves a gap.** Distill fills its citations
+  in from script, so a clip sees them empty, and a cited sentence read
+  `(Inception Labs , Gemini Diffusion )`. The empty citation now goes with the
+  space before it. The citation itself is still lost.
 
 ## [0.10.0] - 2026-10-02
 

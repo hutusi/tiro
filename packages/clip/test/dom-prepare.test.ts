@@ -2662,3 +2662,47 @@ describe("LaTeXML's placeholder alt text", () => {
     );
   });
 });
+
+describe("a Distill citation that holds nothing", () => {
+  /** The paragraph's text after preparation. */
+  const textOf = (html: string) =>
+    prepare(`<p>${html}</p>`).doc.body.textContent;
+
+  test("goes with the space before it when punctuation follows", () => {
+    // The sweep's CITE-DROP, verbatim in shape from kuleshov.
+    expect(
+      textOf(
+        'exist (Inception Labs <d-cite key="inception2025"></d-cite>, Gemini Diffusion <d-cite key="gemini2025"></d-cite>).',
+      ),
+    ).toBe("exist (Inception Labs, Gemini Diffusion).");
+  });
+
+  test("a run of citations closes up as one", () => {
+    expect(
+      textOf('prior work <d-cite key="a"></d-cite> <d-cite key="b"></d-cite>.'),
+    ).toBe("prior work.");
+  });
+
+  test("keeps one space where it stood between two words", () => {
+    expect(textOf('Then <d-cite key="c"></d-cite> continues.')).toBe(
+      "Then  continues.",
+    );
+  });
+
+  test("a citation with text is left alone", () => {
+    expect(textOf('as shown <d-cite key="a">[1]</d-cite>.')).toBe(
+      "as shown [1].",
+    );
+  });
+
+  test("end to end, the markdown has no gap before the comma", () => {
+    const window = new Window({ url: "https://kuleshov.example/blog/" });
+    const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+    window.document.body.innerHTML = `<d-article>${filler}<p>exist (Inception Labs <d-cite key="i"></d-cite>, Gemini Diffusion <d-cite key="g"></d-cite>).</p>${filler}</d-article>`;
+    const { markdown } = clipPage(
+      window.document as unknown as Document,
+      "https://kuleshov.example/blog/",
+    );
+    expect(markdown).toContain("exist (Inception Labs, Gemini Diffusion).");
+  });
+});

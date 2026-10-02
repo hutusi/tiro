@@ -173,6 +173,10 @@ escaped `\[1\]` text, and per-block rendering means they can never link.
 before the comma, throughout a heavily-cited academic post. The elements are JS-populated and empty
 in the served HTML, so no clipper change recovers the text — but the orphan spacing is fixable.
 
+**Spacing fixed at clip time, 2026-10-02.** An empty `<d-cite>` is removed before Readability with
+the space before it, when punctuation follows: `(Inception Labs, Gemini Diffusion)`. A citation
+used as a word keeps its gap, the text being unrecoverable from the element. Needs a re-clip.
+
 ### 10. `schlarp` — content video lost
 `EMBED-LOSS`. `<video src=led-before-after.mp4 poster=led-before-after.jpg>` — a before/after LED
 demo, the payoff of a DIY post — is dropped silently, poster frame included.

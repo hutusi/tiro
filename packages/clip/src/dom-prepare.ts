@@ -681,6 +681,43 @@ function clearLatexmlPlaceholderAlts(doc: Document): void {
   }
 }
 
+/** Punctuation that closes onto the word before it, never after a space. */
+const CLOSING_PUNCTUATION = /^[,.;:!?)\]]/;
+
+/**
+ * Remove a Distill citation that holds nothing, with the space before it.
+ *
+ * Distill writes `Inception Labs <d-cite key="…"></d-cite>,` and fills the
+ * element in from script, inside a shadow root no clone serializes, so a clip
+ * sees it empty either way. Turndown writes an empty element as nothing and
+ * keeps the space the author put before it, and a heavily cited post read
+ * `(Inception Labs , Gemini Diffusion )` all the way down.
+ *
+ * The citation itself cannot be recovered from the element, so it goes; what
+ * this repairs is only the gap it leaves. The space before goes only when
+ * punctuation follows, since a citation the author used as a word —
+ * `Then <d-cite></d-cite> continues` — still needs one space between the words
+ * either side. Adjacent text is merged after each removal, so a run of
+ * citations closes up as one.
+ */
+function dropEmptyCitations(doc: Document): void {
+  for (const cite of Array.from(doc.querySelectorAll("d-cite"))) {
+    if ((cite.textContent ?? "").trim() !== "") continue;
+    const parent = cite.parentNode;
+    const before = cite.previousSibling;
+    const after = cite.nextSibling;
+    cite.remove();
+    if (
+      before?.nodeType === 3 &&
+      after?.nodeType === 3 &&
+      CLOSING_PUNCTUATION.test(after.textContent ?? "")
+    ) {
+      before.textContent = (before.textContent ?? "").trimEnd();
+    }
+    parent?.normalize();
+  }
+}
+
 /**
  * Re-tag every `<font>` as a `<span>`, before Readability reads the page.
  *
@@ -1808,6 +1845,7 @@ export function prepareForClipping(doc: Document): void {
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
   clearLatexmlPlaceholderAlts(doc);
+  dropEmptyCitations(doc);
   // After normalizeMath, so a MathJax formula has already become its TeX
   // marker rather than an <svg> this could delete.
   dropChartSvgs(doc);
