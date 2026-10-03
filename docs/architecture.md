@@ -419,11 +419,12 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   original URL; an image failure never fails the article. Stage-wide caps
   (`images.max_count`, `total_max_bytes`, `stage_timeout_ms`) stop an
   image-heavy page from running the job past its `timeout-minutes`.
-- **Contents API 1MB GET limit** breaks the sha lookup for very large clips:
-  `findExistingIndex` is a single Contents GET, so re-clipping a page whose
-  stored `index.md` exceeds 1MB fails the clip rather than overwriting. Not
-  mitigated — a Markdown clip that large is not a case worth code. (A Git
-  Trees fallback would be the fix if it ever happens.)
+- **Contents API 1MB GET limit**: above 1MB the Contents API returns a file's
+  sha but not its content, and a re-clip needs both — the sha to overwrite, the
+  old file for its `unlisted` flag and, on a PDF stub, its body (ADR 0026).
+  `findExistingIndex` and `readTextAt` read the content from the Git blobs API
+  instead, which serves up to 100MB, so a very large article re-clips and
+  removes like any other.
 - **Workflow recursion**: pushes made with the default `GITHUB_TOKEN` do not
   retrigger workflows; the processing workflow also uses a concurrency group
   and rebase-retry pushes.

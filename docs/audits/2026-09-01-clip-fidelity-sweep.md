@@ -124,6 +124,11 @@ render as none; LaTeXML puts the mark and the footnote body adjacent inline, pro
 `FIG-SEMANTICS` (32 figures flattened; the 16 `Figure N.M:` captions survive only as plain
 paragraphs).
 
+**`ALT-PLACEHOLDER` fixed at clip time, 2026-10-02.** LaTeXML writes "Refer to caption" (and
+"[Uncaptioned image]" where there is none) as the alt of every `img.ltx_graphics`; the clipper now
+empties exactly those two on exactly that class. Emptied rather than filled from the caption, which
+is already folded beside the image. Needs a re-clip.
+
 ### 5. `simonwillison…understanding-chatgpt-work` — two independent defects
 `CODE-FLAT`: the JavaScript example renders as a proportional-font `<p>`, wrapped as prose
 (`preInPane: 0`). Because it is a paragraph rather than a code block, `VERBATIM_BLOCK_TYPES` no
@@ -168,9 +173,26 @@ escaped `\[1\]` text, and per-block rendering means they can never link.
 before the comma, throughout a heavily-cited academic post. The elements are JS-populated and empty
 in the served HTML, so no clipper change recovers the text — but the orphan spacing is fixable.
 
+**Spacing fixed at clip time, 2026-10-02.** An empty `<d-cite>` is removed before Readability with
+the space before it, when punctuation follows: `(Inception Labs, Gemini Diffusion)`. A citation
+used as a word keeps its gap, the text being unrecoverable from the element. Needs a re-clip.
+
 ### 10. `schlarp` — content video lost
 `EMBED-LOSS`. `<video src=led-before-after.mp4 poster=led-before-after.jpg>` — a before/after LED
 demo, the payoff of a DIY post — is dropped silently, poster frame included.
+
+**Fixed at clip time, 2026-10-02.** Two losses, one behind the other. The page wraps its video in
+a `<p>`, and Readability deletes a paragraph with no text and no `img`/`embed`/`object`/`iframe` —
+`<video>` is not on that list. A video that does get through meets Turndown, which has no rule for
+one and writes out its text: nothing, or the page's "your browser does not support video" fallback,
+published as prose. The clipper now gives every `<video>` text of its own before Readability, so
+its paragraph is kept on the same terms as one with fallback text (a hidden paragraph or video is
+still dropped), and after Readability rewrites it into its poster linking to the file it plays,
+`[![Video](poster)](video.mp4)` — the shape every later stage already handles: the fold captions
+it, the processor downloads the poster, the site renders a figure. No poster → a plain link; a
+`blob:` source → the poster unlinked. The first version of this fix handled only a video loose in
+the article, and a review clip of the live page caught it unchanged; the regression test now uses
+the paragraph-wrapped shape. `schlarp` needs a re-clip, which is also the live confirmation.
 
 ## Non-findings — do not re-investigate
 

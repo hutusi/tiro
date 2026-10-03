@@ -650,6 +650,75 @@ function unwrapPictures(doc: Document): void {
 }
 
 /**
+ * The alt text LaTeXML writes on every figure image, which describes nothing:
+ * "Refer to caption" on a captioned one, "[Uncaptioned image]" on the rest.
+ */
+const LATEXML_PLACEHOLDER_ALTS: ReadonlySet<string> = new Set([
+  "Refer to caption",
+  "[Uncaptioned image]",
+]);
+
+/**
+ * Clear the alt text LaTeXML fills in when a paper gives none.
+ *
+ * Every image on an arXiv paper read "Refer to caption" — all 19 of KAN's —
+ * which is a screen reader's whole account of the figure and the text that
+ * stands in when the image fails to load. It says less
+ * than an empty alt: the caption it points at is folded beside the image anyway
+ * (ADR 0011), and "[Uncaptioned image]" points at nothing at all, landing in
+ * the markdown as `![\[Uncaptioned image\]](…)`.
+ *
+ * Emptied rather than replaced with the caption, which would repeat the line
+ * printed directly under it. Only on LaTeXML's own `ltx_graphics` and only on
+ * an exact match, so an author who wrote either phrase keeps it.
+ */
+function clearLatexmlPlaceholderAlts(doc: Document): void {
+  for (const image of Array.from(doc.querySelectorAll("img.ltx_graphics"))) {
+    const alt = image.getAttribute("alt");
+    if (alt !== null && LATEXML_PLACEHOLDER_ALTS.has(alt.trim())) {
+      image.setAttribute("alt", "");
+    }
+  }
+}
+
+/** Punctuation that closes onto the word before it, never after a space. */
+const CLOSING_PUNCTUATION = /^[,.;:!?)\]]/;
+
+/**
+ * Remove a Distill citation that holds nothing, with the space before it.
+ *
+ * Distill writes `Inception Labs <d-cite key="…"></d-cite>,` and fills the
+ * element in from script, inside a shadow root no clone serializes, so a clip
+ * sees it empty either way. Turndown writes an empty element as nothing and
+ * keeps the space the author put before it, and a heavily cited post read
+ * `(Inception Labs , Gemini Diffusion )` all the way down.
+ *
+ * The citation itself cannot be recovered from the element, so it goes; what
+ * this repairs is only the gap it leaves. The space before goes only when
+ * punctuation follows, since a citation the author used as a word —
+ * `Then <d-cite></d-cite> continues` — still needs one space between the words
+ * either side. Adjacent text is merged after each removal, so a run of
+ * citations closes up as one.
+ */
+function dropEmptyCitations(doc: Document): void {
+  for (const cite of Array.from(doc.querySelectorAll("d-cite"))) {
+    if ((cite.textContent ?? "").trim() !== "") continue;
+    const parent = cite.parentNode;
+    const before = cite.previousSibling;
+    const after = cite.nextSibling;
+    cite.remove();
+    if (
+      before?.nodeType === 3 &&
+      after?.nodeType === 3 &&
+      CLOSING_PUNCTUATION.test(after.textContent ?? "")
+    ) {
+      before.textContent = (before.textContent ?? "").trimEnd();
+    }
+    parent?.normalize();
+  }
+}
+
+/**
  * Re-tag every `<font>` as a `<span>`, before Readability reads the page.
  *
  * Not about the tag's own output — Turndown discards `color`, `size` and `face`
@@ -996,6 +1065,210 @@ function captionSource(caption: Element): Element | null {
       : caption;
   if (!isFoldableContent(source) || !breaksAreSafe(source)) return null;
   return source;
+}
+
+/**
+ * What a video becomes when nothing better can be said: its link text, and its
+ * poster's alt text. The page's own label wins when it gives one.
+ */
+const VIDEO_LABEL = "Video";
+
+/**
+ * Brackets the text `keepVideosThroughReadability` gives a video, so text that
+ * came from it can be told from text an author wrote. A private-use character:
+ * no page's metadata carries one by accident, and it is not whitespace, so the
+ * paragraph still reads as holding text.
+ */
+const VIDEO_MARK = "\uE000";
+const VIDEO_PLACEHOLDER = `${VIDEO_MARK}${VIDEO_LABEL}${VIDEO_MARK}`;
+
+/** A video address a reader can follow: http(s), resolved against the page.
+ * `blob:` is what a streaming player hands its `<video>`, and it means nothing
+ * outside the tab that made it; `data:` would put the file in the markdown. */
+function followableUrl(value: string | null, base: string): string | null {
+  if (value === null || value.trim() === "") return null;
+  try {
+    const url = new URL(value.trim(), base);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The file a `<video>` plays: its own `src`, else one of its `<source>`s —
+ * MP4 first, since it is the one format every browser opens from a bare link.
+ */
+function videoSource(video: Element, base: string): string | null {
+  const own = followableUrl(video.getAttribute("src"), base);
+  if (own !== null) return own;
+  const sources = Array.from(video.querySelectorAll("source"))
+    .map((source) => ({
+      url: followableUrl(source.getAttribute("src"), base),
+      mp4: /^video\/mp4\b/i.test(source.getAttribute("type") ?? ""),
+    }))
+    .filter((source) => source.url !== null);
+  return (sources.find((source) => source.mp4) ?? sources[0])?.url ?? null;
+}
+
+/**
+ * Give every `<video>` text of its own, so Readability keeps the paragraph it
+ * sits in.
+ *
+ * `_prepArticle` deletes a `<p>` that has no text and holds no `img`, `embed`,
+ * `object` or `iframe` — and `<video>` is not on that list. The page the audit
+ * named wraps its video in exactly such a paragraph, so the video was gone
+ * before `videosAsPostersIn` could see it, and a test with the video loose in
+ * the article passed regardless. A lone `<div><video></div>` goes the same
+ * way, one step later: Readability turns a `<div>` with no block children into
+ * a `<p>`, and then deletes that.
+ *
+ * Text is the one signal that rule reads which can be added without changing
+ * any element or attribute. A video whose page left fallback text already
+ * survived — that is how "your browser does not support video" reached the
+ * vault — so this makes every video the shape that already works. Unwrapping
+ * the paragraph instead, as `unwrapMediaWrappers` does for a figure's `<div>`,
+ * would discard the very attributes Readability reads to decide what is
+ * hidden; here a hidden paragraph, or a hidden video, is still dropped with
+ * everything in it. The text never reaches the markdown: `videosAsPostersIn`
+ * replaces the whole element, and `excerptWithoutVideos` keeps it out of the
+ * one thing Readability reads from the text directly.
+ *
+ * The page's own fallback is replaced rather than kept beside the placeholder.
+ * It is never content — `videosAsPostersIn` discards it — and leaving it would
+ * leave text in the body that nothing downstream could tell from the author's,
+ * which is exactly how it used to become an article's excerpt. `<source>` and
+ * `<track>` stay; they are what the video plays.
+ */
+function keepVideosThroughReadability(doc: Document): void {
+  for (const video of Array.from(doc.querySelectorAll("video"))) {
+    for (const child of Array.from(video.childNodes)) {
+      if (child.nodeName === "SOURCE" || child.nodeName === "TRACK") continue;
+      video.removeChild(child);
+    }
+    video.appendChild(doc.createTextNode(VIDEO_PLACEHOLDER));
+  }
+}
+
+/**
+ * Readability's excerpt, unless it was read out of a video.
+ *
+ * With no description in the page's metadata, Readability uses the text of the
+ * article's first `<p>`. When that paragraph holds a video, its text is the
+ * video's: the label `keepVideosThroughReadability` adds, or the page's own
+ * "your browser does not support video" — so an article opening on its demo was
+ * summarised as `Video`, in the popup, the frontmatter and the site's feed,
+ * even when the video itself was then dropped from the body.
+ *
+ * Recognised by `VIDEO_MARK`, which only the placeholder carries. Comparing
+ * the excerpt with the first paragraph's text was tried first and cannot tell
+ * where an excerpt came from: a page whose `<meta name="description">` is
+ * "Video" — or whatever its fallback said — matched, and lost its authored
+ * description to a later paragraph. Readability takes metadata from the
+ * page's `<head>` and JSON-LD, which never hold the mark, so an excerpt that
+ * carries it was read out of the body, and anything else passes through.
+ *
+ * Rebuilt from the first paragraph that still says something once every
+ * video is gone — the one Readability would have taken had the video's
+ * paragraph been deleted, as it was before videos were kept.
+ */
+export function excerptWithoutVideos(
+  excerpt: string,
+  content: string,
+  doc: Document,
+): string {
+  if (!excerpt.includes(VIDEO_MARK)) return excerpt;
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = content;
+  for (const video of Array.from(scratch.querySelectorAll("video"))) {
+    video.remove();
+  }
+  for (const paragraph of Array.from(scratch.querySelectorAll("p"))) {
+    const text = (paragraph.textContent ?? "").trim();
+    if (text !== "") return text;
+  }
+  return "";
+}
+
+/**
+ * Give every `<video>` in already-extracted article HTML a shape markdown can
+ * carry: its poster frame, linking to the file it plays.
+ *
+ * Readability keeps a `<video>`; Turndown has no rule for one and writes out
+ * its text, which is either nothing — the demo that was the payoff of a DIY
+ * post vanished, poster frame and all — or the fallback a page leaves for
+ * browsers without video, so "Your browser does not support the video tag."
+ * landed in the article as the author's prose. Markdown has no video, and raw
+ * HTML is opaque to everything after the clip (the reason ADR 0011 reverted a
+ * raw `<figure>`), so the element is rewritten into what markdown does have:
+ * `<a href=video><img src=poster></a>`, which converts to `[![](poster)](video)`.
+ *
+ * That shape is one every later stage already understands, which is why it was
+ * chosen over anything new. The figure fold treats it as a linked image and
+ * folds a `<figcaption>` beside it; the processor downloads the poster as it
+ * would any image, while the link stays on the publisher's copy of the video —
+ * a file too large to belong in the vault; the site renders the pair as a
+ * figure that opens the video when clicked.
+ *
+ * A video with no poster becomes a plain link, and one whose only source is
+ * `blob:` keeps its poster unlinked. One with neither has nothing to show a
+ * reader and is dropped — its fallback text with it, which is never content.
+ *
+ * Runs after Readability for the reason `foldFiguresIn` does, and before it,
+ * because the fold has to see the image this builds. Readability only gets
+ * that far with the video because `keepVideosThroughReadability` gave it
+ * text. Resolved against the page's address rather than trusted to be
+ * absolute: on the raw-body fallback Readability never resolved anything.
+ */
+export function videosAsPostersIn(
+  html: string,
+  doc: Document,
+  pageUrl?: string,
+): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  // The document's own base where it has one, since that is what the page's
+  // relative addresses were written against; the page's URL where it does not,
+  // for a document built somewhere that never learned where it came from.
+  const base = /^https?:/i.test(doc.baseURI) ? doc.baseURI : (pageUrl ?? "");
+  for (const video of Array.from(scratch.querySelectorAll("video"))) {
+    const source = videoSource(video, base);
+    const poster = followableUrl(video.getAttribute("poster"), base);
+    const label =
+      (
+        video.getAttribute("aria-label") ??
+        video.getAttribute("title") ??
+        ""
+      ).trim() || VIDEO_LABEL;
+    let replacement: Element | null = null;
+    if (poster !== null) {
+      const image = scratch.createElement("img");
+      image.setAttribute("src", poster);
+      image.setAttribute("alt", label);
+      replacement = image;
+    }
+    if (source !== null) {
+      const link = scratch.createElement("a");
+      link.setAttribute("href", source);
+      if (replacement === null) link.textContent = label;
+      else link.appendChild(replacement);
+      replacement = link;
+    }
+    if (replacement === null) {
+      video.remove();
+      continue;
+    }
+    // A link may point at the video. The marker moves to what replaces it and
+    // `placeAnchorsIn` decides as it would for any element: a text link gets
+    // its anchor, and a poster is refused the way every picture is, since an
+    // anchor in front of one would cost the caption fold.
+    const anchor = video.getAttribute(ANCHOR_ATTR);
+    if (anchor !== null) replacement.setAttribute(ANCHOR_ATTR, anchor);
+    video.replaceWith(replacement);
+  }
+  return scratch.body.innerHTML;
 }
 
 /**
@@ -1676,6 +1949,9 @@ export function prepareForClipping(doc: Document): void {
   declassifyCodeWrappers(doc);
   stripRedundantListMarkers(doc);
   unwrapPictures(doc);
+  clearLatexmlPlaceholderAlts(doc);
+  dropEmptyCitations(doc);
+  keepVideosThroughReadability(doc);
   // After normalizeMath, so a MathJax formula has already become its TeX
   // marker rather than an <svg> this could delete.
   dropChartSvgs(doc);

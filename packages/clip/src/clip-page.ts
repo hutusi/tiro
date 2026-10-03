@@ -1,12 +1,14 @@
 import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
+  excerptWithoutVideos,
   foldFiguresIn,
   hasLatexmlFullText,
   placeAnchorsIn,
   prepareForClipping,
   readLatexmlMetadata,
   restoreCodeLanguagesIn,
+  videosAsPostersIn,
 } from "./dom-prepare.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipPayload } from "./payload.ts";
@@ -84,8 +86,13 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // Anchors are placed between the two: a `<figure id>` resolves to its
   // caption, and folding then carries the anchor into the caption half of the
   // paragraph it builds, where the picture is still the first thing in it.
+  // Videos become linked posters before any of it, so that a video's figure is
+  // an image figure by the time the fold looks (videosAsPostersIn).
   const html = foldFiguresIn(
-    placeAnchorsIn(restoreCodeLanguagesIn(extracted, doc), doc),
+    placeAnchorsIn(
+      restoreCodeLanguagesIn(videosAsPostersIn(extracted, doc, url), doc),
+      doc,
+    ),
     doc,
   );
 
@@ -100,7 +107,13 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   return {
     url,
     title: latexml?.title ?? ((article?.title ?? "").trim() || doc.title),
-    excerpt: latexml?.excerpt ?? (article?.excerpt ?? "").trim(),
+    excerpt:
+      latexml?.excerpt ??
+      excerptWithoutVideos(
+        article?.excerpt ?? "",
+        article?.content ?? "",
+        doc,
+      ).trim(),
     author: latexml?.author ?? (article?.byline ?? "").trim(),
     markdown,
     readabilityFailed,

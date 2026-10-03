@@ -10,6 +10,7 @@ import {
   MATH_ATTR,
   placeAnchorsIn,
   prepareForClipping,
+  videosAsPostersIn,
 } from "../src/dom-prepare.ts";
 import { htmlToMarkdown } from "../src/markdown.ts";
 
@@ -2530,5 +2531,316 @@ describe("an article split into several bodies", () => {
       '<article><div class="entry"><div>x</div></div><div class="entry"><div>y</div></div></article>',
     );
     expect(wrappers.doc.querySelectorAll(".entry")).toHaveLength(2);
+  });
+});
+
+describe("a video keeps its place in the article", () => {
+  const PAGE = "https://schlarp.example/posts/led-strip/";
+  /** Enough prose either side that Readability keeps the article at all. */
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The whole clip, as the extension runs it, on a page at `PAGE`. */
+  function clip(markup: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<article><h1>LED</h1>${filler}${markup}${filler}</article>`;
+    return clipPage(window.document as unknown as Document, PAGE).markdown;
+  }
+
+  test("a video becomes its poster, linking to the file it plays", () => {
+    // The audit's EMBED-LOSS case, in the shape the page really has: the
+    // video inside a paragraph, which Readability deletes as empty because
+    // `<video>` is not among the media it counts. A first version of this
+    // test put the video loose in the article and passed while the real page
+    // still lost it.
+    const markdown = clip(
+      '<p><video src="led-before-after.mp4" poster="led-before-after.jpg" controls></video></p>',
+    );
+    expect(markdown).toContain(
+      `[![Video](${PAGE}led-before-after.jpg)](${PAGE}led-before-after.mp4)`,
+    );
+  });
+
+  test("a video alone in a <div> survives too", () => {
+    // Readability turns a <div> with no block children into a <p>, and then
+    // deletes that as empty: the same loss one step later.
+    expect(
+      clip('<div><video src="/v.mp4" poster="/p.jpg"></video></div>'),
+    ).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("a video loose in the article survives", () => {
+    expect(clip('<video src="/v.mp4" poster="/p.jpg"></video>')).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("a video the page hid stays hidden", () => {
+    // Keeping the paragraph must not keep what Readability drops for being
+    // invisible — on the paragraph or on the video itself.
+    for (const markup of [
+      '<p hidden><video src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p style="display: none"><video src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p><video hidden src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p><video aria-hidden="true" src="/v.mp4" poster="/p.jpg"></video></p>',
+    ]) {
+      const markdown = clip(markup);
+      expect(markdown).not.toContain("v.mp4");
+      expect(markdown).not.toContain("Video");
+    }
+  });
+
+  test("a link to a video keeps its target when the video becomes a link", () => {
+    const markdown = clip(
+      '<p>See <a href="#demo">the demo</a>.</p><p><video id="demo" src="/v.mp4"></video> before and after.</p>',
+    );
+    expect(markdown).toContain(
+      '<span id="demo"></span>[Video](https://schlarp.example/v.mp4) before and after.',
+    );
+  });
+
+  test("its fallback text is never published as prose", () => {
+    const markdown = clip(
+      '<video poster="/p.jpg" controls><source src="/v.mp4" type="video/mp4">' +
+        "Your browser does not support the video tag.</video>",
+    );
+    expect(markdown).not.toContain("does not support");
+    expect(markdown).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("an MP4 source is linked before one listed ahead of it", () => {
+    const markdown = clip(
+      '<video poster="/p.jpg"><source src="/v.webm" type="video/webm">' +
+        '<source src="/v.mp4" type="video/mp4"></video>',
+    );
+    expect(markdown).toContain("(https://schlarp.example/v.mp4)");
+    expect(markdown).not.toContain("v.webm");
+  });
+
+  test("a captioned video folds its caption like a captioned image", () => {
+    const markdown = clip(
+      '<figure><video src="/v.mp4" poster="/p.jpg" autoplay muted loop></video>' +
+        "<figcaption>Before and after the fix.</figcaption></figure>",
+    );
+    expect(markdown).toContain(
+      "[![Video](https://schlarp.example/p.jpg)](https://schlarp.example/v.mp4)  \nBefore and after the fix.",
+    );
+  });
+
+  test("the page's own label names it", () => {
+    const markdown = clip(
+      '<video src="/v.mp4" poster="/p.jpg" aria-label="LED strip, before and after"></video>',
+    );
+    expect(markdown).toContain("[![LED strip, before and after](");
+  });
+
+  test("a video with no poster becomes a plain link", () => {
+    expect(clip('<video src="/v.mp4" controls></video>')).toContain(
+      "[Video](https://schlarp.example/v.mp4)",
+    );
+  });
+
+  test("a blob: source is not linked, and its poster still shows", () => {
+    // What a streaming player hands its <video>: an address that means
+    // nothing outside the tab that made it.
+    const markdown = clip(
+      '<video src="blob:https://schlarp.example/0d1e" poster="/p.jpg"></video>',
+    );
+    expect(markdown).toContain("![Video](https://schlarp.example/p.jpg)");
+    expect(markdown).not.toContain("blob:");
+    expect(markdown).not.toContain("[![");
+  });
+
+  test("a video with nothing to show is dropped, fallback and all", () => {
+    const markdown = clip(
+      '<video src="blob:https://schlarp.example/0d1e">Your browser cannot play this.</video>',
+    );
+    expect(markdown).not.toContain("blob:");
+    expect(markdown).not.toContain("cannot play");
+    expect(markdown).not.toContain("Video");
+  });
+
+  describe("the excerpt", () => {
+    const INTRO =
+      "I fixed the LED strip under my desk, and here is how it went.";
+
+    /** The excerpt of a page opening on `lead`, with no description of its
+     * own unless `head` gives one. */
+    function excerptOf(lead: string, head = ""): string {
+      const window = new Window({ url: PAGE });
+      window.document.write(
+        `<html><head><title>LED</title>${head}</head><body><article>${lead}<p>${INTRO}</p>${filler}</article></body></html>`,
+      );
+      return clipPage(window.document as unknown as Document, PAGE).excerpt;
+    }
+
+    test("is the introduction, not the opening video's label", () => {
+      // Readability's fallback excerpt is the first paragraph's text, and the
+      // label that keeps the video's paragraph alive is that text.
+      expect(
+        excerptOf('<p><video src="/demo.mp4" poster="/demo.jpg"></video></p>'),
+      ).toBe(INTRO);
+    });
+
+    test("is the introduction when the opening video is then dropped", () => {
+      // Nothing of the video reaches the body, so nothing of it may reach
+      // the summary either.
+      expect(
+        excerptOf(
+          '<p><video src="blob:https://schlarp.example/1"></video></p>',
+        ),
+      ).toBe(INTRO);
+    });
+
+    test("is never the page's fallback for browsers without video", () => {
+      expect(
+        excerptOf(
+          '<p><video src="/demo.mp4">Your browser does not support video.</video></p>',
+        ),
+      ).toBe(INTRO);
+    });
+
+    test("an authored description is kept when it matches the video's text", () => {
+      // Equality with the paragraph cannot say where an excerpt came from: a
+      // first version compared them, and overwrote these.
+      const video = '<p><video src="/demo.mp4"></video></p>';
+      for (const head of [
+        '<meta name="description" content="Video">',
+        '<meta property="og:description" content="Video">',
+      ]) {
+        expect(excerptOf(video, head)).toBe("Video");
+      }
+      expect(
+        excerptOf(
+          '<p><video src="/demo.mp4">Watch the demo</video></p>',
+          '<meta name="description" content="Watch the demo">',
+        ),
+      ).toBe("Watch the demo");
+    });
+
+    test("an authored description is kept", () => {
+      expect(
+        excerptOf(
+          '<p><video src="/demo.mp4" poster="/demo.jpg"></video></p>',
+          '<meta name="description" content="Authored summary.">',
+        ),
+      ).toBe("Authored summary.");
+    });
+  });
+
+  test("the text that keeps a video's paragraph never reaches the markdown", () => {
+    for (const markup of [
+      '<p><video src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p><video src="/v.mp4"></video></p>',
+      '<p><video src="blob:https://schlarp.example/1"></video></p>',
+      '<p>Watch <video src="/v.mp4">Your browser cannot play this.</video> here.</p>',
+    ]) {
+      const markdown = clip(markup);
+      expect(markdown).not.toContain("\uE000");
+      expect(markdown).not.toContain("cannot play");
+    }
+  });
+
+  test("a document with no base of its own resolves against the page URL", () => {
+    // A document built without a URL has `about:blank` as its base, against
+    // which nothing relative resolves; the address it was clipped from does.
+    const doc = new Window().document as unknown as Document;
+    const html = videosAsPostersIn(
+      '<video src="clip.mp4" poster="frame.png"></video>',
+      doc,
+      PAGE,
+    );
+    expect(htmlToMarkdown(html).markdown).toBe(
+      `[![Video](${PAGE}frame.png)](${PAGE}clip.mp4)`,
+    );
+  });
+
+  test("relative addresses resolve against the page on the raw-body path", () => {
+    // Readability resolves URLs; its fallback does not, and this pass must not
+    // depend on which of the two produced the HTML.
+    const window = new Window({ url: PAGE });
+    const doc = window.document as unknown as Document;
+    const html = videosAsPostersIn(
+      '<video src="clip.mp4" poster="../frame.png"></video>',
+      doc,
+    );
+    expect(htmlToMarkdown(html).markdown).toBe(
+      "[![Video](https://schlarp.example/posts/frame.png)](https://schlarp.example/posts/led-strip/clip.mp4)",
+    );
+  });
+});
+
+describe("LaTeXML's placeholder alt text", () => {
+  const graphic = (alt: string) =>
+    `<img src="f.png" class="ltx_graphics ltx_centering" alt="${alt}">`;
+
+  test("clears both of LaTeXML's placeholders", () => {
+    for (const alt of ["Refer to caption", "[Uncaptioned image]"]) {
+      const { doc } = prepare(graphic(alt));
+      expect(doc.querySelector("img")?.getAttribute("alt")).toBe("");
+    }
+  });
+
+  test("keeps alt text a paper actually wrote", () => {
+    const { doc } = prepare(graphic("Loss curves for KAN and MLP"));
+    expect(doc.querySelector("img")?.getAttribute("alt")).toBe(
+      "Loss curves for KAN and MLP",
+    );
+  });
+
+  test("keeps the phrase on an image LaTeXML did not make", () => {
+    // Anyone may write the words; only LaTeXML's own image is known to mean
+    // nothing by them.
+    const { doc } = prepare('<img src="f.png" alt="Refer to caption">');
+    expect(doc.querySelector("img")?.getAttribute("alt")).toBe(
+      "Refer to caption",
+    );
+  });
+});
+
+describe("a Distill citation that holds nothing", () => {
+  /** The paragraph's text after preparation. */
+  const textOf = (html: string) =>
+    prepare(`<p>${html}</p>`).doc.body.textContent;
+
+  test("goes with the space before it when punctuation follows", () => {
+    // The sweep's CITE-DROP, verbatim in shape from kuleshov.
+    expect(
+      textOf(
+        'exist (Inception Labs <d-cite key="inception2025"></d-cite>, Gemini Diffusion <d-cite key="gemini2025"></d-cite>).',
+      ),
+    ).toBe("exist (Inception Labs, Gemini Diffusion).");
+  });
+
+  test("a run of citations closes up as one", () => {
+    expect(
+      textOf('prior work <d-cite key="a"></d-cite> <d-cite key="b"></d-cite>.'),
+    ).toBe("prior work.");
+  });
+
+  test("keeps one space where it stood between two words", () => {
+    expect(textOf('Then <d-cite key="c"></d-cite> continues.')).toBe(
+      "Then  continues.",
+    );
+  });
+
+  test("a citation with text is left alone", () => {
+    expect(textOf('as shown <d-cite key="a">[1]</d-cite>.')).toBe(
+      "as shown [1].",
+    );
+  });
+
+  test("end to end, the markdown has no gap before the comma", () => {
+    const window = new Window({ url: "https://kuleshov.example/blog/" });
+    const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+    window.document.body.innerHTML = `<d-article>${filler}<p>exist (Inception Labs <d-cite key="i"></d-cite>, Gemini Diffusion <d-cite key="g"></d-cite>).</p>${filler}</d-article>`;
+    const { markdown } = clipPage(
+      window.document as unknown as Document,
+      "https://kuleshov.example/blog/",
+    );
+    expect(markdown).toContain("exist (Inception Labs, Gemini Diffusion).");
   });
 });
