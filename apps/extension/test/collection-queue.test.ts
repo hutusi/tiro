@@ -69,6 +69,58 @@ describe("enqueue", () => {
     const q = enqueue(sent, toggle("add"), false);
     expect(q).toEqual(sent);
   });
+
+  // The owner's repro on PR #68: save Favorites, re-clip before the deploy,
+  // untick and re-tick under the clip. The page there is the vault, which
+  // already agrees with the re-tick, so cancelling the edit dropped the saved
+  // op along with it — and a stale Tiro page lost the tick.
+  test("cancelling an edit of a sent op puts the sent op back", () => {
+    const sent = settleFlush(
+      enqueue([], toggle("add"), false),
+      new Set([`op${n}`]),
+      new Set(),
+      T,
+    );
+    const saved = sent[0];
+    // Drawn from the vault (after a clip) or from a stale site: either way the
+    // sent op, not the page, says what the vault holds.
+    for (const published of [true, false]) {
+      const edited = enqueue(sent, toggle("remove"), published);
+      expect(pendingOps(edited)).toEqual([
+        expect.objectContaining({ action: "remove", replaced: saved }),
+      ]);
+      expect(enqueue(edited, toggle("add"), published)).toEqual(sent);
+    }
+  });
+
+  test("a sent op leaves behind nothing it displaced", () => {
+    const first = settleFlush(
+      enqueue([], toggle("add"), false),
+      new Set([`op${n}`]),
+      new Set(),
+      T,
+    );
+    const edited = enqueue(first, toggle("remove"), true);
+    const [removal] = pendingOps(edited);
+    if (removal === undefined) throw new Error("no pending removal");
+    const landed = settleFlush(
+      edited,
+      new Set([removal.id]),
+      new Set(),
+      "2026-09-23T10:00:00.000Z",
+    );
+    expect(landed).toEqual([
+      {
+        id: removal.id,
+        collection: "favorites",
+        slug: "a",
+        action: "remove",
+        at: T,
+        state: "sent",
+        sentAt: "2026-09-23T10:00:00.000Z",
+      },
+    ]);
+  });
 });
 
 describe("effectiveMembership", () => {

@@ -22,6 +22,15 @@ export interface QueuedOp extends CollectionOp {
   state: "pending" | "sent";
   /** When the flush that sent it landed; ages the overlay out. */
   sentAt?: string;
+  /**
+   * On a pending op only: the sent op it displaced. Toggling back has to put
+   * that op back rather than leave nothing, because a sent op says what the
+   * *vault* holds while the site still shows the old state. Judged against the
+   * page alone, a cancelled edit dropped it — and when the page the popup drew
+   * from was the vault itself (ADR 0037), the vault agreed with the final tick,
+   * so nothing was left to tell a stale Tiro page that the article is in.
+   */
+  replaced?: QueuedOp;
 }
 
 /** How long a sent op may overlay a page that still disagrees with it. A
@@ -38,10 +47,11 @@ function samePair(a: CollectionOp, b: CollectionOp): boolean {
  *
  * `published` is whether the page says the article is in that collection —
  * the deployed state. What the vault holds is that, unless a sent op for the
- * pair says otherwise. A toggle back to what the vault already holds is not a
- * change: the pending op it cancels is dropped, and nothing is queued. A sent
- * op is kept in that case, since it is what makes the popup show the vault's
- * state until the site catches up.
+ * pair says otherwise — the one in the queue, or the one a pending op
+ * displaced. A toggle back to what the vault already holds is not a change:
+ * the pending op it cancels is dropped, and nothing is queued. The sent op
+ * stays, or comes back, in that case, since it is what makes the popup show
+ * the vault's state until the site catches up.
  */
 export function enqueue(
   queue: readonly QueuedOp[],
@@ -50,12 +60,20 @@ export function enqueue(
 ): QueuedOp[] {
   const prior = queue.find((queued) => samePair(queued, op));
   const rest = queue.filter((queued) => !samePair(queued, op));
-  const held = prior?.state === "sent" ? prior.action === "add" : published;
+  const saved = prior?.state === "sent" ? prior : prior?.replaced;
+  const held = saved !== undefined ? saved.action === "add" : published;
   const wants = op.action === "add";
   if (wants === held) {
-    return prior?.state === "sent" ? [...rest, prior] : rest;
+    return saved !== undefined ? [...rest, saved] : rest;
   }
-  return [...rest, { ...op, state: "pending" }];
+  return [
+    ...rest,
+    {
+      ...op,
+      state: "pending",
+      ...(saved !== undefined ? { replaced: saved } : {}),
+    },
+  ];
 }
 
 /** The collections the popup should show the article in: the page's, with
@@ -89,11 +107,12 @@ export function settleFlush(
 ): QueuedOp[] {
   return queue
     .filter((op) => !refused.has(op.id))
-    .map((op) =>
-      sent.has(op.id) && op.state === "pending"
-        ? { ...op, state: "sent" as const, sentAt: at }
-        : op,
-    );
+    .map((op) => {
+      if (!sent.has(op.id) || op.state !== "pending") return op;
+      // Sent, it is the overlay itself: the one it displaced is history.
+      const { replaced: _displaced, ...landed } = op;
+      return { ...landed, state: "sent" as const, sentAt: at };
+    });
 }
 
 /**

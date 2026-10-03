@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { parseCollection } from "@tiro/shared";
+import { effectiveMembership } from "../src/collection-queue.ts";
 import {
   flushNow,
   JUST_CLIPPED_MS,
@@ -160,6 +161,30 @@ describe("the collection worker", () => {
       ["favorites", "sent"],
       ["reading", "pending"],
     ]);
+  });
+
+  // The follow-up on PR #68: untick and re-tick Favorites under a re-clip
+  // made before the deploy. The vault read agrees with the re-tick, and
+  // cancelling the edit used to drop the saved op with it.
+  test("an edit cancelled under a clip keeps the saved overlay", async () => {
+    const gh = fakeGitHub(vault);
+    await recordToggle(toggle("add"));
+    await flushNow(gh.fetch);
+    const saved = await loadCollectionQueue(config);
+    expect(saved.map((op) => op.state)).toEqual(["sent"]);
+
+    const untick = toggle("remove");
+    await recordToggle({ ...untick, published: true, member: null });
+    const retick = toggle("add");
+    await recordToggle({ ...retick, published: true, member: null });
+    expect(await loadCollectionQueue(config)).toEqual(saved);
+
+    const report = await flushNow(gh.fetch);
+    expect(report).toMatchObject({ pending: 0, ok: true });
+    const kept = await loadCollectionQueue(config);
+    expect(kept).toEqual(saved);
+    // What a still-stale Tiro page, listing nothing, draws from it.
+    expect(effectiveMembership([], kept, A).has("favorites")).toBe(true);
   });
 
   test("while the site's own membership still retires an overlay it shows", async () => {
