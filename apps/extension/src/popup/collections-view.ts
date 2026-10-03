@@ -60,8 +60,9 @@ export interface CollectionsFooter {
 }
 
 export interface CollectionsView {
-  /** The header label: "Tiro site", unless a removal has something to say. */
-  label: { text: string; tone: Tone };
+  /** The header label: "Tiro site", unless a removal has something to say.
+   * Null after a clip, where the clip's own view owns the header. */
+  label: { text: string; tone: Tone } | null;
   /** Null once the article has been removed: there is nothing to introduce. */
   intro: string | null;
   /** Null on a Tiro page that is not an article, or one just removed: nothing
@@ -71,7 +72,8 @@ export interface CollectionsView {
    * confirmed or made, a toggle for the same article would race it. */
   locked: boolean;
   footer: CollectionsFooter | null;
-  remove: RemovalView;
+  /** Null after a clip, where the clip's own view paints Remove. */
+  remove: RemovalView | null;
 }
 
 /**
@@ -222,5 +224,60 @@ export function collectionsView(
     locked: remove.active,
     footer,
     remove,
+  };
+}
+
+/** An article page, as the after-clip panel builds one from the vault. */
+export type ArticlePage = Extract<TiroPage, { kind: "article" }>;
+
+/**
+ * The collections offered under a clip that has just been saved (ADR 0037),
+ * as far as reading them has got. Read from the vault, never from a page, and
+ * only once the clip has committed.
+ */
+export type AfterClip =
+  | { state: "loading" }
+  | { state: "failed" }
+  /** `unreadable`: collection files left out because they did not parse. */
+  | { state: "ready"; page: ArticlePage; unreadable: number };
+
+/**
+ * The same panel a Tiro page shows, under a clip instead of in place of one.
+ *
+ * Built by `collectionsView` once the catalog is in, so the rows, ticks and
+ * pending dots are the Tiro page's exactly. What differs is what surrounds
+ * them: the header and Remove belong to the clip's own view, which is already
+ * painting both, and the intro says the step is optional — the clip is done
+ * whether or not anything is ticked.
+ */
+export function afterClipView(
+  afterClip: AfterClip,
+  s: Omit<CollectionsState, "page">,
+  m: Messages,
+): CollectionsView {
+  if (afterClip.state !== "ready") {
+    return {
+      label: null,
+      intro:
+        afterClip.state === "loading" ? m.afterClipLoading : m.afterClipFailed,
+      rows: null,
+      locked: true,
+      footer: collectionsFooter(s, m),
+      remove: null,
+    };
+  }
+  const view = collectionsView({ ...s, page: afterClip.page }, m);
+  return {
+    ...view,
+    label: null,
+    // Null when there is nothing to toggle — the article has just been
+    // removed — exactly as on a Tiro page.
+    intro:
+      view.rows === null
+        ? null
+        : afterClip.unreadable > 0
+          ? m.afterClipIntroUnreadable(afterClip.unreadable)
+          : m.afterClipIntro,
+    remove: null,
   };
 }

@@ -21,6 +21,7 @@ import {
   prefersCandidate,
 } from "../clip-candidate.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
+import { readClipCollections } from "../collections-read.ts";
 import type { FlushReport } from "../collections-worker.ts";
 import { describeClipError, describeRemoveError } from "../errors.ts";
 import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
@@ -55,6 +56,9 @@ import {
 import { parseTiroPage, readTiroMarker, type TiroPage } from "../tiro-page.ts";
 import { countWords } from "../words.ts";
 import {
+  type AfterClip,
+  type ArticlePage,
+  afterClipView,
   type CollectionsFooter,
   type CollectionsView,
   collectionsFooter,
@@ -226,8 +230,10 @@ function applyCollectionFooter(footer: CollectionsFooter | null): void {
  * page, and any page can claim to be a Tiro page. */
 function applyCollections(view: CollectionsView): void {
   el.collections.hidden = false;
-  el.label.textContent = view.label.text;
-  el.label.dataset.tone = view.label.tone;
+  if (view.label !== null) {
+    el.label.textContent = view.label.text;
+    el.label.dataset.tone = view.label.tone;
+  }
   el.collectionsIntro.hidden = view.intro === null;
   el.collectionsIntro.textContent = view.intro ?? "";
   el.collectionList.hidden = view.rows === null;
@@ -255,7 +261,7 @@ function applyCollections(view: CollectionsView): void {
     }),
   );
   applyCollectionFooter(view.footer);
-  applyRemoval(view.remove);
+  if (view.remove !== null) applyRemoval(view.remove);
 }
 
 el.options.addEventListener("click", () => {
@@ -334,6 +340,14 @@ async function main(): Promise<void> {
       const fixture = fixtures(m)[name];
       if (fixture !== undefined) apply(popupView(fixture, m));
       else el.label.textContent = `no fixture "${name}"`;
+      const afterClipName = params.get("after-clip");
+      if (afterClipName !== null) {
+        const { afterClipFixtures } = await import("./fixtures.ts");
+        const panel = afterClipFixtures()[afterClipName];
+        if (panel !== undefined) {
+          applyCollections(afterClipView(panel.afterClip, panel.state, m));
+        } else el.label.textContent = `no fixture "${afterClipName}"`;
+      }
       return;
     }
   }
@@ -355,6 +369,17 @@ async function main(): Promise<void> {
   let report: FlushReport | null = null;
   /** Set when the tab is a Tiro page and the popup is showing collections. */
   let tiroPage: TiroPage | null = null;
+  /** Set once a clip has saved: the collections offered under it, as far as
+   * reading them from the vault has got (ADR 0037). */
+  let afterClip: AfterClip | null = null;
+
+  /** The article the collection rows toggle — the Tiro page's, or the one this
+   * popup has just clipped once its collections are read — or null while
+   * there is none. */
+  function collectionPage(): ArticlePage | null {
+    if (tiroPage?.kind === "article") return tiroPage;
+    return afterClip?.state === "ready" ? afterClip.page : null;
+  }
   /** Toggles sent and not yet answered. Re-reading the queue while one is in
    * flight would paint the worker's state from *before* it, and a checkbox the
    * reader just ticked would flick back. */
@@ -409,7 +434,7 @@ async function main(): Promise<void> {
       loadCollectionQueue(config),
       loadFlushStatus(config),
     ]);
-    let next = visibleQueue(loaded, tiroPage, Date.now());
+    let next = visibleQueue(loaded, collectionPage(), Date.now());
     // Without this a re-read would draw the worker's queue, which lacks these
     // toggles, and the tick would flick back with no word said — the silent
     // revert this list exists to prevent.
@@ -430,6 +455,8 @@ async function main(): Promise<void> {
     };
     if (tiroPage !== null) {
       applyCollections(collectionsView({ page: tiroPage, ...s, removal }, m));
+    } else if (afterClip !== null) {
+      applyCollections(afterClipView(afterClip, { ...s, removal }, m));
     } else {
       applyCollectionFooter(collectionsFooter(s, m));
     }
@@ -462,8 +489,8 @@ async function main(): Promise<void> {
   const channel = createToggleChannel(send);
 
   async function toggle(op: ToggleOp): Promise<void> {
-    if (tiroPage?.kind !== "article" || removalHolds()) return;
-    const page = tiroPage;
+    const page = collectionPage();
+    if (page === null || removalHolds()) return;
     const entry = {
       op,
       published: page.member.includes(op.collection),
@@ -496,18 +523,17 @@ async function main(): Promise<void> {
 
   el.collectionList.addEventListener("change", (event) => {
     const input = event.target;
-    if (!(input instanceof HTMLInputElement) || tiroPage?.kind !== "article") {
-      return;
-    }
+    const page = collectionPage();
+    if (!(input instanceof HTMLInputElement) || page === null) return;
     const collection = input.dataset.id ?? "";
     // A title travels only with an op that may have to create the file — one
-    // for a collection the site has not published. A catalog entry already
-    // has its file, and its title there is the owner's.
-    const listed = tiroPage.catalog.some((entry) => entry.id === collection);
+    // for a collection the catalog does not hold. A catalog entry already has
+    // its file, and its title there is the owner's.
+    const listed = page.catalog.some((entry) => entry.id === collection);
     void toggle({
       id: crypto.randomUUID(),
       collection,
-      slug: tiroPage.slug,
+      slug: page.slug,
       action: input.checked ? "add" : "remove",
       at: new Date().toISOString(),
       ...(listed ? {} : { title: input.dataset.title ?? collection }),
@@ -517,16 +543,17 @@ async function main(): Promise<void> {
   el.collectionNew.addEventListener("submit", (event) => {
     event.preventDefault();
     const title = el.collectionNewTitle.value.trim();
-    if (title === "" || tiroPage?.kind !== "article") return;
+    const page = collectionPage();
+    if (title === "" || page === null) return;
     el.collectionNewTitle.value = "";
     // Named after the typed title, the way the site will route it. A name that
     // folds onto an existing collection simply adds to that one.
     const collection = collectionId(title);
-    const listed = tiroPage.catalog.some((entry) => entry.id === collection);
+    const listed = page.catalog.some((entry) => entry.id === collection);
     void toggle({
       id: crypto.randomUUID(),
       collection,
-      slug: tiroPage.slug,
+      slug: page.slug,
       action: "add",
       at: new Date().toISOString(),
       ...(listed ? {} : { title }),
@@ -1168,6 +1195,10 @@ async function main(): Promise<void> {
           // The commit already succeeded; losing the hint record must not
           // relabel the clip as failed.
         }
+        // After the record, not beside it: a tick on this article is deferred
+        // rather than refused while GitHub catches up, and the worker knows the
+        // article is fresh only from that record.
+        void offerClipCollections(file.slug);
       } catch (error) {
         console.error("clip failed:", error);
         committing = false;
@@ -1178,10 +1209,52 @@ async function main(): Promise<void> {
     })(result, sourceUrl);
   });
 
-  /** Paint whichever mode the popup is in. */
+  /**
+   * Offer collections under the clip just saved (ADR 0037).
+   *
+   * Read from the vault now, and not before: the disclosure promises nothing
+   * reaches it until the Clip click, and a read is a request all the same.
+   * Nothing here can relabel the clip — whatever the read does, the article is
+   * saved — so every failure ends in a line under it, never in the clip's own
+   * state.
+   */
+  async function offerClipCollections(slug: string): Promise<void> {
+    afterClip = { state: "loading" };
+    paintCollections();
+    try {
+      const read = await readClipCollections(config, slug);
+      afterClip = {
+        state: "ready",
+        page: {
+          kind: "article",
+          slug,
+          member: read.member,
+          catalog: read.catalog,
+        },
+        unreadable: read.unreadable.length,
+      };
+    } catch (error) {
+      console.error("reading collections failed:", error);
+      afterClip = { state: "failed" };
+    }
+    try {
+      // Again, now that there is an article to prune the overlay against.
+      await refreshQueue();
+    } catch {
+      // The last drawn state stands; the next action re-reads.
+    }
+    paintCollections();
+  }
+
+  /** Paint whichever mode the popup is in. After a clip that is both: the
+   * clip's view, and the collections offered under it. */
   function repaint(): void {
-    if (tiroPage !== null) paintCollections();
-    else render();
+    if (tiroPage !== null) {
+      paintCollections();
+      return;
+    }
+    render();
+    if (afterClip !== null) paintCollections();
   }
 
   /** Where a removal ends with the article not in the vault — removed now, or

@@ -486,8 +486,15 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * Also 6: "Remove from Tiro" (ADR 0036), the one write that deletes. Folded
  * into 6 rather than bumped to 7 because neither 5 nor 6 has been released —
  * the store build still asks for 4 — so every user who sees 6 sees it with
- * this sentence, and a 7 would only have re-prompted the unpacked builds. */
-export const DISCLOSURE_VERSION = 6;
+ * this sentence, and a 7 would only have re-prompted the unpacked builds.
+ *
+ * 7: collections after a clip (ADR 0037). On an ordinary page the popup now
+ * reads the vault's collections once the clip has saved, and a box ticked
+ * there is kept and committed on close — collection writes leave Tiro pages,
+ * which is where version 5 placed them and the only place 6 said they happen.
+ * Same destination, no new permission; bumped because 6 has shipped (0.16.0),
+ * so anyone who accepted it accepted a narrower description. */
+export const DISCLOSURE_VERSION = 7;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */
