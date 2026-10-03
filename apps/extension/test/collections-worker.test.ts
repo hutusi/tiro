@@ -136,6 +136,44 @@ describe("the collection worker", () => {
     expect(await loadCollectionQueue(config)).toEqual([]);
   });
 
+  // The owner's repro on PR #68: save Favorites, re-clip before the deploy
+  // lands, tick Reading under the clip. The vault read already lists
+  // Favorites; handed to the worker as the site's membership it deleted the
+  // overlay, and the stale Tiro page then showed Favorites unticked.
+  test("a toggle made under a clip leaves the saved overlay alone", async () => {
+    const gh = fakeGitHub(vault);
+    await recordToggle(toggle("add"));
+    await flushNow(gh.fetch);
+    const saved = await loadCollectionQueue(config);
+    expect(saved.map((op) => [op.collection, op.state])).toEqual([
+      ["favorites", "sent"],
+    ]);
+
+    const underClip = toggle("add", A, "reading");
+    await recordToggle({ ...underClip, member: null });
+    expect(
+      (await loadCollectionQueue(config)).map((op) => [
+        op.collection,
+        op.state,
+      ]),
+    ).toEqual([
+      ["favorites", "sent"],
+      ["reading", "pending"],
+    ]);
+  });
+
+  test("while the site's own membership still retires an overlay it shows", async () => {
+    const gh = fakeGitHub(vault);
+    await recordToggle(toggle("add"));
+    await flushNow(gh.fetch);
+    // The deployed page now lists Favorites: the overlay has done its job.
+    const onSite = toggle("add", A, "reading");
+    await recordToggle({ ...onSite, member: ["favorites"] });
+    expect(
+      (await loadCollectionQueue(config)).map((op) => op.collection),
+    ).toEqual(["reading"]);
+  });
+
   // Two realms writing one key would lose one write. The worker is the only
   // writer and runs one thing at a time: a toggle made while a flush is on the
   // network waits, and neither is lost.

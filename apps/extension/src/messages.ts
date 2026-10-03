@@ -39,10 +39,15 @@ export function isClipResult(message: unknown): message is ClipResultMessage {
  * flush now (ADR 0029). Only the worker writes the queue, so the popup sends
  * both rather than touching storage itself.
  *
- * `published` is whether the page says the article is in the collection, and
- * `member` is the page's whole membership for this article — the worker uses
- * the first to judge whether the toggle is a change, and the second to prune
- * overlay the site has since caught up with.
+ * `published` is whether the article is in the collection as the popup saw
+ * it, and `member` is the *deployed site's* whole membership for this article
+ * — the worker uses the first to judge whether the toggle is a change, and the
+ * second to prune overlay the site has since caught up with.
+ *
+ * `member` is null when the popup has no site to go by: after a clip it reads
+ * membership from the vault (ADR 0037), which already agrees with every op a
+ * flush has sent, so pruning against it would drop overlay a still-stale Tiro
+ * page needs. Null prunes nothing on its account.
  */
 export type CollectionMessage =
   | {
@@ -56,7 +61,7 @@ export type CollectionMessage =
         title?: string;
       };
       published: boolean;
-      member: string[];
+      member: string[] | null;
     }
   | { type: "tiro-collection-flush" };
 
@@ -75,8 +80,8 @@ export function isCollectionMessage(
   if (m.type !== "tiro-collection-toggle") return false;
   if (typeof m.published !== "boolean") return false;
   if (
-    !Array.isArray(m.member) ||
-    !m.member.every((x) => typeof x === "string")
+    m.member !== null &&
+    (!Array.isArray(m.member) || !m.member.every((x) => typeof x === "string"))
   ) {
     return false;
   }

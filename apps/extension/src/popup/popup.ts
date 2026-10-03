@@ -434,6 +434,9 @@ async function main(): Promise<void> {
       loadCollectionQueue(config),
       loadFlushStatus(config),
     ]);
+    // In memory and for drawing only: after a clip the vault read is fresher
+    // than any overlay. Storage is pruned against the site alone (the worker's
+    // `recordToggle`), which is why a toggle's `member` below is the site's.
     let next = visibleQueue(loaded, collectionPage(), Date.now());
     // Without this a re-read would draw the worker's queue, which lacks these
     // toggles, and the tick would flick back with no word said — the silent
@@ -494,7 +497,10 @@ async function main(): Promise<void> {
     const entry = {
       op,
       published: page.member.includes(op.collection),
-      member: page.member,
+      // The site's membership, or none: a vault read after a clip already
+      // agrees with every saved op, and handed to the worker as if it were the
+      // site it would prune overlay a stale Tiro page still needs.
+      member: tiroPage?.kind === "article" ? page.member : null,
     };
     // Drawn now, from the same function the worker will run, so the tick moves
     // under the reader's finger rather than after a round trip.

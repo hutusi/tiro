@@ -40,7 +40,12 @@ export function recordToggle(
     if (!isConfigComplete(config)) {
       throw new Error("the vault settings are incomplete");
     }
-    const page = { slug: message.op.slug, member: message.member };
+    // Only a site's membership says an overlay is no longer needed; with none
+    // (a toggle made under a clip) only age prunes it.
+    const page =
+      message.member === null
+        ? null
+        : { slug: message.op.slug, member: message.member };
     const queue = enqueue(
       pruneSent(await loadCollectionQueue(config), page, Date.now()),
       message.op,
