@@ -617,6 +617,20 @@ function readerAt(
   };
 }
 
+/**
+ * The reads a `commitFiles` builder gets, pinned to the branch head, for a
+ * caller that only reads — so a view drawn from several files describes one
+ * snapshot. The ref is read first, as `readAtHead` does, so an unreachable
+ * vault throws rather than reading as empty.
+ */
+export async function readerAtHead(
+  config: TiroExtensionConfig,
+  fetchImpl: FetchLike = fetch,
+): Promise<{ commit: string; reader: TreeReader }> {
+  const commit = await headCommit(config, fetchImpl);
+  return { commit, reader: readerAt(config, commit, fetchImpl) };
+}
+
 /** One file a commit writes, or one it deletes. */
 export type CommitFile =
   | { path: string; content: string }
