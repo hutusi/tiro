@@ -2703,6 +2703,24 @@ describe("a video keeps its place in the article", () => {
       ).toBe(INTRO);
     });
 
+    test("an authored description is kept when it matches the video's text", () => {
+      // Equality with the paragraph cannot say where an excerpt came from: a
+      // first version compared them, and overwrote these.
+      const video = '<p><video src="/demo.mp4"></video></p>';
+      for (const head of [
+        '<meta name="description" content="Video">',
+        '<meta property="og:description" content="Video">',
+      ]) {
+        expect(excerptOf(video, head)).toBe("Video");
+      }
+      expect(
+        excerptOf(
+          '<p><video src="/demo.mp4">Watch the demo</video></p>',
+          '<meta name="description" content="Watch the demo">',
+        ),
+      ).toBe("Watch the demo");
+    });
+
     test("an authored description is kept", () => {
       expect(
         excerptOf(
@@ -2711,6 +2729,19 @@ describe("a video keeps its place in the article", () => {
         ),
       ).toBe("Authored summary.");
     });
+  });
+
+  test("the text that keeps a video's paragraph never reaches the markdown", () => {
+    for (const markup of [
+      '<p><video src="/v.mp4" poster="/p.jpg"></video></p>',
+      '<p><video src="/v.mp4"></video></p>',
+      '<p><video src="blob:https://schlarp.example/1"></video></p>',
+      '<p>Watch <video src="/v.mp4">Your browser cannot play this.</video> here.</p>',
+    ]) {
+      const markdown = clip(markup);
+      expect(markdown).not.toContain("\uE000");
+      expect(markdown).not.toContain("cannot play");
+    }
   });
 
   test("a document with no base of its own resolves against the page URL", () => {

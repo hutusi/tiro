@@ -1073,6 +1073,15 @@ function captionSource(caption: Element): Element | null {
  */
 const VIDEO_LABEL = "Video";
 
+/**
+ * Brackets the text `keepVideosThroughReadability` gives a video, so text that
+ * came from it can be told from text an author wrote. A private-use character:
+ * no page's metadata carries one by accident, and it is not whitespace, so the
+ * paragraph still reads as holding text.
+ */
+const VIDEO_MARK = "\uE000";
+const VIDEO_PLACEHOLDER = `${VIDEO_MARK}${VIDEO_LABEL}${VIDEO_MARK}`;
+
 /** A video address a reader can follow: http(s), resolved against the page.
  * `blob:` is what a streaming player hands its `<video>`, and it means nothing
  * outside the tab that made it; `data:` would put the file in the markdown. */
@@ -1124,13 +1133,22 @@ function videoSource(video: Element, base: string): string | null {
  * would discard the very attributes Readability reads to decide what is
  * hidden; here a hidden paragraph, or a hidden video, is still dropped with
  * everything in it. The text never reaches the markdown: `videosAsPostersIn`
- * replaces the whole element, fallback and all, and `excerptWithoutVideos`
- * keeps it out of the one thing Readability reads from the text directly.
+ * replaces the whole element, and `excerptWithoutVideos` keeps it out of the
+ * one thing Readability reads from the text directly.
+ *
+ * The page's own fallback is replaced rather than kept beside the placeholder.
+ * It is never content — `videosAsPostersIn` discards it — and leaving it would
+ * leave text in the body that nothing downstream could tell from the author's,
+ * which is exactly how it used to become an article's excerpt. `<source>` and
+ * `<track>` stay; they are what the video plays.
  */
 function keepVideosThroughReadability(doc: Document): void {
   for (const video of Array.from(doc.querySelectorAll("video"))) {
-    if ((video.textContent ?? "").trim() !== "") continue;
-    video.appendChild(doc.createTextNode(VIDEO_LABEL));
+    for (const child of Array.from(video.childNodes)) {
+      if (child.nodeName === "SOURCE" || child.nodeName === "TRACK") continue;
+      video.removeChild(child);
+    }
+    video.appendChild(doc.createTextNode(VIDEO_PLACEHOLDER));
   }
 }
 
@@ -1144,22 +1162,26 @@ function keepVideosThroughReadability(doc: Document): void {
  * summarised as `Video`, in the popup, the frontmatter and the site's feed,
  * even when the video itself was then dropped from the body.
  *
- * Recognised by shape rather than by the label: the excerpt is exactly that
- * paragraph's text, which an authored description never is, so one of those
- * passes through untouched. Rebuilt from the first paragraph that still says
- * something once every video is gone — the one Readability would have taken
- * had the video's paragraph been deleted, as it was before videos were kept.
+ * Recognised by `VIDEO_MARK`, which only the placeholder carries. Comparing
+ * the excerpt with the first paragraph's text was tried first and cannot tell
+ * where an excerpt came from: a page whose `<meta name="description">` is
+ * "Video" — or whatever its fallback said — matched, and lost its authored
+ * description to a later paragraph. Readability takes metadata from the
+ * page's `<head>` and JSON-LD, which never hold the mark, so an excerpt that
+ * carries it was read out of the body, and anything else passes through.
+ *
+ * Rebuilt from the first paragraph that still says something once every
+ * video is gone — the one Readability would have taken had the video's
+ * paragraph been deleted, as it was before videos were kept.
  */
 export function excerptWithoutVideos(
   excerpt: string,
   content: string,
   doc: Document,
 ): string {
+  if (!excerpt.includes(VIDEO_MARK)) return excerpt;
   const scratch = doc.implementation.createHTMLDocument("");
   scratch.body.innerHTML = content;
-  const first = scratch.querySelector("p");
-  if (first === null || first.querySelector("video") === null) return excerpt;
-  if (excerpt.trim() !== (first.textContent ?? "").trim()) return excerpt;
   for (const video of Array.from(scratch.querySelectorAll("video"))) {
     video.remove();
   }
