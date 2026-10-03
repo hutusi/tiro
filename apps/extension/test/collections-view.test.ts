@@ -165,7 +165,13 @@ describe("the queue footer", () => {
         m,
       ).footer,
     ).toMatchObject({ text: m.collectionsSaving, sync: { enabled: false } });
-    const done = { pending: 1, ok: true, committed: "c", refused: 0 };
+    const done = {
+      pending: 1,
+      ok: true,
+      committed: "c",
+      refused: 0,
+      deferred: 0,
+    };
     expect(
       collectionsView(
         {
@@ -192,6 +198,25 @@ describe("the queue footer", () => {
         m,
       ).footer,
     ).toMatchObject({ text: m.collectionsRefused(2), tone: "error" });
+    // A save that held back an add for a just-clipped article says so, and
+    // keeps Save now on offer (ADR 0037).
+    expect(
+      collectionsView(
+        {
+          ...reached,
+          page: article,
+          queue: pending,
+          status: { at: T, ok: true },
+          syncing: false,
+          report: { ...done, committed: null, deferred: 1 },
+        },
+        m,
+      ).footer,
+    ).toMatchObject({
+      text: m.collectionsDeferred(1),
+      tone: "neutral",
+      sync: { visible: true, enabled: true },
+    });
   });
 });
 

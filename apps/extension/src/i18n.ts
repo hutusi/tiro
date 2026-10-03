@@ -235,6 +235,10 @@ const en = {
   collectionsSaved: "Saved to your vault. The site updates in a minute or two.",
   collectionsRefused: (n: number) =>
     `${n === 1 ? "1 change was" : `${n} changes were`} dropped: that article is not in your vault.`,
+  /** A save held back an add because GitHub had not yet shown the article
+   * just clipped (ADR 0037). Kept, and retried by the next save. */
+  collectionsDeferred: (n: number) =>
+    `GitHub has not shown the new article yet. ${n === 1 ? "1 change is" : `${n} changes are`} kept — saved when you close this popup.`,
   collectionsFailed: (reason: string) =>
     `Could not save: ${reason} Your changes are kept and will be retried.`,
   /** A toggle the worker could not record, even after a retry. It lives only
@@ -435,6 +439,8 @@ const zh: Messages = {
   collectionsSaved: "已保存到仓库，站点将在一两分钟内更新。",
   collectionsRefused: (n: number) =>
     `${n} 处改动已丢弃：你的仓库中没有这篇文章。`,
+  collectionsDeferred: (n: number) =>
+    `GitHub 尚未显示刚剪藏的文章。${n} 处改动已保留，关闭弹窗时自动保存。`,
   collectionsFailed: (reason: string) =>
     `保存失败：${reason} 改动已保留，稍后会重试。`,
   collectionsNotRecorded:

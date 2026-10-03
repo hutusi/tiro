@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { parseCollection } from "@tiro/shared";
-import { flushNow, recordToggle } from "../src/collections-worker.ts";
+import {
+  flushNow,
+  JUST_CLIPPED_MS,
+  recordToggle,
+} from "../src/collections-worker.ts";
 import type { FetchLike } from "../src/github.ts";
 import {
   loadCollectionQueue,
   loadFlushStatus,
+  recordClip,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
 import { fakeGitHub } from "./fake-github.ts";
@@ -87,6 +92,48 @@ describe("the collection worker", () => {
       ok: true,
       refused: 1,
     });
+  });
+
+  // ADR 0037: the popup offers collections the moment a clip lands, and the
+  // flush that follows may read the vault from before it.
+  test("an add for an article clipped moments ago stays pending until the vault shows it", async () => {
+    const fresh = "example-com-fresh-0badcafe";
+    const gh = fakeGitHub(vault);
+    await recordClip(config, fresh, new Date().toISOString());
+    await recordToggle(toggle("add", fresh));
+
+    const first = await flushNow(gh.fetch);
+    expect(first).toMatchObject({
+      ok: true,
+      committed: null,
+      refused: 0,
+      deferred: 1,
+    });
+    expect((await loadCollectionQueue(config)).map((op) => op.state)).toEqual([
+      "pending",
+    ]);
+
+    gh.commitDirect({ [`articles/${fresh}/index.md`]: "F" });
+    const second = await flushNow(gh.fetch);
+    expect(second).toMatchObject({ ok: true, refused: 0, deferred: 0 });
+    expect(second.committed).not.toBeNull();
+    expect((await loadCollectionQueue(config)).map((op) => op.state)).toEqual([
+      "sent",
+    ]);
+  });
+
+  test("past the window, an article still missing is refused as any other", async () => {
+    const stale = "example-com-stale-0badcafe";
+    const gh = fakeGitHub(vault);
+    await recordClip(
+      config,
+      stale,
+      new Date(Date.now() - JUST_CLIPPED_MS - 60_000).toISOString(),
+    );
+    await recordToggle(toggle("add", stale));
+    const report = await flushNow(gh.fetch);
+    expect(report).toMatchObject({ refused: 1, deferred: 0 });
+    expect(await loadCollectionQueue(config)).toEqual([]);
   });
 
   // Two realms writing one key would lose one write. The worker is the only

@@ -330,14 +330,26 @@ export function collectionFixtures(
       queue: [op("1", "favorites", "add", "sent")],
       status: { at, ok: true },
       syncing: false,
-      report: { pending: 1, ok: true, committed: "c0ffee", refused: 0 },
+      report: {
+        pending: 1,
+        ok: true,
+        committed: "c0ffee",
+        refused: 0,
+        deferred: 0,
+      },
     },
     refused: {
       page: article,
       queue: [],
       status: { at, ok: true, refused: 1 },
       syncing: false,
-      report: { pending: 1, ok: true, committed: null, refused: 1 },
+      report: {
+        pending: 1,
+        ok: true,
+        committed: null,
+        refused: 1,
+        deferred: 0,
+      },
     },
     failed: {
       page: article,

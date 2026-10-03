@@ -104,6 +104,48 @@ describe("flushCollections", () => {
     expect(gh.files().has("collections/favorites.md")).toBe(false);
   });
 
+  // GitHub's read side can trail a write: right after a clip the flush may not
+  // see the index.md that clip committed. The reader's tick must survive that
+  // (ADR 0037).
+  test("defers, rather than refuses, an add for an article just clipped", async () => {
+    const fresh = "example-com-fresh-0badcafe";
+    const gh = fakeGitHub(vault);
+    const early = op("add", "favorites", fresh);
+    const other = op("add", "favorites", A);
+    const foreign = op("add", "favorites", "elsewhere-com-x-deadbeef");
+    const outcome = await flushCollections(
+      config,
+      [early, other, foreign],
+      gh.fetch,
+      { justClipped: new Set([fresh]) },
+    );
+    expect(outcome.deferred.map((d) => d.id)).toEqual([early.id]);
+    expect(outcome.refused.map((r) => r.id)).toEqual([foreign.id]);
+    expect([...outcome.sent]).toEqual([other.id]);
+    expect(members(gh.files(), "favorites")).toEqual([A]);
+    expect(gh.log()).toEqual(["root", "collections: favorites +1"]);
+
+    // Once the vault shows the article, the same op lands.
+    gh.commitDirect({ [`articles/${fresh}/index.md`]: "F" });
+    const later = await flushCollections(config, [early], gh.fetch, {
+      justClipped: new Set([fresh]),
+    });
+    expect(later.deferred).toEqual([]);
+    expect(later.sent.has(early.id)).toBe(true);
+    expect(members(gh.files(), "favorites")).toEqual([fresh, A]);
+  });
+
+  test("a deferred add alone writes nothing", async () => {
+    const gh = fakeGitHub(vault);
+    const early = op("add", "favorites", "example-com-fresh-0badcafe");
+    const outcome = await flushCollections(config, [early], gh.fetch, {
+      justClipped: new Set([early.slug]),
+    });
+    expect(outcome).toMatchObject({ committed: null, refused: [] });
+    expect(outcome.sent.size).toBe(0);
+    expect(gh.log()).toEqual(["root"]);
+  });
+
   // CodeRabbit's case: counted from what the commit changes, not from what
   // was queued — a refused add is not in it.
   test("the message does not count an add the vault refused", async () => {

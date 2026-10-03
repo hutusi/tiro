@@ -134,6 +134,16 @@ export function collectionsFooter(
         };
   }
   const ready = { visible: true, enabled: true };
+  // The save went through but held back an add for an article clipped moments
+  // ago: GitHub had not shown it yet. Said as such, so a kept change does not
+  // read as a failed one (ADR 0037).
+  if (s.report?.ok === true && s.report.deferred > 0) {
+    return {
+      text: m.collectionsDeferred(pending),
+      tone: "neutral",
+      sync: ready,
+    };
+  }
   // Only while there is still something to retry: a failure the next flush
   // already recovered from is not news.
   if (s.status !== null && !s.status.ok) {
