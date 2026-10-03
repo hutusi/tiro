@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { parseCollection } from "@tiro/shared";
-import { effectiveMembership } from "../src/collection-queue.ts";
+import {
+  effectiveMembership,
+  type QueuedOp,
+  SENT_OVERLAY_MS,
+} from "../src/collection-queue.ts";
 import {
   flushNow,
   JUST_CLIPPED_MS,
@@ -11,6 +15,7 @@ import {
   loadCollectionQueue,
   loadFlushStatus,
   recordClip,
+  saveCollectionQueue,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
 import { fakeGitHub } from "./fake-github.ts";
@@ -185,6 +190,44 @@ describe("the collection worker", () => {
     expect(kept).toEqual(saved);
     // What a still-stale Tiro page, listing nothing, draws from it.
     expect(effectiveMembership([], kept, A).has("favorites")).toBe(true);
+  });
+
+  // The owner's second re-review on PR #68, end to end: a week-old saved add
+  // under an unsent removal, Favorites since removed on another device, and
+  // a fresh Add on the updated page. The click has to reach the vault.
+  test("an expired saved op under a pending edit cannot swallow a fresh click", async () => {
+    const gh = fakeGitHub(vault);
+    const weekOld = new Date(Date.now() - SENT_OVERLAY_MS - 60_000);
+    const saved: QueuedOp = {
+      id: "saved",
+      collection: "favorites",
+      slug: A,
+      action: "add",
+      at: weekOld.toISOString(),
+      state: "sent",
+      sentAt: weekOld.toISOString(),
+    };
+    await saveCollectionQueue(config, [
+      {
+        id: "unsent",
+        collection: "favorites",
+        slug: A,
+        action: "remove",
+        at: weekOld.toISOString(),
+        state: "pending",
+        replaced: saved,
+      },
+    ]);
+
+    // The site has caught up with the other device: no Favorites.
+    await recordToggle(toggle("add"));
+    const report = await flushNow(gh.fetch);
+    expect(report).toMatchObject({ pending: 1, ok: true });
+    expect(report.committed).not.toBeNull();
+    const text = gh.files().get("collections/favorites.md") ?? "";
+    expect(
+      parseCollection("favorites", text).frontmatter.items.map((i) => i.slug),
+    ).toEqual([A]);
   });
 
   test("while the site's own membership still retires an overlay it shows", async () => {

@@ -119,22 +119,35 @@ export function settleFlush(
  * Drop overlay that is no longer needed: sent ops the page now agrees with,
  * and any sent op older than `SENT_OVERLAY_MS`. Pending ops are never pruned
  * — they are the reader's unsaved intent.
+ *
+ * The sent op a pending one displaced (`replaced`) is overlay too, and retires
+ * by the same two rules while the pending op stays. Kept past them, it would
+ * go on deciding what the vault holds: a week-old saved add would turn a fresh
+ * click on a page that has since moved on into "no change", restore an op the
+ * next save then expires, and lose the click (owner's re-review, PR #68).
  */
 export function pruneSent(
   queue: readonly QueuedOp[],
   page: { slug: string; member: readonly string[] } | null,
   now: number,
 ): QueuedOp[] {
-  return queue.filter((op) => {
-    if (op.state !== "sent") return true;
+  const retired = (op: QueuedOp): boolean => {
     if (
       op.sentAt !== undefined &&
       now - Date.parse(op.sentAt) > SENT_OVERLAY_MS
     ) {
-      return false;
+      return true;
     }
-    if (page === null || op.slug !== page.slug) return true;
+    if (page === null || op.slug !== page.slug) return false;
     const listed = page.member.includes(op.collection);
-    return listed !== (op.action === "add");
+    return listed === (op.action === "add");
+  };
+  return queue.flatMap((op) => {
+    if (op.state === "sent") return retired(op) ? [] : [op];
+    if (op.replaced !== undefined && retired(op.replaced)) {
+      const { replaced: _retired, ...pending } = op;
+      return [pending];
+    }
+    return [op];
   });
 }
