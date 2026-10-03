@@ -238,8 +238,9 @@ export type ArticlePage = Extract<TiroPage, { kind: "article" }>;
 export type AfterClip =
   | { state: "loading" }
   | { state: "failed" }
-  /** `unreadable`: collection files left out because they did not parse. */
-  | { state: "ready"; page: ArticlePage; unreadable: number };
+  /** `unreadable`: ids of collection files left out because they did not
+   * parse. */
+  | { state: "ready"; page: ArticlePage; unreadable: readonly string[] };
 
 /**
  * The same panel a Tiro page shows, under a clip instead of in place of one.
@@ -249,6 +250,12 @@ export type AfterClip =
  * them: the header and Remove belong to the clip's own view, which is already
  * painting both, and the intro says the step is optional — the clip is done
  * whether or not anything is ticked.
+ *
+ * And a collection whose file did not parse is never a row, whatever would
+ * otherwise put it there — favorites, offered on every vault, or a toggle
+ * still queued for it. A tick on one fails the whole flush, healthy
+ * collections with it; a Tiro page never meets one, since the site's build
+ * refuses to publish it.
  */
 export function afterClipView(
   afterClip: AfterClip,
@@ -267,16 +274,18 @@ export function afterClipView(
     };
   }
   const view = collectionsView({ ...s, page: afterClip.page }, m);
+  const unreadable = new Set(afterClip.unreadable);
   return {
     ...view,
+    rows: view.rows?.filter((row) => !unreadable.has(row.id)) ?? null,
     label: null,
     // Null when there is nothing to toggle — the article has just been
     // removed — exactly as on a Tiro page.
     intro:
       view.rows === null
         ? null
-        : afterClip.unreadable > 0
-          ? m.afterClipIntroUnreadable(afterClip.unreadable)
+        : unreadable.size > 0
+          ? m.afterClipIntroUnreadable(unreadable.size)
           : m.afterClipIntro,
     remove: null,
   };

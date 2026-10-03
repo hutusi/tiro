@@ -23,7 +23,7 @@ export interface CollectionFiles {
    * the same way, since it already fails the site's build. The text rides
    * along so a caller can tell whether a broken file concerns it.
    */
-  unreadable: { path: string; text: string; error: unknown }[];
+  unreadable: { path: string; id: string; text: string; error: unknown }[];
 }
 
 /**
@@ -54,7 +54,7 @@ export async function readEveryCollection(
       }
       out.parsed.push({ path, collection: parseCollection(id, text) });
     } catch (error) {
-      out.unreadable.push({ path, text, error });
+      out.unreadable.push({ path, id, text, error });
     }
   }
   return out;
@@ -70,7 +70,11 @@ export interface ClipCollections {
   member: string[];
   /** Favorites first, then most recently updated — the site's own order. */
   catalog: CatalogEntry[];
-  /** Collection files that could not be read, and so are not offered. */
+  /**
+   * The ids of collection files that could not be read, and so must not be
+   * offered — not even favorites, which the panel otherwise offers before its
+   * file exists: ticking one would fail the whole flush on the parse.
+   */
   unreadable: string[];
 }
 
@@ -108,6 +112,6 @@ export async function readClipCollections(
       .filter((c) => c.frontmatter.items.some((item) => item.slug === slug))
       .map((c) => c.id),
     catalog: collections.map((c) => ({ id: c.id, title: c.frontmatter.title })),
-    unreadable: unreadable.map((u) => u.path),
+    unreadable: unreadable.map((u) => u.id),
   };
 }

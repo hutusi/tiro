@@ -83,10 +83,7 @@ describe("readClipCollections", () => {
     const read = await readClipCollections(config, A, gh.fetch);
     expect(read.catalog).toEqual([{ id: "reading", title: "Reading" }]);
     expect(read.member).toEqual(["reading"]);
-    expect(read.unreadable.sort()).toEqual([
-      "collections/Not_An_Id.md",
-      "collections/broken.md",
-    ]);
+    expect(read.unreadable.sort()).toEqual(["Not_An_Id", "broken"]);
   });
 
   test("every read is pinned to the head it started from", async () => {

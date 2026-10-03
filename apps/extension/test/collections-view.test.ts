@@ -236,7 +236,7 @@ describe("afterClipView (ADR 0037)", () => {
 
   test("the rows are the Tiro page's, under an intro that says it is optional", () => {
     const view = afterClipView(
-      { state: "ready", page: clipped, unreadable: 0 },
+      { state: "ready", page: clipped, unreadable: [] },
       quiet,
       m,
     );
@@ -254,7 +254,7 @@ describe("afterClipView (ADR 0037)", () => {
     for (const afterClip of [
       { state: "loading" as const },
       { state: "failed" as const },
-      { state: "ready" as const, page: clipped, unreadable: 0 },
+      { state: "ready" as const, page: clipped, unreadable: [] },
     ]) {
       const view = afterClipView(afterClip, quiet, m);
       expect(view.label).toBeNull();
@@ -275,17 +275,51 @@ describe("afterClipView (ADR 0037)", () => {
 
   test("names collection files it had to leave out", () => {
     const view = afterClipView(
-      { state: "ready", page: clipped, unreadable: 2 },
+      { state: "ready", page: clipped, unreadable: ["broken", "Old_Notes"] },
       quiet,
       m,
     );
     expect(view.intro).toBe(m.afterClipIntroUnreadable(2));
   });
 
+  // The owner's repro on PR #68: a malformed favorites.md was left out of the
+  // catalog and offered anyway, and ticking it failed the whole flush.
+  test("a collection whose file does not parse is never offered — favorites included", () => {
+    const page: ArticlePage = {
+      ...clipped,
+      member: [],
+      catalog: [{ id: "reading", title: "重读" }],
+    };
+    const queue = enqueue([], toggle("add", "favorites"), false);
+    const view = afterClipView(
+      { state: "ready", page, unreadable: ["favorites"] },
+      { ...quiet, queue },
+      m,
+    );
+    expect(view.rows?.map((r) => r.id)).toEqual(["reading"]);
+  });
+
+  test("a favorites file that is merely absent is still offered", () => {
+    const page: ArticlePage = {
+      ...clipped,
+      member: [],
+      catalog: [{ id: "reading", title: "重读" }],
+    };
+    const view = afterClipView(
+      { state: "ready", page, unreadable: [] },
+      quiet,
+      m,
+    );
+    expect(view.rows?.map((r) => [r.id, r.title])).toEqual([
+      ["favorites", "Favorites"],
+      ["reading", "重读"],
+    ]);
+  });
+
   test("a tick made here is drawn from the queue, pending dot and all", () => {
     const queue = enqueue([], toggle("add", "favorites"), false);
     const view = afterClipView(
-      { state: "ready", page: clipped, unreadable: 0 },
+      { state: "ready", page: clipped, unreadable: [] },
       { ...quiet, queue },
       m,
     );
@@ -298,7 +332,7 @@ describe("afterClipView (ADR 0037)", () => {
 
   test("an article removed from under it leaves nothing to tick", () => {
     const view = afterClipView(
-      { state: "ready", page: clipped, unreadable: 0 },
+      { state: "ready", page: clipped, unreadable: [] },
       {
         ...quiet,
         removal: { step: "removed", vault: "o/r", title: null, problem: null },

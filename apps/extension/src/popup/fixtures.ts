@@ -467,7 +467,10 @@ export function afterClipFixtures(): Record<
       title: "待读 · 长文",
     },
   ];
-  const ready = (page: ArticlePage, unreadable = 0): AfterClip => ({
+  const ready = (
+    page: ArticlePage,
+    unreadable: readonly string[] = [],
+  ): AfterClip => ({
     state: "ready",
     page,
     unreadable,
@@ -482,7 +485,11 @@ export function afterClipFixtures(): Record<
       state: quiet,
     },
     ticked: { afterClip: ready(fresh), state: { ...quiet, queue: ticked } },
-    unreadable: { afterClip: ready(fresh, 2), state: quiet },
+    // favorites.md does not parse: unlike a missing one, it is not offered.
+    unreadable: {
+      afterClip: ready(fresh, ["favorites", "Old_Notes"]),
+      state: quiet,
+    },
     // Save now ran before GitHub showed the new article.
     deferred: {
       afterClip: ready(fresh),

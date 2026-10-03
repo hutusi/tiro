@@ -551,10 +551,20 @@ async function main(): Promise<void> {
     const title = el.collectionNewTitle.value.trim();
     const page = collectionPage();
     if (title === "" || page === null) return;
-    el.collectionNewTitle.value = "";
     // Named after the typed title, the way the site will route it. A name that
     // folds onto an existing collection simply adds to that one.
     const collection = collectionId(title);
+    // Unless that collection's file does not parse: the panel left it out for
+    // that reason, and a tick on it would fail the whole flush (ADR 0037). The
+    // name stays in the field; the intro already says files were left out.
+    if (
+      tiroPage === null &&
+      afterClip?.state === "ready" &&
+      afterClip.unreadable.includes(collection)
+    ) {
+      return;
+    }
+    el.collectionNewTitle.value = "";
     const listed = page.catalog.some((entry) => entry.id === collection);
     void toggle({
       id: crypto.randomUUID(),
@@ -1237,7 +1247,7 @@ async function main(): Promise<void> {
           member: read.member,
           catalog: read.catalog,
         },
-        unreadable: read.unreadable.length,
+        unreadable: read.unreadable,
       };
     } catch (error) {
       console.error("reading collections failed:", error);
