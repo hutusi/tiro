@@ -48,10 +48,13 @@ across machines, not for an audience.
 >   your computer can be imported straight from Settings without going through
 >   a web address at all. Where the document's own typography says what its
 >   structure is, the headings, code blocks and lists come from that.
+> - File as you clip: once a clip is saved, the popup lists your collections
+>   under it — favorites, or any list you name — read from the same repository.
+>   Tick any, or none; a change is committed when you close the popup.
 > - On a Tiro site — any page carrying Tiro's marker, on any domain — the
->   button files an article into your collections instead: favorites, or any
->   list you name. The change is committed to the same repository when you
->   close the popup, and only for an article your repository already holds.
+>   button files an article into your collections instead. The change is
+>   committed to the same repository when you close the popup, and only for an
+>   article your repository already holds.
 > - Change your mind: "Remove", at the foot of the popup on a page you clipped
 >   or on its Tiro page, deletes the article from your repository — its files, and its
 >   place in your collections — in one commit, once you confirm. Your
@@ -63,8 +66,8 @@ across machines, not for an audience.
 > - Nothing is read in the background. A page is read only when you open the
 >   Tiro popup on it, to build the preview — and on first run, only after you
 >   agree to the disclosure the popup shows you. Close it without clipping and
->   the result is discarded; a collection you ticked on a Tiro site is the one
->   thing kept, and it is saved when the popup closes.
+>   the result is discarded; a collection you ticked — on a Tiro site, or under
+>   a clip — is the one thing kept, and it is saved when the popup closes.
 > - No analytics, no tracking, no remote code.
 >
 > Setup takes a minute: open Settings, enter your GitHub username, the
@@ -89,7 +92,7 @@ across machines, not for an audience.
 | `contextMenus` | Adds one item, "Clip link to Tiro", to the right-click menu on links. Choosing it saves that link's address into the user's own repository, so the page can be clipped later without being opened. It reads nothing from the page the link is on, and sends only the address, only on that click. Chrome shows no install warning for this permission. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. Before that, on the same click, it runs a two-line function that looks for the marker a Tiro site publishes, so the popup can offer collections instead of a clip on a page carrying that marker — on any domain; it does not check whose site it is. Both are bundled with the extension; nothing is fetched or evaluated at runtime. |
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup, plus collection changes not yet saved to the repository and the outcome of the last save (kept briefly after saving, at most a week, never synced). Removing an article from the popup deletes its entry from the clip record. Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
-| `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. Collection edits go to the same repository with the same token through the Git Data API, so several collection files change in one commit. So does removing an article, which the user confirms in the popup: its files are deleted and it is taken out of their collections, in one commit. |
+| `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. Collection edits go to the same repository with the same token through the Git Data API, so several collection files change in one commit; once a clip is saved, the popup also reads the repository's collection files from there, to list them under it. So does removing an article, which the user confirms in the popup: its files are deleted and it is taken out of their collections, in one commit. |
 | `https://arxiv.org/*` (optional) | Fetches a paper's HTML full text (`arxiv.org/html/<id>`) when the user clips an arXiv page. Tiro treats a paper's abstract, PDF and HTML addresses as one article, so it reads the full text rather than whichever of the three the tab happens to show — the PDF address in particular has no readable text at all. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it, and revoking it returns the extension to clipping the current tab — except at a paper's PDF address, which holds no readable text for it to clip. |
 | `https://raw.githubusercontent.com/*` (optional) | Fetches a Markdown file's own bytes when the user clips a `github.com` page showing one. The tab shows GitHub's rendering of the file — its chrome, its heading anchors, its emoji images — and committing that as the article's text would store a copy of the page rather than the file the user pointed at. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it. Revoking it does not degrade the clip silently: on a GitHub file page the extension declines and names the file's direct address to open instead, which needs no permission at all. Not needed to clip a Markdown file served as plain text anywhere, including `raw.githubusercontent.com` itself — the tab already holds the file. |
 
@@ -128,7 +131,9 @@ repository — a declaration that reads narrower than the code is a rejection.
   runs it — the slug of an article the user files into a collection is queued
   locally and then committed to a collection file in their repository, only
   for an article their repository already holds: a page they had already
-  clipped, but a use of its address all the same, so declared. Removing an
+  clipped, but a use of its address all the same, so declared. The same holds
+  for a collection ticked in the popup right after a clip, which files the
+  article just committed. Removing an
   article sends its slug to the same repository, as the paths it deletes. The
   same
   declaration covers both optional fetches: requesting
@@ -155,7 +160,7 @@ repository — a declaration that reads narrower than the code is a rejection.
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 6, having been bumped when the disclosure
+this disclosure ever changes; it is at 7, having been bumped when the disclosure
 gained the optional arxiv.org fetch, again when it gained opt-in settings sync,
 again when it gained the raw.githubusercontent.com fetch, again when
 collections made the popup keep a change after it closes — which falsified the
@@ -163,7 +168,10 @@ sentence promising that closing it discards everything — and again when "Clip
 link" began sending a link's address to the repository from a context-menu
 click, with no popup open. Version 6 also names "Remove", which
 deletes an article from the repository once the user confirms; neither 5 nor 6
-had been released, so it joined 6 rather than bumping to 7.
+had been released, so it joined 6 rather than bumping to 7. Version 7 came when
+the popup began offering collections under a saved clip: 6 had shipped saying
+collection changes are made on a Tiro site, and they now are on any page just
+clipped.
 
 Required certifications, all true of this extension:
 

@@ -39,7 +39,8 @@ Collections are the one part of the vault a person writes rather than a
 machine. Each file is a title and an ordered list of article slugs; the
 filename is the id, so keep it to lowercase ASCII words joined by dashes. A
 push under `collections/` redeploys the site through `publish.yml` and never
-starts processing. Delete an article and you must also drop it from any
+starts processing. The extension edits them too: on an article's page on your
+Tiro site, and right after a clip, under it (ADR 0029, ADR 0037). Delete an article and you must also drop it from any
 collection that lists it — `tiro-process validate` reports which. The
 extension popup's "Remove" does both in one commit (ADR 0036).
 

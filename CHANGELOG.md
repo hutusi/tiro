@@ -7,6 +7,18 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **File an article as you clip it.** Once a clip is saved, the popup lists
+  your collections under it — favorites first, read from your vault, with a
+  re-clip's collections already ticked — and "New collection…" beside them.
+  Tick any, or none: the step is optional, and a tick is committed when the
+  popup closes, the same way it is on a Tiro page. Filing a fresh clip no
+  longer waits for processing and a deploy. An add made seconds after the clip,
+  before GitHub shows the new article, is kept and sent by the next save
+  instead of being dropped. The data disclosure moves to version 7, so every
+  install re-accepts it once (ADR 0037).
+
 ### Fixed
 
 - **A video in an article is kept.** The clipper used to drop every `<video>`
