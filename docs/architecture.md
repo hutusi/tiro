@@ -158,6 +158,13 @@ flowchart LR
    against the head it lands on. That push runs `process.yml`, which has
    nothing to process and deploys. A run already working on the article lets
    the deletion win at its commit-back and commits the rest.
+
+   **Filing one** (ADR 0037). Once a clip saves, the popup reads every
+   `collections/*.md` at the branch head and offers the Tiro page's tick-list
+   under it. Ticks join ADR 0029's queue and flush as one Git Data API commit
+   when the popup closes — a second push after the clip's own. An add for an
+   article clipped minutes ago that the vault does not show yet is kept
+   pending rather than refused, since GitHub's reads can trail its writes.
 2. **Process.** A push to `articles/**` or `inbox/**` triggers the vault's
    workflow, which checks out this repo and runs `tiro-process`:
    - turn each `inbox/` file into a stub article — normalized URL, the domain
@@ -345,7 +352,8 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   Every page
   carries a `tiro:site` meta and article pages a `#tiro-page` JSON island (slug,
   memberships, catalog), which is how the clipper recognizes a Tiro page on any
-  domain.
+  domain. The clipper also offers them under a clip it has just saved, reading
+  the catalog from the vault instead of a page (ADR 0037).
 - **Math is declared, not guessed**: the optional `has_math` flag records that
   the clipper escaped every literal `$` in the article's prose, so every bare
   `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;

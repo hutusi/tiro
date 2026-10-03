@@ -84,6 +84,8 @@ describe("isCollectionMessage", () => {
 
   test("accepts a toggle and a flush", () => {
     expect(isCollectionMessage(toggle)).toBe(true);
+    // No site to go by: a toggle made under a clip (ADR 0037).
+    expect(isCollectionMessage({ ...toggle, member: null })).toBe(true);
     expect(
       isCollectionMessage({ ...toggle, op: { ...toggle.op, title: "待读" } }),
     ).toBe(true);
@@ -99,6 +101,8 @@ describe("isCollectionMessage", () => {
       { type: "tiro-collection-toggle" },
       { ...toggle, published: "no" },
       { ...toggle, member: [1] },
+      { ...toggle, member: "favorites" },
+      { ...toggle, member: undefined },
       { ...toggle, op: { ...toggle.op, action: "toggle" } },
       { ...toggle, op: { ...toggle.op, slug: 3 } },
       { ...toggle, op: { ...toggle.op, title: 5 } },

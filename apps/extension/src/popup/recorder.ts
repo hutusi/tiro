@@ -10,7 +10,8 @@ export interface ToggleEntry {
   op: ToggleOp;
   /** Whether the page said the article is in the collection. */
   published: boolean;
-  member: string[];
+  /** The deployed site's membership, or null with no site to go by. */
+  member: string[] | null;
 }
 
 export interface ToggleChannel {

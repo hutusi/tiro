@@ -3,12 +3,10 @@ import {
   COLLECTIONS_DIR,
   dropCollectionMember,
   indexPath,
-  isValidCollectionId,
-  type ParsedCollection,
-  parseCollection,
   readFrontmatterLoose,
   stringifyCollection,
 } from "@tiro/shared/documents"; // not the root: see there
+import { readEveryCollection } from "./collections-read.ts";
 import {
   type CommitFile,
   commitFiles,
@@ -166,34 +164,10 @@ export async function removeArticle(
         const articleFiles = await reader.files(articleDir(slug));
         if (!articleFiles.includes(indexPath(slug))) return null;
 
-        const names = ((await reader.list(COLLECTIONS_DIR)) ?? [])
-          .filter((name) => name.endsWith(".md"))
-          .sort();
-        const read = await Promise.all(
-          names.map(async (name) => {
-            const path = `${COLLECTIONS_DIR}/${name}`;
-            return {
-              path,
-              id: name.slice(0, -3),
-              text: await reader.read(path),
-            };
-          }),
-        );
-        const parsed: { path: string; collection: ParsedCollection }[] = [];
-        for (const { path, id, text: body } of read) {
-          if (body === null) continue;
-          try {
-            // A filename that is not a collection id already fails the site's
-            // build; it is judged like a file that does not parse.
-            if (!isValidCollectionId(id)) {
-              throw new Error(`"${id}" is not a collection id`);
-            }
-            parsed.push({ path, collection: parseCollection(id, body) });
-          } catch (error) {
-            if (body.includes(slug)) {
-              throw new UnreadableCollectionError(path, error);
-            }
-          }
+        const { parsed, unreadable } = await readEveryCollection(reader);
+        const naming = unreadable.find((file) => file.text.includes(slug));
+        if (naming !== undefined) {
+          throw new UnreadableCollectionError(naming.path, naming.error);
         }
 
         const changed = dropCollectionMember(

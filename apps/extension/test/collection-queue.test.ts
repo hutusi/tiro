@@ -69,6 +69,58 @@ describe("enqueue", () => {
     const q = enqueue(sent, toggle("add"), false);
     expect(q).toEqual(sent);
   });
+
+  // The owner's repro on PR #68: save Favorites, re-clip before the deploy,
+  // untick and re-tick under the clip. The page there is the vault, which
+  // already agrees with the re-tick, so cancelling the edit dropped the saved
+  // op along with it — and a stale Tiro page lost the tick.
+  test("cancelling an edit of a sent op puts the sent op back", () => {
+    const sent = settleFlush(
+      enqueue([], toggle("add"), false),
+      new Set([`op${n}`]),
+      new Set(),
+      T,
+    );
+    const saved = sent[0];
+    // Drawn from the vault (after a clip) or from a stale site: either way the
+    // sent op, not the page, says what the vault holds.
+    for (const published of [true, false]) {
+      const edited = enqueue(sent, toggle("remove"), published);
+      expect(pendingOps(edited)).toEqual([
+        expect.objectContaining({ action: "remove", replaced: saved }),
+      ]);
+      expect(enqueue(edited, toggle("add"), published)).toEqual(sent);
+    }
+  });
+
+  test("a sent op leaves behind nothing it displaced", () => {
+    const first = settleFlush(
+      enqueue([], toggle("add"), false),
+      new Set([`op${n}`]),
+      new Set(),
+      T,
+    );
+    const edited = enqueue(first, toggle("remove"), true);
+    const [removal] = pendingOps(edited);
+    if (removal === undefined) throw new Error("no pending removal");
+    const landed = settleFlush(
+      edited,
+      new Set([removal.id]),
+      new Set(),
+      "2026-09-23T10:00:00.000Z",
+    );
+    expect(landed).toEqual([
+      {
+        id: removal.id,
+        collection: "favorites",
+        slug: "a",
+        action: "remove",
+        at: T,
+        state: "sent",
+        sentAt: "2026-09-23T10:00:00.000Z",
+      },
+    ]);
+  });
 });
 
 describe("effectiveMembership", () => {
@@ -137,5 +189,48 @@ describe("pruneSent", () => {
         now + SENT_OVERLAY_MS * 2,
       ),
     ).toEqual(q);
+  });
+
+  // The saved op a pending edit displaced is overlay like any other: it
+  // retires by the same rules, and the edit itself stays.
+  describe("the saved op a pending edit displaced", () => {
+    const edit = (sentAt: string): QueuedOp => ({
+      ...toggle("remove"),
+      state: "pending",
+      replaced: sentOp("add", sentAt),
+    });
+    const bare = ({ replaced: _replaced, ...op }: QueuedOp): QueuedOp => op;
+
+    test("ages out after a week, leaving the edit", () => {
+      const stale = edit(new Date(now - SENT_OVERLAY_MS - 1).toISOString());
+      expect(pruneSent([stale], null, now)).toEqual([bare(stale)]);
+    });
+
+    test("retires once the page agrees with it, leaving the edit", () => {
+      const agreed = edit(T);
+      expect(
+        pruneSent([agreed], { slug: "a", member: ["favorites"] }, now),
+      ).toEqual([bare(agreed)]);
+    });
+
+    test("is kept while it is fresh and the page still disagrees", () => {
+      const fresh = edit(T);
+      expect(pruneSent([fresh], { slug: "a", member: [] }, now)).toEqual([
+        fresh,
+      ]);
+    });
+
+    // The owner's repro on PR #68, at the queue: a week-old saved add, an
+    // unsent removal over it, and Favorites since removed on another device.
+    // A fresh Add on the updated page must queue a write, not restore the
+    // expired op the next save would throw away.
+    test("once expired, no longer turns a fresh click into no change", () => {
+      const later = now + SENT_OVERLAY_MS + 1;
+      const page = { slug: "a", member: [] as string[] };
+      const q = pruneSent([edit(T)], page, later);
+      expect(enqueue(q, toggle("add"), false)).toEqual([
+        expect.objectContaining({ action: "add", state: "pending" }),
+      ]);
+    });
   });
 });

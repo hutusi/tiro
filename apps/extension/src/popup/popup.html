@@ -29,6 +29,8 @@
         page carrying Tiro's marker — the popup offers collections instead: a
         box you tick is kept, and committed to the same repository when you
         close the popup or press “Save now”, for an article it already holds.
+        Once a clip is saved, the popup reads your collections from the same
+        repository and offers them under it, kept and committed the same way.
         “Clip link to Tiro”, in a link's right-click menu, sends only that
         link's address to the same repository, the moment you choose it — the
         page itself is read later, by the processor in your repository, not by
@@ -67,25 +69,6 @@
       </p>
     </section>
 
-    <!-- A Tiro page (ADR 0029): collections instead of a clip. Its rows are
-      built from the page's own catalog, so the list is empty in the markup. -->
-    <section id="collections" hidden>
-      <p id="collections-intro" class="note"></p>
-      <ul id="collection-list"></ul>
-      <form id="collection-new">
-        <input
-          id="collection-new-title"
-          type="text"
-          maxlength="80"
-          autocomplete="off"
-          placeholder="New collection…"
-        />
-        <button id="collection-new-add" type="submit" class="btn btn-secondary">
-          Add
-        </button>
-      </form>
-    </section>
-
     <div id="progress" hidden aria-live="polite">
       <div class="track" aria-hidden="true"></div>
       <p id="progress-caption" class="note"></p>
@@ -116,6 +99,26 @@
         Appears on the site once processing finishes — usually a few minutes.
       </p>
     </div>
+
+    <!-- Collections: in place of a clip on a Tiro page (ADR 0029), and under
+      the saved links once a clip lands (ADR 0037). Its rows are built from the
+      page's catalog or the vault's, so the list is empty in the markup. -->
+    <section id="collections" hidden>
+      <p id="collections-intro" class="note"></p>
+      <ul id="collection-list"></ul>
+      <form id="collection-new">
+        <input
+          id="collection-new-title"
+          type="text"
+          maxlength="80"
+          autocomplete="off"
+          placeholder="New collection…"
+        />
+        <button id="collection-new-add" type="submit" class="btn btn-secondary">
+          Add
+        </button>
+      </form>
+    </section>
 
     <div class="actions">
       <button id="source-fetch" type="button" class="btn btn-secondary" hidden>

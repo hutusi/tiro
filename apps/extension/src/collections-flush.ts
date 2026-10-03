@@ -19,6 +19,20 @@ export interface FlushOutcome {
   /** Ops that can never apply: an add for an article this vault does not
    * have. Retrying would not change that, so they are dropped, not kept. */
   refused: QueuedOp[];
+  /** Adds for an article this machine has only just clipped, which the vault
+   * does not show yet. Neither sent nor refused, so they stay pending and the
+   * next flush tries them again (ADR 0037). */
+  deferred: QueuedOp[];
+}
+
+export interface FlushOptions {
+  /**
+   * Slugs this machine committed moments ago. GitHub's read side can trail
+   * its write, so a flush right after a clip may not see the `index.md` it
+   * just wrote — and refusing would drop the reader's tick for good. For
+   * these, "not there" means "not yet", not "never".
+   */
+  justClipped?: ReadonlySet<string>;
 }
 
 /**
@@ -62,7 +76,9 @@ function commitMessage(
  * tab open since the article was deleted, would otherwise put a member in the
  * collection with nothing behind it. Such an op is refused and dropped; it
  * could never succeed. Removals are not checked: removing a slug that is not
- * there is already a no-op.
+ * there is already a no-op. The one exception is a slug in `justClipped`,
+ * which is deferred instead: the article is known to exist, only not yet to
+ * the read this flush made.
  *
  * A collection file this cannot parse fails the whole flush and keeps the
  * queue, rather than being overwritten from nothing. It is the owner's
@@ -73,10 +89,12 @@ export async function flushCollections(
   config: TiroExtensionConfig,
   pending: readonly QueuedOp[],
   fetchImpl: FetchLike = fetch,
+  options: FlushOptions = {},
 ): Promise<FlushOutcome> {
   if (pending.length === 0) {
-    return { committed: null, sent: new Set(), refused: [] };
+    return { committed: null, sent: new Set(), refused: [], deferred: [] };
   }
+  const justClipped = options.justClipped ?? new Set<string>();
   for (const op of pending) {
     // Ids come from a page, and a page is untrusted input. One that could not
     // be a filename must never become a path.
@@ -88,6 +106,7 @@ export async function flushCollections(
   // Reassigned by every attempt: a retry rebuilds against a new head, where an
   // article missing a moment ago may have arrived.
   let refused: QueuedOp[] = [];
+  let deferred: QueuedOp[] = [];
   const { committed } = await commitFiles(
     config,
     {
@@ -104,10 +123,12 @@ export async function flushCollections(
           const names = await reader.list(articleDir(slug));
           if (!names?.includes("index.md")) missing.add(slug);
         }
-        refused = pending.filter(
+        const absent = pending.filter(
           (op) => op.action === "add" && missing.has(op.slug),
         );
-        const usable = pending.filter((op) => !refused.includes(op));
+        deferred = absent.filter((op) => justClipped.has(op.slug));
+        refused = absent.filter((op) => !justClipped.has(op.slug));
+        const usable = pending.filter((op) => !absent.includes(op));
 
         const ids = [...new Set(usable.map((op) => op.collection))].sort();
         const files: { path: string; content: string }[] = [];
@@ -137,8 +158,11 @@ export async function flushCollections(
   return {
     committed,
     sent: new Set(
-      pending.filter((op) => !refused.includes(op)).map((op) => op.id),
+      pending
+        .filter((op) => !refused.includes(op) && !deferred.includes(op))
+        .map((op) => op.id),
     ),
     refused,
+    deferred,
   };
 }

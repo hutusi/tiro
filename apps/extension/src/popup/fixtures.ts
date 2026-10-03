@@ -1,7 +1,11 @@
 import type { QueuedOp } from "../collection-queue.ts";
 import type { Messages } from "../i18n.ts";
 import type { TiroPage } from "../tiro-page.ts";
-import type { CollectionsState } from "./collections-view.ts";
+import type {
+  AfterClip,
+  ArticlePage,
+  CollectionsState,
+} from "./collections-view.ts";
 import type { RemovalState, RemovalStep } from "./removal-view.ts";
 import type { PopupState } from "./view.ts";
 
@@ -330,14 +334,26 @@ export function collectionFixtures(
       queue: [op("1", "favorites", "add", "sent")],
       status: { at, ok: true },
       syncing: false,
-      report: { pending: 1, ok: true, committed: "c0ffee", refused: 0 },
+      report: {
+        pending: 1,
+        ok: true,
+        committed: "c0ffee",
+        refused: 0,
+        deferred: 0,
+      },
     },
     refused: {
       page: article,
       queue: [],
       status: { at, ok: true, refused: 1 },
       syncing: false,
-      report: { pending: 1, ok: true, committed: null, refused: 1 },
+      report: {
+        pending: 1,
+        ok: true,
+        committed: null,
+        refused: 1,
+        deferred: 0,
+      },
     },
     failed: {
       page: article,
@@ -400,4 +416,95 @@ export function collectionFixtures(
       { ...reached, ...state },
     ]),
   );
+}
+
+/**
+ * The collections offered under a clip just saved (ADR 0037), by name:
+ * `popup.html?state=saved&after-clip=<name>` in a `build:dev` build. The clip
+ * fixture paints the card; this paints the panel under it.
+ */
+export function afterClipFixtures(): Record<
+  string,
+  { afterClip: AfterClip; state: Omit<CollectionsState, "page"> }
+> {
+  const at = "2026-09-22T10:00:00.000Z";
+  const slug = "lilianweng-github-io-posts-2026-07-04-harness-2c589c36";
+  // No favorites.md yet: the row is still offered, titled from the messages.
+  const fresh: ArticlePage = {
+    kind: "article",
+    slug,
+    member: [],
+    catalog: [
+      { id: "reading-notes", title: "重读清单" },
+      { id: "agents", title: "Agents" },
+    ],
+  };
+  const quiet = {
+    queue: [] as QueuedOp[],
+    status: null,
+    syncing: false,
+    report: null,
+    unrecorded: 0,
+    saveUnreachable: false,
+  };
+  const ticked: QueuedOp[] = [
+    {
+      id: "1",
+      collection: "favorites",
+      slug,
+      action: "add",
+      at,
+      state: "pending",
+      title: "Favorites",
+    },
+    {
+      id: "2",
+      collection: "collection-4f1c2a9e",
+      slug,
+      action: "add",
+      at,
+      state: "pending",
+      title: "待读 · 长文",
+    },
+  ];
+  const ready = (
+    page: ArticlePage,
+    unreadable: readonly string[] = [],
+  ): AfterClip => ({
+    state: "ready",
+    page,
+    unreadable,
+  });
+  return {
+    loading: { afterClip: { state: "loading" }, state: quiet },
+    failed: { afterClip: { state: "failed" }, state: quiet },
+    ready: { afterClip: ready(fresh), state: quiet },
+    // A re-clip: the vault already has it on a shelf.
+    reclip: {
+      afterClip: ready({ ...fresh, member: ["reading-notes"] }),
+      state: quiet,
+    },
+    ticked: { afterClip: ready(fresh), state: { ...quiet, queue: ticked } },
+    // favorites.md does not parse: unlike a missing one, it is not offered.
+    unreadable: {
+      afterClip: ready(fresh, ["favorites", "Old_Notes"]),
+      state: quiet,
+    },
+    // Save now ran before GitHub showed the new article.
+    deferred: {
+      afterClip: ready(fresh),
+      state: {
+        ...quiet,
+        queue: ticked.slice(0, 1),
+        status: { at, ok: true },
+        report: {
+          pending: 1,
+          ok: true,
+          committed: null,
+          refused: 0,
+          deferred: 1,
+        },
+      },
+    },
+  };
 }

@@ -1,10 +1,21 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { parseCollection } from "@tiro/shared";
-import { flushNow, recordToggle } from "../src/collections-worker.ts";
+import {
+  effectiveMembership,
+  type QueuedOp,
+  SENT_OVERLAY_MS,
+} from "../src/collection-queue.ts";
+import {
+  flushNow,
+  JUST_CLIPPED_MS,
+  recordToggle,
+} from "../src/collections-worker.ts";
 import type { FetchLike } from "../src/github.ts";
 import {
   loadCollectionQueue,
   loadFlushStatus,
+  recordClip,
+  saveCollectionQueue,
   type TiroExtensionConfig,
 } from "../src/storage.ts";
 import { fakeGitHub } from "./fake-github.ts";
@@ -87,6 +98,148 @@ describe("the collection worker", () => {
       ok: true,
       refused: 1,
     });
+  });
+
+  // ADR 0037: the popup offers collections the moment a clip lands, and the
+  // flush that follows may read the vault from before it.
+  test("an add for an article clipped moments ago stays pending until the vault shows it", async () => {
+    const fresh = "example-com-fresh-0badcafe";
+    const gh = fakeGitHub(vault);
+    await recordClip(config, fresh, new Date().toISOString());
+    await recordToggle(toggle("add", fresh));
+
+    const first = await flushNow(gh.fetch);
+    expect(first).toMatchObject({
+      ok: true,
+      committed: null,
+      refused: 0,
+      deferred: 1,
+    });
+    expect((await loadCollectionQueue(config)).map((op) => op.state)).toEqual([
+      "pending",
+    ]);
+
+    gh.commitDirect({ [`articles/${fresh}/index.md`]: "F" });
+    const second = await flushNow(gh.fetch);
+    expect(second).toMatchObject({ ok: true, refused: 0, deferred: 0 });
+    expect(second.committed).not.toBeNull();
+    expect((await loadCollectionQueue(config)).map((op) => op.state)).toEqual([
+      "sent",
+    ]);
+  });
+
+  test("past the window, an article still missing is refused as any other", async () => {
+    const stale = "example-com-stale-0badcafe";
+    const gh = fakeGitHub(vault);
+    await recordClip(
+      config,
+      stale,
+      new Date(Date.now() - JUST_CLIPPED_MS - 60_000).toISOString(),
+    );
+    await recordToggle(toggle("add", stale));
+    const report = await flushNow(gh.fetch);
+    expect(report).toMatchObject({ refused: 1, deferred: 0 });
+    expect(await loadCollectionQueue(config)).toEqual([]);
+  });
+
+  // The owner's repro on PR #68: save Favorites, re-clip before the deploy
+  // lands, tick Reading under the clip. The vault read already lists
+  // Favorites; handed to the worker as the site's membership it deleted the
+  // overlay, and the stale Tiro page then showed Favorites unticked.
+  test("a toggle made under a clip leaves the saved overlay alone", async () => {
+    const gh = fakeGitHub(vault);
+    await recordToggle(toggle("add"));
+    await flushNow(gh.fetch);
+    const saved = await loadCollectionQueue(config);
+    expect(saved.map((op) => [op.collection, op.state])).toEqual([
+      ["favorites", "sent"],
+    ]);
+
+    const underClip = toggle("add", A, "reading");
+    await recordToggle({ ...underClip, member: null });
+    expect(
+      (await loadCollectionQueue(config)).map((op) => [
+        op.collection,
+        op.state,
+      ]),
+    ).toEqual([
+      ["favorites", "sent"],
+      ["reading", "pending"],
+    ]);
+  });
+
+  // The follow-up on PR #68: untick and re-tick Favorites under a re-clip
+  // made before the deploy. The vault read agrees with the re-tick, and
+  // cancelling the edit used to drop the saved op with it.
+  test("an edit cancelled under a clip keeps the saved overlay", async () => {
+    const gh = fakeGitHub(vault);
+    await recordToggle(toggle("add"));
+    await flushNow(gh.fetch);
+    const saved = await loadCollectionQueue(config);
+    expect(saved.map((op) => op.state)).toEqual(["sent"]);
+
+    const untick = toggle("remove");
+    await recordToggle({ ...untick, published: true, member: null });
+    const retick = toggle("add");
+    await recordToggle({ ...retick, published: true, member: null });
+    expect(await loadCollectionQueue(config)).toEqual(saved);
+
+    const report = await flushNow(gh.fetch);
+    expect(report).toMatchObject({ pending: 0, ok: true });
+    const kept = await loadCollectionQueue(config);
+    expect(kept).toEqual(saved);
+    // What a still-stale Tiro page, listing nothing, draws from it.
+    expect(effectiveMembership([], kept, A).has("favorites")).toBe(true);
+  });
+
+  // The owner's second re-review on PR #68, end to end: a week-old saved add
+  // under an unsent removal, Favorites since removed on another device, and
+  // a fresh Add on the updated page. The click has to reach the vault.
+  test("an expired saved op under a pending edit cannot swallow a fresh click", async () => {
+    const gh = fakeGitHub(vault);
+    const weekOld = new Date(Date.now() - SENT_OVERLAY_MS - 60_000);
+    const saved: QueuedOp = {
+      id: "saved",
+      collection: "favorites",
+      slug: A,
+      action: "add",
+      at: weekOld.toISOString(),
+      state: "sent",
+      sentAt: weekOld.toISOString(),
+    };
+    await saveCollectionQueue(config, [
+      {
+        id: "unsent",
+        collection: "favorites",
+        slug: A,
+        action: "remove",
+        at: weekOld.toISOString(),
+        state: "pending",
+        replaced: saved,
+      },
+    ]);
+
+    // The site has caught up with the other device: no Favorites.
+    await recordToggle(toggle("add"));
+    const report = await flushNow(gh.fetch);
+    expect(report).toMatchObject({ pending: 1, ok: true });
+    expect(report.committed).not.toBeNull();
+    const text = gh.files().get("collections/favorites.md") ?? "";
+    expect(
+      parseCollection("favorites", text).frontmatter.items.map((i) => i.slug),
+    ).toEqual([A]);
+  });
+
+  test("while the site's own membership still retires an overlay it shows", async () => {
+    const gh = fakeGitHub(vault);
+    await recordToggle(toggle("add"));
+    await flushNow(gh.fetch);
+    // The deployed page now lists Favorites: the overlay has done its job.
+    const onSite = toggle("add", A, "reading");
+    await recordToggle({ ...onSite, member: ["favorites"] });
+    expect(
+      (await loadCollectionQueue(config)).map((op) => op.collection),
+    ).toEqual(["reading"]);
   });
 
   // Two realms writing one key would lose one write. The worker is the only

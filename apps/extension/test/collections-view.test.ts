@@ -6,6 +6,8 @@ import {
 } from "../src/collection-queue.ts";
 import { messages } from "../src/i18n.ts";
 import {
+  type ArticlePage,
+  afterClipView,
   collectionsView,
   visibleQueue,
 } from "../src/popup/collections-view.ts";
@@ -165,7 +167,13 @@ describe("the queue footer", () => {
         m,
       ).footer,
     ).toMatchObject({ text: m.collectionsSaving, sync: { enabled: false } });
-    const done = { pending: 1, ok: true, committed: "c", refused: 0 };
+    const done = {
+      pending: 1,
+      ok: true,
+      committed: "c",
+      refused: 0,
+      deferred: 0,
+    };
     expect(
       collectionsView(
         {
@@ -192,6 +200,147 @@ describe("the queue footer", () => {
         m,
       ).footer,
     ).toMatchObject({ text: m.collectionsRefused(2), tone: "error" });
+    // A save that held back an add for a just-clipped article says so, and
+    // keeps Save now on offer (ADR 0037).
+    expect(
+      collectionsView(
+        {
+          ...reached,
+          page: article,
+          queue: pending,
+          status: { at: T, ok: true },
+          syncing: false,
+          report: { ...done, committed: null, deferred: 1 },
+        },
+        m,
+      ).footer,
+    ).toMatchObject({
+      text: m.collectionsDeferred(1),
+      tone: "neutral",
+      sync: { visible: true, enabled: true },
+    });
+  });
+});
+
+describe("afterClipView (ADR 0037)", () => {
+  const clipped: ArticlePage = {
+    kind: "article",
+    slug: "a",
+    member: ["reading"],
+    catalog: [
+      { id: "favorites", title: "收藏" },
+      { id: "reading", title: "重读" },
+    ],
+  };
+  const quiet = { ...reached, ...idle, queue: [] as QueuedOp[] };
+
+  test("the rows are the Tiro page's, under an intro that says it is optional", () => {
+    const view = afterClipView(
+      { state: "ready", page: clipped, unreadable: [] },
+      quiet,
+      m,
+    );
+    expect(view.intro).toBe(m.afterClipIntro);
+    expect(view.rows?.map((r) => [r.id, r.checked, r.favorite])).toEqual([
+      ["favorites", false, true],
+      ["reading", true, false],
+    ]);
+    expect(view.locked).toBe(false);
+  });
+
+  // The clip's own view paints the header and Remove; two painters of one
+  // element is how a label ends up saying "Tiro site" over a clip.
+  test("leaves the header and Remove to the clip's view", () => {
+    for (const afterClip of [
+      { state: "loading" as const },
+      { state: "failed" as const },
+      { state: "ready" as const, page: clipped, unreadable: [] },
+    ]) {
+      const view = afterClipView(afterClip, quiet, m);
+      expect(view.label).toBeNull();
+      expect(view.remove).toBeNull();
+    }
+  });
+
+  test("while reading, and when the read fails, says so and offers nothing to tick", () => {
+    expect(afterClipView({ state: "loading" }, quiet, m)).toMatchObject({
+      intro: m.afterClipLoading,
+      rows: null,
+    });
+    expect(afterClipView({ state: "failed" }, quiet, m)).toMatchObject({
+      intro: m.afterClipFailed,
+      rows: null,
+    });
+  });
+
+  test("names collection files it had to leave out", () => {
+    const view = afterClipView(
+      { state: "ready", page: clipped, unreadable: ["broken", "Old_Notes"] },
+      quiet,
+      m,
+    );
+    expect(view.intro).toBe(m.afterClipIntroUnreadable(2));
+  });
+
+  // The owner's repro on PR #68: a malformed favorites.md was left out of the
+  // catalog and offered anyway, and ticking it failed the whole flush.
+  test("a collection whose file does not parse is never offered — favorites included", () => {
+    const page: ArticlePage = {
+      ...clipped,
+      member: [],
+      catalog: [{ id: "reading", title: "重读" }],
+    };
+    const queue = enqueue([], toggle("add", "favorites"), false);
+    const view = afterClipView(
+      { state: "ready", page, unreadable: ["favorites"] },
+      { ...quiet, queue },
+      m,
+    );
+    expect(view.rows?.map((r) => r.id)).toEqual(["reading"]);
+  });
+
+  test("a favorites file that is merely absent is still offered", () => {
+    const page: ArticlePage = {
+      ...clipped,
+      member: [],
+      catalog: [{ id: "reading", title: "重读" }],
+    };
+    const view = afterClipView(
+      { state: "ready", page, unreadable: [] },
+      quiet,
+      m,
+    );
+    expect(view.rows?.map((r) => [r.id, r.title])).toEqual([
+      ["favorites", "Favorites"],
+      ["reading", "重读"],
+    ]);
+  });
+
+  test("a tick made here is drawn from the queue, pending dot and all", () => {
+    const queue = enqueue([], toggle("add", "favorites"), false);
+    const view = afterClipView(
+      { state: "ready", page: clipped, unreadable: [] },
+      { ...quiet, queue },
+      m,
+    );
+    expect(view.rows?.find((r) => r.id === "favorites")).toMatchObject({
+      checked: true,
+      pending: true,
+    });
+    expect(view.footer?.text).toBe(m.collectionsPending(1));
+  });
+
+  test("an article removed from under it leaves nothing to tick", () => {
+    const view = afterClipView(
+      { state: "ready", page: clipped, unreadable: [] },
+      {
+        ...quiet,
+        removal: { step: "removed", vault: "o/r", title: null, problem: null },
+      },
+      m,
+    );
+    expect(view.rows).toBeNull();
+    expect(view.intro).toBeNull();
   });
 });
 
@@ -298,10 +447,10 @@ describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
 
   test("an article page offers it beside the collections", () => {
     const view = at("offered");
-    expect(view.remove.offer.visible).toBe(true);
+    expect(view.remove?.offer.visible).toBe(true);
     expect(view.rows).not.toBeNull();
     expect(view.locked).toBe(false);
-    expect(view.label.text).toBe(m.labelTiroPage);
+    expect(view.label?.text).toBe(m.labelTiroPage);
   });
 
   test("a Tiro page that is not an article offers nothing to remove", () => {
@@ -315,7 +464,7 @@ describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
       },
       m,
     );
-    expect(view.remove.offer.visible).toBe(false);
+    expect(view.remove?.offer.visible).toBe(false);
   });
 
   test("while confirming, the rows stay but take no clicks", () => {
@@ -329,7 +478,7 @@ describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
       const view = at(step);
       expect(view.rows).toBeNull();
       expect(view.intro).toBeNull();
-      expect(view.label.text).toBe(
+      expect(view.label?.text).toBe(
         step === "removed" ? m.labelRemoved : m.labelNotInVault,
       );
     }

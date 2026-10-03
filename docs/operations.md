@@ -813,7 +813,10 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
   `created`, `saving`, `saved`, `refused`, `failed`, `site`, `not-recorded`,
   `save-unreachable`, `remove-offered`, `remove-confirm`,
-  `remove-confirm-untitled`, `removing`, `removed`, `remove-gone`.
+  `remove-confirm-untitled`, `removing`, `removed`, `remove-gone`. The panel
+  offered under a saved clip (ADR 0037) paints on top of a clip state with
+  `&after-clip=<name>` — `popup.html?state=saved&after-clip=ticked` — one of
+  `loading`, `failed`, `ready`, `reclip`, `ticked`, `unreadable`, `deferred`.
 - **On a Tiro page the popup offers collections, not a clip** (ADR 0029). It
   recognizes the page by the site's `tiro:site` meta and `#tiro-page` island,
   on any domain, and shows a tick-list drawn from the page itself. Ticks queue
@@ -832,6 +835,19 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   - After a save, the page keeps showing the old membership until the deploy
     finishes (a minute or two). The popup lays what it saved over the page
     until the page agrees, so reopening it shows the truth, not the stale site.
+- **Once a clip saves, the popup offers collections under it too** (ADR 0037).
+  It reads `collections/` from the vault at that moment — never before the Clip
+  click — and shows the same tick-list, favorites first, with a re-clip's
+  memberships already ticked. Optional: tick nothing and nothing more is
+  written. Ticks queue and flush exactly as on a Tiro page.
+  - A collection file that does not parse is left out, and the intro says how
+    many; `validate` names it. The read failing outright leaves one line under
+    the clip, which is saved regardless — file it from its Tiro page later.
+  - GitHub can take a moment to show a file it has just written, so an add for
+    an article this machine clipped in the last ten minutes is **kept**, not
+    dropped, when the vault does not show it yet; the next close or "Save now"
+    sends it. Past ten minutes it is refused like any add for an article the
+    vault lacks.
 - **What the popup shows** (ADR 0015): a short label beside the wordmark —
   Reading…, Ready, Saved ✓ / Updated ✓, "Saved <date>" for a page clipped
   before from this machine, Failed, Cannot clip, Set up — and the full
@@ -912,7 +928,7 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **6**: 2 added the optional arxiv.org fetch, 3
+  policy also requires. It is at **7**: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
   for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
   fetch. Each is a new destination, and a new destination is a practice change
@@ -927,7 +943,9 @@ Two decisions worth not relitigating:
   6 also names the popup's "Remove" (ADR 0036), the one write that deletes: it
   joined 6 rather than bumping to 7 because neither 5 nor 6 had been released,
   so every user who sees 6 sees it with that sentence. Once a version has
-  shipped, a change like that is a bump.
+  shipped, a change like that is a bump — which is what **7** is: collections
+  offered under a clip (ADR 0037) put collection writes on ordinary pages,
+  where 6, already released, said they happen only on a Tiro site.
   Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
@@ -1497,5 +1515,6 @@ permanent extension ID, unrelated to the unpacked one.
 | The popup says a collection save failed: "… kept moving" | three commits landed on the branch during one save — a processing run committing back in a burst | "Save now" again once processing settles; nothing was lost |
 | The extension card on `chrome://extensions` shows **Errors** right after reloading | the service worker threw while loading, so it never registered — nothing it does (collection saves, settings-sync mirroring) runs. The usual cause is a DOM API reached at module load: the worker imported `@tiro/shared`'s root, which pulls in remark | open Errors for the stack; the extension `build` should already have refused this bundle (`scripts/check-worker.ts`). Import `@tiro/shared/documents` from anything the worker reaches |
 | The popup says "A change could not be recorded" | the extension's background worker did not answer a toggle, even on a retry — usually it was still starting, or the extension was just reloaded | press Save now, which re-sends the toggle before saving; if it keeps failing, reload the extension at `chrome://extensions` and tick again. Closing the popup first loses that one toggle, by design: the popup cannot write the queue itself |
+| The popup says "GitHub has not shown the new article yet" after "Save now" | the save ran seconds after the clip, and GitHub's read side had not caught up with its own write (ADR 0037) | nothing: the change is kept and the next close or "Save now" sends it. If it is still kept ten minutes after the clip, the next save drops it as "not in your vault" — check the clip landed |
 | A collection change is saved but the site still shows the old list | the vault's `publish.yml` is missing or failed, so no deploy was dispatched | copy `vault-template/.github/workflows/publish.yml` into the vault, or dispatch "Deploy site" by hand |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |
