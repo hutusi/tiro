@@ -604,6 +604,19 @@ export interface TreeReader {
   files(dir: string): Promise<string[]>;
 }
 
+function readerAt(
+  config: TiroExtensionConfig,
+  commit: string,
+  fetchImpl: FetchLike,
+): TreeReader {
+  return {
+    read: (path) => readTextAt(config, path, commit, fetchImpl),
+    exists: (path) => existsAt(config, path, commit, fetchImpl),
+    list: (path) => listAt(config, path, commit, fetchImpl),
+    files: (dir) => filesAt(config, dir, commit, fetchImpl),
+  };
+}
+
 /** One file a commit writes, or one it deletes. */
 export type CommitFile =
   | { path: string; content: string }
@@ -671,12 +684,7 @@ export async function commitFiles(
   const attempts = options.attempts ?? 3;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const head = await branchHead(config, fetchImpl);
-    const built = await options.build({
-      read: (path) => readTextAt(config, path, head.commit, fetchImpl),
-      exists: (path) => existsAt(config, path, head.commit, fetchImpl),
-      list: (path) => listAt(config, path, head.commit, fetchImpl),
-      files: (dir) => filesAt(config, dir, head.commit, fetchImpl),
-    });
+    const built = await options.build(readerAt(config, head.commit, fetchImpl));
     if (built === null || built.files.length === 0) return { committed: null };
     const { files, message } = built;
     // One path written and deleted in one commit is a builder bug, and which
