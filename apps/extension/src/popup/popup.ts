@@ -844,6 +844,17 @@ async function main(): Promise<void> {
   const tabUrl = tab.url;
 
   /**
+   * What `prepare` has made of the tab. Until it says "ordinary", no clip
+   * result is taken: a clipper an earlier popup session injected into this
+   * same tab can still answer, and taken while the Tiro-page check is in
+   * flight it enabled Clip on a page that is never clipped — and, once that
+   * check landed, left the collection panel and a clip naming two different
+   * articles. This session injects its own clipper only after the check, so
+   * its own answer is never the one turned away.
+   */
+  let pageKind: "pending" | "ordinary" | "tiro" = "pending";
+
+  /**
    * Registered below `tabId` so it can check one, and that is the whole reason
    * it sits here: a clipper injected by an earlier popup session in another tab
    * can still be extracting, and its result would otherwise drive this
@@ -851,6 +862,7 @@ async function main(): Promise<void> {
    */
   chrome.runtime.onMessage.addListener((message: unknown, sender) => {
     if (sender.tab?.id !== tabId || !isClipResult(message)) return;
+    if (pageKind !== "ordinary") return;
     tabResolved = true;
     offer(message.payload, false, sourceUrlOf(message.payload.url));
   });
@@ -1070,10 +1082,12 @@ async function main(): Promise<void> {
     if (configured) {
       const page = await detectTiroPage();
       if (page !== null) {
+        pageKind = "tiro";
         enterCollections(page);
         return;
       }
     }
+    pageKind = "ordinary";
     try {
       const slug = await slugForUrl(tabUrl);
       clippedAt = await lastClippedAt(config, slug);
