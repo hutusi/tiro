@@ -20,6 +20,7 @@ import {
   isSourceBody,
   NO_FETCH,
   prefersCandidate,
+  refusesAsEmpty,
 } from "../clip-candidate.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
 import { readClipCollections } from "../collections-read.ts";
@@ -681,9 +682,12 @@ async function main(): Promise<void> {
   /** Everything known, as the view model wants it. */
   function render(): void {
     const policy = fetchPolicy();
+    // Never a button over an empty body, whichever source produced it.
+    // `clipReady` judges where a body came from, not what is in it.
     const gated =
       result !== null &&
-      !clipReady(best, policy, attempt.resolved, tabResolved);
+      (hasNothingToClip(result) ||
+        !clipReady(best, policy, attempt.resolved, tabResolved));
     // Derived here rather than latched by whoever noticed, because the block
     // would not survive being latched: `settleFetch` ends in `showPayload`,
     // which sets `phase = "ready"` and clears `problem`, and so does every
@@ -694,12 +698,20 @@ async function main(): Promise<void> {
     // Never over a commit: a body already on its way to the vault cannot be
     // refused, and repainting a finished clip as blocked would lose what
     // happened.
+    //
+    // Two refusals, the publisher's first: where a fetch failed and the tab
+    // holds only a rendering, its sentence says where the document is. The
+    // other is a body with nothing in it — derived here, of the body that won,
+    // rather than in `showPayload` of each arrival, so a fetched source body
+    // that turns out empty is refused like an empty tab is.
     const refusal = committing
       ? null
-      : source === null || source.degradesToTab
-        ? null
-        : clipRefused(best, policy, attempt.resolved)
-          ? source.instead
+      : source !== null &&
+          !source.degradesToTab &&
+          clipRefused(best, policy, attempt.resolved)
+        ? source.instead
+        : refusesAsEmpty(result, policy, attempt.resolved)
+          ? m.nothingToClip
           : null;
     // The page is still read when unconfigured — the preview is harmless and
     // shows what Settings would unlock — but the phase stays blocked on the
@@ -714,12 +726,10 @@ async function main(): Promise<void> {
       // lesser body under the paper's own slug — the overwrite ADR 0023's
       // arbitration exists to prevent.
       pdfStub: result?.pdfViewer === true && source === null,
-      // No card for a body refused as empty either: it would preview zero
-      // words under a warning that the raw page is about to be clipped.
+      // No card for an empty body either: it would preview zero words under a
+      // warning that the raw page is about to be clipped.
       preview:
-        result === null ||
-        result.pdfViewer ||
-        (source === null && hasNothingToClip(result))
+        result === null || result.pdfViewer || hasNothingToClip(result)
           ? null
           : {
               title: result.title,
@@ -825,15 +835,6 @@ async function main(): Promise<void> {
       phase = "ready";
       problem = null;
       render();
-      return;
-    }
-    // An empty body is a tab that could not be read, not an article, and
-    // committing it files one the processor can only summarize as empty.
-    // Only on an ordinary page: where a publisher offers its own copy, the
-    // tab's body is already a candidate the fetch is there to replace, and
-    // `clipReady` keeps Clip shut until that arbitration is over.
-    if (source === null && hasNothingToClip(payload)) {
-      block(m.nothingToClip);
       return;
     }
     // The whole point of the identity rule is that this article is the paper.
@@ -1135,7 +1136,10 @@ async function main(): Promise<void> {
   }
 
   el.clip.addEventListener("click", () => {
-    if (result === null || removalHolds()) return;
+    // The empty check again, at the one place a commit starts: the view keeps
+    // the button shut over an empty body, and this is what holds if it ever
+    // does not.
+    if (result === null || removalHolds() || hasNothingToClip(result)) return;
     // Both captured at the click, for one reason: `sourceUrl` describes the
     // body being committed, and reading it from the closure later would let a
     // body that arrived mid-upload retag the one already on its way.

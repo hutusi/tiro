@@ -162,3 +162,26 @@ export function isSourceBody(payload: ClipPayload): boolean {
 export function hasNothingToClip(payload: ClipPayload): boolean {
   return !payload.pdfViewer && payload.markdown.trim() === "";
 }
+
+/**
+ * Should the popup refuse `best` — the body arbitration chose — as empty?
+ *
+ * Asked of the winner, not of each body as it arrives, because emptiness is
+ * not a property of one source. A fetched body can be empty too: a markdown
+ * file on GitHub holding only whitespace comes back as the document itself,
+ * which `clipReady` opens the button for without looking inside, and
+ * committing it would replace that file's clip with nothing.
+ *
+ * Not while a fetch can still replace an empty tab body. Then the publisher's
+ * offer is the thing to show — the button is already shut by `clipReady` —
+ * and the refusal comes only once the fetch has had its turn and left nothing
+ * better.
+ */
+export function refusesAsEmpty(
+  best: ClipPayload | null,
+  policy: FetchPolicy,
+  fetchResolved: boolean,
+): boolean {
+  if (best === null || !hasNothingToClip(best)) return false;
+  return !policy.available || fetchResolved;
+}

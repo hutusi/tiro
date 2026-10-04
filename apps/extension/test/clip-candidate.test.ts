@@ -7,6 +7,7 @@ import {
   NO_FETCH,
   needsFetch,
   prefersCandidate,
+  refusesAsEmpty,
 } from "../src/clip-candidate.ts";
 import type { ClipPayload } from "../src/messages.ts";
 
@@ -201,5 +202,61 @@ describe("hasNothingToClip", () => {
     expect(hasNothingToClip(payload({ markdown: "![Plate I](p.png)" }))).toBe(
       false,
     );
+  });
+});
+
+describe("refusesAsEmpty", () => {
+  const payload = (over: Partial<ClipPayload>): ClipPayload => ({
+    url: "https://github.com/o/r/blob/main/NOTES.md",
+    title: "o/r: NOTES",
+    excerpt: "",
+    author: "",
+    markdown: "",
+    readabilityFailed: false,
+    hasMath: false,
+    pdfViewer: false,
+    latexmlFullText: false,
+    markdownSource: false,
+    ...over,
+  });
+  const GITHUB = { available: true, degradesToTab: false };
+  const ARXIV = { available: true, degradesToTab: true };
+
+  test("an empty body on an ordinary page", () => {
+    expect(refusesAsEmpty(payload({}), NO_FETCH, false)).toBe(true);
+  });
+
+  /**
+   * Found in review: a markdown file holding only whitespace comes back from
+   * the fetch as the document itself, which `clipReady` opens the button for —
+   * and committing it would replace the file's clip with nothing. Refusing it
+   * once arbitration has settled is what the per-arrival check could not do.
+   */
+  test("an empty document fetched from a publisher", () => {
+    const empty = payload({ markdownSource: true, markdown: " \n\n" });
+    const best = { isSource: true, fromFetch: true };
+    expect(clipReady(best, GITHUB, true, true)).toBe(true);
+    expect(refusesAsEmpty(empty, GITHUB, true)).toBe(true);
+  });
+
+  // While a fetch can still replace an empty tab body, the offer is what to
+  // show; the button is shut by the gate meanwhile.
+  test("not while a fetch can still replace an empty tab body", () => {
+    expect(refusesAsEmpty(payload({}), ARXIV, false)).toBe(false);
+    expect(refusesAsEmpty(payload({}), GITHUB, false)).toBe(false);
+  });
+
+  test("an empty tab body once the fetch has had its turn", () => {
+    expect(refusesAsEmpty(payload({}), ARXIV, true)).toBe(true);
+  });
+
+  test("not a PDF stub, a body with something in it, or nothing yet", () => {
+    expect(refusesAsEmpty(payload({ pdfViewer: true }), NO_FETCH, false)).toBe(
+      false,
+    );
+    expect(
+      refusesAsEmpty(payload({ markdown: "Hello." }), NO_FETCH, false),
+    ).toBe(false);
+    expect(refusesAsEmpty(null, NO_FETCH, true)).toBe(false);
   });
 });
