@@ -31,8 +31,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   out of the page, so a clip is named after the file, and a saved link that
   turns out to be a PDF was filed under its host for good. Processing now
   replaces either placeholder with the title the document itself carries.
-- **The popup refuses to clip an empty page.** A tab that yields no body,
-  and is not a PDF, is now refused with a sentence saying so instead of being
+- **The popup refuses to clip an empty page.** A page that yields no body,
+  and is not a PDF — or a document fetched from its publisher that turns out
+  to be empty — is now refused with a sentence saying so instead of being
   committed as an article with nothing in it.
 - **A video in an article is kept.** The clipper used to drop every `<video>`
   silently — poster frame and all — or publish the page's "your browser does
