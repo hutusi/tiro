@@ -1,3 +1,4 @@
+import { fileStem } from "@tiro/clip";
 import { type ArticleFrontmatter, isLocalDocument } from "@tiro/shared";
 import {
   extractPdfText,
@@ -42,10 +43,16 @@ import { httpFailure, SettledRefusal } from "./refusal.ts";
  * That laxity is affordable only because `PDF_MAGIC` below is checked against
  * the bytes themselves — the content type decides whether to spend the
  * download, the magic bytes decide whether it was a PDF. The link stage hands
- * this stage whatever it accepts, so the two cannot disagree about a PDF. */
+ * this stage whatever it accepts, so the two cannot disagree about a PDF.
+ *
+ * And it must cover every type the clipper stubs: `text/pdf` is the other type
+ * Chrome's viewer renders, so a tab showing one is clipped as a PDF
+ * (`isPdfViewerDocument`), and refusing it here would settle that stub as
+ * processed with no body. */
 export const PDF_CONTENT_TYPES = new Set([
   "application/pdf",
   "application/x-pdf",
+  "text/pdf",
   "application/octet-stream",
   "binary/octet-stream",
 ]);
@@ -226,6 +233,9 @@ export interface PdfConversion {
   /** Batches kept as extracted text because the model's reply failed its
    * checks. Above zero the article is readable but unformatted in places. */
   fallbacks: number;
+  /** The document's own `/Title`, when it names one. Only a downloaded
+   * document offers one: an import's bytes never left the owner's machine. */
+  title?: string;
 }
 
 /**
@@ -289,6 +299,8 @@ export async function convertPdf(
   // a finished body then reports a run that overran as one that did not.
   guard.check(0, "building the article");
 
+  const named = layout.title !== undefined ? { title: layout.title } : {};
+
   // Where the document's own typography says what its structure is, that is
   // the answer — and a better one than a model inferring it from wording
   // (ADR 0028). It also costs nothing and cannot invent anything.
@@ -296,11 +308,45 @@ export async function convertPdf(
     log(
       `pdf: structure read from the layout (${layout.headingSizes.length} heading level(s)); no model call`,
     );
-    return { markdown: pdfMarkdown(layout), totalPages, fallbacks: 0 };
+    return {
+      markdown: pdfMarkdown(layout),
+      totalPages,
+      fallbacks: 0,
+      ...named,
+    };
   }
 
   log("pdf: no legible layout; restoring structure with the model");
-  return restructure(stripRunningFurniture(pages), { ...options, guard });
+  return {
+    ...(await restructure(stripRunningFurniture(pages), {
+      ...options,
+      guard,
+    })),
+    ...named,
+  };
+}
+
+/**
+ * Is `title` only what a clip is named when nothing better was in reach?
+ *
+ * Two names qualify, and both are written by Tiro rather than chosen by
+ * anyone: the URL's host, which the extension falls back to for an empty title
+ * (`clip.ts`) and a saved link starts with (`inbox.ts`); and the URL's file
+ * name, which a stub from Chrome's PDF viewer is given because that viewer's
+ * document carries no title (`clipPdfViewer`). Anything else was read from the
+ * page or set by hand, and a document's `/Title` — often a word processor's
+ * leftover — has no claim to replace it.
+ */
+export function isPlaceholderTitle(title: string, url: string): boolean {
+  const trimmed = title.trim();
+  if (trimmed === "") return true;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return trimmed === host || trimmed === fileStem(url);
 }
 
 /**

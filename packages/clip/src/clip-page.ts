@@ -33,9 +33,10 @@ import {
  * returns the payload rather than sending it: the extension's messaging is the
  * one part of a clip that cannot run outside a page.
  *
- * One document shape leaves before any of that order runs: a markdown file
- * Chrome is showing as text is already the thing being converted *to*, and
- * goes to `clipMarkdownFile` below.
+ * Two document shapes leave before any of that order runs. Chrome's PDF viewer
+ * has no body to read at all, and goes to `clipPdfViewer`. A markdown file
+ * Chrome is showing as text is already the thing being converted *to*, and goes
+ * to `clipMarkdownFile` below.
  *
  * Mutates `doc`. Readability consumes what it parses, so callers with a live
  * page must pass a clone.
@@ -43,8 +44,8 @@ import {
 export function clipPage(doc: Document, url: string): ClipPayload {
   // Asked before anything rewrites the DOM: the answer is about the document
   // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
-  // this looks for.
-  const pdfViewer = isPdfViewerDocument(doc);
+  // the older viewer's shell is recognised by.
+  if (isPdfViewerDocument(doc)) return clipPdfViewer(doc, url);
   // Asked for the same reason, and answered first: this document is not a page
   // that happens to contain markdown, it *is* a markdown file, and every step
   // below would spend its effort converting something that needs no conversion.
@@ -118,27 +119,77 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     markdown,
     readabilityFailed,
     hasMath,
-    pdfViewer,
+    pdfViewer: false,
     latexmlFullText,
     markdownSource: false,
   };
 }
 
 /**
+ * The clip of a tab showing Chrome's PDF viewer: an identity and a name.
+ *
+ * Nothing else is in reach — the text is drawn by a viewer the DOM cannot see —
+ * so the popup commits a stub and the processor builds the body from the
+ * document's text layer (ADR 0026). Readability is not asked: whatever it made
+ * of the shell would be discarded, and the flags describing it would be claims
+ * about text nothing here has seen.
+ *
+ * Named after the file rather than left to fall back to the host. The viewer's
+ * document carries no title — `document.title` is empty on Chrome's current
+ * viewer, whatever the PDF's own `/Title` says — and the host is what every PDF
+ * from one site would then share. The processor replaces this with the
+ * document's `/Title` once it has the bytes, treating the file name as the
+ * placeholder it is.
+ */
+function clipPdfViewer(doc: Document, url: string): ClipPayload {
+  return {
+    url,
+    title: doc.title.trim() || fileStem(url),
+    excerpt: "",
+    author: "",
+    markdown: "",
+    readabilityFailed: false,
+    hasMath: false,
+    pdfViewer: true,
+    latexmlFullText: false,
+    markdownSource: false,
+  };
+}
+
+/**
+ * The document types Chrome's PDF viewer renders — what `navigator.mimeTypes`
+ * lists while the viewer is enabled. With it disabled a PDF downloads, and
+ * there is no tab to clip at all.
+ */
+const PDF_VIEWER_TYPES = new Set(["application/pdf", "text/pdf"]);
+
+/**
  * True when the document is Chrome's PDF viewer rather than a page.
  *
- * Chrome serves `https://…/paper.pdf` as an HTML shell whose body is a single
- * `<embed type="application/pdf">`; the bytes are rendered by a plugin the DOM
- * cannot see. Nothing here can extract that text, and until this existed the
- * popup happily committed the resulting empty article with
- * `readability_failed: true` — the scheme guard only ever checked for http(s).
+ * The bytes are rendered by a viewer the DOM cannot see, so nothing here can
+ * extract that text — and a clip that does not know it is looking at one
+ * commits an empty article with `readability_failed: true`.
  *
- * Described by shape as well as emptiness, because emptiness alone is not the
- * viewer: a poster or a figure gallery can carry a PDF attachment and almost no
- * prose, and refusing that would lose a clip the pipeline handles fine. The
- * shell is exactly one element in the body — the embed itself — and no text.
+ * Asked of the content type first, because the shell's shape is Chrome's to
+ * change and it has. The out-of-process viewer (Chrome 154, measured
+ * 2026-10-03) leaves no `<embed>` in the DOM at all: the head links the
+ * viewer's own `pdf_embedder.css` and the body holds whatever other extensions
+ * injected. The shape test below never matched it, and every web PDF clipped on
+ * that Chrome went into the vault empty. The type is the response's, carried by
+ * the clone `clipper.ts` hands over (checked in Chrome), and a page that merely
+ * embeds a PDF is `text/html` — so the attachment cases the shape test guards
+ * stay pages without any help.
+ *
+ * The shape is still asked, for the viewer that came before: it rewrote the
+ * response into an HTML shell whose body is a single
+ * `<embed type="application/pdf">`, typed `text/html`, so there the shape is the
+ * only signal. Described by shape as well as emptiness, because emptiness alone
+ * is not the viewer: a poster or a figure gallery can carry a PDF attachment and
+ * almost no prose, and refusing that would lose a clip the pipeline handles
+ * fine.
  */
 export function isPdfViewerDocument(doc: Document): boolean {
+  if (PDF_VIEWER_TYPES.has(doc.contentType)) return true;
   const embed = doc.querySelector(
     'embed[type="application/pdf"], object[type="application/pdf"]',
   );
@@ -222,7 +273,12 @@ function fallbackTitle(url: string): string {
   return /^readme$/i.test(stem) ? repo : `${repo}: ${stem}`;
 }
 
-function fileStem(url: string): string {
+/**
+ * The last path segment of `url`, decoded, without its extension — what a clip
+ * is named when the document names nothing. Exported because the processor has
+ * to recognise exactly this name as a placeholder (`isPlaceholderTitle`).
+ */
+export function fileStem(url: string): string {
   let pathname: string;
   try {
     pathname = new URL(url).pathname;

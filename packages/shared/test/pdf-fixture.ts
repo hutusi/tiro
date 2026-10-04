@@ -53,7 +53,10 @@ const FACES = {
  * the layout reader cannot tell anything about — useful for asserting it says
  * so, useless for asserting what it finds.
  */
-export function makeStyledPdf(pages: StyledLine[][]): Uint8Array<ArrayBuffer> {
+export function makeStyledPdf(
+  pages: StyledLine[][],
+  options: PdfFixtureOptions = {},
+): Uint8Array<ArrayBuffer> {
   const objs: string[] = [];
   const kids = pages.map((_, i) => `${7 + i * 2} 0 R`).join(" ");
   objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
@@ -86,10 +89,20 @@ export function makeStyledPdf(pages: StyledLine[][]): Uint8Array<ArrayBuffer> {
       `<</Length ${stream.length}>>\nstream\n${stream}\nendstream`;
   });
 
-  return assemble(objs);
+  return assemble(objs, options);
 }
 
-export function makePdf(pageTexts: string[]): Uint8Array<ArrayBuffer> {
+/** What a fixture says about itself beyond its pages. */
+export interface PdfFixtureOptions {
+  /** Written as the document's `/Title`. ASCII only: `assemble` measures
+   * offsets in characters, which is bytes only for ASCII. */
+  title?: string;
+}
+
+export function makePdf(
+  pageTexts: string[],
+  options: PdfFixtureOptions = {},
+): Uint8Array<ArrayBuffer> {
   const objs: string[] = [];
   const kids = pageTexts.map((_, i) => `${4 + i * 2} 0 R`).join(" ");
   objs[1] = "<</Type/Catalog/Pages 2 0 R>>";
@@ -116,11 +129,21 @@ export function makePdf(pageTexts: string[]): Uint8Array<ArrayBuffer> {
       `<</Length ${stream.length}>>\nstream\n${stream}\nendstream`;
   });
 
-  return assemble(objs);
+  return assemble(objs, options);
 }
 
 /** xref table, trailer and the bytes — the half neither builder cares about. */
-function assemble(objs: string[]): Uint8Array<ArrayBuffer> {
+function assemble(
+  objs: string[],
+  options: PdfFixtureOptions,
+): Uint8Array<ArrayBuffer> {
+  // The document information dictionary goes last, so neither builder's object
+  // numbering has to know about it.
+  let info = "";
+  if (options.title !== undefined) {
+    info = `/Info ${objs.length} 0 R`;
+    objs.push(`<</Title (${options.title.replace(/([()\\])/g, "\\$1")})>>`);
+  }
   let out = "%PDF-1.4\n";
   const offsets: number[] = [];
   for (let i = 1; i < objs.length; i += 1) {
@@ -132,6 +155,6 @@ function assemble(objs: string[]): Uint8Array<ArrayBuffer> {
   for (let i = 1; i < objs.length; i += 1) {
     out += `${String(offsets[i] ?? 0).padStart(10, "0")} 00000 n \n`;
   }
-  out += `trailer\n<</Size ${objs.length}/Root 1 0 R>>\nstartxref\n${xrefAt}\n%%EOF\n`;
+  out += `trailer\n<</Size ${objs.length}/Root 1 0 R${info}>>\nstartxref\n${xrefAt}\n%%EOF\n`;
   return new TextEncoder().encode(out);
 }

@@ -16,9 +16,11 @@ import {
   clipReady,
   clipRefused,
   type FetchPolicy,
+  hasNothingToClip,
   isSourceBody,
   NO_FETCH,
   prefersCandidate,
+  refusesAsEmpty,
 } from "../clip-candidate.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
 import { readClipCollections } from "../collections-read.ts";
@@ -680,9 +682,12 @@ async function main(): Promise<void> {
   /** Everything known, as the view model wants it. */
   function render(): void {
     const policy = fetchPolicy();
+    // Never a button over an empty body, whichever source produced it.
+    // `clipReady` judges where a body came from, not what is in it.
     const gated =
       result !== null &&
-      !clipReady(best, policy, attempt.resolved, tabResolved);
+      (hasNothingToClip(result) ||
+        !clipReady(best, policy, attempt.resolved, tabResolved));
     // Derived here rather than latched by whoever noticed, because the block
     // would not survive being latched: `settleFetch` ends in `showPayload`,
     // which sets `phase = "ready"` and clears `problem`, and so does every
@@ -693,12 +698,20 @@ async function main(): Promise<void> {
     // Never over a commit: a body already on its way to the vault cannot be
     // refused, and repainting a finished clip as blocked would lose what
     // happened.
+    //
+    // Two refusals, the publisher's first: where a fetch failed and the tab
+    // holds only a rendering, its sentence says where the document is. The
+    // other is a body with nothing in it — derived here, of the body that won,
+    // rather than in `showPayload` of each arrival, so a fetched source body
+    // that turns out empty is refused like an empty tab is.
     const refusal = committing
       ? null
-      : source === null || source.degradesToTab
-        ? null
-        : clipRefused(best, policy, attempt.resolved)
-          ? source.instead
+      : source !== null &&
+          !source.degradesToTab &&
+          clipRefused(best, policy, attempt.resolved)
+        ? source.instead
+        : refusesAsEmpty(result, policy, attempt.resolved)
+          ? m.nothingToClip
           : null;
     // The page is still read when unconfigured — the preview is harmless and
     // shows what Settings would unlock — but the phase stays blocked on the
@@ -713,8 +726,10 @@ async function main(): Promise<void> {
       // lesser body under the paper's own slug — the overwrite ADR 0023's
       // arbitration exists to prevent.
       pdfStub: result?.pdfViewer === true && source === null,
+      // No card for an empty body either: it would preview zero words under a
+      // warning that the raw page is about to be clipped.
       preview:
-        result === null || result.pdfViewer
+        result === null || result.pdfViewer || hasNothingToClip(result)
           ? null
           : {
               title: result.title,
@@ -1121,7 +1136,10 @@ async function main(): Promise<void> {
   }
 
   el.clip.addEventListener("click", () => {
-    if (result === null || removalHolds()) return;
+    // The empty check again, at the one place a commit starts: the view keeps
+    // the button shut over an empty body, and this is what holds if it ever
+    // does not.
+    if (result === null || removalHolds() || hasNothingToClip(result)) return;
     // Both captured at the click, for one reason: `sourceUrl` describes the
     // body being committed, and reading it from the closure later would let a
     // body that arrived mid-upload retag the one already on its way.
@@ -1136,8 +1154,8 @@ async function main(): Promise<void> {
         // read the old article's `unlisted` flag before it rebuilds `index.md`
         // over it (ADR 0017).
         const slug = await slugForUrl(payload.url);
-        // A PDF tab commits a stub. Readability's reading of an <embed> is not
-        // a body worth keeping, and the flags that describe one would be
+        // A PDF tab commits a stub. The viewer's shell holds no body worth
+        // keeping, and the flags that describe one would be
         // claims about text nothing here has seen: `readability_failed` warns
         // about a raw body whose URLs were never absolutized, and `has_math`
         // promises an escaping pass that never ran (the reasoning ADR 0023

@@ -760,6 +760,29 @@ describe("saved links", () => {
     expect(body).toContain("density gate");
   });
 
+  // A saved link is filed under its host until its page names it, and a PDF
+  // names itself only in its metadata — which, until this, nothing read.
+  test("a link that is a PDF takes the document's title", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const prose =
+      "A document long enough on every page to count as having a text layer, which is what the density gate asks of it before it reads anything.";
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response(
+            makePdf([prose, prose], {
+              title: "The Legend of John von Neumann",
+            }),
+            { headers: { "content-type": "application/pdf" } },
+          ),
+      }),
+    });
+    const { frontmatter } = (await savedArticle(vault)).read();
+    expect(frontmatter.title).toBe("The Legend of John von Neumann");
+  });
+
   test("a PDF served as a plain download becomes a PDF article", async () => {
     const vault = withInbox(SAVED);
     const config = await loadVaultConfig(vault);
@@ -771,6 +794,26 @@ describe("saved links", () => {
         [SAVED]: () =>
           new Response(makePdf([prose, prose]), {
             headers: { "content-type": "application/octet-stream" },
+          }),
+      }),
+    });
+    const { frontmatter, body } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(body).toContain("density gate");
+  });
+
+  test("a PDF served as text/pdf becomes a PDF article", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const prose =
+      "A document long enough on every page to count as having a text layer, which is what the density gate asks of it before it reads anything.";
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response(makePdf([prose, prose]), {
+            headers: { "content-type": "text/pdf" },
           }),
       }),
     });
@@ -1928,7 +1971,9 @@ describe("runPipeline with a PDF stub", () => {
 
   /** A clipped PDF as the extension writes it: identity and title, no body.
    * The document itself is fetched at processing time (ADR 0026). */
-  async function stubVault(): Promise<{ dir: string; slug: string }> {
+  async function stubVault(
+    title = "A Method For Something",
+  ): Promise<{ dir: string; slug: string }> {
     const dir = freshVault();
     const slug = await slugForUrl(PDF_URL);
     mkdirSync(join(dir, "articles", slug), { recursive: true });
@@ -1937,7 +1982,7 @@ describe("runPipeline with a PDF stub", () => {
       stringifyArticle(
         {
           url: PDF_URL,
-          title: "A Method For Something",
+          title,
           domain: "example.com",
           clipped_at: "2026-09-19T10:00:00.000Z",
           tiro: { schema: 1, source_media: "pdf" },
@@ -1982,6 +2027,104 @@ describe("runPipeline with a PDF stub", () => {
     // And the marker survived the round-trip, so a later audit can still find
     // every article built this way.
     expect(article.frontmatter.tiro.source_media).toBe("pdf");
+  });
+
+  describe("its title", () => {
+    // Over the density gate, as a real page is.
+    const pages = [
+      "Section 1\nThe method is straightforward to implement, is computationally efficient, and has little memory requirement to speak of.",
+      "Section 2\nIt is invariant to diagonal rescaling of the gradients and well suited to problems large in data or in parameters.",
+    ];
+
+    async function processStub(
+      title: string,
+      documentTitle?: string,
+    ): Promise<{ title: string; prompts: string[] }> {
+      const { dir, slug } = await stubVault(title);
+      const prompts: string[] = [];
+      const config = await loadVaultConfig(dir);
+      await runPipeline({ vaultDir: dir }, config, {
+        ...deps,
+        fetchImpl: servePdf(
+          makePdf(
+            pages,
+            documentTitle !== undefined ? { title: documentTitle } : {},
+          ),
+        ),
+        chat: makeFakeChat({
+          onRequest: (request) => {
+            if (request.response_format?.type !== "json_object") return;
+            prompts.push(
+              request.messages.find((m) => m.role === "user")?.content ?? "",
+            );
+          },
+        }),
+      });
+      const article = parseArticle(
+        readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+      );
+      expect(needsProcessing(article.frontmatter)).toBe(false);
+      return { title: article.frontmatter.title, prompts };
+    }
+
+    /**
+     * Chrome's viewer keeps a PDF's title out of the DOM, so the extension can
+     * only name a stub after its file — and a saved link starts out under its
+     * host. Neither is a title; the document's own `/Title` is.
+     */
+    test.each([
+      ["the file name a viewer stub is given", "method"],
+      ["the host a saved link starts under", "example.com"],
+    ])("replaces %s with the document's own", async (_, placeholder) => {
+      const { title, prompts } = await processStub(
+        placeholder,
+        "Adam: A Method for Stochastic Optimization",
+      );
+      expect(title).toBe("Adam: A Method for Stochastic Optimization");
+      // Before the summary, so the translated title is of the real one.
+      expect(prompts.join("\n")).toContain(
+        "Title: Adam: A Method for Stochastic Optimization",
+      );
+    });
+
+    // A title read from a page or set by hand outranks a document's metadata,
+    // which is often a word processor's leftover.
+    test("keeps a title that is not a placeholder", async () => {
+      const { title } = await processStub(
+        "A Method For Something",
+        "Microsoft Word - draft3.docx",
+      );
+      expect(title).toBe("A Method For Something");
+    });
+
+    test("keeps the placeholder when the document names nothing", async () => {
+      const { title } = await processStub("method");
+      expect(title).toBe("method");
+    });
+  });
+
+  /**
+   * The whole path for the viewer's second type: the clipper stubs a tab whose
+   * document is `text/pdf`, so the stage that fetches it has to accept the
+   * same type — refusing it settles the article as processed, with no body.
+   */
+  test("converts a stub whose document is served as text/pdf", async () => {
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to implement, is computationally efficient, and has little memory requirement to speak of.",
+      "Section 2\nIt is invariant to diagonal rescaling of the gradients and well suited to problems large in data or in parameters.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: async () =>
+        new Response(pdf, { headers: { "content-type": "text/pdf" } }),
+    });
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(article.frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(article.body).toContain("little memory");
   });
 
   test("a PDF whose layout reads cleanly converts with no model call", async () => {

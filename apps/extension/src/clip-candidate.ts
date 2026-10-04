@@ -147,3 +147,41 @@ export function clipRefused(
 export function isSourceBody(payload: ClipPayload): boolean {
   return payload.latexmlFullText || payload.markdownSource;
 }
+
+/**
+ * Would committing this payload file an article with nothing in it?
+ *
+ * A PDF stub is empty on purpose — the processor builds its body (ADR 0026) —
+ * so it is the one empty payload worth committing. Any other is a tab the
+ * clipper could not read, whatever it believed it was reading: when Chrome's
+ * PDF viewer stopped matching the shape `isPdfViewerDocument` looked for, four
+ * PDFs were committed as empty articles over a week, each titled with its host,
+ * and the processor dutifully summarized nothing. Refusing here is what turns
+ * the next such miss into a message in the popup instead of a silent article.
+ */
+export function hasNothingToClip(payload: ClipPayload): boolean {
+  return !payload.pdfViewer && payload.markdown.trim() === "";
+}
+
+/**
+ * Should the popup refuse `best` — the body arbitration chose — as empty?
+ *
+ * Asked of the winner, not of each body as it arrives, because emptiness is
+ * not a property of one source. A fetched body can be empty too: a markdown
+ * file on GitHub holding only whitespace comes back as the document itself,
+ * which `clipReady` opens the button for without looking inside, and
+ * committing it would replace that file's clip with nothing.
+ *
+ * Not while a fetch can still replace an empty tab body. Then the publisher's
+ * offer is the thing to show — the button is already shut by `clipReady` —
+ * and the refusal comes only once the fetch has had its turn and left nothing
+ * better.
+ */
+export function refusesAsEmpty(
+  best: ClipPayload | null,
+  policy: FetchPolicy,
+  fetchResolved: boolean,
+): boolean {
+  if (best === null || !hasNothingToClip(best)) return false;
+  return !policy.available || fetchResolved;
+}

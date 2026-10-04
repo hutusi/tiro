@@ -244,4 +244,23 @@ describe("readPdfLayout", () => {
     );
     expect(new Set(layout.items.map((i) => i.page))).toEqual(new Set([1, 2]));
   });
+
+  // The one title a web PDF's article can get: Chrome's viewer never puts it
+  // in the DOM the clipper reads (ADR 0026).
+  test("reads the document's own title", async () => {
+    const layout = await readPdfLayout(
+      makePdf([body], { title: "  The Legend of\n  John von Neumann " }),
+      { maxPages: 200 },
+    );
+    expect(layout.title).toBe("The Legend of John von Neumann");
+  });
+
+  test("leaves the title absent when the document names none", async () => {
+    const untitled = await readPdfLayout(makePdf([body]), { maxPages: 200 });
+    expect(untitled.title).toBeUndefined();
+    const blank = await readPdfLayout(makePdf([body], { title: "   " }), {
+      maxPages: 200,
+    });
+    expect(blank.title).toBeUndefined();
+  });
 });

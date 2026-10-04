@@ -40,7 +40,13 @@ import {
   summaryIsFinished,
 } from "./llm/summarize.ts";
 import { translateBlocks } from "./llm/translate.ts";
-import { convertPdf, pdfSource, restructurePdfText } from "./pdf.ts";
+import {
+  convertPdf,
+  isPlaceholderTitle,
+  type PdfConversion,
+  pdfSource,
+  restructurePdfText,
+} from "./pdf.ts";
 import { isSettled } from "./refusal.ts";
 import { buildVocabulary, respell } from "./tag-policy.ts";
 
@@ -479,17 +485,31 @@ async function processOne(
       frontmatter = withLinkPage(frontmatter, page);
       if (page.kind === "page") linkBody = page.payload.markdown;
     }
-    sourceBody =
-      frontmatter.tiro.source_media === "pdf"
-        ? await pdfBody(
-            { ...article, parsed: { ...article.parsed, frontmatter } },
-            config,
-            deps,
-            log,
-            deadline,
-            force,
-          )
-        : (linkBody ?? article.parsed.body);
+    if (frontmatter.tiro.source_media === "pdf") {
+      const pdf = await pdfBody(
+        { ...article, parsed: { ...article.parsed, frontmatter } },
+        config,
+        deps,
+        log,
+        deadline,
+        force,
+      );
+      sourceBody = pdf.markdown;
+      // The document names itself, and nothing before this could read it:
+      // Chrome's viewer keeps the title out of the DOM, and a saved link is
+      // filed under its host. Taken only over a name Tiro wrote as a
+      // placeholder, never over one read from a page or set by hand — and here,
+      // before the summary, so its translated title is of the real one.
+      if (
+        pdf.title !== undefined &&
+        isPlaceholderTitle(frontmatter.title, frontmatter.url)
+      ) {
+        log(`${article.slug}: titled from the document: ${pdf.title}`);
+        frontmatter = { ...frontmatter, title: pdf.title };
+      }
+    } else {
+      sourceBody = linkBody ?? article.parsed.body;
+    }
   } catch (error) {
     if (!isSettled(error)) throw error;
     await settleRefusal(article, String(error), now, report, log);
@@ -917,7 +937,7 @@ async function pdfBody(
   log: (message: string) => void,
   deadline: Deadline,
   force: boolean,
-): Promise<string> {
+): Promise<Pick<PdfConversion, "markdown" | "title">> {
   const { frontmatter } = article.parsed;
   const source = pdfSource(frontmatter);
 
@@ -930,7 +950,7 @@ async function pdfBody(
     log(
       `${article.slug}: imported document kept as it is — re-import the file to rebuild it`,
     );
-    return article.parsed.body;
+    return { markdown: article.parsed.body };
   }
 
   const shared = {
@@ -965,10 +985,10 @@ async function pdfBody(
     // to gate: the import applied the page cap and both scan gates while it
     // still had a person to tell.
     const { markdown } = await restructurePdfText(article.parsed.body, shared);
-    return markdown;
+    return { markdown };
   }
 
-  const { markdown } = await convertPdf({
+  const { markdown, title } = await convertPdf({
     ...shared,
     url: source.url,
     maxBytes: config.pdf.max_bytes,
@@ -981,7 +1001,7 @@ async function pdfBody(
       ? { resolveHost: deps.resolveHost }
       : {}),
   });
-  return markdown;
+  return { markdown, ...(title !== undefined ? { title } : {}) };
 }
 
 /**

@@ -82,10 +82,14 @@ flowchart LR
    A PDF served to the tab itself is clipped as a **stub** — identity and title,
    no body — and the body is built later by the processor from the document's
    text layer (ADR 0026). The extension never reads the PDF: Chrome renders it
-   in a plugin the DOM cannot see, so `isPdfViewerDocument` detects the viewer
-   by shape and the popup commits the URL instead. Where a publisher offers an
-   HTML twin the offer above wins and no stub is written, because stubbing an
-   arXiv PDF would file the lesser body under the paper's own slug.
+   in a viewer the DOM cannot see, so `isPdfViewerDocument` recognises the
+   viewer by the document's content type — the current viewer leaves nothing
+   else in the DOM to go on — and the popup commits the URL instead, named after
+   the file. The processor replaces that name with the document's own `/Title`
+   once it has the bytes, the one place the title can be read. Where a
+   publisher offers an HTML twin the offer above wins and no stub is written,
+   because stubbing an arXiv PDF would file the lesser body under the paper's
+   own slug.
 
    A markdown file is the one document the pipeline below does not touch. Chrome
    renders `text/plain` as a shell whose body is one `<pre>`, which the clipper

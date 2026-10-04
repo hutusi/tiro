@@ -198,6 +198,13 @@ lines (ADR 0028). The run log says which happened: `structure read from the
 layout … no model call`, or `no legible layout; restoring structure with the
 model`.
 
+**A web PDF is clipped under its file name** — Chrome's viewer keeps the PDF's
+title out of the page — and takes the document's own `/Title` when it is
+processed; the run log says `titled from the document: …`. Only a name Tiro
+wrote as a placeholder is replaced (the file name, or the host a saved link
+starts under), never one read from a page or set by hand. A document that names
+nothing keeps its file name: retitle it in `index.md`.
+
 What a converted article will not have, either way: figures (they are not in
 the text layer — captions survive), equations as anything but flattened text,
 and reconstructed tables. Tabular blocks are recognised by their column
@@ -795,7 +802,11 @@ That saves `example.com` for real; delete the article it makes, or leave it.
 
 - Loaded unpacked from `apps/extension/dist`. After pulling extension
   changes: `bun run --cwd apps/extension build`, then the reload icon on
-  `chrome://extensions`. Saved settings survive reloads.
+  `chrome://extensions`. Saved settings survive reloads. The reload is not
+  optional: without it the popup and the clipper already run the new code from
+  disk while Chrome keeps the old manifest, so clips record the previous
+  `clipper_version` beside the new `clipper_commit` — clips of 2026-10-02/03
+  read `0.15.0` from a `0.16.0` build.
 - Settings: owner `hutusi`, repository `tiro-vault` (name only, no owner
   prefix), branch `main`, plus the extension PAT.
 - **Eyeballing popup states without a page for each**: `bun run --cwd
@@ -1517,4 +1528,6 @@ permanent extension ID, unrelated to the unpacked one.
 | The popup says "A change could not be recorded" | the extension's background worker did not answer a toggle, even on a retry — usually it was still starting, or the extension was just reloaded | press Save now, which re-sends the toggle before saving; if it keeps failing, reload the extension at `chrome://extensions` and tick again. Closing the popup first loses that one toggle, by design: the popup cannot write the queue itself |
 | The popup says "GitHub has not shown the new article yet" after "Save now" | the save ran seconds after the clip, and GitHub's read side had not caught up with its own write (ADR 0037) | nothing: the change is kept and the next close or "Save now" sends it. If it is still kept ten minutes after the clip, the next save drops it as "not in your vault" — check the clip landed |
 | A collection change is saved but the site still shows the old list | the vault's `publish.yml` is missing or failed, so no deploy was dispatched | copy `vault-template/.github/workflows/publish.yml` into the vault, or dispatch "Deploy site" by hand |
+| A web PDF in the vault titled with its bare host, with an empty body, `readability_failed: true` and no `tiro.source_media` — its summary says the article is empty | the clipper did not recognise Chrome's PDF viewer, so the popup committed the viewer's shell as a page — what happened to every web PDF on a Chrome whose viewer leaves no `<embed>` in the DOM (154 is one) until the content-type check (ADR 0026, corrected 2026-10-03) | re-clip it with a current build: the stub replaces it and the next run converts it. A build with the empty-clip refusal says "Nothing on this page could be read" instead of committing |
+| The popup says "Nothing on this page could be read, so there is nothing to clip." | the body that would be committed is empty and is not a PDF stub — the tab yielded nothing, or a publisher fetch returned an empty document (a markdown file holding only whitespace) | if the tab is showing a PDF, Chrome's viewer has changed shape again — check `document.contentType` in the tab's console (`application/pdf` and `text/pdf` are what `isPdfViewerDocument` asks for). Otherwise the page draws its content where the clipper cannot reach it (a canvas, a cross-origin frame), or the fetched document really is empty |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |
