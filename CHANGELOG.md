@@ -21,6 +21,19 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Web PDFs are clipped again.** On current Chrome every PDF tab was saved as
+  an empty article titled with its host, and processed into a summary saying
+  so: Chrome's PDF viewer no longer has the `<embed>` the clipper recognised it
+  by. It is now recognised by the document's content type, and the PDF is
+  clipped as the stub ADR 0026 describes and converted when it is processed.
+  A PDF already in the vault with an empty body needs a re-clip to get one.
+- **A PDF article takes the document's own title.** Chrome keeps a PDF's title
+  out of the page, so a clip is named after the file, and a saved link that
+  turns out to be a PDF was filed under its host for good. Processing now
+  replaces either placeholder with the title the document itself carries.
+- **The popup refuses to clip an empty page.** A tab that yields no body,
+  and is not a PDF, is now refused with a sentence saying so instead of being
+  committed as an article with nothing in it.
 - **A video in an article is kept.** The clipper used to drop every `<video>`
   silently — poster frame and all — or publish the page's "your browser does
   not support video" fallback as if the author had written it. A video is now

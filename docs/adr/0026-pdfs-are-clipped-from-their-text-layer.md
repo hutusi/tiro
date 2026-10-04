@@ -63,6 +63,22 @@ inside the existing selection rule — "needs processing" is `tiro.processed_at`
 absent (invariant 3) — so a stub is pending work by definition, and a conversion
 that fails leaves it pending rather than failing the run (invariant 7).
 
+> **Corrected 2026-10-03.** Two things this clause assumed about Chrome were
+> false of its out-of-process PDF viewer, and no web PDF ever produced a stub
+> because of the first. **The viewer has no shape to detect:** measured in
+> Chrome 154, its document holds no `<embed>` at all — only the viewer's own
+> stylesheet and whatever other extensions injected — so `isPdfViewerDocument`
+> called every PDF a page, and the popup committed it as an empty article
+> titled with its host. Detection now asks the document's content type first
+> (`application/pdf`, carried by the clone the clipper reads) and keeps the
+> shape test for the earlier viewer, which rewrote the response into a
+> `text/html` shell. **And the title Chrome took from `/Title` never reaches
+> the DOM:** the viewer's `document.title` is empty. The stub is named after its
+> file, and the processor, the first stage holding the bytes, replaces that
+> placeholder with the document's own `/Title` — never a title read from a page
+> or set by hand. The decision itself stands; only where its two inputs come
+> from has moved.
+
 **2. Conversion is text-layer extraction plus LLM structure restoration, not
 rasterization.** Chosen because it stays inside ADR 0004 rather than amending
 it: a vault pointed at any OpenAI-compatible endpoint can convert a PDF, with no
