@@ -147,3 +147,18 @@ export function clipRefused(
 export function isSourceBody(payload: ClipPayload): boolean {
   return payload.latexmlFullText || payload.markdownSource;
 }
+
+/**
+ * Would committing this payload file an article with nothing in it?
+ *
+ * A PDF stub is empty on purpose — the processor builds its body (ADR 0026) —
+ * so it is the one empty payload worth committing. Any other is a tab the
+ * clipper could not read, whatever it believed it was reading: when Chrome's
+ * PDF viewer stopped matching the shape `isPdfViewerDocument` looked for, four
+ * PDFs were committed as empty articles over a week, each titled with its host,
+ * and the processor dutifully summarized nothing. Refusing here is what turns
+ * the next such miss into a message in the popup instead of a silent article.
+ */
+export function hasNothingToClip(payload: ClipPayload): boolean {
+  return !payload.pdfViewer && payload.markdown.trim() === "";
+}

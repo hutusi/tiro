@@ -17,6 +17,8 @@ const en = {
   readingPage: "Reading page…",
   cannotRead: (detail: string) => `Cannot read this page: ${detail}`,
   noClipResult: "The page did not produce a clip. Reload it and try again.",
+  nothingToClip:
+    "Nothing on this page could be read, so there is nothing to clip.",
   readyToClip: "Ready to clip.",
   alreadyClipped: (date: string) =>
     `Already clipped ${date} — clipping again updates it.`,
@@ -292,6 +294,7 @@ const zh: Messages = {
   readingPage: "正在读取页面…",
   cannotRead: (detail: string) => `无法读取此页面：${detail}`,
   noClipResult: "页面未产生剪藏结果，请刷新页面后重试。",
+  nothingToClip: "此页面没有可读取的内容，无法剪藏。",
   readyToClip: "可以剪藏了。",
   alreadyClipped: (date: string) => `已于 ${date} 剪藏过，再次剪藏将覆盖更新。`,
   clipping: "正在剪藏…",

@@ -16,6 +16,7 @@ import {
   clipReady,
   clipRefused,
   type FetchPolicy,
+  hasNothingToClip,
   isSourceBody,
   NO_FETCH,
   prefersCandidate,
@@ -713,8 +714,12 @@ async function main(): Promise<void> {
       // lesser body under the paper's own slug — the overwrite ADR 0023's
       // arbitration exists to prevent.
       pdfStub: result?.pdfViewer === true && source === null,
+      // No card for a body refused as empty either: it would preview zero
+      // words under a warning that the raw page is about to be clipped.
       preview:
-        result === null || result.pdfViewer
+        result === null ||
+        result.pdfViewer ||
+        (source === null && hasNothingToClip(result))
           ? null
           : {
               title: result.title,
@@ -820,6 +825,15 @@ async function main(): Promise<void> {
       phase = "ready";
       problem = null;
       render();
+      return;
+    }
+    // An empty body is a tab that could not be read, not an article, and
+    // committing it files one the processor can only summarize as empty.
+    // Only on an ordinary page: where a publisher offers its own copy, the
+    // tab's body is already a candidate the fetch is there to replace, and
+    // `clipReady` keeps Clip shut until that arbitration is over.
+    if (source === null && hasNothingToClip(payload)) {
+      block(m.nothingToClip);
       return;
     }
     // The whole point of the identity rule is that this article is the paper.

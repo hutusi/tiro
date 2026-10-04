@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   clipReady,
   clipRefused,
+  hasNothingToClip,
   isSourceBody,
   NO_FETCH,
   needsFetch,
@@ -164,5 +165,41 @@ describe("isSourceBody", () => {
     ["an abstract page", {}, false],
   ])("%s", (_name, over, expected) => {
     expect(isSourceBody(payload(over))).toBe(expected);
+  });
+});
+
+describe("hasNothingToClip", () => {
+  const payload = (over: Partial<ClipPayload>): ClipPayload => ({
+    url: "https://example.test/a.pdf",
+    title: "",
+    excerpt: "",
+    author: "",
+    markdown: "",
+    readabilityFailed: true,
+    hasMath: false,
+    pdfViewer: false,
+    latexmlFullText: false,
+    markdownSource: false,
+    ...over,
+  });
+
+  // What every web PDF was committed as while the viewer went unrecognised:
+  // no body, Readability failed, and nothing saying it was a PDF.
+  test("an empty body that is not a PDF stub", () => {
+    expect(hasNothingToClip(payload({}))).toBe(true);
+    expect(hasNothingToClip(payload({ markdown: " \n\n " }))).toBe(true);
+  });
+
+  // Empty on purpose: the processor builds the body (ADR 0026).
+  test("not a PDF stub", () => {
+    expect(hasNothingToClip(payload({ pdfViewer: true }))).toBe(false);
+  });
+
+  // However thin, a body is something to read — and an image-only page
+  // reaches here as Markdown image syntax, not as nothing.
+  test("not a body with anything in it", () => {
+    expect(hasNothingToClip(payload({ markdown: "![Plate I](p.png)" }))).toBe(
+      false,
+    );
   });
 });
