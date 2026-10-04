@@ -136,6 +136,41 @@ describe("clipPage", () => {
     expect(payload.pdfViewer).toBe(true);
   });
 
+  /**
+   * The viewer's document has no title, so the stub fell through to the host —
+   * and every PDF from one site was filed as "gwern.net". The file name is the
+   * placeholder the processor replaces with the document's `/Title`.
+   */
+  test("names a stub after its file, not its host", () => {
+    const payload = clipPage(
+      oopifViewer(),
+      "https://gwern.net/doc/math/1973-halmos.pdf",
+    );
+    expect(payload).toMatchObject({
+      title: "1973-halmos",
+      markdown: "",
+      excerpt: "",
+      author: "",
+      readabilityFailed: false,
+      hasMath: false,
+    });
+  });
+
+  test("decodes the file name it names a stub after", () => {
+    const payload = clipPage(
+      oopifViewer(),
+      "https://example.com/papers/Prompt%20like%20a%20Butterfly%20(clean).pdf",
+    );
+    expect(payload.title).toBe("Prompt like a Butterfly (clean)");
+  });
+
+  test("keeps a title the viewer's document does carry", () => {
+    const doc = oopifViewer();
+    doc.title = "Attention Is All You Need";
+    const payload = clipPage(doc, "https://example.com/1706.03762.pdf");
+    expect(payload.title).toBe("Attention Is All You Need");
+  });
+
   test("reports false for a page with an article in it", () => {
     const window = new Window();
     window.document.body.innerHTML = `<article><h1>T</h1><p>${"Word ".repeat(80)}</p></article>`;

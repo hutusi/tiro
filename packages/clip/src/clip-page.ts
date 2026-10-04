@@ -33,9 +33,10 @@ import {
  * returns the payload rather than sending it: the extension's messaging is the
  * one part of a clip that cannot run outside a page.
  *
- * One document shape leaves before any of that order runs: a markdown file
- * Chrome is showing as text is already the thing being converted *to*, and
- * goes to `clipMarkdownFile` below.
+ * Two document shapes leave before any of that order runs. Chrome's PDF viewer
+ * has no body to read at all, and goes to `clipPdfViewer`. A markdown file
+ * Chrome is showing as text is already the thing being converted *to*, and goes
+ * to `clipMarkdownFile` below.
  *
  * Mutates `doc`. Readability consumes what it parses, so callers with a live
  * page must pass a clone.
@@ -43,8 +44,8 @@ import {
 export function clipPage(doc: Document, url: string): ClipPayload {
   // Asked before anything rewrites the DOM: the answer is about the document
   // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
-  // this looks for.
-  const pdfViewer = isPdfViewerDocument(doc);
+  // the older viewer's shell is recognised by.
+  if (isPdfViewerDocument(doc)) return clipPdfViewer(doc, url);
   // Asked for the same reason, and answered first: this document is not a page
   // that happens to contain markdown, it *is* a markdown file, and every step
   // below would spend its effort converting something that needs no conversion.
@@ -118,8 +119,39 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     markdown,
     readabilityFailed,
     hasMath,
-    pdfViewer,
+    pdfViewer: false,
     latexmlFullText,
+    markdownSource: false,
+  };
+}
+
+/**
+ * The clip of a tab showing Chrome's PDF viewer: an identity and a name.
+ *
+ * Nothing else is in reach — the text is drawn by a viewer the DOM cannot see —
+ * so the popup commits a stub and the processor builds the body from the
+ * document's text layer (ADR 0026). Readability is not asked: whatever it made
+ * of the shell would be discarded, and the flags describing it would be claims
+ * about text nothing here has seen.
+ *
+ * Named after the file rather than left to fall back to the host. The viewer's
+ * document carries no title — `document.title` is empty on Chrome's current
+ * viewer, whatever the PDF's own `/Title` says — and the host is what every PDF
+ * from one site would then share. The processor replaces this with the
+ * document's `/Title` once it has the bytes, treating the file name as the
+ * placeholder it is.
+ */
+function clipPdfViewer(doc: Document, url: string): ClipPayload {
+  return {
+    url,
+    title: doc.title.trim() || fileStem(url),
+    excerpt: "",
+    author: "",
+    markdown: "",
+    readabilityFailed: false,
+    hasMath: false,
+    pdfViewer: true,
+    latexmlFullText: false,
     markdownSource: false,
   };
 }
@@ -241,7 +273,12 @@ function fallbackTitle(url: string): string {
   return /^readme$/i.test(stem) ? repo : `${repo}: ${stem}`;
 }
 
-function fileStem(url: string): string {
+/**
+ * The last path segment of `url`, decoded, without its extension — what a clip
+ * is named when the document names nothing. Exported because the processor has
+ * to recognise exactly this name as a placeholder (`isPlaceholderTitle`).
+ */
+export function fileStem(url: string): string {
   let pathname: string;
   try {
     pathname = new URL(url).pathname;
