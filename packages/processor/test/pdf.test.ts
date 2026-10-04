@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
 import type { ChatFn, FetchLike } from "../src/llm/client.ts";
-import { convertPdf, fetchPdf, pdfSource } from "../src/pdf.ts";
+import {
+  convertPdf,
+  fetchPdf,
+  isPlaceholderTitle,
+  pdfSource,
+} from "../src/pdf.ts";
 import { makePdf, makeStyledPdf } from "./helpers.ts";
 
 const PROSE =
@@ -143,6 +148,54 @@ describe("convertPdf and its two clocks", () => {
     expect(result.markdown).toContain("straightforward");
   });
 
+  // Both routes to a body, because the title is read from the document rather
+  // than from either of them — and the model route returns from elsewhere.
+  test("carries the document's own title on the model route", async () => {
+    const result = await convertPdf({
+      ...options(),
+      fetchImpl: (async () =>
+        new Response(makePdf([PROSE, PROSE], { title: "On Something" }), {
+          headers: { "content-type": "application/pdf" },
+        })) as FetchLike,
+      stageTimeoutMs: 300_000,
+      deadline: createDeadline(300_000),
+    });
+    expect(result.title).toBe("On Something");
+  });
+
+  test("carries the document's own title on the layout route", async () => {
+    const result = await convertPdf({
+      ...options(),
+      fetchImpl: (async () =>
+        new Response(
+          makeStyledPdf(
+            [
+              [
+                { text: "A Document Title", size: 20, face: "bold" },
+                { text: PROSE },
+                { text: PROSE },
+              ],
+            ],
+            { title: "On Something" },
+          ),
+          { headers: { "content-type": "application/pdf" } },
+        )) as FetchLike,
+      stageTimeoutMs: 300_000,
+      deadline: createDeadline(300_000),
+    });
+    expect(result.markdown).toContain("# A Document Title");
+    expect(result.title).toBe("On Something");
+  });
+
+  test("has no title when the document names none", async () => {
+    const result = await convertPdf({
+      ...options(),
+      stageTimeoutMs: 300_000,
+      deadline: createDeadline(300_000),
+    });
+    expect(result.title).toBeUndefined();
+  });
+
   test("a blown run budget defers rather than failing the article", async () => {
     // DeadlineExceededError is the pipeline's signal to leave the article
     // pending *with the run's work committed*. Nothing in the stage may
@@ -276,6 +329,36 @@ describe("convertPdf when a clock runs out mid-download", () => {
     }).catch((e: unknown) => e);
     expect(error).not.toBeInstanceOf(DeadlineExceededError);
     expect(String(error)).toMatch(/HTTP 500/);
+  });
+});
+
+describe("isPlaceholderTitle", () => {
+  const url = "https://gwern.net/doc/math/1973-halmos.pdf";
+
+  test("the host an empty clip or a saved link is filed under", () => {
+    expect(isPlaceholderTitle("gwern.net", url)).toBe(true);
+  });
+
+  test("the file name a stub from Chrome's PDF viewer is given", () => {
+    expect(isPlaceholderTitle("1973-halmos", url)).toBe(true);
+    expect(
+      isPlaceholderTitle(
+        "Prompt like a Butterfly (clean)",
+        "https://example.com/Prompt%20like%20a%20Butterfly%20(clean).pdf",
+      ),
+    ).toBe(true);
+  });
+
+  test("no title at all", () => {
+    expect(isPlaceholderTitle("  ", url)).toBe(true);
+  });
+
+  test("not a title read from a page or set by hand", () => {
+    expect(isPlaceholderTitle("The Legend of John von Neumann", url)).toBe(
+      false,
+    );
+    // Another site's host is a title someone chose, however it looks.
+    expect(isPlaceholderTitle("example.com", url)).toBe(false);
   });
 });
 

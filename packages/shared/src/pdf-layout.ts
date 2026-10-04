@@ -48,6 +48,8 @@ export interface PdfLayout {
    * answer.
    */
   legible: boolean;
+  /** The document's own `/Title`, absent when it names none. */
+  title?: string;
 }
 
 /**
@@ -228,6 +230,32 @@ export function headingSizes(
   return sizes.sort((a, b) => b - a);
 }
 
+/**
+ * The document's own `/Title`, or undefined when it names none.
+ *
+ * Read here because this is the one place the document is open: pdf.js has
+ * detached the bytes by now, so nothing downstream could ask again. It is also
+ * the title a web PDF's article can get at all — Chrome's viewer shows it in the
+ * tab but never puts it in the DOM the clipper reads (ADR 0026).
+ *
+ * Never a reason to refuse: metadata that will not parse costs the article its
+ * name, not its text.
+ */
+async function documentTitle(
+  doc: Awaited<ReturnType<typeof getDocumentProxy>>,
+): Promise<string | undefined> {
+  let raw: unknown;
+  try {
+    const { info } = await doc.getMetadata();
+    raw = (info as { Title?: unknown } | null)?.Title;
+  } catch {
+    return undefined;
+  }
+  if (typeof raw !== "string") return undefined;
+  const title = raw.replace(/\s+/g, " ").trim();
+  return title === "" ? undefined : title;
+}
+
 export interface PdfLayoutOptions {
   /** Refuse past this rather than truncate — the cap of ADR 0026. */
   maxPages: number;
@@ -259,6 +287,7 @@ export async function readPdfLayout(
       `too many pages: ${doc.numPages} (cap ${options.maxPages})`,
     );
   }
+  const title = await documentTitle(doc);
 
   const items: PdfTextItem[] = [];
   // Resolved names are cached across pages: the same font reappears on every
@@ -322,5 +351,6 @@ export async function readPdfLayout(
     // Either signal is enough to build something better than flat text: a size
     // hierarchy gives headings, monospace gives fences.
     legible: headings.length > 0 || items.some((item) => item.mono),
+    ...(title !== undefined ? { title } : {}),
   };
 }
