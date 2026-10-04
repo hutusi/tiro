@@ -8,14 +8,53 @@ function docFrom(html: string): Document {
   return window.document as unknown as Document;
 }
 
+/**
+ * Chrome's out-of-process PDF viewer as the clipper meets it — measured in
+ * Chrome 154 on 2026-10-03, on a tab showing `gwern.net/doc/math/1973-halmos.pdf`.
+ * No `<embed>` anywhere: the head links the viewer's stylesheet, and the body
+ * holds only what other extensions injected into it.
+ *
+ * The type is set on the instance rather than through happy-dom's internal
+ * symbol: a non-HTML internal type also switches off its tag-name and
+ * attribute case folding, which the real document never does.
+ */
+function oopifViewer(contentType = "application/pdf"): Document {
+  const window = new Window();
+  const doc = window.document;
+  doc.head.innerHTML =
+    '<link rel="stylesheet" href="chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css">';
+  doc.body.innerHTML =
+    "\n    <deepl-input-controller></deepl-input-controller>\n  \n\n";
+  Object.defineProperty(doc, "contentType", { value: contentType });
+  return doc as unknown as Document;
+}
+
 describe("isPdfViewerDocument", () => {
   /**
-   * What Chrome actually serves for `https://arxiv.org/pdf/2404.19756v1`: an
-   * HTML shell whose body is one embed. The bytes are drawn by a plugin no
-   * DOM API can reach, so there is nothing to extract — and the popup's only
-   * guard was a `^https?:` test, which this passes.
+   * The viewer every web PDF met before this was caught: the shape test below
+   * never matched it, so each one was committed as an empty article.
    */
-  test("recognises Chrome's PDF viewer shell", () => {
+  test("recognises the out-of-process viewer, which has no embed", () => {
+    expect(isPdfViewerDocument(oopifViewer())).toBe(true);
+  });
+
+  test("recognises the viewer's other type", () => {
+    expect(isPdfViewerDocument(oopifViewer("text/pdf"))).toBe(true);
+  });
+
+  // The same body served as HTML is an empty page, not a PDF: the type is
+  // what decides, not the emptiness.
+  test("leaves the same body alone when it is an HTML page", () => {
+    expect(isPdfViewerDocument(oopifViewer("text/html"))).toBe(false);
+  });
+
+  /**
+   * What Chrome's earlier viewer served for `https://arxiv.org/pdf/2404.19756v1`:
+   * an HTML shell, typed `text/html`, whose body is one embed. The bytes are
+   * drawn by a plugin no DOM API can reach, so there is nothing to extract — and
+   * the popup's only guard was a `^https?:` test, which this passes.
+   */
+  test("recognises the earlier viewer's embed shell", () => {
     const doc = docFrom(
       '<embed name="A" type="application/pdf" src="about:blank">',
     );
@@ -85,6 +124,14 @@ describe("clipPage", () => {
     const payload = clipPage(
       window.document as unknown as Document,
       "https://example.com/paper.pdf",
+    );
+    expect(payload.pdfViewer).toBe(true);
+  });
+
+  test("reports the out-of-process viewer, so the popup commits a stub", () => {
+    const payload = clipPage(
+      oopifViewer(),
+      "https://gwern.net/doc/math/1973-halmos.pdf",
     );
     expect(payload.pdfViewer).toBe(true);
   });

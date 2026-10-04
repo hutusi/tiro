@@ -125,20 +125,39 @@ export function clipPage(doc: Document, url: string): ClipPayload {
 }
 
 /**
+ * The document types Chrome's PDF viewer renders — what `navigator.mimeTypes`
+ * lists while the viewer is enabled. With it disabled a PDF downloads, and
+ * there is no tab to clip at all.
+ */
+const PDF_VIEWER_TYPES = new Set(["application/pdf", "text/pdf"]);
+
+/**
  * True when the document is Chrome's PDF viewer rather than a page.
  *
- * Chrome serves `https://…/paper.pdf` as an HTML shell whose body is a single
- * `<embed type="application/pdf">`; the bytes are rendered by a plugin the DOM
- * cannot see. Nothing here can extract that text, and until this existed the
- * popup happily committed the resulting empty article with
- * `readability_failed: true` — the scheme guard only ever checked for http(s).
+ * The bytes are rendered by a viewer the DOM cannot see, so nothing here can
+ * extract that text — and a clip that does not know it is looking at one
+ * commits an empty article with `readability_failed: true`.
  *
- * Described by shape as well as emptiness, because emptiness alone is not the
- * viewer: a poster or a figure gallery can carry a PDF attachment and almost no
- * prose, and refusing that would lose a clip the pipeline handles fine. The
- * shell is exactly one element in the body — the embed itself — and no text.
+ * Asked of the content type first, because the shell's shape is Chrome's to
+ * change and it has. The out-of-process viewer (Chrome 154, measured
+ * 2026-10-03) leaves no `<embed>` in the DOM at all: the head links the
+ * viewer's own `pdf_embedder.css` and the body holds whatever other extensions
+ * injected. The shape test below never matched it, and every web PDF clipped on
+ * that Chrome went into the vault empty. The type is the response's, carried by
+ * the clone `clipper.ts` hands over (checked in Chrome), and a page that merely
+ * embeds a PDF is `text/html` — so the attachment cases the shape test guards
+ * stay pages without any help.
+ *
+ * The shape is still asked, for the viewer that came before: it rewrote the
+ * response into an HTML shell whose body is a single
+ * `<embed type="application/pdf">`, typed `text/html`, so there the shape is the
+ * only signal. Described by shape as well as emptiness, because emptiness alone
+ * is not the viewer: a poster or a figure gallery can carry a PDF attachment and
+ * almost no prose, and refusing that would lose a clip the pipeline handles
+ * fine.
  */
 export function isPdfViewerDocument(doc: Document): boolean {
+  if (PDF_VIEWER_TYPES.has(doc.contentType)) return true;
   const embed = doc.querySelector(
     'embed[type="application/pdf"], object[type="application/pdf"]',
   );

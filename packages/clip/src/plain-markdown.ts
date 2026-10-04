@@ -41,12 +41,13 @@ import { srcsetUrlRanges, urlAttributeRanges } from "./html-urls.ts";
 /**
  * The file behind Chrome's plain-text viewer, or `null` if this is a page.
  *
- * Described by shape, like `isPdfViewerDocument` — the body is exactly one
- * `<pre>` and holds all of the document's text — rather than by asking
- * `document.contentType`, which the clone Readability is handed does not
- * reliably carry and which a test DOM does not implement at all. The shape is
- * the tighter test anyway: it is what makes "a page that merely opens with a
- * code block" fail, since such a page has prose beside it.
+ * Described by shape — the body is exactly one `<pre>` and holds all of the
+ * document's text — rather than by `document.contentType`. Not because the type
+ * is out of reach: the clone carries it, and `isPdfViewerDocument` asks it first.
+ * But `text/plain` says nothing about markdown, which is what the URL is paired
+ * in below to decide, and the shape is the tighter test anyway: it is what makes
+ * "a page that merely opens with a code block" fail, since such a page has prose
+ * beside it.
  *
  * Paired with the URL, because a `<pre>` holding a file says nothing about
  * what kind of file. Only markdown is claimed; a `.txt` is hard-wrapped prose

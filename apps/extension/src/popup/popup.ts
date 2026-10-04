@@ -1136,8 +1136,8 @@ async function main(): Promise<void> {
         // read the old article's `unlisted` flag before it rebuilds `index.md`
         // over it (ADR 0017).
         const slug = await slugForUrl(payload.url);
-        // A PDF tab commits a stub. Readability's reading of an <embed> is not
-        // a body worth keeping, and the flags that describe one would be
+        // A PDF tab commits a stub. The viewer's shell holds no body worth
+        // keeping, and the flags that describe one would be
         // claims about text nothing here has seen: `readability_failed` warns
         // about a raw body whose URLs were never absolutized, and `has_math`
         // promises an escaping pass that never ran (the reasoning ADR 0023
