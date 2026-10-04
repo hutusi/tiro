@@ -46,6 +46,18 @@ describe("fetchPdf", () => {
     ).resolves.toBeDefined();
   });
 
+  // The other type Chrome's viewer renders, so the clipper stubs a tab
+  // showing one — and a stub this stage then refused would be settled empty.
+  test("accepts text/pdf, which Chrome's viewer also renders", async () => {
+    const fetchImpl: FetchLike = async () =>
+      new Response(makePdf([PROSE]), {
+        headers: { "content-type": "text/pdf" },
+      });
+    await expect(
+      fetchPdf({ ...fetchOptions, fetchImpl }),
+    ).resolves.toBeDefined();
+  });
+
   test("rejects a content type that is not a PDF at all", async () => {
     const fetchImpl: FetchLike = async () =>
       new Response("<html>login</html>", {

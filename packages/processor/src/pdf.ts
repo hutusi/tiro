@@ -43,10 +43,16 @@ import { httpFailure, SettledRefusal } from "./refusal.ts";
  * That laxity is affordable only because `PDF_MAGIC` below is checked against
  * the bytes themselves — the content type decides whether to spend the
  * download, the magic bytes decide whether it was a PDF. The link stage hands
- * this stage whatever it accepts, so the two cannot disagree about a PDF. */
+ * this stage whatever it accepts, so the two cannot disagree about a PDF.
+ *
+ * And it must cover every type the clipper stubs: `text/pdf` is the other type
+ * Chrome's viewer renders, so a tab showing one is clipped as a PDF
+ * (`isPdfViewerDocument`), and refusing it here would settle that stub as
+ * processed with no body. */
 export const PDF_CONTENT_TYPES = new Set([
   "application/pdf",
   "application/x-pdf",
+  "text/pdf",
   "application/octet-stream",
   "binary/octet-stream",
 ]);

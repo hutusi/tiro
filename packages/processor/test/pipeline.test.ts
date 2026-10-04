@@ -803,6 +803,26 @@ describe("saved links", () => {
     expect(body).toContain("density gate");
   });
 
+  test("a PDF served as text/pdf becomes a PDF article", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const prose =
+      "A document long enough on every page to count as having a text layer, which is what the density gate asks of it before it reads anything.";
+    await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      fetchImpl: serving({
+        [SAVED]: () =>
+          new Response(makePdf([prose, prose]), {
+            headers: { "content-type": "text/pdf" },
+          }),
+      }),
+    });
+    const { frontmatter, body } = (await savedArticle(vault)).read();
+    expect(frontmatter.tiro.source_media).toBe("pdf");
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(body).toContain("density gate");
+  });
+
   test("a plain download that is not a PDF is settled, not retried", async () => {
     const vault = withInbox(SAVED);
     const config = await loadVaultConfig(vault);
@@ -2081,6 +2101,30 @@ describe("runPipeline with a PDF stub", () => {
       const { title } = await processStub("method");
       expect(title).toBe("method");
     });
+  });
+
+  /**
+   * The whole path for the viewer's second type: the clipper stubs a tab whose
+   * document is `text/pdf`, so the stage that fetches it has to accept the
+   * same type — refusing it settles the article as processed, with no body.
+   */
+  test("converts a stub whose document is served as text/pdf", async () => {
+    const { dir, slug } = await stubVault();
+    const pdf = makePdf([
+      "Section 1\nThe method is straightforward to implement, is computationally efficient, and has little memory requirement to speak of.",
+      "Section 2\nIt is invariant to diagonal rescaling of the gradients and well suited to problems large in data or in parameters.",
+    ]);
+    const config = await loadVaultConfig(dir);
+    await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      fetchImpl: async () =>
+        new Response(pdf, { headers: { "content-type": "text/pdf" } }),
+    });
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(article.frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(article.body).toContain("little memory");
   });
 
   test("a PDF whose layout reads cleanly converts with no model call", async () => {
