@@ -623,52 +623,61 @@ export interface CodeRange {
  * sentence the model has to translate around, and math has its own walk.
  */
 export function codeRanges(text: string): CodeRange[] {
-  return codeRangesFrom(text, parser);
-}
-
-function codeRangesFrom(text: string, from: typeof parser): CodeRange[] {
   const found: CodeRange[] = [];
-  const mathParsed = from !== proseParser;
-  const walk = (node: unknown): void => {
-    const n = node as {
-      type?: string;
-      value?: string;
-      children?: unknown[];
-      position?: { start: { offset?: number }; end: { offset?: number } };
-    };
-    const start = n.position?.start.offset;
-    const end = n.position?.end.offset;
-    if (n.type === "code") {
-      if (start !== undefined && end !== undefined) {
-        found.push({ start, end, value: n.value ?? "" });
-      }
-      return;
+  const unclosed: { start: number; end: number }[] = [];
+  visitPositioned(parser.parse(text) as Root, (node, start, end) => {
+    if (node.type === "code") {
+      found.push({ start, end, value: node.value ?? "" });
+      return true;
     }
     // An unclosed `$$` — "$$ is the shell's PID" — runs to the end of its
     // container as one formula, and a fence after it is read as LaTeX rather
-    // than code. Re-read as prose, the way `verbatimRanges` does, or the code
-    // goes to the model unmasked and unchecked. proseParser has no math
-    // extension, so this cannot recurse forever.
-    if (
-      mathParsed &&
-      n.type === "math" &&
-      start !== undefined &&
-      end !== undefined &&
-      !isTerminatedFence(text.slice(start, end))
-    ) {
-      for (const range of codeRangesFrom(text.slice(start, end), proseParser)) {
-        found.push({
-          ...range,
-          start: start + range.start,
-          end: start + range.end,
-        });
-      }
+    // than code; left there, the code goes to the model unmasked and
+    // unchecked.
+    if (node.type === "math" && !isTerminatedFence(text.slice(start, end))) {
+      unclosed.push({ start, end });
+      return true;
+    }
+    return false;
+  });
+  if (unclosed.length === 0) return found;
+  // So the code in that span is read again, from the whole text without the
+  // math extension, and kept where it falls inside it. The whole text, not the
+  // span: a slice starting at `$$` loses the list marker or quote around it,
+  // and a list item's four-space continuation then reads as one indented code
+  // block — swallowing the prose after the fence into the mask.
+  visitPositioned(proseParser.parse(text) as Root, (node, start, end) => {
+    if (node.type !== "code") return false;
+    if (unclosed.some((span) => start >= span.start && end <= span.end)) {
+      found.push({ start, end, value: node.value ?? "" });
+    }
+    return true;
+  });
+  return found.sort((a, b) => a.start - b.start);
+}
+
+interface PositionedNode {
+  type?: string;
+  value?: string;
+  children?: unknown[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+}
+
+/** Visit every positioned node; `visit` returns true to stop descending. */
+function visitPositioned(
+  tree: Root,
+  visit: (node: PositionedNode, start: number, end: number) => boolean,
+): void {
+  const walk = (node: unknown): void => {
+    const n = node as PositionedNode;
+    const start = n.position?.start.offset;
+    const end = n.position?.end.offset;
+    if (start !== undefined && end !== undefined && visit(n, start, end)) {
       return;
     }
     for (const child of n.children ?? []) walk(child);
   };
-  walk(from.parse(text) as Root);
-  return found;
+  walk(tree);
 }
 
 /**

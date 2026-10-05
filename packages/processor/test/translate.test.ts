@@ -848,6 +848,35 @@ describe("code nested in a block", () => {
     expect(zh?.trim()).toBe(pid.replace("Look:", "看："));
   });
 
+  test("still translates the prose after that code in a list item", async () => {
+    // Masking the fence must not take the rest of the item with it: a
+    // four-space list continuation, re-read out of its list, is indented code.
+    const item = [
+      "-   $$ is the shell PID.",
+      "    ",
+      "    ```",
+      "    echo $$",
+      "    ```",
+      "    ",
+      "    More prose.",
+    ].join("\n");
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        const user = request.messages.at(-1)?.content ?? "";
+        seen.push(user);
+        return user.replace("More prose.", "更多文字。");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(item),
+    });
+    const sent = seen.join("\n");
+    expect(sent).toContain("More prose.");
+    expect(sent).not.toContain("echo $$");
+    expect(zh?.trim()).toBe(item.replace("More prose.", "更多文字。"));
+  });
+
   test("leaves a block alone whose prose already holds a code token", async () => {
     const odd = "- Mentions TIROCODE0000 in prose\n\n  ```\n  x = 1\n  ```";
     const seen: string[] = [];

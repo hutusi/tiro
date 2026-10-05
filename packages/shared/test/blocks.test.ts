@@ -295,6 +295,41 @@ describe("codeRanges", () => {
     expect(slices(text)).toEqual([["```sh\n> echo $$\n> ```", "echo $$"]]);
   });
 
+  test("after an unclosed $$ in a list item, finds the fence and nothing more", () => {
+    // Turndown's own shape: four-space continuation lines. Re-read without the
+    // list marker, those lines are one indented code block that swallows the
+    // prose after the fence.
+    const text = [
+      "-   $$ is the shell PID.",
+      "    ",
+      "    ```",
+      "    echo $$",
+      "    ```",
+      "    ",
+      "    More prose.",
+      "    ",
+      "-   Second item.",
+    ].join("\n");
+    expect(slices(text)).toEqual([["```\n    echo $$\n    ```", "echo $$"]]);
+  });
+
+  test("and the same one list deeper", () => {
+    const text = [
+      "-   Outer.",
+      "    ",
+      "    -   $$ is the shell PID.",
+      "        ",
+      "        ```",
+      "        echo $$",
+      "        ```",
+      "        ",
+      "        More prose.",
+    ].join("\n");
+    expect(slices(text)).toEqual([
+      ["```\n        echo $$\n        ```", "echo $$"],
+    ]);
+  });
+
   test("leaves inline code and math to their own handling", () => {
     expect(codeRanges("Press `ctrl + r` for $x$.")).toEqual([]);
   });
