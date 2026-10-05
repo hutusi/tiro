@@ -43,6 +43,11 @@ describe("fixture vault", () => {
       // this vault is what proves the flag actually removes it from each of
       // those surfaces while still rendering its page.
       "example-cn-notes-unlisted-shelf-8145cda3/index.md",
+      // A Hacker News thread: one blockquote per comment, nested a level per
+      // reply (ADR 0038), and the only page the reader's thread style applies
+      // to. Invented, like every other fixture — a real thread is other
+      // people's writing.
+      "news-ycombinator-com-item-9929bab6/index.md",
     ]) {
       expect(indexFiles).toContain(expected);
     }

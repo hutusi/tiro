@@ -84,6 +84,11 @@ const shareUrl = new URL(
 // The title someone reading this site would recognise.
 const shareTitle = meta.titleZh ?? frontmatter.title;
 const date = dateLabel(frontmatter.clipped_at);
+// A Hacker News thread is one blockquote per comment, nested by depth (ADR
+// 0038), and typography sets a blockquote as a citation — italic, in curly
+// quotes. The page's own domain says it is a thread: every clip path writes it,
+// so this asks nothing of the content contract.
+const thread = frontmatter.domain === "news.ycombinator.com";
 
 // Named rather than linked when there is nothing to open — see sourceLabel.
 const source = sourceLabel(frontmatter);
@@ -131,6 +136,7 @@ const tagLinks = await Promise.all(
     class="reader"
     data-paired={paired ? "" : undefined}
     data-zh-title={hasZhTitle ? "" : undefined}
+    data-thread={thread ? "" : undefined}
   >
     <div class="toolbar" data-pagefind-ignore>
       <a href="/" class="back">{t.back}</a>
