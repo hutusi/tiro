@@ -599,6 +599,53 @@ export function mathRanges(
   return found;
 }
 
+export interface CodeRange {
+  /** Offset of the code block's first character — its opening fence, or the
+   * first indented line — in the text this was read from. */
+  start: number;
+  /** Offset just past its last character. */
+  end: number;
+  /** The code itself, without fences, indentation or container markers. */
+  value: string;
+}
+
+/**
+ * Every code block in a fragment, at any depth, with its source offsets.
+ *
+ * A top-level code block is verbatim by contract (`VERBATIM_BLOCK_TYPES`) and
+ * never reaches the model. One inside a list item or a blockquote is part of a
+ * block that does, and nothing at the block's level can tell that its code came
+ * back rewritten: the block is still a blockquote, so alignment passes. The
+ * translator masks these the way it masks math, and checks them afterwards
+ * against this same walk (ADR 0038).
+ *
+ * Narrower than `verbatimRanges` on purpose: inline code is a word inside a
+ * sentence the model has to translate around, and math has its own walk.
+ */
+export function codeRanges(text: string): CodeRange[] {
+  const tree = parser.parse(text) as Root;
+  const found: CodeRange[] = [];
+  const walk = (node: unknown): void => {
+    const n = node as {
+      type?: string;
+      value?: string;
+      children?: unknown[];
+      position?: { start: { offset?: number }; end: { offset?: number } };
+    };
+    if (n.type === "code") {
+      const start = n.position?.start.offset;
+      const end = n.position?.end.offset;
+      if (start !== undefined && end !== undefined) {
+        found.push({ start, end, value: n.value ?? "" });
+      }
+      return;
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(tree);
+  return found;
+}
+
 /**
  * Make a block's math render the way `splitBlocks` classified it.
  *

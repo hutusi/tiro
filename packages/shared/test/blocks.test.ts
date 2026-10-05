@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkAlignment,
+  codeRanges,
   foldedFigureCount,
   htmlRanges,
   imageOffsets,
@@ -264,6 +265,31 @@ describe("mathRanges", () => {
         (r) => r.value,
       ),
     ).toEqual(["O(n)"]);
+  });
+});
+
+describe("codeRanges", () => {
+  const slices = (text: string) =>
+    codeRanges(text).map((r) => [text.slice(r.start, r.end), r.value]);
+
+  test("finds a fence inside a blockquote, markers and all", () => {
+    const text = "> Look:\n>\n> ```js\n> const x = 1;\n> ```\n>\n> Neat.";
+    expect(slices(text)).toEqual([
+      ["```js\n> const x = 1;\n> ```", "const x = 1;"],
+    ]);
+  });
+
+  test("finds one two levels down, and one in a list item", () => {
+    expect(slices("> > ```\n> > two\n> > ```")).toEqual([
+      ["```\n> > two\n> > ```", "two"],
+    ]);
+    expect(slices("-   Run:\n\n    ```\n    ls\n    ```")).toEqual([
+      ["```\n    ls\n    ```", "ls"],
+    ]);
+  });
+
+  test("leaves inline code and math to their own handling", () => {
+    expect(codeRanges("Press `ctrl + r` for $x$.")).toEqual([]);
   });
 });
 
