@@ -821,6 +821,33 @@ describe("code nested in a block", () => {
     expect(zh?.trim()).toBe(source);
   });
 
+  test("masks code that follows an unclosed $$ in the same block", async () => {
+    // The reviewer's second reproduction: `$$` in prose swallowed the rest of
+    // the quote as math, the walk saw no code, and `42` came back as `99`.
+    const pid = [
+      "> **bob** · [2026-10-01](https://news.ycombinator.com/item?id=3)",
+      ">",
+      "> $$ is the shell PID. Look:",
+      ">",
+      "> ```sh",
+      "> answer=42",
+      "> ```",
+    ].join("\n");
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        const user = request.messages.at(-1)?.content ?? "";
+        seen.push(user);
+        return user.replace("Look:", "看：").replace("42", "99");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(pid),
+    });
+    expect(seen.join("\n")).not.toContain("answer=42");
+    expect(zh?.trim()).toBe(pid.replace("Look:", "看："));
+  });
+
   test("leaves a block alone whose prose already holds a code token", async () => {
     const odd = "- Mentions TIROCODE0000 in prose\n\n  ```\n  x = 1\n  ```";
     const seen: string[] = [];

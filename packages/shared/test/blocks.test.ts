@@ -288,6 +288,13 @@ describe("codeRanges", () => {
     ]);
   });
 
+  test("finds a fence after an unclosed $$, which is prose", () => {
+    // remark-math reads the rest of the quote as one formula; the code in it
+    // is still code.
+    const text = "> $$ is the shell PID.\n>\n> ```sh\n> echo $$\n> ```";
+    expect(slices(text)).toEqual([["```sh\n> echo $$\n> ```", "echo $$"]]);
+  });
+
   test("leaves inline code and math to their own handling", () => {
     expect(codeRanges("Press `ctrl + r` for $x$.")).toEqual([]);
   });

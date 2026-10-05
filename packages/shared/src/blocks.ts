@@ -623,8 +623,12 @@ export interface CodeRange {
  * sentence the model has to translate around, and math has its own walk.
  */
 export function codeRanges(text: string): CodeRange[] {
-  const tree = parser.parse(text) as Root;
+  return codeRangesFrom(text, parser);
+}
+
+function codeRangesFrom(text: string, from: typeof parser): CodeRange[] {
   const found: CodeRange[] = [];
+  const mathParsed = from !== proseParser;
   const walk = (node: unknown): void => {
     const n = node as {
       type?: string;
@@ -632,17 +636,38 @@ export function codeRanges(text: string): CodeRange[] {
       children?: unknown[];
       position?: { start: { offset?: number }; end: { offset?: number } };
     };
+    const start = n.position?.start.offset;
+    const end = n.position?.end.offset;
     if (n.type === "code") {
-      const start = n.position?.start.offset;
-      const end = n.position?.end.offset;
       if (start !== undefined && end !== undefined) {
         found.push({ start, end, value: n.value ?? "" });
       }
       return;
     }
+    // An unclosed `$$` — "$$ is the shell's PID" — runs to the end of its
+    // container as one formula, and a fence after it is read as LaTeX rather
+    // than code. Re-read as prose, the way `verbatimRanges` does, or the code
+    // goes to the model unmasked and unchecked. proseParser has no math
+    // extension, so this cannot recurse forever.
+    if (
+      mathParsed &&
+      n.type === "math" &&
+      start !== undefined &&
+      end !== undefined &&
+      !isTerminatedFence(text.slice(start, end))
+    ) {
+      for (const range of codeRangesFrom(text.slice(start, end), proseParser)) {
+        found.push({
+          ...range,
+          start: start + range.start,
+          end: start + range.end,
+        });
+      }
+      return;
+    }
     for (const child of n.children ?? []) walk(child);
   };
-  walk(tree);
+  walk(from.parse(text) as Root);
   return found;
 }
 
