@@ -9,6 +9,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Hacker News threads clip.** An item page used to be clipped as a stack of
+  usernames and timestamps, with the post and every comment lost. It is now
+  read from HN's own markup: the story link, the Ask/Show/Tell HN text, and each
+  comment as its own quote, nested by reply. Fold a subthread with [–] before
+  clipping and it stays out. The reader shows the thread as rails rather than
+  italic quotations. This works for saved links too, with no new permission
+  (ADR 0038).
 - **File an article as you clip it.** Once a clip is saved, the popup lists
   your collections under it — favorites first, read from your vault, with a
   re-clip's collections already ticked — and "New collection…" beside them.

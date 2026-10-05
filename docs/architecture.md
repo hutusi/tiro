@@ -104,6 +104,17 @@ flowchart LR
    holding all of the document's text — so GitLab, Codeberg and any static `.md`
    are covered without a hostname.
 
+   A Hacker News thread is the third branch (ADR 0038). Its comments are rows
+   of one flat table, with depth as an attribute, and Readability kept their
+   headers and pruned their text. `clipPage` recognises an item page by its
+   `table.fatitem` head and reads the rows directly. The result is the story's
+   URL, the self-text, then one top-level blockquote per comment, nested by
+   depth, so translation and the reader both work comment by comment. Rows HN
+   marks as folded (`coll`/`noshow`) are skipped. Those are the reader's `[–]`
+   and HN's own folds of flagged or off-topic subthreads, so the thread is what
+   the tab shows. The site sets a thread's quotes as rails rather than
+   citations, keyed on the article's `domain`.
+
    The repair pass (`packages/clip/src/dom-prepare.ts`) runs on a clone
    *before* Readability, which prunes low-text subtrees it cannot be asked to
    give back. It recovers each formula's LaTeX source (KaTeX/MathJax
