@@ -10,6 +10,7 @@ import {
   restoreCodeLanguagesIn,
   videosAsPostersIn,
 } from "./dom-prepare.ts";
+import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipPayload } from "./payload.ts";
 import {
@@ -33,10 +34,11 @@ import {
  * returns the payload rather than sending it: the extension's messaging is the
  * one part of a clip that cannot run outside a page.
  *
- * Two document shapes leave before any of that order runs. Chrome's PDF viewer
- * has no body to read at all, and goes to `clipPdfViewer`. A markdown file
- * Chrome is showing as text is already the thing being converted *to*, and goes
- * to `clipMarkdownFile` below.
+ * Three document shapes leave before any of that order runs. Chrome's PDF
+ * viewer has no body to read at all, and goes to `clipPdfViewer`. A markdown
+ * file Chrome is showing as text is already the thing being converted *to*, and
+ * goes to `clipMarkdownFile` below. A Hacker News thread is a table Readability
+ * cannot read, and goes to `clipHackerNewsItem`.
  *
  * Mutates `doc`. Readability consumes what it parses, so callers with a live
  * page must pass a clone.
@@ -53,6 +55,10 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // viewer's `<pre>` and hand Turndown one fence around the whole document.
   const source = plainTextMarkdownSource(doc, url);
   if (source !== null) return clipMarkdownFile(source, url);
+  // A Hacker News thread is a flat table Readability reads as layout, keeping
+  // each comment's header and pruning its text (ADR 0038). Asked before the
+  // repair below, which would rewrite the rows this reads.
+  if (isHackerNewsItem(doc)) return clipHackerNewsItem(doc, url);
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
   prepareForClipping(doc);
