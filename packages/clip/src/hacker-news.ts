@@ -77,6 +77,7 @@ export function clipHackerNewsItem(doc: Document, url: string): ClipPayload {
       blocks.push(markdownOf(doc, text, url));
       excerpt = excerptOf(text);
     }
+    if (head !== null) blocks.push(pollOf(doc, head, row));
   } else if (row !== null) {
     // The permalink of one comment: the comment is the article, under the
     // story it was written on.
@@ -156,6 +157,33 @@ function commentBlock(doc: Document, comment: Element, url: string): string {
   }
 
   return quote(htmlToMarkdown(container.innerHTML).markdown.trim(), depth + 1);
+}
+
+/**
+ * A poll's choices, as one list, each with the points it had when clipped —
+ * the count is the poll's answer, so it is part of the content.
+ *
+ * They are neither the post's text nor comments: each choice is another
+ * `tr.athing` in the item's head, with its text in `td.comment` and its points
+ * in the row after it. A poll is the one item whose head holds more than one
+ * such row, so for anything else this finds nothing and returns "". The text
+ * is taken as text: HN renders a choice as plain words in a `<font>`, and a
+ * block element inside the list item would push the points onto a line of
+ * their own.
+ */
+function pollOf(doc: Document, head: Element, item: Element): string {
+  const list = doc.createElement("ul");
+  for (const choice of Array.from(head.querySelectorAll("tr.athing[id]"))) {
+    if (choice === item) continue;
+    const text = textOf(choice.querySelector("td.comment"));
+    if (text === "") continue;
+    const entry = doc.createElement("li");
+    const score = textOf(head.querySelector(`#score_${choice.id}`));
+    entry.textContent = score === "" ? text : `${text} (${score})`;
+    list.append(entry);
+  }
+  if (list.children.length === 0) return "";
+  return htmlToMarkdown(list.outerHTML).markdown.trim();
 }
 
 /** Markdown for a block of HN text — a self-post's, or the comment a

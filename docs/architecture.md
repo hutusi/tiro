@@ -108,8 +108,9 @@ flowchart LR
    of one flat table, with depth as an attribute, and Readability kept their
    headers and pruned their text. `clipPage` recognises an item page by its
    `table.fatitem` head and reads the rows directly. The result is the story's
-   URL, the self-text, then one top-level blockquote per comment, nested by
-   depth, so translation and the reader both work comment by comment. Rows HN
+   URL, the self-text, a poll's choices, then one top-level blockquote per
+   comment, nested by depth, so translation and the reader both work comment
+   by comment. Rows HN
    marks as folded (`coll`/`noshow`) are skipped. Those are the reader's `[–]`
    and HN's own folds of flagged or off-topic subthreads, so the thread is what
    the tab shows. The site sets a thread's quotes as rails rather than
@@ -316,6 +317,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   to stacked rendering, and the processor never writes a misaligned `zh.md`.
   The shared parser runs remark-math, so `$$…$$` is a single `math` block even
   with blank lines inside, the way a fenced code block already is (ADR 0009).
+  Math and code *inside* a translated block (a list item, a quote) are masked
+  before the model sees them, put back verbatim, and checked afterwards: a
+  block whose formulas or code came back different stays in the original
+  (ADR 0009, ADR 0038).
 - **Each article records what produced it**: `tiro.clipper_version` and
   `tiro.clipper_commit` alongside `tiro.processor_version`, all optional so
   articles predating any of them simply lack them. The version names a

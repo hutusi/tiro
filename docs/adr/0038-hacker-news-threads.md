@@ -61,6 +61,10 @@ A thread becomes:
   translator returns it untouched. A self-post has none, because its title
   links to itself.
 - **The self-text**, as ordinary top-level blocks.
+- **For a poll, its choices**, as one list, each with the points it had when
+  clipped. The count is the poll's answer. A choice is neither text nor a
+  comment: it is another `tr.athing` in the item's head, with its points in the
+  row after it, so nothing above would otherwise read it.
 - **Each comment as a blockquote** nested one level per depth. It opens with a
   header (`**author** · [YYYY-MM-DD](permalink)`), followed by the comment's
   text.
@@ -81,6 +85,27 @@ That block is the unit translation batches in and the reader pairs (ADR 0003).
 A translation that drops the quote markers changes the block's type. The processor then
 reverts that one block to the original, so it costs one comment's translation,
 not the article's `zh.md`.
+
+### Code inside a block is masked like math
+
+A top-level code block is verbatim and never sent to the model. A fence inside
+a comment is part of a blockquote, so it would travel with the prose. The
+model then translates the code's comments, strips tags it takes for markup,
+and breaks the fence, and the block is still a blockquote, so alignment
+passes. A reviewer reproduced `const answer = 42;` coming back as `99;`. The
+live vault already held one such block from an ordinary article: a prompt
+template inside a quote, published with its `<think>` tags gone. About one HN
+comment in two to five hundred carries code.
+
+The processor therefore masks every code node at any depth (`codeRanges` in
+`@tiro/shared`), the way it masks math (ADR 0009):
+- the span from the opening fence to the closing one, container markers
+  included, becomes a `TIROCODE` token and is put back verbatim;
+- a block whose code comes back different is reverted, which also catches a
+  checkpoint written before the mask existed.
+
+This applies to every article, not only threads. A list item holding a fence
+had the same exposure.
 
 The header and the text are built as HTML and converted together by
 `htmlToMarkdown`. Turndown therefore escapes a name like `teh_infallible` the
@@ -151,6 +176,11 @@ would delete it. It would also put a presentation concern into the contract.
   such page is in the vault.
 
 ## Rejected
+
+- **Lifting a comment's code out of its quote**, as a top-level code block that
+  is verbatim by contract. One comment would become several blocks, and the
+  code would lose the depth that says whose reply it is. Masking keeps the
+  comment whole and the code exact.
 
 - **Nested lists for the tree.** A list is one top-level block however deep it
   goes, so a subthread would be translated and paired as one unit. A block

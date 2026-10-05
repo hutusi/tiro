@@ -11,8 +11,8 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 - **Hacker News threads clip.** An item page used to be clipped as a stack of
   usernames and timestamps, with the post and every comment lost. It is now
-  read from HN's own markup: the story link, the Ask/Show/Tell HN text, and each
-  comment as its own quote, nested by reply. Fold a subthread with [–] before
+  read from HN's own markup: the story link, the Ask/Show/Tell HN text, a
+  poll's choices, and each comment as its own quote, nested by reply. Fold a subthread with [–] before
   clipping and it stays out. The reader shows the thread as rails rather than
   italic quotations. This works for saved links too, with no new permission
   (ADR 0038).
@@ -28,6 +28,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Code inside a list item or a quote is no longer rewritten by translation.**
+  Only a top-level code block was kept from the model. A fence one level down
+  went with the prose, and could come back with its comments translated, its
+  tags stripped, or its fence broken, while alignment still passed. Nested code
+  is now masked like math and checked afterwards; a block whose code changed
+  stays in the original (ADR 0038). Existing translations change only when an
+  article is reprocessed.
 - **Web PDFs are clipped again.** On current Chrome every PDF tab was saved as
   an empty article titled with its host, and processed into a summary saying
   so: Chrome's PDF viewer no longer has the `<embed>` the clipper recognised it

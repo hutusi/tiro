@@ -168,6 +168,39 @@ describe("clipHackerNewsItem", () => {
     expect(clip.markdown).not.toContain("<https://");
   });
 
+  test("a poll keeps its choices, with the points each had", () => {
+    // Shaped as HN serves one: each choice is another `tr.athing` in the
+    // item's head, its points in the row after it — neither text nor comment.
+    const choice = (id: number, text: string, points: string) =>
+      [
+        `<tr class="athing" id="${id}"><td></td>`,
+        '<td class="votelinks"><center><div class="votearrow"></div></center></td>',
+        `<td class="comment"><div style="margin-top:1px"><font color="#000000">${text}</font></div></td></tr>`,
+        '<tr><td colspan="2"></td><td class="default"><span class="comhead">',
+        `<span class="score" id="score_${id}">${points}</span></span></td></tr>`,
+      ].join("");
+    const head = [
+      story({ id: 1, title: "Poll: Tabs or spaces?", by: "op", text: "" }),
+      '<tr><td colspan="2"></td><td><table border="0">',
+      choice(11, "Tabs", "12 points"),
+      choice(12, "Spaces &amp; nothing else", "1 point"),
+      "</table></td></tr>",
+    ].join("");
+    const doc = parse(
+      page("Poll: Tabs or spaces?", head, [
+        comment({ id: 2, by: "alice", indent: 0, text: "Both." }),
+      ]),
+    );
+    expect(isHackerNewsItem(doc)).toBe(true);
+    const clip = clipHackerNewsItem(doc, `${BASE}item?id=1`);
+    expect(clip.title).toBe("Poll: Tabs or spaces?");
+    const blocks = blocksOf(clip.markdown);
+    expect(blocks.map((b) => b.type)).toEqual(["list", "blockquote"]);
+    expect(blocks[0]?.text).toBe(
+      "-   Tabs (12 points)\n-   Spaces & nothing else (1 point)",
+    );
+  });
+
   test("a link post opens with the story's URL, and has no excerpt to give", () => {
     const doc = parse(
       page(
