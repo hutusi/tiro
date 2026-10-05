@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkAlignment,
+  codeRanges,
   foldedFigureCount,
   htmlRanges,
   imageOffsets,
@@ -264,6 +265,73 @@ describe("mathRanges", () => {
         (r) => r.value,
       ),
     ).toEqual(["O(n)"]);
+  });
+});
+
+describe("codeRanges", () => {
+  const slices = (text: string) =>
+    codeRanges(text).map((r) => [text.slice(r.start, r.end), r.value]);
+
+  test("finds a fence inside a blockquote, markers and all", () => {
+    const text = "> Look:\n>\n> ```js\n> const x = 1;\n> ```\n>\n> Neat.";
+    expect(slices(text)).toEqual([
+      ["```js\n> const x = 1;\n> ```", "const x = 1;"],
+    ]);
+  });
+
+  test("finds one two levels down, and one in a list item", () => {
+    expect(slices("> > ```\n> > two\n> > ```")).toEqual([
+      ["```\n> > two\n> > ```", "two"],
+    ]);
+    expect(slices("-   Run:\n\n    ```\n    ls\n    ```")).toEqual([
+      ["```\n    ls\n    ```", "ls"],
+    ]);
+  });
+
+  test("finds a fence after an unclosed $$, which is prose", () => {
+    // remark-math reads the rest of the quote as one formula; the code in it
+    // is still code.
+    const text = "> $$ is the shell PID.\n>\n> ```sh\n> echo $$\n> ```";
+    expect(slices(text)).toEqual([["```sh\n> echo $$\n> ```", "echo $$"]]);
+  });
+
+  test("after an unclosed $$ in a list item, finds the fence and nothing more", () => {
+    // Turndown's own shape: four-space continuation lines. Re-read without the
+    // list marker, those lines are one indented code block that swallows the
+    // prose after the fence.
+    const text = [
+      "-   $$ is the shell PID.",
+      "    ",
+      "    ```",
+      "    echo $$",
+      "    ```",
+      "    ",
+      "    More prose.",
+      "    ",
+      "-   Second item.",
+    ].join("\n");
+    expect(slices(text)).toEqual([["```\n    echo $$\n    ```", "echo $$"]]);
+  });
+
+  test("and the same one list deeper", () => {
+    const text = [
+      "-   Outer.",
+      "    ",
+      "    -   $$ is the shell PID.",
+      "        ",
+      "        ```",
+      "        echo $$",
+      "        ```",
+      "        ",
+      "        More prose.",
+    ].join("\n");
+    expect(slices(text)).toEqual([
+      ["```\n        echo $$\n        ```", "echo $$"],
+    ]);
+  });
+
+  test("leaves inline code and math to their own handling", () => {
+    expect(codeRanges("Press `ctrl + r` for $x$.")).toEqual([]);
   });
 });
 

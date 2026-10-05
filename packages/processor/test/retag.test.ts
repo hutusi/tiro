@@ -21,9 +21,9 @@ const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const ATTENTION = "example-net-papers-attention-notes-278b43cb";
 const HELLO = "example-com-posts-hello-ai-e8446b12";
 const PENDING = "example-org-blog-raw-clip-b5de6fbd";
-/** The seven processed fixture articles, none of which is in the vault's form
+/** The eight processed fixture articles, none of which is in the vault's form
  * yet: their tags are lowercase English, or fewer than three. */
-const PROCESSED = 7;
+const PROCESSED = 8;
 
 /**
  * The fixture vault, with the aliases a migration would add first (ADR 0035):

@@ -117,7 +117,7 @@ const verbatimToken = (prefix: string, i: number) =>
  * `rejoinSplitFootnotes` — which match across lines, and so reach into an
  * inline code span, inline formula or inline HTML — find nothing to match.
  *
- * Follows `maskMath` and `unmaskMath` in `llm/translate.ts`, whose two guards
+ * Follows `maskMath` and `unmaskSpans` in `llm/translate.ts`, whose two guards
  * this needs for the same reasons: the replacement is a callback because `$$`,
  * `$&`, `` $` `` and `$'` are all replacement syntax and all occur in the code
  * spans being restored, and each token must still be there exactly once or the

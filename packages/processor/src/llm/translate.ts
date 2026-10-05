@@ -1,6 +1,7 @@
 import {
   type Block,
   checkAlignment,
+  codeRanges,
   isInlineMathOnlyParagraph,
   joinBlocks,
   mathRanges,
@@ -101,10 +102,18 @@ export async function translateBlocks(
   const candidates = blocks
     .map((block, index) => ({ block, index }))
     .filter(({ block }) => !isVerbatim(block))
-    .map((item) => ({
-      ...item,
-      ...maskMath(item.block.text, singleDollarMath),
-    }));
+    .map((item) => {
+      // Code first, so the math walk never reads LaTeX-looking text inside a
+      // fence: what is hidden as code comes back as code, whole.
+      const code = maskCode(item.block.text);
+      const math = maskMath(code.masked, singleDollarMath);
+      return {
+        ...item,
+        masked: math.masked,
+        formulas: math.formulas,
+        code: code.spans,
+      };
+    });
   const translatable = candidates.filter(
     ({ block }) => block.text.length <= maxBlockChars,
   );
@@ -145,7 +154,9 @@ export async function translateBlocks(
     // Restored before anything else sees it: the checkpoint is keyed on the
     // original text and must hold a real translation, or a resumed run reads
     // the tokens back out and publishes TIROMATH0 into zh.md.
-    const restored = unmaskMath(text.trim(), item.formulas);
+    const unmasked = unmaskSpans(text.trim(), item.formulas, MATH_TOKEN);
+    const restored =
+      unmasked === null ? null : unmaskSpans(unmasked, item.code, CODE_TOKEN);
     // The model mirrors the delimiter it was given, and the clipper wrote `_`
     // for years: `_emphasis_` reads correctly in English, where spaces flank
     // it, and reads as two literal underscores in Chinese, where nothing does.
@@ -187,13 +198,18 @@ export async function translateBlocks(
   const collision = todo.some(({ block }) =>
     block.text.includes(`<<<${MARKER}`),
   );
-  // A source that already contains a math token would have unmaskMath put a
-  // formula where the author wrote prose. Vanishingly unlikely, but the cost
-  // of being wrong is a corrupted paragraph, so refuse to mask that block.
+  // A source that already contains a token would have unmasking put a
+  // formula or a code block where the author wrote prose. Vanishingly
+  // unlikely, but the cost of being wrong is a corrupted paragraph, so refuse
+  // to mask that block at all.
   for (const item of todo) {
-    if (item.formulas.length > 0 && item.block.text.includes("TIROMATH")) {
+    const masks =
+      (item.formulas.length > 0 && item.block.text.includes("TIROMATH")) ||
+      (item.code.length > 0 && item.block.text.includes("TIROCODE"));
+    if (masks) {
       item.masked = item.block.text;
       item.formulas = [];
+      item.code = [];
     }
   }
 
@@ -282,6 +298,10 @@ export async function translateBlocks(
       .map((r) => r.value)
       .sort()
       .join("\u0000");
+  const codeOf = (text: string): string =>
+    codeRanges(text)
+      .map((r) => r.value)
+      .join("\u0000");
   const finalText = blocks.map((b, i) => {
     const candidate = translated[i] || b.text;
     if (candidate === b.text) return b.text;
@@ -298,11 +318,19 @@ export async function translateBlocks(
       reverted += 1;
       return b.text;
     }
+    // The same for code inside a list item or a quote, which is masked on the
+    // way out — so a difference is a model that dropped a token and wrote its
+    // own, or a translation resumed from a checkpoint written before code was
+    // masked. Either way the block's code is no longer the source's.
+    if (codeOf(candidate) !== codeOf(b.text)) {
+      reverted += 1;
+      return b.text;
+    }
     return candidate;
   });
   if (reverted > 0) {
     log(
-      `${reverted} block(s) reverted to the original: the translation changed their markdown shape or their math`,
+      `${reverted} block(s) reverted to the original: the translation changed their markdown shape, their math or their code`,
     );
   }
 
@@ -331,6 +359,8 @@ interface Todo {
   masked: string;
   /** The formulas, in the order their tokens appear. */
   formulas: string[];
+  /** Code blocks nested inside this one, hidden the same way. */
+  code: string[];
 }
 
 /**
@@ -339,7 +369,7 @@ interface Todo {
  *
  * Zero-padded to a fixed width so no token can ever be a prefix of another.
  * Unpadded, `TIROMATH1` is a prefix of `TIROMATH10`, so the uniqueness check
- * in `unmaskMath` saw a duplicate and reverted the block — every paragraph
+ * in `unmaskSpans` saw a duplicate and reverted the block — every paragraph
  * with eleven or more formulas silently stayed in English, which in dense
  * mathematical prose is a common paragraph rather than a rare one.
  */
@@ -347,6 +377,36 @@ const TOKEN_DIGITS = 4;
 const MAX_MASKED = 10 ** TOKEN_DIGITS;
 const MATH_TOKEN = (i: number) =>
   `TIROMATH${String(i).padStart(TOKEN_DIGITS, "0")}`;
+const CODE_TOKEN = (i: number) =>
+  `TIROCODE${String(i).padStart(TOKEN_DIGITS, "0")}`;
+
+/**
+ * Replace every code block nested in this one with a token.
+ *
+ * A top-level code block is verbatim and never sent. One inside a list item or
+ * a blockquote travels with the prose around it — every comment of a Hacker
+ * News thread is a blockquote (ADR 0038) — and a model asked to translate the
+ * block translates the code's comments, strips tags it takes for markup, and
+ * breaks the fence. The block is still a blockquote afterwards, so nothing
+ * structural notices. The span replaced runs from the opening fence to the
+ * closing one, container markers included, so putting it back restores the
+ * lines exactly as they were.
+ */
+function maskCode(text: string): { masked: string; spans: string[] } {
+  const ranges = codeRanges(text).sort((a, b) => a.start - b.start);
+  if (ranges.length === 0 || ranges.length > MAX_MASKED) {
+    return { masked: text, spans: [] };
+  }
+  let masked = "";
+  let cursor = 0;
+  const spans: string[] = [];
+  for (const range of ranges) {
+    masked += text.slice(cursor, range.start) + CODE_TOKEN(spans.length);
+    spans.push(text.slice(range.start, range.end));
+    cursor = range.end;
+  }
+  return { masked: masked + text.slice(cursor), spans };
+}
 
 /**
  * Replace every inline formula with a token.
@@ -381,23 +441,28 @@ function maskMath(text: string, singleDollar: boolean) {
 }
 
 /**
- * Put the formulas back. Returns null when the tokens did not survive — the
- * caller then keeps the original block, so a model that mangled a token costs
- * one untranslated paragraph rather than one wrong formula.
+ * Put the masked formulas or code back. Returns null when the tokens did not
+ * survive — the caller then keeps the original block, so a model that mangled
+ * a token costs one untranslated paragraph rather than one wrong formula or
+ * one rewritten program.
  */
-function unmaskMath(text: string, formulas: readonly string[]): string | null {
+function unmaskSpans(
+  text: string,
+  spans: readonly string[],
+  tokenFor: (i: number) => string,
+): string | null {
   let out = text;
-  for (let i = 0; i < formulas.length; i += 1) {
-    const token = MATH_TOKEN(i);
+  for (let i = 0; i < spans.length; i += 1) {
+    const token = tokenFor(i);
     const first = out.indexOf(token);
     if (first === -1 || out.indexOf(token, first + token.length) !== -1) {
-      return null; // dropped, or duplicated into a second formula
+      return null; // dropped, or duplicated into a second span
     }
     // A callback, never the string: `$$`, `$&`, `` $` `` and `$'` are all
     // replacement syntax, and all of them occur in LaTeX. Passing the formula
     // directly restored `$$O(n)$$` as `$O(n)$`, and `$a$&$b$` as
     // `$aTIROMATH0000$b$` — the token put back into the text by `$&`.
-    out = out.replace(token, () => formulas[i] ?? "");
+    out = out.replace(token, () => spans[i] ?? "");
   }
   return out;
 }

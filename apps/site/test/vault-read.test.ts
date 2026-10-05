@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readVault, resetVaultCache } from "../src/lib/vault-read.ts";
 
-const FIXTURE_COUNT = 8;
+const FIXTURE_COUNT = 9;
 const PAIRED = "example-com-posts-hello-ai-e8446b12";
 const SINGLE = "example-org-blog-raw-clip-b5de6fbd";
 

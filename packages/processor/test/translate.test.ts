@@ -750,6 +750,150 @@ describe("token substitution", () => {
   });
 });
 
+describe("code nested in a block", () => {
+  // One Hacker News comment (ADR 0038): a blockquote whose code travels with
+  // the prose around it, where the top-level verbatim rule cannot reach.
+  const source = [
+    "> **alice** · [2026-10-01](https://news.ycombinator.com/item?id=2)",
+    ">",
+    "> Look:",
+    ">",
+    "> ```js",
+    "> const answer = 42; // the answer",
+    "> ```",
+  ].join("\n");
+
+  /** A model that translates the one line of prose and copies the rest. */
+  const translateLook: ChatFn = async (request) =>
+    (request.messages.at(-1)?.content ?? "").replace("Look:", "看：");
+
+  test("never shows the model the code, and puts it back verbatim", async () => {
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        seen.push(request.messages.at(-1)?.content ?? "");
+        return translateLook(request);
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(source),
+    });
+    const sent = seen.join("\n");
+    expect(sent).not.toContain("const answer");
+    expect(sent).toContain("> TIROCODE0000");
+    expect(zh?.trim()).toBe(source.replace("Look:", "看："));
+    expect(splitBlocks(zh ?? "").map((b) => b.type)).toEqual(["blockquote"]);
+  });
+
+  test("reverts the block when the model writes the code itself", async () => {
+    // The reviewer's reproduction: `42` came back as `99`, and alignment
+    // passed because the block was still a blockquote.
+    const chat: ChatFn = async (request) => {
+      const user = request.messages.at(-1)?.content ?? "";
+      const marker = user.match(/<<<TIRO_BLOCK_\d+>>>/)?.[0] ?? "";
+      return `${marker}\n${source.replace("Look:", "看：").replace("42", "99")}`;
+    };
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(source),
+    });
+    expect(zh?.trim()).toBe(source);
+  });
+
+  test("reverts a checkpointed translation whose code was rewritten", async () => {
+    // Written before code was masked: resumed as-is, it would publish the
+    // model's version of the program.
+    const path = cachePath();
+    const seeded = await loadTranslationCache(path, header);
+    seeded.set(source, source.replace("Look:", "看：").replace("42", "99"));
+    await seeded.flush();
+    const zh = await translateBlocks({
+      chat: async () => {
+        throw new Error("a checkpointed block is never re-sent");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(source),
+      cache: await loadTranslationCache(path, header),
+    });
+    expect(zh?.trim()).toBe(source);
+  });
+
+  test("masks code that follows an unclosed $$ in the same block", async () => {
+    // The reviewer's second reproduction: `$$` in prose swallowed the rest of
+    // the quote as math, the walk saw no code, and `42` came back as `99`.
+    const pid = [
+      "> **bob** · [2026-10-01](https://news.ycombinator.com/item?id=3)",
+      ">",
+      "> $$ is the shell PID. Look:",
+      ">",
+      "> ```sh",
+      "> answer=42",
+      "> ```",
+    ].join("\n");
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        const user = request.messages.at(-1)?.content ?? "";
+        seen.push(user);
+        return user.replace("Look:", "看：").replace("42", "99");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(pid),
+    });
+    expect(seen.join("\n")).not.toContain("answer=42");
+    expect(zh?.trim()).toBe(pid.replace("Look:", "看："));
+  });
+
+  test("still translates the prose after that code in a list item", async () => {
+    // Masking the fence must not take the rest of the item with it: a
+    // four-space list continuation, re-read out of its list, is indented code.
+    const item = [
+      "-   $$ is the shell PID.",
+      "    ",
+      "    ```",
+      "    echo $$",
+      "    ```",
+      "    ",
+      "    More prose.",
+    ].join("\n");
+    const seen: string[] = [];
+    const zh = await translateBlocks({
+      chat: async (request) => {
+        const user = request.messages.at(-1)?.content ?? "";
+        seen.push(user);
+        return user.replace("More prose.", "更多文字。");
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(item),
+    });
+    const sent = seen.join("\n");
+    expect(sent).toContain("More prose.");
+    expect(sent).not.toContain("echo $$");
+    expect(zh?.trim()).toBe(item.replace("More prose.", "更多文字。"));
+  });
+
+  test("leaves a block alone whose prose already holds a code token", async () => {
+    const odd = "- Mentions TIROCODE0000 in prose\n\n  ```\n  x = 1\n  ```";
+    const seen: string[] = [];
+    await translateBlocks({
+      chat: async (request) => {
+        seen.push(request.messages.at(-1)?.content ?? "");
+        return request.messages.at(-1)?.content ?? "";
+      },
+      model: "m",
+      targetLang: "zh",
+      blocks: splitBlocks(odd),
+    });
+    // Unmasked rather than masked wrongly: the code goes out as it is.
+    expect(seen.join("\n")).toContain("x = 1");
+  });
+});
+
 describe("emphasis the model mirrors from the source", () => {
   /** Answers every marker with the same Chinese sentence, `_` delimiters and
    * all — which is what a model does when the block it was given used them. */

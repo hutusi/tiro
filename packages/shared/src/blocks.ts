@@ -599,6 +599,87 @@ export function mathRanges(
   return found;
 }
 
+export interface CodeRange {
+  /** Offset of the code block's first character — its opening fence, or the
+   * first indented line — in the text this was read from. */
+  start: number;
+  /** Offset just past its last character. */
+  end: number;
+  /** The code itself, without fences, indentation or container markers. */
+  value: string;
+}
+
+/**
+ * Every code block in a fragment, at any depth, with its source offsets.
+ *
+ * A top-level code block is verbatim by contract (`VERBATIM_BLOCK_TYPES`) and
+ * never reaches the model. One inside a list item or a blockquote is part of a
+ * block that does, and nothing at the block's level can tell that its code came
+ * back rewritten: the block is still a blockquote, so alignment passes. The
+ * translator masks these the way it masks math, and checks them afterwards
+ * against this same walk (ADR 0038).
+ *
+ * Narrower than `verbatimRanges` on purpose: inline code is a word inside a
+ * sentence the model has to translate around, and math has its own walk.
+ */
+export function codeRanges(text: string): CodeRange[] {
+  const found: CodeRange[] = [];
+  const unclosed: { start: number; end: number }[] = [];
+  visitPositioned(parser.parse(text) as Root, (node, start, end) => {
+    if (node.type === "code") {
+      found.push({ start, end, value: node.value ?? "" });
+      return true;
+    }
+    // An unclosed `$$` — "$$ is the shell's PID" — runs to the end of its
+    // container as one formula, and a fence after it is read as LaTeX rather
+    // than code; left there, the code goes to the model unmasked and
+    // unchecked.
+    if (node.type === "math" && !isTerminatedFence(text.slice(start, end))) {
+      unclosed.push({ start, end });
+      return true;
+    }
+    return false;
+  });
+  if (unclosed.length === 0) return found;
+  // So the code in that span is read again, from the whole text without the
+  // math extension, and kept where it falls inside it. The whole text, not the
+  // span: a slice starting at `$$` loses the list marker or quote around it,
+  // and a list item's four-space continuation then reads as one indented code
+  // block — swallowing the prose after the fence into the mask.
+  visitPositioned(proseParser.parse(text) as Root, (node, start, end) => {
+    if (node.type !== "code") return false;
+    if (unclosed.some((span) => start >= span.start && end <= span.end)) {
+      found.push({ start, end, value: node.value ?? "" });
+    }
+    return true;
+  });
+  return found.sort((a, b) => a.start - b.start);
+}
+
+interface PositionedNode {
+  type?: string;
+  value?: string;
+  children?: unknown[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+}
+
+/** Visit every positioned node; `visit` returns true to stop descending. */
+function visitPositioned(
+  tree: Root,
+  visit: (node: PositionedNode, start: number, end: number) => boolean,
+): void {
+  const walk = (node: unknown): void => {
+    const n = node as PositionedNode;
+    const start = n.position?.start.offset;
+    const end = n.position?.end.offset;
+    if (start !== undefined && end !== undefined && visit(n, start, end)) {
+      return;
+    }
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(tree);
+}
+
 /**
  * Make a block's math render the way `splitBlocks` classified it.
  *

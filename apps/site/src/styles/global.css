@@ -570,3 +570,46 @@ html[data-page="reader"][data-paired][data-reader-mode="both"] {
 .prose :where(figcaption) {
   text-align: center;
 }
+
+/* A Hacker News thread (ADR 0038): every comment is a blockquote, nested one
+ * level per reply, opening with a line naming its author and date. Typography
+ * sets a blockquote as a citation — italic, medium weight, wrapped in curly
+ * quotes, under a heavy rule — which would make the whole discussion read as
+ * one long quotation. Here the quote is only the rail that shows the depth. */
+.reader[data-thread] .prose :where(blockquote) {
+  font-style: normal;
+  font-weight: inherit;
+  color: inherit;
+  quotes: none;
+  border-inline-start-width: 2px;
+  padding-inline-start: 0.9em;
+  margin-block: 0;
+}
+/* Spaced only from the comment before it. A paired row holds one comment as
+ * its pane's only child, and the row's own padding spaces it already; a reply
+ * sits flush inside the comment it answers, and only the rail moves. */
+.reader[data-thread] .prose :where(blockquote + blockquote) {
+  margin-top: 1.25em;
+}
+.reader[data-thread] .prose :where(blockquote p)::before,
+.reader[data-thread] .prose :where(blockquote p)::after {
+  content: none;
+}
+/* The header line is chrome, not prose, and belongs to the text under it: the
+ * text's own top margin would otherwise collapse with this one and win. */
+.reader[data-thread] .prose :where(blockquote > p:first-child) {
+  margin-bottom: 0.4em;
+  font-family: var(--font-ui);
+  font-size: 0.8em;
+  color: var(--ink-mute);
+}
+.reader[data-thread] .prose :where(blockquote > p:first-child + *) {
+  margin-top: 0.4em;
+}
+.reader[data-thread] .prose :where(blockquote > p:first-child strong) {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.reader[data-thread] .prose :where(blockquote > p:first-child a) {
+  color: inherit;
+}

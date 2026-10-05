@@ -13,6 +13,7 @@ export * from "./clip-page.ts";
 export * from "./dom-prepare.ts";
 export type { FetchLike } from "./fetch-like.ts";
 export * from "./github-doc.ts";
+export * from "./hacker-news.ts";
 export * from "./html-urls.ts";
 export * from "./markdown.ts";
 export type { ClipPayload } from "./payload.ts";
