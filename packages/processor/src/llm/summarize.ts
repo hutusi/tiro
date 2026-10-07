@@ -95,6 +95,14 @@ const ResponseSchema = z.object({
 const MAX_ATTEMPTS = 3;
 
 /**
+ * The prompt's rule against the cut described at `summaryIsFinished`. Curly
+ * quotes in either language: 33 Chinese summaries in the vault had a straight
+ * quote correctly escaped, so the model can do it. It just does not always.
+ */
+const QUOTES =
+  'Inside any value, write quotation marks as “ and ”, never as the straight " character: a straight quote ends the JSON string, and the text after it is lost.';
+
+/**
  * Does this summary read as a finished thought rather than a cut one?
  *
  * The model returns a JSON object that parses, validates, and carries a real
@@ -109,9 +117,19 @@ const MAX_ATTEMPTS = 3;
  * is not one. The affected articles have *shorter* total model output than the
  * unaffected ones (1253 against 1583 characters on average), and an intact
  * reply carries a longer `summary_orig` than any cut article's. The cut is also
- * one-sided: `summary_orig` is never cut, in 57 bilingual articles. The model
- * simply stops sometimes, so the answer is to notice and ask again rather than
- * to raise a cap that was never the constraint.
+ * one-sided: `summary_orig` is never cut, in 57 bilingual articles. So the
+ * answer was to notice and ask again rather than to raise a cap that was never
+ * the constraint.
+ *
+ * The cause, measured 2026-10 once the run logged each reply's shape and how
+ * it ended: a quotation mark. Every reply ended with `finish_reason` "stop",
+ * and every cut fell just before a quoted term. One summary cut at "这可能源于"
+ * reads, on its successful retry, "这可能源于“知识负担”理论". The JSON mode
+ * constrains the model to valid JSON. A straight `"` the model meant as a
+ * quotation mark closes the string instead, and the grammar then makes it
+ * carry on with the next key or close the object. The second is the excerpt
+ * fallback's shape: a reply holding nothing but a short `summary`. Hence
+ * `QUOTES`, in the prompt and in both corrections.
  *
  * A trailing ellipsis is a cut, not an ending — it is what a sentence trailing
  * off looks like, and accepting it let the very shape this guards against pass
@@ -177,6 +195,7 @@ export async function summarize(
     ...(bilingual
       ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
       : []),
+    QUOTES,
     "Output JSON only, no markdown fences.",
   ].join("\n");
 
@@ -206,7 +225,9 @@ export async function summarize(
       shape = replyShape(reply);
       const parsed = ResponseSchema.safeParse(reply);
       if (!parsed.success) {
-        feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
+        // A reply holding only a short summary is the same cut with the
+        // object closed after it, so this correction carries the rule too.
+        feedback = `Your previous JSON did not match the schema: ${parsed.error.message}\n${QUOTES}`;
       } else if (!categories.includes(parsed.data.category)) {
         feedback = `Your previous "category" (${parsed.data.category}) is not in the allowed list: ${categories.join(", ")}.`;
       } else if (parsed.data.summary.trim() === "") {
@@ -228,7 +249,7 @@ export async function summarize(
         ) {
           unfinished = parsed.data;
         }
-        feedback = `Your previous "summary" stopped mid-sentence, ending "${parsed.data.summary.trim().slice(-40)}". Write the whole summary and finish every sentence.`;
+        feedback = `Your previous "summary" stopped mid-sentence, ending "${parsed.data.summary.trim().slice(-40)}". Write the whole summary and finish every sentence. ${QUOTES}`;
       } else {
         return {
           ...accept(

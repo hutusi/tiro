@@ -78,6 +78,38 @@ describe("summarize", () => {
   });
 
   /**
+   * The measured cause of the vault's cut summaries (2026-10): a straight
+   * quote, meant as a quotation mark, closes the JSON string under JSON mode.
+   * A cut at "这可能源于" was "这可能源于“知识负担”" on the retry that worked.
+   */
+  test("asks for curly quotes, in the prompt and in both corrections", async () => {
+    const systems: string[] = [];
+    const corrections: string[] = [];
+    let i = 0;
+    const chat: ChatFn = async ({ messages }) => {
+      systems.push(messages[0]?.content ?? "");
+      const last = messages.at(-1);
+      if (i > 0 && last?.role === "user") corrections.push(last.content);
+      i += 1;
+      return JSON.stringify(
+        i === 1
+          ? { summary: "这可能源于" }
+          : i === 2
+            ? { summary: "这可能源于", category: "ai", tags: [] }
+            : { summary: "完整的摘要。", category: "ai", tags: [] },
+      );
+    };
+    await summarize({ ...baseOptions, chat });
+    expect(systems[0]).toContain("“ and ”");
+    expect(corrections).toHaveLength(2);
+    expect(corrections[0]).toContain("did not match the schema");
+    expect(corrections[1]).toContain("stopped mid-sentence");
+    for (const correction of corrections) {
+      expect(correction).toContain("a straight quote ends the JSON string");
+    }
+  });
+
+  /**
    * Both halves of the decision, which pull in opposite directions. The text is
    * *kept* — dropping to the excerpt fallback would trade the model's reading
    * of the article for its own first paragraph, to fix punctuation — and the
