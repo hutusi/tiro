@@ -140,6 +140,57 @@ describe("pdfMarkdown paragraphs", () => {
   });
 });
 
+describe("pdfMarkdown indented paragraphs", () => {
+  /** Two LaTeX papers and a 1973 scan in the vault mark paragraphs with a
+   * first-line indent and no extra space, so the gap rule ran each page's
+   * paragraphs into one. */
+  test("opens a paragraph on a first-line indent alone", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("This paragraph runs the full measure of", 700),
+        line("the page.", 700 - LINE),
+        line("A new paragraph opens on an indent alone", 700 - 2 * LINE, {
+          x: 90,
+        }),
+        line("and runs on at the margin.", 700 - 3 * LINE),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "This paragraph runs the full measure of the page.\n\n" +
+        "A new paragraph opens on an indent alone and runs on at the margin.",
+    );
+  });
+
+  test("keeps a hanging continuation that follows a full line", () => {
+    // A reference entry hangs its second line by the same amount, and its
+    // first line can end in a period too. What it cannot do is stop short.
+    const md = pdfMarkdown(
+      layout([
+        line("Smith, J. and Jones, K. and Brown, L. and White, M.", 700),
+        line("In: A Title That Hangs Under Its Entry, 2021.", 700 - LINE, {
+          x: 90,
+        }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "Smith, J. and Jones, K. and Brown, L. and White, M. In: A Title That Hangs Under Its Entry, 2021.",
+    );
+  });
+
+  test("keeps a short line that does not end a sentence", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("A wrapped clause that breaks at", 700),
+        line("a short line", 700 - LINE),
+        line("then carries on, indented.", 700 - 2 * LINE, { x: 90 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "A wrapped clause that breaks at a short line then carries on, indented.",
+    );
+  });
+});
+
 describe("pdfMarkdown scanned text", () => {
   /**
    * A scan's OCR layer reports a word's size as its glyph height in whole

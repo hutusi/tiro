@@ -44,6 +44,8 @@ interface Line {
   size: number;
   y: number;
   x: number;
+  /** Where the line's last run ends. */
+  right: number;
   page: number;
   mono: boolean;
   /** Where each run starts, for spotting columns. */
@@ -250,6 +252,7 @@ function toLines(layout: PdfLayout): Line[] {
         size: Math.max(...items.map((i) => i.size)),
         y: items[0]?.y ?? 0,
         x: items[0]?.x ?? 0,
+        right: Math.max(...items.map((i) => i.x + i.width)),
         page: items[0]?.page ?? 1,
         // A line counts as code only if all of its text is: a monospace word
         // inside a sentence is not a code block.
@@ -347,6 +350,39 @@ function wobble(
   );
 }
 
+/** A line that closes a sentence, behind any closing quote or bracket. */
+const SENTENCE_END = /[.!?:;]["'”’»)\]]*$/u;
+
+/**
+ * Does `line` open a paragraph by its indent alone?
+ *
+ * Typeset text often marks a paragraph with a first-line indent and no extra
+ * space, and the gap rule cannot see that. Measured on the vault's PDFs: two
+ * LaTeX papers and a 1973 scan all do it, the scan with nothing else. An
+ * indent alone is not enough, though. A reference entry or a wrapped legal
+ * clause hangs its second line by the same amount. What tells them apart is
+ * the line above. A paragraph's last line ends a sentence and stops short of
+ * the measure, while a hanging continuation follows a full one.
+ *
+ * Bounded at four sizes so a jump to the next column, which is also below
+ * and to the right, is never read as an indent, and only on the way down.
+ */
+function opensIndentedParagraph(
+  line: Line,
+  last: Line,
+  blockRight: number,
+  bodySize: number,
+): boolean {
+  if (line.page !== last.page || line.y >= last.y || line.mono) return false;
+  const indent = line.x - last.x;
+  if (indent < bodySize * 0.8 || indent > bodySize * 4) return false;
+  if (BULLET.test(last.text)) return false;
+  const measure = Math.max(blockRight, line.right);
+  return (
+    SENTENCE_END.test(last.text.trim()) && last.right < measure - bodySize * 2
+  );
+}
+
 function toBlocks(
   lines: readonly Line[],
   bodySize: number,
@@ -355,6 +391,7 @@ function toBlocks(
   const leading = lineSpacing(lines, bodySize);
   const blocks: Line[][] = [];
   let block: Line[] = [];
+  let blockRight = 0;
   for (const line of lines) {
     const last = block[block.length - 1];
     const broken =
@@ -365,12 +402,15 @@ function toBlocks(
         // block with the paragraph beneath it.
         (Math.abs(line.size - last.size) > 0.5 &&
           !wobble(line.size, last.size, bodySize, headingSizes)) ||
-        last.y - line.y > expectedLeading(last.size, bodySize, leading));
+        last.y - line.y > expectedLeading(last.size, bodySize, leading) ||
+        opensIndentedParagraph(line, last, blockRight, bodySize));
     if (broken) {
       blocks.push(block);
       block = [];
+      blockRight = 0;
     }
     block.push(line);
+    blockRight = Math.max(blockRight, line.right);
   }
   if (block.length > 0) blocks.push(block);
   return blocks;
