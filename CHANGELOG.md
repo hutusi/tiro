@@ -28,6 +28,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A clip records the build that wrote its body.** `tiro.clipper_commit` came
+  from the popup's build, while the page body comes from the clipper
+  extracting it, a separate file. The clipper now stamps its own commit. A body
+  the popup fetched (an arXiv full text, a GitHub markdown file) still records
+  the popup's.
 - **Code inside a list item or a quote is no longer rewritten by translation.**
   Only a top-level code block was kept from the model. A fence one level down
   went with the prose, and could come back with its comments translated, its
