@@ -191,6 +191,77 @@ describe("pdfMarkdown indented paragraphs", () => {
   });
 });
 
+describe("pdfMarkdown superscript marks", () => {
+  /** A run of a line: `line` with an x of its own. */
+  const run = (
+    text: string,
+    x: number,
+    y: number,
+    over: Partial<PdfTextItem> = {},
+  ): PdfTextItem => line(text, y, { x, ...over });
+  const mark = { size: 8 };
+
+  /** The intelligence-explosion paper cites its footnotes with 8pt marks 4pt
+   * over a 10.9pt body. Each was a paragraph of its own, "1", and the rest of
+   * the sentence opened another. */
+  test("keeps a footnote mark on its line, as a superscript", () => {
+    const md = pdfMarkdown(
+      layout([
+        run("venue [22].", 72, 700),
+        run("1 ", 127, 704, mark),
+        run("Today the systems still", 135, 700),
+        line("have weaknesses.", 700 - LINE),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "venue [22].<sup>1</sup> Today the systems still have weaknesses.",
+    );
+  });
+
+  test("writes an exponent as one, not as a bigger number", () => {
+    const md = pdfMarkdown(
+      layout([
+        run("on the order of 10", 72, 700),
+        run("13", 162, 704, mark),
+        run(" tokens per day.", 172, 700),
+      ]),
+    );
+    expect(md.trim()).toBe("on the order of 10<sup>13</sup> tokens per day.");
+  });
+
+  test("measures the line from its text when a mark opens it", () => {
+    // A footnote that starts with its own number: the line's baseline is the
+    // text's, so the gap to the next line is a line step, not a paragraph.
+    const md = pdfMarkdown(
+      layout([
+        run("1", 72, 704, mark),
+        run(" A footnote that wraps", 77, 700),
+        line("onto a second line.", 700 - LINE),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "<sup>1</sup> A footnote that wraps onto a second line.",
+    );
+  });
+
+  test("leaves a small digit on the baseline alone", () => {
+    const md = pdfMarkdown(
+      layout([run("See table", 72, 700), run(" 2", 117, 700, mark)]),
+    );
+    expect(md.trim()).toBe("See table 2");
+  });
+
+  test("does not lift a full-size run onto the line below it", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("12", 704),
+        line("A line set four points lower.", 700 - PARA),
+      ]),
+    );
+    expect(md).not.toContain("<sup>");
+  });
+});
+
 describe("pdfMarkdown scanned text", () => {
   /**
    * A scan's OCR layer reports a word's size as its glyph height in whole

@@ -52,8 +52,15 @@ interface Line {
   columns: number[];
 }
 
-/** Join runs into a line, inserting a space only where the page left one. */
-function lineText(items: readonly PdfTextItem[], bodySize: number): string {
+/** Join runs into a line, inserting a space only where the page left one. A
+ * mark raised above `baseline` keeps its superscript, so a footnote reads
+ * `[22].<sup>1</sup>` and an exponent `10<sup>13</sup>`, not `1013`; the site's
+ * sanitizer admits `sup`. */
+function lineText(
+  items: readonly PdfTextItem[],
+  bodySize: number,
+  baseline: number,
+): string {
   let out = "";
   let previous: PdfTextItem | undefined;
   for (const item of items) {
@@ -69,7 +76,12 @@ function lineText(items: readonly PdfTextItem[], bodySize: number): string {
         out += " ";
       }
     }
-    out += item.text;
+    out +=
+      isMark(item, bodySize) && item.y - baseline > LINE_TOLERANCE
+        ? // The run's own spaces stay outside the tag: pdf.js hands over "3 ",
+          // and the space is the only word break before the next run.
+          item.text.replace(/^(\s*)(.*?)(\s*)$/su, "$1<sup>$2</sup>$3")
+        : item.text;
     previous = item;
   }
   return out.replace(/\s+/g, " ").trim();
@@ -237,6 +249,49 @@ function inReadingOrder(
  * Only the runs *within* a line are ordered, by x, since a line's pieces can be
  * emitted out of order when the font changes mid-sentence.
  */
+/** What a footnote or reference mark is made of. */
+const MARK_TEXT = /^[0-9*†‡§¶]{1,3}$/u;
+
+/** How far above its line's baseline a mark may sit, as a share of the line's
+ * size. Measured: the intelligence-explosion paper raises its 8pt marks 4pt
+ * over a 10.9pt body. */
+const MARK_RAISE = 0.6;
+
+/** A superscript mark: a digit or a dagger, set smaller than the body. */
+function isMark(item: PdfTextItem, bodySize: number): boolean {
+  return item.size < bodySize - SIZE_STEP && MARK_TEXT.test(item.text.trim());
+}
+
+/** Size changes smaller than this are not changes. */
+const SIZE_STEP = 0.5;
+
+/**
+ * Does `item` belong on the line whose text sits on `baseline`?
+ *
+ * On the baseline, give or take `LINE_TOLERANCE`. A superscript mark sits
+ * higher, by more than that, and was read as a line of its own. Its paragraph
+ * then broke around it: the intelligence-explosion paper had a stray "1" or
+ * "5" as a paragraph wherever a footnote was cited, and the rest of the
+ * sentence opened a new one.
+ */
+function onLine(
+  item: PdfTextItem,
+  baseline: PdfTextItem,
+  bodySize: number,
+): boolean {
+  if (item.page !== baseline.page) return false;
+  const rise = item.y - baseline.y;
+  if (Math.abs(rise) <= LINE_TOLERANCE) return true;
+  if (isMark(item, bodySize)) {
+    return rise > 0 && rise <= baseline.size * MARK_RAISE;
+  }
+  // The text after a mark that opened the line, back on the baseline.
+  if (isMark(baseline, bodySize)) {
+    return rise < 0 && -rise <= item.size * MARK_RAISE;
+  }
+  return false;
+}
+
 function toLines(layout: PdfLayout): Line[] {
   const sorted = inReadingOrder(layout.items, layout.bodySize);
   const lines: Line[] = [];
@@ -244,13 +299,16 @@ function toLines(layout: PdfLayout): Line[] {
   const flush = (): void => {
     if (current.length === 0) return;
     const items = [...current].sort((a, b) => a.x - b.x);
-    const text = lineText(items, layout.bodySize);
+    // The text's baseline, not a mark's: a line's y measures the gaps that
+    // decide where paragraphs end.
+    const body = items.find((i) => !isMark(i, layout.bodySize)) ?? items[0];
+    const text = lineText(items, layout.bodySize, body?.y ?? 0);
     if (text !== "") {
       lines.push({
         items,
         text,
         size: Math.max(...items.map((i) => i.size)),
-        y: items[0]?.y ?? 0,
+        y: body?.y ?? 0,
         x: items[0]?.x ?? 0,
         right: Math.max(...items.map((i) => i.x + i.width)),
         page: items[0]?.page ?? 1,
@@ -263,15 +321,20 @@ function toLines(layout: PdfLayout): Line[] {
     current = [];
   };
 
+  // The run whose baseline the line is on: its first one that is not a mark.
+  let baseline: PdfTextItem | undefined;
   for (const item of sorted) {
-    const head = current[0];
-    if (
-      head !== undefined &&
-      (item.page !== head.page || Math.abs(item.y - head.y) > LINE_TOLERANCE)
-    ) {
+    if (baseline !== undefined && !onLine(item, baseline, layout.bodySize)) {
       flush();
+      baseline = undefined;
     }
     current.push(item);
+    if (
+      baseline === undefined ||
+      (isMark(baseline, layout.bodySize) && !isMark(item, layout.bodySize))
+    ) {
+      baseline = item;
+    }
   }
   flush();
   return lines;
