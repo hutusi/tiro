@@ -92,51 +92,40 @@ export const VERBATIM_BLOCK_TYPES: ReadonlySet<string> = new Set([
  *
  * An unterminated `$$` is *not* protected, matching `blocksFrom` below: such a
  * fence is prose wearing a delimiter, and remark hands back the whole rest of
- * the document as one math node. Protecting that would silence every caller
- * downstream of it. The slice is re-read without the math extension instead, so
- * code genuinely inside the swallowed region keeps its protection.
+ * its container as one math node. Protecting that would silence every caller
+ * downstream of it. What lies inside the span is read again instead, so code
+ * genuinely in the swallowed region keeps its protection — the same re-read
+ * `codeRanges` makes, for the same reason.
  */
 export function verbatimRanges(text: string): { start: number; end: number }[] {
-  return rangesFrom(text, parser);
-}
-
-function rangesFrom(
-  text: string,
-  from: typeof parser,
-): { start: number; end: number }[] {
   const found: { start: number; end: number }[] = [];
-  const mathParsed = from !== proseParser;
-  const walk = (node: unknown): void => {
-    const n = node as {
-      type?: string;
-      children?: unknown[];
-      position?: { start: { offset?: number }; end: { offset?: number } };
-    };
-    if (n.type !== undefined && VERBATIM_NODE_TYPES.has(n.type)) {
-      const start = n.position?.start.offset;
-      const end = n.position?.end.offset;
-      if (start === undefined || end === undefined) return;
-      // An unclosed `$$` runs to the end of what it was parsed from, so remark
-      // reports the rest of the document as one formula. `splitBlocks` re-reads
-      // such a block as prose; protect it and every later repair dies with it.
-      // proseParser has no math extension, so this cannot recurse forever.
-      if (
-        mathParsed &&
-        n.type === "math" &&
-        !isTerminatedFence(text.slice(start, end))
-      ) {
-        for (const range of rangesFrom(text.slice(start, end), proseParser)) {
-          found.push({ start: start + range.start, end: start + range.end });
-        }
-        return;
-      }
-      found.push({ start, end });
-      return;
+  const unclosed: { start: number; end: number }[] = [];
+  visitPositioned(parser.parse(text) as Root, (node, start, end) => {
+    if (node.type === undefined || !VERBATIM_NODE_TYPES.has(node.type)) {
+      return false;
     }
-    for (const child of n.children ?? []) walk(child);
-  };
-  walk(from.parse(text) as Root);
-  return found;
+    if (node.type === "math" && !isTerminatedFence(text.slice(start, end))) {
+      unclosed.push({ start, end });
+    } else {
+      found.push({ start, end });
+    }
+    return true;
+  });
+  if (unclosed.length === 0) return found;
+  // From the whole text without the math extension, not from the span: a
+  // slice starting at `$$` loses the list marker or quote around it, and a
+  // list item's four-space continuation then reads as one indented code
+  // block, protecting the prose after the fence from every repair.
+  visitPositioned(proseParser.parse(text) as Root, (node, start, end) => {
+    if (node.type === undefined || !VERBATIM_NODE_TYPES.has(node.type)) {
+      return false;
+    }
+    if (unclosed.some((span) => start >= span.start && end <= span.end)) {
+      found.push({ start, end });
+    }
+    return true;
+  });
+  return found.sort((a, b) => a.start - b.start);
 }
 
 /**

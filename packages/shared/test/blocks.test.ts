@@ -392,6 +392,43 @@ describe("verbatimRanges", () => {
     expect(protectedText(text)).toEqual(["```\ncode line\n```"]);
   });
 
+  test("protects the fence after an unclosed $$ in a list item, and nothing more", () => {
+    // The shape `codeRanges` was fixed for. Read from a slice that starts at
+    // `$$`, the four-space continuation lines lose their list item and become
+    // one indented code block. The prose after the fence was then protected,
+    // so no repair could reach it.
+    const text = [
+      "-   $$ is the shell PID.",
+      "    ",
+      "    ```",
+      "    echo $$",
+      "    ```",
+      "    ",
+      "    More prose.",
+      "    ",
+      "-   Second item.",
+    ].join("\n");
+    expect(protectedText(text)).toEqual(["```\n    echo $$\n    ```"]);
+  });
+
+  test("and the same one list deeper, inline code included", () => {
+    const text = [
+      "-   Outer.",
+      "    ",
+      "    -   $$ is the shell PID, read with `ps`.",
+      "        ",
+      "        ```",
+      "        echo $$",
+      "        ```",
+      "        ",
+      "        More prose.",
+    ].join("\n");
+    expect(protectedText(text)).toEqual([
+      "`ps`",
+      "```\n        echo $$\n        ```",
+    ]);
+  });
+
   test("still protects a terminated $$ fence", () => {
     const text = "$$\nE=mc^2\n$$\n\nprose\n";
     expect(protectedText(text)).toEqual(["$$\nE=mc^2\n$$"]);
