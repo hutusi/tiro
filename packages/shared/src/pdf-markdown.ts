@@ -1,3 +1,4 @@
+import { furnitureLines } from "./pdf-furniture.ts";
 import type { PdfLayout, PdfTextItem } from "./pdf-layout.ts";
 
 /**
@@ -556,61 +557,28 @@ function looksTabular(lines: readonly Line[], bodySize: number): boolean {
   );
 }
 
-/** How much of a document a line must top or tail before it is furniture
- * rather than content — the share `stripRunningFurniture` uses on flat text. */
-const FURNITURE_SHARE = 0.6;
-const FURNITURE_MAX_CHARS = 100;
-
-/** Page numbers differ by their number and nothing else. */
-function furnitureKey(text: string): string {
-  return text.replace(/\s+/g, " ").trim().replace(/\d+/g, "#");
-}
-
 /**
  * Drop the running headers and footers a document repeats on every page.
  *
  * The flat-text path has done this since ADR 0026; the structured path did not,
  * and a three-page document put the same journal header into the Markdown three
- * times. Done on lines rather than page strings because that is what this path
- * has, but by the same rule: only the first and last line of a page, only on a
- * document long enough for repetition to mean something, and only when short.
+ * times. The rule is `furnitureLines`, which both paths share, applied here to
+ * lines rather than page strings because lines are what this path has.
  */
 function stripFurnitureLines(lines: readonly Line[], pages: number): Line[] {
-  if (pages < 3) return [...lines];
-  const first = new Map<number, Line>();
-  const last = new Map<number, Line>();
-  for (const line of lines) {
-    if (!first.has(line.page)) first.set(line.page, line);
-    last.set(line.page, line);
-  }
-  const tally = (edge: Map<number, Line>): Map<string, number> => {
-    const counts = new Map<string, number>();
-    for (const line of edge.values()) {
-      if (line.text.length > FURNITURE_MAX_CHARS) continue;
-      const key = furnitureKey(line.text);
-      if (key === "") continue;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+  // Every page has an entry, an empty one included, so the share is a share
+  // of the whole document.
+  const byPage: Line[][] = Array.from({ length: pages }, () => []);
+  for (const line of lines) byPage[line.page - 1]?.push(line);
+  const drop = furnitureLines(byPage.map((page) => page.map((l) => l.text)));
+  const gone = new Set<Line>();
+  byPage.forEach((page, i) => {
+    for (const index of drop[i] ?? []) {
+      const line = page[index];
+      if (line !== undefined) gone.add(line);
     }
-    return counts;
-  };
-  const heads = tally(first);
-  const feet = tally(last);
-  const threshold = pages * FURNITURE_SHARE;
-  const drop = new Set<Line>();
-  for (const [page, line] of first) {
-    if ((heads.get(furnitureKey(line.text)) ?? 0) >= threshold) drop.add(line);
-    const foot = last.get(page);
-    // A one-line page is its own first and last; dropping it twice is still
-    // dropping the page.
-    if (
-      foot !== undefined &&
-      foot !== line &&
-      (feet.get(furnitureKey(foot.text)) ?? 0) >= threshold
-    ) {
-      drop.add(foot);
-    }
-  }
-  return lines.filter((line) => !drop.has(line));
+  });
+  return lines.filter((line) => !gone.has(line));
 }
 
 /**
