@@ -26,6 +26,16 @@ describe("isClipResult", () => {
     expect(isClipResult(valid)).toBe(true);
   });
 
+  /** Optional, so a clipper built before the field still delivers its clip;
+   * when present it goes into the article, so it must be a string. */
+  test("takes the clipper's commit when it is a string, or absent", () => {
+    expect(
+      isClipResult({ ...valid, clipperCommit: "ext-v0.16.0-37-ge7a8dea" }),
+    ).toBe(true);
+    expect(isClipResult({ ...valid, clipperCommit: "" })).toBe(true);
+    expect(isClipResult({ ...valid, clipperCommit: 42 })).toBe(false);
+  });
+
   test("rejects other message types and non-objects", () => {
     expect(isClipResult({ ...valid, type: "other" })).toBe(false);
     expect(isClipResult(null)).toBe(false);

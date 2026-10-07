@@ -19,6 +19,7 @@ import type { ClipResultMessage } from "./messages.ts";
   const message: ClipResultMessage = {
     type: "tiro-clip-result",
     payload: { ...payload, title: payload.title || document.title },
+    clipperCommit: __CLIPPER_COMMIT__,
   };
   chrome.runtime.sendMessage(message).catch(() => {
     // Expected when the popup closed before the result arrived — the

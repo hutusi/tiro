@@ -1407,6 +1407,12 @@ bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
    is *near*, and a minor that batched several fixes cannot say which of them a
    clip predates. The field is absent entirely from a build with no git to ask
    (a source zip, a checkout without history), which is why it is optional.
+   It names the build that produced the **body**: clipper.js's own stamp for a
+   page clip, and the popup's for a body the popup fetched (an arXiv full text,
+   a GitHub markdown file) or the options page converted (a local PDF). Each
+   is a separate file Chrome loads separately, and only the body's producer
+   answers "does this clip have the fix". Clips from builds before ext-v0.16.0's
+   successor record the popup's stamp whatever wrote the body.
 
    To ask whether a clip contains a given fix, **strip any `-dirty` suffix
    first** — git rejects the full description as a revision:

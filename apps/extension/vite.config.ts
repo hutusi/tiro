@@ -20,7 +20,7 @@ import { defineConfig } from "vite";
  * empty value omits the field rather than recording a blank one. A build must
  * never fail over provenance metadata.
  */
-function clipperCommit(): string {
+export function clipperCommit(): string {
   try {
     return execFileSync(
       "git",
@@ -40,8 +40,9 @@ function clipperCommit(): string {
 // The clipper is built separately as an IIFE (see vite.clipper.config.ts and
 // ADR 0005) because executeScript-injected files are classic scripts.
 export default defineConfig(({ mode }) => ({
-  // Only this pass needs them: both are read in popup.ts, and the clipper
-  // IIFE (pass 2) never touches them. `__DEV_FIXTURES__` is true only for
+  // `__CLIPPER_COMMIT__` is defined again in pass 2, which stamps the clipper
+  // with its own: a page body records the build that extracted it (see
+  // `ClipResultMessage.clipperCommit`). `__DEV_FIXTURES__` is true only for
   // `bun run build:dev`, where `popup.html?state=<name>` paints a canned
   // state for eyeballing; a production build replaces it with `false` and
   // Rollup drops the fixtures module with the dead branch.

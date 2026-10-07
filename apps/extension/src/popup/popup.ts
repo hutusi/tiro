@@ -621,6 +621,10 @@ async function main(): Promise<void> {
    * URL — an arXiv paper read from its HTML full text. Becomes
    * `tiro.source_url`. Set by `offer`, so it always describes the body kept. */
   let sourceUrl: string | undefined;
+  /** The build that produced the body on screen — clipper.js's for a page
+   * body, this popup's for one it fetched. Becomes `tiro.clipper_commit`, and
+   * is set by `offer` for the same reason `sourceUrl` is. */
+  let bodyCommit = "";
   /** Non-null when this tab's document could be read from its publisher
    * instead of from the page — an arXiv paper, a GitHub markdown file. */
   let source: FetchableSource | null = null;
@@ -788,6 +792,7 @@ async function main(): Promise<void> {
     payload: ClipResultMessage["payload"],
     fromFetch: boolean,
     source: string | undefined,
+    commit: string,
   ): void {
     if (committing) return;
     const candidate = { isSource: isSourceBody(payload), fromFetch };
@@ -802,6 +807,7 @@ async function main(): Promise<void> {
     // Travels with the body, not beside it — a source URL left over from a
     // candidate that lost would describe a body nobody is going to commit.
     sourceUrl = source;
+    bodyCommit = commit;
     showPayload(payload);
   }
 
@@ -879,7 +885,12 @@ async function main(): Promise<void> {
     if (sender.tab?.id !== tabId || !isClipResult(message)) return;
     if (pageKind !== "ordinary") return;
     tabResolved = true;
-    offer(message.payload, false, sourceUrlOf(message.payload.url));
+    offer(
+      message.payload,
+      false,
+      sourceUrlOf(message.payload.url),
+      message.clipperCommit ?? "",
+    );
   });
 
   let extracted = false;
@@ -981,7 +992,8 @@ async function main(): Promise<void> {
     fetching = false;
     attempt.resolved = true;
     attempt.partial = !isSourceBody(clip.payload);
-    offer(clip.payload, true, clip.sourceUrl);
+    // Fetched and converted here, so this popup's build is the one to name.
+    offer(clip.payload, true, clip.sourceUrl, __CLIPPER_COMMIT__);
     // What came back is not the document — an arXiv abstract page, where the
     // paper had no HTML rendering. The tab may hold one this fetch could not
     // produce (ar5iv converts papers arxiv.org only stubs) and, on any host,
@@ -1140,10 +1152,11 @@ async function main(): Promise<void> {
     // the button shut over an empty body, and this is what holds if it ever
     // does not.
     if (result === null || removalHolds() || hasNothingToClip(result)) return;
-    // Both captured at the click, for one reason: `sourceUrl` describes the
-    // body being committed, and reading it from the closure later would let a
-    // body that arrived mid-upload retag the one already on its way.
-    void (async (payload, from) => {
+    // All three captured at the click, for one reason: `sourceUrl` and
+    // `bodyCommit` describe the body being committed, and reading them from
+    // the closure later would let a body that arrived mid-upload retag the one
+    // already on its way.
+    void (async (payload, from, commit) => {
       committing = true;
       phase = "clipping";
       render();
@@ -1173,7 +1186,7 @@ async function main(): Promise<void> {
           ...(stub ? { sourceMedia: "pdf" as const } : {}),
           clippedAt: nowIso,
           clipperVersion: chrome.runtime.getManifest().version,
-          clipperCommit: __CLIPPER_COMMIT__,
+          clipperCommit: commit,
         };
         /**
          * A stub must not replace a body that is already there.
@@ -1254,7 +1267,7 @@ async function main(): Promise<void> {
         problem = { text: describeClipError(error, m), error: true };
         render();
       }
-    })(result, sourceUrl);
+    })(result, sourceUrl, bodyCommit);
   });
 
   /**

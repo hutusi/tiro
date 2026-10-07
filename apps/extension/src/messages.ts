@@ -9,6 +9,15 @@ export type { ClipPayload };
 export interface ClipResultMessage {
   type: "tiro-clip-result";
   payload: ClipPayload;
+  /**
+   * `__CLIPPER_COMMIT__` as built into clipper.js, the code that extracted
+   * this body. It becomes `tiro.clipper_commit`, whose question is "does this
+   * body have the fix", and the body is the clipper's work. Beside the payload
+   * rather than in it because `ClipPayload` is `@tiro/clip`'s, which the sweep
+   * runs with no build behind it. Absent from a clipper built before this
+   * field, which then records no commit rather than the popup's.
+   */
+  clipperCommit?: string;
 }
 
 /** The popup's one message boundary. Today only this extension's own clipper
@@ -16,8 +25,15 @@ export interface ClipResultMessage {
  * so the guard checks the whole shape rather than trusting the type tag. */
 export function isClipResult(message: unknown): message is ClipResultMessage {
   if (typeof message !== "object" || message === null) return false;
-  const { type, payload } = message as { type?: unknown; payload?: unknown };
+  const { type, payload, clipperCommit } = message as {
+    type?: unknown;
+    payload?: unknown;
+    clipperCommit?: unknown;
+  };
   if (type !== "tiro-clip-result") return false;
+  if (clipperCommit !== undefined && typeof clipperCommit !== "string") {
+    return false;
+  }
   if (typeof payload !== "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
   return (
