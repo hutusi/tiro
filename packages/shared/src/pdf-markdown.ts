@@ -446,6 +446,34 @@ function opensIndentedParagraph(
   );
 }
 
+/**
+ * Does `line` carry on the paragraph the previous page left unfinished?
+ *
+ * A page break ends a block, and a paragraph that runs over one was cut in
+ * two, with a word hyphenated across the break stranded at the end of the
+ * first half ("out-", then "pace" on the next page). When the page stops
+ * mid-sentence and the next one opens in lowercase, it is the same paragraph.
+ *
+ * A paragraph, not a list. A numbered endnote that ran over a page took the
+ * next page's whole list with it, and `toList` then read the continuation
+ * line, back at the margin, as the list's end, flattening every item after it
+ * into one paragraph.
+ */
+function continuesOverPage(
+  line: Line,
+  last: Line,
+  block: readonly Line[],
+): boolean {
+  return (
+    line.page === last.page + 1 &&
+    !block.some((held) => BULLET.test(held.text)) &&
+    !line.mono &&
+    !last.mono &&
+    !SENTENCE_END.test(last.text.trim()) &&
+    /^\p{Ll}/u.test(line.text)
+  );
+}
+
 function toBlocks(
   lines: readonly Line[],
   bodySize: number,
@@ -459,7 +487,7 @@ function toBlocks(
     const last = block[block.length - 1];
     const broken =
       last !== undefined &&
-      (line.page !== last.page ||
+      ((line.page !== last.page && !continuesOverPage(line, last, block)) ||
         line.mono !== last.mono ||
         // A size change is a structural boundary: a heading never shares a
         // block with the paragraph beneath it.

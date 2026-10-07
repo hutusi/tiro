@@ -191,6 +191,56 @@ describe("pdfMarkdown indented paragraphs", () => {
   });
 });
 
+describe("pdfMarkdown page breaks", () => {
+  test("carries a paragraph over the page it ran off, hyphen and all", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("preparing for an intelligence explosion would out-", 100),
+        line("pace normal policymaking.", 700, { page: 2 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "preparing for an intelligence explosion would outpace normal policymaking.",
+    );
+  });
+
+  test("breaks where the page ended a sentence", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("The last sentence of a page.", 100),
+        line("then a page that opens in lowercase.", 700, { page: 2 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "The last sentence of a page.\n\nthen a page that opens in lowercase.",
+    );
+  });
+
+  test("breaks where the next page opens with a capital", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("a page that stops without a period", 100),
+        line("Results", 700, { page: 2 }),
+      ]),
+    );
+    expect(md.trim()).toBe("a page that stops without a period\n\nResults");
+  });
+
+  test("does not carry a list item over the page", () => {
+    // An endnote that ran over a page took the next page's whole list with
+    // it, and every item after the continuation was flattened into prose.
+    const md = pdfMarkdown(
+      layout([
+        line("1. An endnote that runs over the page and", 100),
+        line("ends here.", 700, { page: 2 }),
+        line("2. The next endnote.", 700 - LINE, { page: 2 }),
+        line("3. And another.", 700 - 2 * LINE, { page: 2 }),
+      ]),
+    );
+    expect(md).toContain("- The next endnote.\n- And another.");
+  });
+});
+
 describe("pdfMarkdown superscript marks", () => {
   /** A run of a line: `line` with an x of its own. */
   const run = (
