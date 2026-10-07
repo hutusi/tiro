@@ -62,9 +62,12 @@ describe("pdfMarkdown headings", () => {
 
   test("caps at three levels", () => {
     const md = pdfMarkdown(
-      layout([line("Deep", 700, { size: 12 })], [20, 16, 13, 12]),
+      layout(
+        [line("Deep", 700, { size: 12 }), line("Its text.", 700 - PARA)],
+        [20, 16, 13, 12],
+      ),
     );
-    expect(md.trim()).toBe("### Deep");
+    expect(md.trim()).toBe("### Deep\n\nIts text.");
   });
 
   test("joins a heading the page wrapped", () => {
@@ -74,12 +77,13 @@ describe("pdfMarkdown headings", () => {
         [
           line("Unblock your team: the engineering", 700, { size: 20 }),
           line("guide to stacked pull requests", 700 - LINE, { size: 20 }),
+          line("Picture this morning's standup.", 700 - LINE - 40),
         ],
         [20],
       ),
     );
     expect(md.trim()).toBe(
-      "# Unblock your team: the engineering guide to stacked pull requests",
+      "# Unblock your team: the engineering guide to stacked pull requests\n\nPicture this morning's standup.",
     );
   });
 
@@ -92,11 +96,14 @@ describe("pdfMarkdown headings", () => {
         [
           line("A Title That Runs", 785, { size: 20 }),
           line("Onto A Second Line", 757, { size: 20 }),
+          line("The text it heads.", 720),
         ],
         [20],
       ),
     );
-    expect(md.trim()).toBe("# A Title That Runs Onto A Second Line");
+    expect(md.trim()).toBe(
+      "# A Title That Runs Onto A Second Line\n\nThe text it heads.",
+    );
   });
 
   test("leaves body text alone", () => {
@@ -137,6 +144,297 @@ describe("pdfMarkdown paragraphs", () => {
       layout([line("the Smith-", 700), line("Waterman algorithm", 680)]),
     );
     expect(md).toContain("Smith- Waterman");
+  });
+});
+
+describe("pdfMarkdown front matter", () => {
+  test("sets authors and affiliations as text, not as headings", () => {
+    // The tracker paper: each author at 12pt, each affiliation at 10pt, both
+    // heading sizes, came out as eighteen headings before the abstract.
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("A Privacy Analysis", 760, { size: 17 }),
+          line("Guilherme Oliveira", 720, { size: 12 }),
+          line("IMDEA Networks", 700, { size: 10 }),
+          line("Miguel Sanchez", 680, { size: 12 }),
+          line("IMDEA Networks", 660, { size: 10 }),
+          line("Abstract", 620, { size: 10 }),
+          line("As conversational AI providers adopt ads.", 600, { size: 9 }),
+        ],
+        [17, 12, 10],
+      ),
+    );
+    // Pinned rather than fixed: the last author keeps its heading, because
+    // what it owns runs on through the abstract into text. Demoting a whole
+    // level once one sibling is empty would catch it, and would also demote a
+    // real chapter that follows an empty one. One stray heading per author
+    // list is the cheaper side of that trade.
+    expect(md.trim()).toBe(
+      [
+        "# A Privacy Analysis",
+        "Guilherme Oliveira",
+        "IMDEA Networks",
+        "## Miguel Sanchez",
+        "IMDEA Networks",
+        "### Abstract",
+        "As conversational AI providers adopt ads.",
+      ].join("\n\n"),
+    );
+  });
+
+  test("keeps every level of an outline that reaches its text", () => {
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("Part One", 760, { size: 20 }),
+          line("Chapter One", 720, { size: 16 }),
+          line("A Section", 680, { size: 13 }),
+          line("The text at last.", 650),
+        ],
+        [20, 16, 13],
+      ),
+    );
+    expect(md.trim()).toBe(
+      "# Part One\n\n## Chapter One\n\n### A Section\n\nThe text at last.",
+    );
+  });
+});
+
+describe("pdfMarkdown indented paragraphs", () => {
+  /** Two LaTeX papers and a 1973 scan in the vault mark paragraphs with a
+   * first-line indent and no extra space, so the gap rule ran each page's
+   * paragraphs into one. */
+  test("opens a paragraph on a first-line indent alone", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("This paragraph runs the full measure of", 700),
+        line("the page.", 700 - LINE),
+        line("A new paragraph opens on an indent alone", 700 - 2 * LINE, {
+          x: 90,
+        }),
+        line("and runs on at the margin.", 700 - 3 * LINE),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "This paragraph runs the full measure of the page.\n\n" +
+        "A new paragraph opens on an indent alone and runs on at the margin.",
+    );
+  });
+
+  test("keeps a hanging continuation that follows a full line", () => {
+    // A reference entry hangs its second line by the same amount, and its
+    // first line can end in a period too. What it cannot do is stop short.
+    const md = pdfMarkdown(
+      layout([
+        line("Smith, J. and Jones, K. and Brown, L. and White, M.", 700),
+        line("In: A Title That Hangs Under Its Entry, 2021.", 700 - LINE, {
+          x: 90,
+        }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "Smith, J. and Jones, K. and Brown, L. and White, M. In: A Title That Hangs Under Its Entry, 2021.",
+    );
+  });
+
+  test("keeps a short line that does not end a sentence", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("A wrapped clause that breaks at", 700),
+        line("a short line", 700 - LINE),
+        line("then carries on, indented.", 700 - 2 * LINE, { x: 90 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "A wrapped clause that breaks at a short line then carries on, indented.",
+    );
+  });
+});
+
+describe("pdfMarkdown page breaks", () => {
+  test("carries a paragraph over the page it ran off, hyphen and all", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("preparing for an intelligence explosion would out-", 100),
+        line("pace normal policymaking.", 700, { page: 2 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "preparing for an intelligence explosion would outpace normal policymaking.",
+    );
+  });
+
+  test("breaks where the page ended a sentence", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("The last sentence of a page.", 100),
+        line("then a page that opens in lowercase.", 700, { page: 2 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "The last sentence of a page.\n\nthen a page that opens in lowercase.",
+    );
+  });
+
+  test("breaks where the next page opens with a capital", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("a page that stops without a period", 100),
+        line("Results", 700, { page: 2 }),
+      ]),
+    );
+    expect(md.trim()).toBe("a page that stops without a period\n\nResults");
+  });
+
+  test("does not carry a list item over the page", () => {
+    // An endnote that ran over a page took the next page's whole list with
+    // it, and every item after the continuation was flattened into prose.
+    const md = pdfMarkdown(
+      layout([
+        line("1. An endnote that runs over the page and", 100),
+        line("ends here.", 700, { page: 2 }),
+        line("2. The next endnote.", 700 - LINE, { page: 2 }),
+        line("3. And another.", 700 - 2 * LINE, { page: 2 }),
+      ]),
+    );
+    expect(md).toContain("- The next endnote.\n- And another.");
+  });
+});
+
+describe("pdfMarkdown superscript marks", () => {
+  /** A run of a line: `line` with an x of its own. */
+  const run = (
+    text: string,
+    x: number,
+    y: number,
+    over: Partial<PdfTextItem> = {},
+  ): PdfTextItem => line(text, y, { x, ...over });
+  const mark = { size: 8 };
+
+  /** The intelligence-explosion paper cites its footnotes with 8pt marks 4pt
+   * over a 10.9pt body. Each was a paragraph of its own, "1", and the rest of
+   * the sentence opened another. */
+  test("keeps a footnote mark on its line, as a superscript", () => {
+    const md = pdfMarkdown(
+      layout([
+        run("venue [22].", 72, 700),
+        run("1 ", 127, 704, mark),
+        run("Today the systems still", 135, 700),
+        line("have weaknesses.", 700 - LINE),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "venue [22].<sup>1</sup> Today the systems still have weaknesses.",
+    );
+  });
+
+  test("writes an exponent as one, not as a bigger number", () => {
+    const md = pdfMarkdown(
+      layout([
+        run("on the order of 10", 72, 700),
+        run("13", 162, 704, mark),
+        run(" tokens per day.", 172, 700),
+      ]),
+    );
+    expect(md.trim()).toBe("on the order of 10<sup>13</sup> tokens per day.");
+  });
+
+  test("measures the line from its text when a mark opens it", () => {
+    // A footnote that starts with its own number: the line's baseline is the
+    // text's, so the gap to the next line is a line step, not a paragraph.
+    const md = pdfMarkdown(
+      layout([
+        run("1", 72, 704, mark),
+        run(" A footnote that wraps", 77, 700),
+        line("onto a second line.", 700 - LINE),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "<sup>1</sup> A footnote that wraps onto a second line.",
+    );
+  });
+
+  test("escapes a star mark, so two of them never pair as emphasis", () => {
+    const md = pdfMarkdown(
+      layout([
+        run("A claim.", 72, 700),
+        run("*", 112, 704, mark),
+        run(" Another claim.", 117, 700),
+        run("*", 192, 704, mark),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "A claim.<sup>\\*</sup> Another claim.<sup>\\*</sup>",
+    );
+  });
+
+  test("leaves a small digit on the baseline alone", () => {
+    const md = pdfMarkdown(
+      layout([run("See table", 72, 700), run(" 2", 117, 700, mark)]),
+    );
+    expect(md.trim()).toBe("See table 2");
+  });
+
+  test("does not lift a full-size run onto the line below it", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("12", 704),
+        line("A line set four points lower.", 700 - PARA),
+      ]),
+    );
+    expect(md).not.toContain("<sup>");
+  });
+});
+
+describe("pdfMarkdown scanned text", () => {
+  /**
+   * A scan's OCR layer reports a word's size as its glyph height in whole
+   * points, so one paragraph arrives as a mix of 10 and 9, written as the
+   * layer writes them. Every switch used to end a block, and a 1973 paper came
+   * out as paragraphs cut every one to three lines, with a page's hyphenated
+   * word stranded at the end of each piece.
+   */
+  test("keeps a paragraph whose lines wobble a point around the body", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("calls himself Neumann; the other makes it less", 700, {
+          size: 10.9997,
+        }),
+        line("conspicuous by amalgama-", 700 - LINE, { size: 9.99973 }),
+        line("ting it with the family name.", 700 - 2 * LINE, {
+          size: 10.9997,
+        }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "calls himself Neumann; the other makes it less conspicuous by amalgamating it with the family name.",
+    );
+  });
+
+  test("still breaks for a size more than a point away", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("The last line of a paragraph.", 700),
+        line("A footnote set two points smaller.", 700 - LINE, { size: 9 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "The last line of a paragraph.\n\nA footnote set two points smaller.",
+    );
+  });
+
+  test("still breaks between a heading size and the body, however close", () => {
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("A Heading", 700, { size: 12 }),
+          line("Body text beneath it.", 700 - LINE),
+        ],
+        [12],
+      ),
+    );
+    expect(md.trim()).toBe("# A Heading\n\nBody text beneath it.");
   });
 });
 

@@ -1,3 +1,4 @@
+import { furnitureLines } from "./pdf-furniture.ts";
 import type { PdfLayout, PdfTextItem } from "./pdf-layout.ts";
 
 /**
@@ -44,14 +45,23 @@ interface Line {
   size: number;
   y: number;
   x: number;
+  /** Where the line's last run ends. */
+  right: number;
   page: number;
   mono: boolean;
   /** Where each run starts, for spotting columns. */
   columns: number[];
 }
 
-/** Join runs into a line, inserting a space only where the page left one. */
-function lineText(items: readonly PdfTextItem[], bodySize: number): string {
+/** Join runs into a line, inserting a space only where the page left one. A
+ * mark raised above `baseline` keeps its superscript, so a footnote reads
+ * `[22].<sup>1</sup>` and an exponent `10<sup>13</sup>`, not `1013`; the site's
+ * sanitizer admits `sup`. */
+function lineText(
+  items: readonly PdfTextItem[],
+  bodySize: number,
+  baseline: number,
+): string {
   let out = "";
   let previous: PdfTextItem | undefined;
   for (const item of items) {
@@ -67,7 +77,19 @@ function lineText(items: readonly PdfTextItem[], bodySize: number): string {
         out += " ";
       }
     }
-    out += item.text;
+    out +=
+      isMark(item, bodySize) && item.y - baseline > LINE_TOLERANCE
+        ? // The run's own spaces stay outside the tag: pdf.js hands over "3 ",
+          // and the space is the only word break before the next run.
+          // A `*` is escaped: two in one paragraph pair up as emphasis, and
+          // the site rendered both marks as nothing and the text between
+          // them in italics.
+          item.text.replace(
+            /^(\s*)(.*?)(\s*)$/su,
+            (_, before: string, mark: string, after: string) =>
+              `${before}<sup>${mark.replace(/\*/g, "\\*")}</sup>${after}`,
+          )
+        : item.text;
     previous = item;
   }
   return out.replace(/\s+/g, " ").trim();
@@ -235,6 +257,49 @@ function inReadingOrder(
  * Only the runs *within* a line are ordered, by x, since a line's pieces can be
  * emitted out of order when the font changes mid-sentence.
  */
+/** What a footnote or reference mark is made of. */
+const MARK_TEXT = /^[0-9*†‡§¶]{1,3}$/u;
+
+/** How far above its line's baseline a mark may sit, as a share of the line's
+ * size. Measured: the intelligence-explosion paper raises its 8pt marks 4pt
+ * over a 10.9pt body. */
+const MARK_RAISE = 0.6;
+
+/** A superscript mark: a digit or a dagger, set smaller than the body. */
+function isMark(item: PdfTextItem, bodySize: number): boolean {
+  return item.size < bodySize - SIZE_STEP && MARK_TEXT.test(item.text.trim());
+}
+
+/** Size changes smaller than this are not changes. */
+const SIZE_STEP = 0.5;
+
+/**
+ * Does `item` belong on the line whose text sits on `baseline`?
+ *
+ * On the baseline, give or take `LINE_TOLERANCE`. A superscript mark sits
+ * higher, by more than that, and was read as a line of its own. Its paragraph
+ * then broke around it: the intelligence-explosion paper had a stray "1" or
+ * "5" as a paragraph wherever a footnote was cited, and the rest of the
+ * sentence opened a new one.
+ */
+function onLine(
+  item: PdfTextItem,
+  baseline: PdfTextItem,
+  bodySize: number,
+): boolean {
+  if (item.page !== baseline.page) return false;
+  const rise = item.y - baseline.y;
+  if (Math.abs(rise) <= LINE_TOLERANCE) return true;
+  if (isMark(item, bodySize)) {
+    return rise > 0 && rise <= baseline.size * MARK_RAISE;
+  }
+  // The text after a mark that opened the line, back on the baseline.
+  if (isMark(baseline, bodySize)) {
+    return rise < 0 && -rise <= item.size * MARK_RAISE;
+  }
+  return false;
+}
+
 function toLines(layout: PdfLayout): Line[] {
   const sorted = inReadingOrder(layout.items, layout.bodySize);
   const lines: Line[] = [];
@@ -242,14 +307,18 @@ function toLines(layout: PdfLayout): Line[] {
   const flush = (): void => {
     if (current.length === 0) return;
     const items = [...current].sort((a, b) => a.x - b.x);
-    const text = lineText(items, layout.bodySize);
+    // The text's baseline, not a mark's: a line's y measures the gaps that
+    // decide where paragraphs end.
+    const body = items.find((i) => !isMark(i, layout.bodySize)) ?? items[0];
+    const text = lineText(items, layout.bodySize, body?.y ?? 0);
     if (text !== "") {
       lines.push({
         items,
         text,
         size: Math.max(...items.map((i) => i.size)),
-        y: items[0]?.y ?? 0,
+        y: body?.y ?? 0,
         x: items[0]?.x ?? 0,
+        right: Math.max(...items.map((i) => i.x + i.width)),
         page: items[0]?.page ?? 1,
         // A line counts as code only if all of its text is: a monospace word
         // inside a sentence is not a code block.
@@ -260,15 +329,20 @@ function toLines(layout: PdfLayout): Line[] {
     current = [];
   };
 
+  // The run whose baseline the line is on: its first one that is not a mark.
+  let baseline: PdfTextItem | undefined;
   for (const item of sorted) {
-    const head = current[0];
-    if (
-      head !== undefined &&
-      (item.page !== head.page || Math.abs(item.y - head.y) > LINE_TOLERANCE)
-    ) {
+    if (baseline !== undefined && !onLine(item, baseline, layout.bodySize)) {
       flush();
+      baseline = undefined;
     }
     current.push(item);
+    if (
+      baseline === undefined ||
+      (isMark(baseline, layout.bodySize) && !isMark(item, layout.bodySize))
+    ) {
+      baseline = item;
+    }
   }
   flush();
   return lines;
@@ -313,25 +387,129 @@ function expectedLeading(
   return leading * scale * BLOCK_GAP;
 }
 
-function toBlocks(lines: readonly Line[], bodySize: number): Line[][] {
+/**
+ * How far an OCR text layer's sizes wobble around the body.
+ *
+ * A scan's invisible text layer reports each word's size as the height of the
+ * glyphs OCR found, rounded to a whole point, so one paragraph comes out as a
+ * mix of 9 and 10. Measured on a scanned 1973 paper (Tesseract's
+ * `GlyphLessFont`): 340 lines at 10pt and 189 at 9, alternating within
+ * paragraphs. Every alternation broke a block, and its 259 blocks were
+ * paragraphs cut every one to three lines. Typeset documents never came near
+ * this: a two-paper sample's only size changes of a point or less were among
+ * a diagram's 4-6pt labels.
+ */
+const BODY_WOBBLE = 1;
+
+/** Is a size change between two lines only the OCR wobble above? Both must
+ * sit by the body and neither may be a heading size, so a heading still never
+ * shares a block with the paragraph beneath it. */
+function wobble(
+  a: number,
+  b: number,
+  bodySize: number,
+  headingSizes: readonly number[],
+): boolean {
+  // To the tenth of a point, as `bodySize` and `headingSizes` key them: the
+  // layer reports 9 as 8.99973, a hair more than a point from a 10pt body.
+  const tenth = (size: number): number => Math.round(size * 10) / 10;
+  const nearBody = (size: number): boolean =>
+    Math.abs(tenth(size) - bodySize) <= BODY_WOBBLE &&
+    !headingSizes.some((heading) => Math.abs(heading - tenth(size)) <= 0.5);
+  return (
+    Math.abs(tenth(a) - tenth(b)) <= BODY_WOBBLE && nearBody(a) && nearBody(b)
+  );
+}
+
+/** A line that closes a sentence, behind any closing quote or bracket. */
+const SENTENCE_END = /[.!?:;]["'”’»)\]]*$/u;
+
+/**
+ * Does `line` open a paragraph by its indent alone?
+ *
+ * Typeset text often marks a paragraph with a first-line indent and no extra
+ * space, and the gap rule cannot see that. Measured on the vault's PDFs: two
+ * LaTeX papers and a 1973 scan all do it, the scan with nothing else. An
+ * indent alone is not enough, though. A reference entry or a wrapped legal
+ * clause hangs its second line by the same amount. What tells them apart is
+ * the line above. A paragraph's last line ends a sentence and stops short of
+ * the measure, while a hanging continuation follows a full one.
+ *
+ * Bounded at four sizes so a jump to the next column, which is also below
+ * and to the right, is never read as an indent, and only on the way down.
+ */
+function opensIndentedParagraph(
+  line: Line,
+  last: Line,
+  blockRight: number,
+  bodySize: number,
+): boolean {
+  if (line.page !== last.page || line.y >= last.y || line.mono) return false;
+  const indent = line.x - last.x;
+  if (indent < bodySize * 0.8 || indent > bodySize * 4) return false;
+  if (BULLET.test(last.text)) return false;
+  const measure = Math.max(blockRight, line.right);
+  return (
+    SENTENCE_END.test(last.text.trim()) && last.right < measure - bodySize * 2
+  );
+}
+
+/**
+ * Does `line` carry on the paragraph the previous page left unfinished?
+ *
+ * A page break ends a block, and a paragraph that runs over one was cut in
+ * two, with a word hyphenated across the break stranded at the end of the
+ * first half ("out-", then "pace" on the next page). When the page stops
+ * mid-sentence and the next one opens in lowercase, it is the same paragraph.
+ *
+ * A paragraph, not a list. A numbered endnote that ran over a page took the
+ * next page's whole list with it, and `toList` then read the continuation
+ * line, back at the margin, as the list's end, flattening every item after it
+ * into one paragraph.
+ */
+function continuesOverPage(
+  line: Line,
+  last: Line,
+  block: readonly Line[],
+): boolean {
+  return (
+    line.page === last.page + 1 &&
+    !block.some((held) => BULLET.test(held.text)) &&
+    !line.mono &&
+    !last.mono &&
+    !SENTENCE_END.test(last.text.trim()) &&
+    /^\p{Ll}/u.test(line.text)
+  );
+}
+
+function toBlocks(
+  lines: readonly Line[],
+  bodySize: number,
+  headingSizes: readonly number[],
+): Line[][] {
   const leading = lineSpacing(lines, bodySize);
   const blocks: Line[][] = [];
   let block: Line[] = [];
+  let blockRight = 0;
   for (const line of lines) {
     const last = block[block.length - 1];
     const broken =
       last !== undefined &&
-      (line.page !== last.page ||
+      ((line.page !== last.page && !continuesOverPage(line, last, block)) ||
         line.mono !== last.mono ||
         // A size change is a structural boundary: a heading never shares a
         // block with the paragraph beneath it.
-        Math.abs(line.size - last.size) > 0.5 ||
-        last.y - line.y > expectedLeading(last.size, bodySize, leading));
+        (Math.abs(line.size - last.size) > 0.5 &&
+          !wobble(line.size, last.size, bodySize, headingSizes)) ||
+        last.y - line.y > expectedLeading(last.size, bodySize, leading) ||
+        opensIndentedParagraph(line, last, blockRight, bodySize));
     if (broken) {
       blocks.push(block);
       block = [];
+      blockRight = 0;
     }
     block.push(line);
+    blockRight = Math.max(blockRight, line.right);
   }
   if (block.length > 0) blocks.push(block);
   return blocks;
@@ -386,61 +564,28 @@ function looksTabular(lines: readonly Line[], bodySize: number): boolean {
   );
 }
 
-/** How much of a document a line must top or tail before it is furniture
- * rather than content — the share `stripRunningFurniture` uses on flat text. */
-const FURNITURE_SHARE = 0.6;
-const FURNITURE_MAX_CHARS = 100;
-
-/** Page numbers differ by their number and nothing else. */
-function furnitureKey(text: string): string {
-  return text.replace(/\s+/g, " ").trim().replace(/\d+/g, "#");
-}
-
 /**
  * Drop the running headers and footers a document repeats on every page.
  *
  * The flat-text path has done this since ADR 0026; the structured path did not,
  * and a three-page document put the same journal header into the Markdown three
- * times. Done on lines rather than page strings because that is what this path
- * has, but by the same rule: only the first and last line of a page, only on a
- * document long enough for repetition to mean something, and only when short.
+ * times. The rule is `furnitureLines`, which both paths share, applied here to
+ * lines rather than page strings because lines are what this path has.
  */
 function stripFurnitureLines(lines: readonly Line[], pages: number): Line[] {
-  if (pages < 3) return [...lines];
-  const first = new Map<number, Line>();
-  const last = new Map<number, Line>();
-  for (const line of lines) {
-    if (!first.has(line.page)) first.set(line.page, line);
-    last.set(line.page, line);
-  }
-  const tally = (edge: Map<number, Line>): Map<string, number> => {
-    const counts = new Map<string, number>();
-    for (const line of edge.values()) {
-      if (line.text.length > FURNITURE_MAX_CHARS) continue;
-      const key = furnitureKey(line.text);
-      if (key === "") continue;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+  // Every page has an entry, an empty one included, so the share is a share
+  // of the whole document.
+  const byPage: Line[][] = Array.from({ length: pages }, () => []);
+  for (const line of lines) byPage[line.page - 1]?.push(line);
+  const drop = furnitureLines(byPage.map((page) => page.map((l) => l.text)));
+  const gone = new Set<Line>();
+  byPage.forEach((page, i) => {
+    for (const index of drop[i] ?? []) {
+      const line = page[index];
+      if (line !== undefined) gone.add(line);
     }
-    return counts;
-  };
-  const heads = tally(first);
-  const feet = tally(last);
-  const threshold = pages * FURNITURE_SHARE;
-  const drop = new Set<Line>();
-  for (const [page, line] of first) {
-    if ((heads.get(furnitureKey(line.text)) ?? 0) >= threshold) drop.add(line);
-    const foot = last.get(page);
-    // A one-line page is its own first and last; dropping it twice is still
-    // dropping the page.
-    if (
-      foot !== undefined &&
-      foot !== line &&
-      (feet.get(furnitureKey(foot.text)) ?? 0) >= threshold
-    ) {
-      drop.add(foot);
-    }
-  }
-  return lines.filter((line) => !drop.has(line));
+  });
+  return lines.filter((line) => !gone.has(line));
 }
 
 /**
@@ -560,14 +705,18 @@ export function pdfMarkdown(layout: PdfLayout): string {
     return index === -1 ? null : Math.min(index + 1, 3);
   };
 
-  const out: string[] = [];
+  // A heading's level is decided once every block is in, by `headsSomething`.
+  const out: { text: string; level: number | null }[] = [];
+  const push = (text: string): void => {
+    out.push({ text, level: null });
+  };
   const lines = stripFurnitureLines(toLines(layout), layout.totalPages);
-  for (const block of toBlocks(lines, bodySize)) {
+  for (const block of toBlocks(lines, bodySize, headingSizes)) {
     const first = block[0];
     if (first === undefined) continue;
 
     if (first.mono) {
-      out.push(fence(block, bodySize));
+      push(fence(block, bodySize));
       continue;
     }
 
@@ -575,22 +724,57 @@ export function pdfMarkdown(layout: PdfLayout): string {
     if (level !== null) {
       // Wrapped headings are one heading; the page broke the line, not the
       // author.
-      out.push(`${"#".repeat(level)} ${joinWrapped(block)}`);
+      out.push({ text: joinWrapped(block), level });
       continue;
     }
 
     if (looksTabular(block, bodySize)) {
-      out.push(fence(block, bodySize));
+      push(fence(block, bodySize));
       continue;
     }
 
     const list = toList(block, bodySize);
     if (list !== null) {
-      out.push(list);
+      push(list);
       continue;
     }
 
-    out.push(joinWrapped(block));
+    push(joinWrapped(block));
   }
-  return `${out.join("\n\n").trim()}\n`;
+  return `${out
+    .map(({ text, level }, i) =>
+      level !== null && headsSomething(out, i)
+        ? `${"#".repeat(level)} ${text}`
+        : text,
+    )
+    .join("\n\n")
+    .trim()}\n`;
+}
+
+/**
+ * Does the heading at `index` head any text?
+ *
+ * A heading owns everything up to the next one of its rank or higher. One
+ * that owns no body text, only other headings or nothing, heads an empty
+ * section, and that is what a paper's front matter looks like set large. The
+ * tracker paper set each of its nine authors at 12pt and each affiliation at
+ * 10pt, both heading sizes, and came out as eighteen headings between the
+ * title and the abstract. Size cannot tell them from a heading. Their
+ * arrangement can: a real outline, from part to chapter to section, always
+ * reaches text, so every level of it keeps its heading.
+ *
+ * Read against the levels as first assigned, so demoting one front-matter
+ * line does not turn it into text that keeps the one above it a heading.
+ */
+function headsSomething(
+  entries: readonly { level: number | null }[],
+  index: number,
+): boolean {
+  const own = entries[index]?.level;
+  if (own === null || own === undefined) return false;
+  for (const entry of entries.slice(index + 1)) {
+    if (entry.level === null) return true;
+    if (entry.level <= own) return false;
+  }
+  return false;
 }

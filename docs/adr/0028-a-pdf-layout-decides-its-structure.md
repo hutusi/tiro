@@ -143,6 +143,56 @@ applied to lines rather than page strings, because that is what this path has.
 Without it a document repeated its journal header into the Markdown once per
 page, while the flat-text path beside it removed all three.
 
+> **Amended 2026-10-07.** The two paths now share one function
+> (`furnitureLines`) rather than a copy of the rule each. It is wider in three
+> narrow ways, each measured on a 1973 scan from JSTOR whose heads and stamps
+> all survived:
+>
+> - **Heads that alternate by page parity count.** The scan puts "384 P. R.
+>   HALMOS [April" on one side and "1973] THE LEGEND OF JOHN VON NEUMANN 385"
+>   on the other. Each is on half the pages, below the share. A key on 60% of
+>   one parity's pages, and on at least three of them, is furniture.
+> - **Punctuation folds**, as digits already did, because OCR read one head as
+>   "P. R." and the next as "P, R.". Letters never fold, so a head fused to a
+>   figure's text still keeps its own key (ADR 0026).
+> - **Furniture may stack two lines deep.** JSTOR's stamp is two lines, and
+>   the inner one survived on all thirteen pages. A line further in is a
+>   candidate only once the line outside it was dropped.
+>
+> On the vault's three PDFs this removes the stamp 13 times, the scan's heads
+> 10 times and the tracker paper's even-page head 9 times. Nothing else is
+> removed, on either path.
+
+**7c. A paragraph is found by more than its gap.** _(2026-10-07)_ Blocks were
+split only by a wider gap, a size change, or a page break. On the vault's PDFs
+that cut paragraphs in four ways, and one rule now answers each:
+
+- **OCR size wobble.** A scan's text layer reports a word's size as its glyph
+  height in whole points, so the 1973 scan's paragraphs alternate between 10
+  and 9. Each change broke a block, and the scan came out as 259 blocks, cut
+  every one to three lines. A change of up to a point, between two lines
+  within a point of the body, neither at a heading size, is not a boundary.
+- **First-line indents.** Both LaTeX papers and the scan mark paragraphs by an
+  indent with no extra space. An indent of 0.8-4 body sizes opens a paragraph
+  when the line above ends a sentence and stops short of the measure. A
+  hanging continuation follows a full line instead, which is what tells a
+  reference entry from a paragraph.
+- **Superscript marks.** A footnote mark sits higher than the 2pt baseline
+  tolerance, so it was a line of its own and split its sentence. A small
+  raised digit or dagger now joins its line, written as `<sup>`, so an
+  exponent is not read as a larger number.
+- **Page breaks.** A paragraph that runs off a page, mid-sentence, into a page
+  that opens in lowercase, is one paragraph. A list item is not carried over,
+  because `toList` would flatten the next page's list.
+
+Front matter set large is the same kind of problem, at the heading level. The
+tracker paper set nine authors at 12pt and their affiliations at 10pt, both
+heading sizes, and came out as eighteen headings. A heading owns everything up
+to the next heading of its rank or higher. One that owns no text heads an empty
+section, and is written as text. A real outline always reaches its text, so it
+keeps every level. The last author of a list still keeps its heading, because
+what it owns runs on through the abstract. That trade is pinned in the tests.
+
 **8. What layout does not rescue.** Figures are not in the text layer at all and
 remain absent. Math remains flattened — the TeX math fonts are visible
 (`CMSY`, `CMMI`, `CMR`) and could mark where a formula was, but marking is not

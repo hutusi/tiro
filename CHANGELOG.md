@@ -33,6 +33,24 @@ versions follow the `0.x` line while Tiro is a personal system.
   extracting it, a separate file. The clipper now stamps its own commit. A body
   the popup fetched (an arXiv full text, a GitHub markdown file) still records
   the popup's.
+- **A PDF's paragraphs come out as paragraphs.** The layout route cut
+  paragraphs in pieces in five ways:
+  - a scan's OCR sizes wobble between 9 and 10pt;
+  - typeset text marks paragraphs by indent alone;
+  - a footnote mark sits above its line;
+  - a paragraph runs over a page break;
+  - running heads alternate by page, or stack two lines deep, like JSTOR's
+    download stamp.
+
+  A paper's author list, set in heading sizes, also no longer comes out as a
+  heading per name.
+
+  A 1973 scan came out as 259 fragments, each page's head and stamp left in
+  the text, and every hyphenated word stranded at a cut. Each case now has a
+  rule. A footnote or exponent keeps its superscript, so `10<sup>13</sup>`
+  no longer reads as 1013. Ligatures a font maps wrongly are left as they
+  are: any repair would be a guess at the text. A web PDF picks this up the
+  next time it is processed (ADR 0028, clauses 7b and 7c).
 - **Code inside a list item or a quote is no longer rewritten by translation.**
   Only a top-level code block was kept from the model. A fence one level down
   went with the prose, and could come back with its comments translated, its
