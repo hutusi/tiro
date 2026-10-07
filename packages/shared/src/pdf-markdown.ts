@@ -698,14 +698,18 @@ export function pdfMarkdown(layout: PdfLayout): string {
     return index === -1 ? null : Math.min(index + 1, 3);
   };
 
-  const out: string[] = [];
+  // A heading's level is decided once every block is in, by `headsSomething`.
+  const out: { text: string; level: number | null }[] = [];
+  const push = (text: string): void => {
+    out.push({ text, level: null });
+  };
   const lines = stripFurnitureLines(toLines(layout), layout.totalPages);
   for (const block of toBlocks(lines, bodySize, headingSizes)) {
     const first = block[0];
     if (first === undefined) continue;
 
     if (first.mono) {
-      out.push(fence(block, bodySize));
+      push(fence(block, bodySize));
       continue;
     }
 
@@ -713,22 +717,57 @@ export function pdfMarkdown(layout: PdfLayout): string {
     if (level !== null) {
       // Wrapped headings are one heading; the page broke the line, not the
       // author.
-      out.push(`${"#".repeat(level)} ${joinWrapped(block)}`);
+      out.push({ text: joinWrapped(block), level });
       continue;
     }
 
     if (looksTabular(block, bodySize)) {
-      out.push(fence(block, bodySize));
+      push(fence(block, bodySize));
       continue;
     }
 
     const list = toList(block, bodySize);
     if (list !== null) {
-      out.push(list);
+      push(list);
       continue;
     }
 
-    out.push(joinWrapped(block));
+    push(joinWrapped(block));
   }
-  return `${out.join("\n\n").trim()}\n`;
+  return `${out
+    .map(({ text, level }, i) =>
+      level !== null && headsSomething(out, i)
+        ? `${"#".repeat(level)} ${text}`
+        : text,
+    )
+    .join("\n\n")
+    .trim()}\n`;
+}
+
+/**
+ * Does the heading at `index` head any text?
+ *
+ * A heading owns everything up to the next one of its rank or higher. One
+ * that owns no body text, only other headings or nothing, heads an empty
+ * section, and that is what a paper's front matter looks like set large. The
+ * tracker paper set each of its nine authors at 12pt and each affiliation at
+ * 10pt, both heading sizes, and came out as eighteen headings between the
+ * title and the abstract. Size cannot tell them from a heading. Their
+ * arrangement can: a real outline, from part to chapter to section, always
+ * reaches text, so every level of it keeps its heading.
+ *
+ * Read against the levels as first assigned, so demoting one front-matter
+ * line does not turn it into text that keeps the one above it a heading.
+ */
+function headsSomething(
+  entries: readonly { level: number | null }[],
+  index: number,
+): boolean {
+  const own = entries[index]?.level;
+  if (own === null || own === undefined) return false;
+  for (const entry of entries.slice(index + 1)) {
+    if (entry.level === null) return true;
+    if (entry.level <= own) return false;
+  }
+  return false;
 }

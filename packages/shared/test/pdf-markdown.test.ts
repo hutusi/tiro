@@ -62,9 +62,12 @@ describe("pdfMarkdown headings", () => {
 
   test("caps at three levels", () => {
     const md = pdfMarkdown(
-      layout([line("Deep", 700, { size: 12 })], [20, 16, 13, 12]),
+      layout(
+        [line("Deep", 700, { size: 12 }), line("Its text.", 700 - PARA)],
+        [20, 16, 13, 12],
+      ),
     );
-    expect(md.trim()).toBe("### Deep");
+    expect(md.trim()).toBe("### Deep\n\nIts text.");
   });
 
   test("joins a heading the page wrapped", () => {
@@ -74,12 +77,13 @@ describe("pdfMarkdown headings", () => {
         [
           line("Unblock your team: the engineering", 700, { size: 20 }),
           line("guide to stacked pull requests", 700 - LINE, { size: 20 }),
+          line("Picture this morning's standup.", 700 - LINE - 40),
         ],
         [20],
       ),
     );
     expect(md.trim()).toBe(
-      "# Unblock your team: the engineering guide to stacked pull requests",
+      "# Unblock your team: the engineering guide to stacked pull requests\n\nPicture this morning's standup.",
     );
   });
 
@@ -92,11 +96,14 @@ describe("pdfMarkdown headings", () => {
         [
           line("A Title That Runs", 785, { size: 20 }),
           line("Onto A Second Line", 757, { size: 20 }),
+          line("The text it heads.", 720),
         ],
         [20],
       ),
     );
-    expect(md.trim()).toBe("# A Title That Runs Onto A Second Line");
+    expect(md.trim()).toBe(
+      "# A Title That Runs Onto A Second Line\n\nThe text it heads.",
+    );
   });
 
   test("leaves body text alone", () => {
@@ -137,6 +144,60 @@ describe("pdfMarkdown paragraphs", () => {
       layout([line("the Smith-", 700), line("Waterman algorithm", 680)]),
     );
     expect(md).toContain("Smith- Waterman");
+  });
+});
+
+describe("pdfMarkdown front matter", () => {
+  test("sets authors and affiliations as text, not as headings", () => {
+    // The tracker paper: each author at 12pt, each affiliation at 10pt, both
+    // heading sizes, came out as eighteen headings before the abstract.
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("A Privacy Analysis", 760, { size: 17 }),
+          line("Guilherme Oliveira", 720, { size: 12 }),
+          line("IMDEA Networks", 700, { size: 10 }),
+          line("Miguel Sanchez", 680, { size: 12 }),
+          line("IMDEA Networks", 660, { size: 10 }),
+          line("Abstract", 620, { size: 10 }),
+          line("As conversational AI providers adopt ads.", 600, { size: 9 }),
+        ],
+        [17, 12, 10],
+      ),
+    );
+    // Pinned rather than fixed: the last author keeps its heading, because
+    // what it owns runs on through the abstract into text. Demoting a whole
+    // level once one sibling is empty would catch it, and would also demote a
+    // real chapter that follows an empty one. One stray heading per author
+    // list is the cheaper side of that trade.
+    expect(md.trim()).toBe(
+      [
+        "# A Privacy Analysis",
+        "Guilherme Oliveira",
+        "IMDEA Networks",
+        "## Miguel Sanchez",
+        "IMDEA Networks",
+        "### Abstract",
+        "As conversational AI providers adopt ads.",
+      ].join("\n\n"),
+    );
+  });
+
+  test("keeps every level of an outline that reaches its text", () => {
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("Part One", 760, { size: 20 }),
+          line("Chapter One", 720, { size: 16 }),
+          line("A Section", 680, { size: 13 }),
+          line("The text at last.", 650),
+        ],
+        [20, 16, 13],
+      ),
+    );
+    expect(md.trim()).toBe(
+      "# Part One\n\n## Chapter One\n\n### A Section\n\nThe text at last.",
+    );
   });
 });
 

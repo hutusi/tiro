@@ -42,6 +42,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   - running heads alternate by page, or stack two lines deep, like JSTOR's
     download stamp.
 
+  A paper's author list, set in heading sizes, also no longer comes out as a
+  heading per name.
+
   A 1973 scan came out as 259 fragments, each page's head and stamp left in
   the text, and every hyphenated word stranded at a cut. Each case now has a
   rule. A footnote or exponent keeps its superscript, so `10<sup>13</sup>`

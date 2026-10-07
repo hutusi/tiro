@@ -185,6 +185,14 @@ that cut paragraphs in four ways, and one rule now answers each:
   that opens in lowercase, is one paragraph. A list item is not carried over,
   because `toList` would flatten the next page's list.
 
+Front matter set large is the same kind of problem, at the heading level. The
+tracker paper set nine authors at 12pt and their affiliations at 10pt, both
+heading sizes, and came out as eighteen headings. A heading owns everything up
+to the next heading of its rank or higher. One that owns no text heads an empty
+section, and is written as text. A real outline always reaches its text, so it
+keeps every level. The last author of a list still keeps its heading, because
+what it owns runs on through the abstract. That trade is pinned in the tests.
+
 **8. What layout does not rescue.** Figures are not in the text layer at all and
 remain absent. Math remains flattened — the TeX math fonts are visible
 (`CMSY`, `CMMI`, `CMR`) and could mark where a formula was, but marking is not
