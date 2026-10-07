@@ -200,8 +200,11 @@ export async function summarize(
     });
 
     let feedback: string;
+    let shape: string | undefined;
     try {
-      const parsed = ResponseSchema.safeParse(JSON.parse(raw));
+      const reply: unknown = JSON.parse(raw);
+      shape = replyShape(reply);
+      const parsed = ResponseSchema.safeParse(reply);
       if (!parsed.success) {
         feedback = `Your previous JSON did not match the schema: ${parsed.error.message}`;
       } else if (!categories.includes(parsed.data.category)) {
@@ -250,6 +253,9 @@ export async function summarize(
     // Each failed attempt is minutes of LLM time on a long article; without
     // this line the workflow log is silent until the excerpt fallback.
     log(`summary attempt ${attempt}/${MAX_ATTEMPTS} failed: ${feedback}`);
+    if (shape !== undefined) {
+      log(`summary attempt ${attempt}/${MAX_ATTEMPTS} reply held: ${shape}`);
+    }
     if (attempt < MAX_ATTEMPTS) {
       // The correction says "your previous response", so that response has to
       // be in the transcript for the reference to resolve to anything.
@@ -308,6 +314,45 @@ export async function summarize(
     failed: true,
     fromExcerpt: true,
   };
+}
+
+/**
+ * What a reply held — its keys in the order the model wrote them, and the size
+ * of each value — and none of its text.
+ *
+ * The validation error says which keys are missing but not what came instead,
+ * and that is the question a run log could not answer about the vault's
+ * excerpt fallbacks (2026-10): three replies running, each with a summary and
+ * no category or tags. A key nested one level down, or renamed, shows here as
+ * itself. The order is for a cut reply: a field the model writes last is the
+ * one an output cap takes. Never the values, which are a reading of a vault
+ * article, and this goes to the workflow log.
+ */
+export function replyShape(reply: unknown): string {
+  if (reply === null || typeof reply !== "object" || Array.isArray(reply)) {
+    const what = Array.isArray(reply)
+      ? `an array of ${reply.length}`
+      : reply === null
+        ? "null"
+        : `a ${typeof reply}`;
+    return `${what}, not an object`;
+  }
+  const entries = Object.entries(reply);
+  if (entries.length === 0) return "an empty object";
+  return entries
+    .map(([key, value]) => `${key.slice(0, 40)} ${sizeOf(value)}`)
+    .join(", ");
+}
+
+function sizeOf(value: unknown): string {
+  if (typeof value === "string") return `(${value.length} chars)`;
+  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value)
+      .map((key) => key.slice(0, 40))
+      .join(", ")}}`;
+  }
+  return `(${value === null ? "null" : typeof value})`;
 }
 
 /**

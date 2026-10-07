@@ -189,6 +189,58 @@ describe("summarize", () => {
   });
 
   /**
+   * The vault's excerpt fallbacks (2026-10) were three replies running with a
+   * summary and no category or tags, and the schema error could say only that
+   * those were missing — not what the model wrote instead. The shape answers
+   * it, in the model's own key order, without a word of the reply's text.
+   */
+  test("logs what a rejected reply held, never what it said", async () => {
+    const lines: string[] = [];
+    const reply = JSON.stringify({
+      title_zh: "标题",
+      summary: "完整的摘要。",
+      metadata: { category: "ai", tags: ["a"] },
+    });
+    const { chat } = scripted([reply, reply, reply]);
+    await summarize({ ...baseOptions, chat, log: (m) => lines.push(m) });
+    const shapes = lines.filter((line) => line.includes("reply held"));
+    expect(shapes).toEqual(
+      [1, 2, 3].map(
+        (n) =>
+          `summary attempt ${n}/3 reply held: title_zh (2 chars), summary (6 chars), metadata {category, tags}`,
+      ),
+    );
+    expect(lines.join("\n")).not.toContain("完整的摘要");
+  });
+
+  test("names a cut summary's place in the reply", async () => {
+    const lines: string[] = [];
+    const cut = JSON.stringify({
+      category: "ai",
+      tags: ["a", "b"],
+      summary: "本文提出了三个论点，第一个是",
+    });
+    const { chat } = scripted([
+      cut,
+      JSON.stringify({ summary: "完整的摘要。", category: "ai", tags: [] }),
+    ]);
+    await summarize({ ...baseOptions, chat, log: (m) => lines.push(m) });
+    expect(lines.filter((line) => line.includes("reply held"))).toEqual([
+      "summary attempt 1/3 reply held: category (2 chars), tags [2 items], summary (14 chars)",
+    ]);
+  });
+
+  test("says a reply was not an object, and logs no shape for one that would not parse", async () => {
+    const lines: string[] = [];
+    const { chat } = scripted(['["a"]', "not json", "null"]);
+    await summarize({ ...baseOptions, chat, log: (m) => lines.push(m) });
+    expect(lines.filter((line) => line.includes("reply held"))).toEqual([
+      "summary attempt 1/3 reply held: an array of 1, not an object",
+      "summary attempt 3/3 reply held: null, not an object",
+    ]);
+  });
+
+  /**
    * The one case a cut summary must not beat: `z.string().min(1)` counts
    * characters, not content, so whitespace validates — and keeping "the longest
    * unfinished reply" would have stored it, putting a blank summary on the page

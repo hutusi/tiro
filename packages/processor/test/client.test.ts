@@ -4,6 +4,7 @@ import {
   ChatConnectionError,
   ChatHttpError,
   createChatClient,
+  type FetchLike,
   isProviderFailure,
 } from "../src/llm/client.ts";
 import { droppedReply } from "./helpers.ts";
@@ -487,6 +488,96 @@ describe("a reply that stops arriving", () => {
     expect(error).toBeInstanceOf(ChatHttpError);
     expect((error as ChatHttpError).status).toBe(400);
     expect(isProviderFailure(error)).toBe(false);
+  });
+});
+
+describe("a reply the provider ended itself", () => {
+  function completion(body: unknown): FetchLike {
+    return async () =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+  }
+
+  function client(fetchImpl: FetchLike, lines: string[]) {
+    return createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      maxRetries: 0,
+      fetchImpl,
+      sleep: noSleep,
+      log: (message) => lines.push(message),
+    });
+  }
+
+  /**
+   * The case `summary_failed` could not be diagnosed without: a reply cut at
+   * the output cap reads, once returned, exactly like a model that stopped by
+   * choice. Sizes only — the content is a reading of a vault article.
+   */
+  test("reports a cut reply with its token counts, and still returns it", async () => {
+    const lines: string[] = [];
+    const chat = client(
+      completion({
+        choices: [
+          {
+            message: {
+              content: '{"summary":"本文',
+              reasoning_content: "thinking about the article",
+            },
+            finish_reason: "length",
+          },
+        ],
+        usage: {
+          prompt_tokens: 812,
+          completion_tokens: 4096,
+          completion_tokens_details: { reasoning_tokens: 3900 },
+        },
+      }),
+      lines,
+    );
+    expect(await chat({ model: "m", messages: [] })).toBe('{"summary":"本文');
+    expect(lines).toEqual([
+      'chat reply ended by finish_reason "length", not "stop": 4096 completion tokens (3900 reasoning), 812 prompt tokens, 14 chars of content, 26 chars of reasoning',
+    ]);
+    expect(lines.join("")).not.toContain("本文");
+    expect(lines.join("")).not.toContain("thinking");
+  });
+
+  test("says so before refusing a reply that is all reasoning", async () => {
+    const lines: string[] = [];
+    const chat = client(
+      completion({
+        choices: [
+          {
+            message: { content: "", reasoning_content: "x".repeat(50) },
+            finish_reason: "length",
+          },
+        ],
+      }),
+      lines,
+    );
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      "no message content",
+    );
+    expect(lines).toEqual([
+      'chat reply ended by finish_reason "length", not "stop": 0 chars of content, 50 chars of reasoning',
+    ]);
+  });
+
+  test("is silent for a reply that ended on its own, or says nothing", async () => {
+    const lines: string[] = [];
+    for (const finish of ["stop", null, undefined]) {
+      const chat = client(
+        completion({
+          choices: [{ message: { content: "ok" }, finish_reason: finish }],
+        }),
+        lines,
+      );
+      expect(await chat({ model: "m", messages: [] })).toBe("ok");
+    }
+    expect(lines).toEqual([]);
   });
 });
 

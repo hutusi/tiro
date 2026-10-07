@@ -89,6 +89,7 @@ function chatClientFor(config: TiroConfig, deadline: Deadline): ChatFn | null {
     timeoutMs: config.llm.timeout_ms,
     maxRetries: config.llm.max_retries,
     deadline,
+    log: (message) => console.log(message),
   });
 }
 

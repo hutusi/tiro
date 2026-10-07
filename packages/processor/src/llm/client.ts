@@ -57,6 +57,60 @@ export interface ChatClientOptions {
   deadline?: Deadline;
   fetchImpl?: FetchLike;
   sleep?: (ms: number) => Promise<void>;
+  /** Where a reply the provider did not end on its own is reported — see
+   * `unfinishedReply`. */
+  log?: (message: string) => void;
+}
+
+/** The parts of a chat completions reply this client reads. */
+interface CompletionPayload {
+  choices?: {
+    message?: { content?: string; reasoning_content?: string };
+    finish_reason?: string | null;
+  }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
+}
+
+/**
+ * One line saying why a reply ended, when it was not the model finishing.
+ *
+ * `finish_reason` is the only place a provider says it cut a reply short — at
+ * its output cap, or by a content filter — and without it a cut reply reads,
+ * to every caller, like a model that stopped mid-sentence by choice. The
+ * summary call's `summary_failed` articles were undiagnosable for exactly that
+ * reason (2026-10). Reported rather than acted on: what a cut reply is worth
+ * differs by caller, and each one already validates what it gets back.
+ *
+ * Sizes only, never text: a reply is a reading of a vault article, and this
+ * line goes to the workflow log. A reasoning model's thinking is measured
+ * separately because it is spent from the same output budget as the answer.
+ */
+function unfinishedReply(
+  reason: string,
+  payload: CompletionPayload,
+  content: string | undefined,
+): string {
+  const { usage } = payload;
+  const parts: string[] = [];
+  if (usage?.completion_tokens !== undefined) {
+    const reasoning = usage.completion_tokens_details?.reasoning_tokens;
+    parts.push(
+      `${usage.completion_tokens} completion tokens${reasoning !== undefined ? ` (${reasoning} reasoning)` : ""}`,
+    );
+  }
+  if (usage?.prompt_tokens !== undefined) {
+    parts.push(`${usage.prompt_tokens} prompt tokens`);
+  }
+  parts.push(`${content?.length ?? 0} chars of content`);
+  const thinking = payload.choices?.[0]?.message?.reasoning_content;
+  if (typeof thinking === "string" && thinking !== "") {
+    parts.push(`${thinking.length} chars of reasoning`);
+  }
+  return `chat reply ended by finish_reason "${reason}", not "stop": ${parts.join(", ")}`;
 }
 
 const RETRY_DELAYS_MS = [500, 1500, 3000];
@@ -173,6 +227,7 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
     deadline,
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    log = () => {},
   } = options;
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
@@ -241,10 +296,17 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         // retried, not an outage. Left unnamed, the first read as neither, and
         // the PDF pass checkpointed its fallback as the batch's settled answer.
         const text = await res.text().catch(asConnectionError);
-        const payload = JSON.parse(text) as {
-          choices?: { message?: { content?: string } }[];
-        };
-        const content = payload.choices?.[0]?.message?.content;
+        const payload = JSON.parse(text) as CompletionPayload;
+        const choice = payload.choices?.[0];
+        const content = choice?.message?.content;
+        // Before the empty check: a reply whose whole budget went on reasoning
+        // arrives with no content, and is the case that most needs explaining.
+        if (
+          typeof choice?.finish_reason === "string" &&
+          choice.finish_reason !== "stop"
+        ) {
+          log(unfinishedReply(choice.finish_reason, payload, content));
+        }
         if (typeof content !== "string" || content === "") {
           throw new Error("chat completions response has no message content");
         }
