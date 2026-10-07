@@ -140,6 +140,57 @@ describe("pdfMarkdown paragraphs", () => {
   });
 });
 
+describe("pdfMarkdown scanned text", () => {
+  /**
+   * A scan's OCR layer reports a word's size as its glyph height in whole
+   * points, so one paragraph arrives as a mix of 10 and 9, written as the
+   * layer writes them. Every switch used to end a block, and a 1973 paper came
+   * out as paragraphs cut every one to three lines, with a page's hyphenated
+   * word stranded at the end of each piece.
+   */
+  test("keeps a paragraph whose lines wobble a point around the body", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("calls himself Neumann; the other makes it less", 700, {
+          size: 10.9997,
+        }),
+        line("conspicuous by amalgama-", 700 - LINE, { size: 9.99973 }),
+        line("ting it with the family name.", 700 - 2 * LINE, {
+          size: 10.9997,
+        }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "calls himself Neumann; the other makes it less conspicuous by amalgamating it with the family name.",
+    );
+  });
+
+  test("still breaks for a size more than a point away", () => {
+    const md = pdfMarkdown(
+      layout([
+        line("The last line of a paragraph.", 700),
+        line("A footnote set two points smaller.", 700 - LINE, { size: 9 }),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "The last line of a paragraph.\n\nA footnote set two points smaller.",
+    );
+  });
+
+  test("still breaks between a heading size and the body, however close", () => {
+    const md = pdfMarkdown(
+      layout(
+        [
+          line("A Heading", 700, { size: 12 }),
+          line("Body text beneath it.", 700 - LINE),
+        ],
+        [12],
+      ),
+    );
+    expect(md.trim()).toBe("# A Heading\n\nBody text beneath it.");
+  });
+});
+
 describe("pdfMarkdown code", () => {
   test("fences a run set entirely in a fixed-width face", () => {
     const md = pdfMarkdown(

@@ -313,7 +313,45 @@ function expectedLeading(
   return leading * scale * BLOCK_GAP;
 }
 
-function toBlocks(lines: readonly Line[], bodySize: number): Line[][] {
+/**
+ * How far an OCR text layer's sizes wobble around the body.
+ *
+ * A scan's invisible text layer reports each word's size as the height of the
+ * glyphs OCR found, rounded to a whole point, so one paragraph comes out as a
+ * mix of 9 and 10. Measured on a scanned 1973 paper (Tesseract's
+ * `GlyphLessFont`): 340 lines at 10pt and 189 at 9, alternating within
+ * paragraphs. Every alternation broke a block, and its 259 blocks were
+ * paragraphs cut every one to three lines. Typeset documents never came near
+ * this: a two-paper sample's only size changes of a point or less were among
+ * a diagram's 4-6pt labels.
+ */
+const BODY_WOBBLE = 1;
+
+/** Is a size change between two lines only the OCR wobble above? Both must
+ * sit by the body and neither may be a heading size, so a heading still never
+ * shares a block with the paragraph beneath it. */
+function wobble(
+  a: number,
+  b: number,
+  bodySize: number,
+  headingSizes: readonly number[],
+): boolean {
+  // To the tenth of a point, as `bodySize` and `headingSizes` key them: the
+  // layer reports 9 as 8.99973, a hair more than a point from a 10pt body.
+  const tenth = (size: number): number => Math.round(size * 10) / 10;
+  const nearBody = (size: number): boolean =>
+    Math.abs(tenth(size) - bodySize) <= BODY_WOBBLE &&
+    !headingSizes.some((heading) => Math.abs(heading - tenth(size)) <= 0.5);
+  return (
+    Math.abs(tenth(a) - tenth(b)) <= BODY_WOBBLE && nearBody(a) && nearBody(b)
+  );
+}
+
+function toBlocks(
+  lines: readonly Line[],
+  bodySize: number,
+  headingSizes: readonly number[],
+): Line[][] {
   const leading = lineSpacing(lines, bodySize);
   const blocks: Line[][] = [];
   let block: Line[] = [];
@@ -325,7 +363,8 @@ function toBlocks(lines: readonly Line[], bodySize: number): Line[][] {
         line.mono !== last.mono ||
         // A size change is a structural boundary: a heading never shares a
         // block with the paragraph beneath it.
-        Math.abs(line.size - last.size) > 0.5 ||
+        (Math.abs(line.size - last.size) > 0.5 &&
+          !wobble(line.size, last.size, bodySize, headingSizes)) ||
         last.y - line.y > expectedLeading(last.size, bodySize, leading));
     if (broken) {
       blocks.push(block);
@@ -562,7 +601,7 @@ export function pdfMarkdown(layout: PdfLayout): string {
 
   const out: string[] = [];
   const lines = stripFurnitureLines(toLines(layout), layout.totalPages);
-  for (const block of toBlocks(lines, bodySize)) {
+  for (const block of toBlocks(lines, bodySize, headingSizes)) {
     const first = block[0];
     if (first === undefined) continue;
 
