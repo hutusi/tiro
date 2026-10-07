@@ -355,6 +355,20 @@ describe("pdfMarkdown superscript marks", () => {
     );
   });
 
+  test("escapes a star mark, so two of them never pair as emphasis", () => {
+    const md = pdfMarkdown(
+      layout([
+        run("A claim.", 72, 700),
+        run("*", 112, 704, mark),
+        run(" Another claim.", 117, 700),
+        run("*", 192, 704, mark),
+      ]),
+    );
+    expect(md.trim()).toBe(
+      "A claim.<sup>\\*</sup> Another claim.<sup>\\*</sup>",
+    );
+  });
+
   test("leaves a small digit on the baseline alone", () => {
     const md = pdfMarkdown(
       layout([run("See table", 72, 700), run(" 2", 117, 700, mark)]),

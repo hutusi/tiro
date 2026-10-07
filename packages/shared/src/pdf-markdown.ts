@@ -81,7 +81,14 @@ function lineText(
       isMark(item, bodySize) && item.y - baseline > LINE_TOLERANCE
         ? // The run's own spaces stay outside the tag: pdf.js hands over "3 ",
           // and the space is the only word break before the next run.
-          item.text.replace(/^(\s*)(.*?)(\s*)$/su, "$1<sup>$2</sup>$3")
+          // A `*` is escaped: two in one paragraph pair up as emphasis, and
+          // the site rendered both marks as nothing and the text between
+          // them in italics.
+          item.text.replace(
+            /^(\s*)(.*?)(\s*)$/su,
+            (_, before: string, mark: string, after: string) =>
+              `${before}<sup>${mark.replace(/\*/g, "\\*")}</sup>${after}`,
+          )
         : item.text;
     previous = item;
   }
