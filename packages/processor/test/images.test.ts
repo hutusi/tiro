@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { snapshotAssetName } from "@tiro/shared";
 import {
   findImageUrls,
   processImages,
@@ -614,6 +615,35 @@ describe("reconcileAssets", () => {
 
   test("is a no-op when there is no assets directory", async () => {
     expect(await reconcileAssets("/nonexistent/assets", "")).toBe(0);
+  });
+});
+
+describe("a figure snapshot the extension committed (ADR 0039)", () => {
+  // Named by the shared rule, the way the extension names it.
+  const name = snapshotAssetName("3f9a0c1b2d4e");
+  const body = `[![A lathe](./assets/${name})](https://example.com/lathe)  \nSlower than life.`;
+
+  test("is left as it is by the download stage", async () => {
+    const dir = tempAssetsDir();
+    const result = await processImages(options(body, dir));
+    expect(result).toEqual({ body, downloaded: 0, failed: 0 });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("is kept while the body names it, and pruned once it does not", async () => {
+    const dir = tempAssetsDir();
+    writeFileSync(join(dir, name), PNG_BYTES);
+    expect(await reconcileAssets(dir, body)).toBe(0);
+    expect(readdirSync(dir)).toEqual([name]);
+    // A re-clip without a capture writes the placeholder instead.
+    expect(
+      await reconcileAssets(
+        dir,
+        "[Interactive figure](https://example.com/lathe)",
+      ),
+    ).toBe(1);
+    expect(readdirSync(dir)).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
