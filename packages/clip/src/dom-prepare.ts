@@ -15,7 +15,11 @@
  * subtrees, and a formula it drops cannot be recovered afterwards.
  */
 
-import { languageFromFilename, languageFromLabel } from "@tiro/shared";
+import {
+  languageFromFilename,
+  languageFromLabel,
+  normalizeUrl,
+} from "@tiro/shared";
 import type TurndownService from "turndown";
 
 /** Marks a recovered formula for the Turndown rule in clipper.ts. */
@@ -1083,6 +1087,19 @@ const VIDEO_LABEL = "Video";
 const KEEP_MARK = "\uE000";
 const VIDEO_PLACEHOLDER = `${KEEP_MARK}${VIDEO_LABEL}${KEEP_MARK}`;
 
+/**
+ * What a figure the page draws with script becomes in the clip: the text of the
+ * link back to the page, which is the one place the figure still works.
+ */
+const FIGURE_LABEL = "Interactive figure";
+
+/**
+ * Marks a `<figure>` that `keepScriptFiguresThroughReadability` emptied, so the
+ * pass after Readability can find it again. Found by this marker and never by
+ * tag: Readability renames a sibling it appends to the article to `<div>`.
+ */
+const FIGURE_ATTR = "data-tiro-figure";
+
 /** A video address a reader can follow: http(s), resolved against the page.
  * `blob:` is what a streaming player hands its `<video>`, and it means nothing
  * outside the tab that made it; `data:` would put the file in the markdown. */
@@ -1162,7 +1179,9 @@ function keepVideosThroughReadability(doc: Document): void {
  * video's: the label `keepVideosThroughReadability` adds, or the page's own
  * "your browser does not support video" — so an article opening on its demo was
  * summarised as `Video`, in the popup, the frontmatter and the site's feed,
- * even when the video itself was then dropped from the body.
+ * even when the video itself was then dropped from the body. A script-drawn
+ * figure is the same case: an interactive article opens on one, and a `<div>`
+ * wrapped round it becomes the `<p>` holding its label.
  *
  * Recognised by `KEEP_MARK`, which only a placeholder carries. Comparing
  * the excerpt with the first paragraph's text was tried first and cannot tell
@@ -1173,7 +1192,7 @@ function keepVideosThroughReadability(doc: Document): void {
  * carries it was read out of the body, and anything else passes through.
  *
  * Rebuilt from the first paragraph that still says something once every
- * video is gone — the one Readability would have taken had the video's
+ * placeholder is gone — the one Readability would have taken had the video's
  * paragraph been deleted, as it was before videos were kept.
  */
 export function excerptWithoutPlaceholders(
@@ -1184,8 +1203,10 @@ export function excerptWithoutPlaceholders(
   if (!excerpt.includes(KEEP_MARK)) return excerpt;
   const scratch = doc.implementation.createHTMLDocument("");
   scratch.body.innerHTML = content;
-  for (const video of Array.from(scratch.querySelectorAll("video"))) {
-    video.remove();
+  for (const placeholder of Array.from(
+    scratch.querySelectorAll(`video, [${FIGURE_ATTR}]`),
+  )) {
+    placeholder.remove();
   }
   for (const paragraph of Array.from(scratch.querySelectorAll("p"))) {
     const text = (paragraph.textContent ?? "").trim();
@@ -1269,6 +1290,307 @@ export function videosAsPostersIn(
     const anchor = video.getAttribute(ANCHOR_ATTR);
     if (anchor !== null) replacement.setAttribute(ANCHOR_ATTR, anchor);
     video.replaceWith(replacement);
+  }
+  return scratch.body.innerHTML;
+}
+
+/**
+ * Readability's `_fixLazyImages` tests, copied from `Readability.js` (0.6.0,
+ * ~2389). An attribute whose value looks like an image address becomes an
+ * image — and on a `<figure>` with no image inside, a new `<img>` appended to
+ * it. A figure, or anything in it, carrying one is an image the page has yet to
+ * load, not a figure it draws.
+ */
+const LAZY_SRCSET = /\.(jpg|jpeg|png|webp)\s+\d/;
+const LAZY_SRC = /^\s*\S+\.(jpg|jpeg|png|webp)\S*\s*$/;
+
+/**
+ * What a drawn figure's slot holds before its script runs — the empty
+ * containers it fills, and the scripts and styles that fill them — and the
+ * canvas it draws into once it has.
+ *
+ * An allow-list, the direction every pass in this file takes: the open web puts
+ * quotes, code, noscript images and charts in `<figure>`, and an element nobody
+ * has considered leaves the figure converting exactly as it does today.
+ */
+const FIGURE_SLOT: ReadonlySet<string> = new Set([
+  "DIV",
+  "SPAN",
+  "CANVAS",
+  "SCRIPT",
+  "STYLE",
+]);
+
+/**
+ * What a drawn figure lays over and under its canvas: labels, narration, and
+ * the controls that step it. Allowed only beside a canvas, which is what shows
+ * them to be chrome — a button does nothing in markdown, and a label points at
+ * a picture the clip does not have.
+ */
+const FIGURE_CHROME: ReadonlySet<string> = new Set([
+  "BUTTON",
+  "INPUT",
+  "LABEL",
+  "SELECT",
+  "OPTION",
+  "OPTGROUP",
+  "OUTPUT",
+  "METER",
+  "PROGRESS",
+  "BR",
+  "B",
+  "STRONG",
+  "I",
+  "EM",
+  "SMALL",
+  "KBD",
+  "SUB",
+  "SUP",
+]);
+
+/** The page's own description of a figure: `aria-label`, else `title` — the
+ * order `videosAsPostersIn` reads a video's. */
+function figureLabel(figure: Element): string {
+  return (
+    figure.getAttribute("aria-label") ??
+    figure.getAttribute("title") ??
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** A figure's caption: a `<figcaption>` that is its direct child. */
+function directCaption(figure: Element): Element | null {
+  for (const child of Array.from(figure.children)) {
+    if (child.tagName.toUpperCase() === "FIGCAPTION") return child;
+  }
+  return null;
+}
+
+function looksLikeLazyImage(element: Element): boolean {
+  for (const attr of Array.from(element.attributes)) {
+    if (LAZY_SRCSET.test(attr.value) || LAZY_SRC.test(attr.value)) return true;
+    // A picture painted as a background is an image too, and one this would
+    // otherwise replace with a description of nothing.
+    if (attr.name === "style" && /url\(/i.test(attr.value)) return true;
+  }
+  return false;
+}
+
+/** Text outside the caption, scripts and styles — what the figure says in
+ * markup rather than in pixels. */
+function slotText(node: Node, caption: Element | null): string {
+  let text = "";
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === child.TEXT_NODE) {
+      text += child.textContent ?? "";
+      continue;
+    }
+    if (child.nodeType !== child.ELEMENT_NODE || child === caption) continue;
+    const tag = (child as Element).tagName.toUpperCase();
+    if (tag === "SCRIPT" || tag === "STYLE") continue;
+    text += slotText(child, caption);
+  }
+  return text;
+}
+
+/**
+ * True when `figure` is one the page draws with script: a `<figure>` holding
+ * nothing but empty containers, or a `<canvas>` and the chrome around it, and
+ * at most a caption.
+ *
+ * Such a figure is lost whole today. Before its script runs it is an empty
+ * `<div>`, which Readability turns into a `<p>` and deletes; after, it is a
+ * canvas Turndown has no rule for, beside overlay labels and narration that
+ * reach the article as stray paragraphs. Only its caption survives, as prose
+ * describing a picture that is not there.
+ *
+ * Deliberately narrow, because the cost of a wrong answer is a real figure
+ * replaced by a link: a lone `<figure><figcaption>` pull-quote has no slot, a
+ * chart drawn as `<svg>` has an element this does not allow, and a figure with
+ * text of its own outside the caption is saying something. Bare canvases with
+ * no `<figure>` around them, `[role=figure]`, and a caption reached through
+ * `aria-labelledby` are left for when a page needs them.
+ */
+function isScriptDrawnFigure(figure: Element): boolean {
+  if (insideLink(figure)) return false;
+  if (looksLikeLazyImage(figure)) return false;
+  const caption = directCaption(figure);
+  // A second caption, or one nested deeper, is a figure this cannot describe
+  // as one block.
+  if (
+    figure.querySelectorAll("figcaption").length !== (caption === null ? 0 : 1)
+  ) {
+    return false;
+  }
+  const slot = Array.from(figure.querySelectorAll("*")).filter(
+    (element) => caption === null || !caption.contains(element),
+  );
+  if (slot.length === 0) return false;
+  const drawn = slot.some(
+    (element) => element.tagName.toUpperCase() === "CANVAS",
+  );
+  for (const element of slot) {
+    if (looksLikeLazyImage(element)) return false;
+    if (
+      element.hasAttribute(MATH_ATTR) ||
+      element.hasAttribute(CODE_LANG_ATTR)
+    ) {
+      return false;
+    }
+    // A leader line drawn over the canvas. An `<svg>` with no canvas beside it
+    // is a chart or a diagram of its own, which is not this pass's to replace.
+    const svg = element.closest("svg");
+    if (svg !== null && figure.contains(svg)) {
+      if (drawn) continue;
+      return false;
+    }
+    const tag = element.tagName.toUpperCase();
+    // A script that loads from elsewhere is a third-party embed filling its
+    // own slot — a podcast player, a gist, a tweet — not a figure the page
+    // draws. The corpus has one: Buzzsprout's player, an empty <div> beside a
+    // <script src> and a caption telling the reader where to click.
+    if (tag === "SCRIPT" && element.hasAttribute("src")) return false;
+    if (FIGURE_SLOT.has(tag)) continue;
+    if (drawn && FIGURE_CHROME.has(tag)) continue;
+    return false;
+  }
+  // Text beside a canvas is its labels and narration. Text with no canvas is
+  // the figure saying something in markup, and that is content.
+  if (!drawn && slotText(figure, caption).trim() !== "") return false;
+  // A figure that shows nothing is not one to describe. Readability drops what
+  // it hides, but only once this pass has emptied the slot it would have read.
+  const shown = Array.from(figure.children).filter(
+    (child) => child !== caption,
+  );
+  if (shown.every((child) => readabilityHides(child))) return false;
+  const captioned = (caption?.textContent ?? "").trim() !== "";
+  return figureLabel(figure) !== "" || captioned || drawn;
+}
+
+/**
+ * Give every figure a page draws with script text of its own, so Readability
+ * keeps it until `scriptFiguresIn` can say what it was.
+ *
+ * Its slot — the empty shell, or the canvas and its overlays — is replaced by a
+ * `<span>` holding the figure's label between `KEEP_MARK`s. A `<span>` rather
+ * than the bare text `keepVideosThroughReadability` uses, because a figure
+ * Readability renames to `<div>` then faces `_cleanConditionally`, which counts
+ * only text inside SPAN, P, DIV and their kind: bare text measures zero, and a
+ * figure with no image and no text density is deleted.
+ *
+ * Only children change. The figure keeps every attribute, so Readability's
+ * hidden, furniture and byline verdicts on it still stand — the hazard ADR 0011
+ * recorded for any pass that runs before extraction.
+ */
+function keepScriptFiguresThroughReadability(doc: Document): void {
+  // Page-authored markers go first, as in every marker pass in this file.
+  for (const stale of Array.from(doc.querySelectorAll(`[${FIGURE_ATTR}]`))) {
+    stale.removeAttribute(FIGURE_ATTR);
+  }
+  for (const figure of Array.from(doc.querySelectorAll("figure"))) {
+    if (!isScriptDrawnFigure(figure)) continue;
+    const caption = directCaption(figure);
+    for (const child of Array.from(figure.childNodes)) {
+      if (child !== caption) figure.removeChild(child);
+    }
+    const keep = doc.createElement("span");
+    keep.textContent = `${KEEP_MARK}${figureLabel(figure) || FIGURE_LABEL}${KEEP_MARK}`;
+    figure.insertBefore(keep, caption);
+    figure.setAttribute(FIGURE_ATTR, "");
+  }
+}
+
+/**
+ * Where a figure's link points: the page as the article records it — tracking
+ * parameters gone — and the figure itself when it has an id to go to.
+ */
+function figureHref(pageUrl: string, id: string): string | null {
+  let page: string;
+  try {
+    page = normalizeUrl(pageUrl);
+  } catch {
+    return null;
+  }
+  if (!/^https?:/i.test(page)) return null;
+  return ANCHOR_ID.test(id) ? `${page}#${id}` : page;
+}
+
+/**
+ * Turn every figure `keepScriptFiguresThroughReadability` marked into a
+ * paragraph markdown can carry: a link back to the page, the page's own
+ * description of the figure, and its caption —
+ * `[Interactive figure](page): label` then the caption on the next line.
+ *
+ * Markdown cannot hold the figure, and the site runs no publisher script, so
+ * what the reader is owed is that there *was* a figure, what the author said it
+ * shows, and the way to it. The paragraph is prose, so it is translated as
+ * prose, and it is one block, which is what keeps `zh.md` aligned (ADR 0003).
+ *
+ * Built here rather than left to `foldFiguresIn`, which needs an image to fold
+ * a caption beside and would also miss a figure Readability renamed to a
+ * `<div>`. Runs before `placeAnchorsIn`, which places the anchor carried over
+ * to the paragraph.
+ */
+export function scriptFiguresIn(
+  html: string,
+  doc: Document,
+  pageUrl: string,
+): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  for (const figure of Array.from(
+    scratch.querySelectorAll(`[${FIGURE_ATTR}]`),
+  )) {
+    const label = figureLabel(figure);
+    const caption = directCaption(figure);
+    const captionText = (caption?.textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const source =
+      caption !== null && captionText !== "" ? captionSource(caption) : null;
+    const paragraph = scratch.createElement("p");
+    const href = figureHref(pageUrl, figure.getAttribute("id") ?? "");
+    const link = scratch.createElement(href === null ? "span" : "a");
+    if (href !== null) link.setAttribute("href", href);
+    link.textContent = FIGURE_LABEL;
+    paragraph.appendChild(link);
+    // A table row is one line of markdown, and a break would end it.
+    const separator = (): Node =>
+      figure.closest("td, th") === null
+        ? scratch.createElement("br")
+        : scratch.createTextNode(" ");
+    let captionUsed = captionText === "";
+    if (label !== "") {
+      paragraph.appendChild(scratch.createTextNode(`: ${label}`));
+      // A caption that only repeats the label is said once.
+      if (captionText === label) captionUsed = true;
+      else if (source !== null) {
+        paragraph.appendChild(separator());
+        while (source.firstChild !== null) {
+          paragraph.appendChild(source.firstChild);
+        }
+        captionUsed = true;
+      }
+    } else if (source !== null) {
+      paragraph.appendChild(scratch.createTextNode(": "));
+      while (source.firstChild !== null) {
+        paragraph.appendChild(source.firstChild);
+      }
+      captionUsed = true;
+    }
+    // The figure's anchor, and its caption's, go where the text now is.
+    const anchors = [figure, caption]
+      .map((element) => element?.getAttribute(ANCHOR_ATTR) ?? "")
+      .filter((value) => value !== "");
+    if (anchors.length > 0) {
+      paragraph.setAttribute(ANCHOR_ATTR, anchors.join(" "));
+    }
+    figure.replaceWith(paragraph);
+    // A caption a paragraph cannot absorb is kept as its own block rather than
+    // dropped: losing content off the page is worse than a loose caption.
+    if (!captionUsed && caption !== null) paragraph.after(caption);
   }
   return scratch.body.innerHTML;
 }
@@ -1954,6 +2276,11 @@ export function prepareForClipping(doc: Document): void {
   clearLatexmlPlaceholderAlts(doc);
   dropEmptyCitations(doc);
   keepVideosThroughReadability(doc);
+  // After unwrapPictures and the math and code recovery, so an image, a formula
+  // or a fence is already there to rule a figure out; before dropChartSvgs,
+  // which would empty a chart's figure into one this mistakes for a shell; and
+  // before markInDocumentAnchors, so a link to the figure marks what survives.
+  keepScriptFiguresThroughReadability(doc);
   // After normalizeMath, so a MathJax formula has already become its TeX
   // marker rather than an <svg> this could delete.
   dropChartSvgs(doc);

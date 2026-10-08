@@ -8,6 +8,7 @@ import {
   prepareForClipping,
   readLatexmlMetadata,
   restoreCodeLanguagesIn,
+  scriptFiguresIn,
   videosAsPostersIn,
 } from "./dom-prepare.ts";
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
@@ -94,10 +95,15 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // caption, and folding then carries the anchor into the caption half of the
   // paragraph it builds, where the picture is still the first thing in it.
   // Videos become linked posters before any of it, so that a video's figure is
-  // an image figure by the time the fold looks (videosAsPostersIn).
+  // an image figure by the time the fold looks (videosAsPostersIn). A figure
+  // the page draws with script becomes a described link just after, and before
+  // the anchors, which place the one it carries over (scriptFiguresIn).
   const html = foldFiguresIn(
     placeAnchorsIn(
-      restoreCodeLanguagesIn(videosAsPostersIn(extracted, doc, url), doc),
+      restoreCodeLanguagesIn(
+        scriptFiguresIn(videosAsPostersIn(extracted, doc, url), doc, url),
+        doc,
+      ),
       doc,
     ),
     doc,
