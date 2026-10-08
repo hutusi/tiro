@@ -1242,7 +1242,10 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    builds its article in JavaScript arrives as a shell — four articles in the
    current corpus do — and lazy-loaded images resolve in a browser and not here.
    Those are flagged, but the flag is a heuristic on length. Only a headless
-   browser fixes this properly, and that is a different tool.
+   browser fixes this properly, and that is a different tool. A figure the
+   page draws with script is the exception that agrees: the empty shell seen
+   here and the drawn canvas the extension sees become the same
+   `[Interactive figure](…)` block, so a diff there is real.
 2. **`--baseline` resolves dependencies from the working tree.** The worktree
    holds source, not `node_modules`, so both sides import today's Readability
    and Turndown. That is what you want when judging your own change and exactly

@@ -28,6 +28,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An interactive figure is described, not lost.** A figure a page draws
+  with its own script — a canvas filled once it scrolls into view — vanished
+  from the clip and left its caption behind as loose prose, while the figures
+  already drawn leaked their labels and button text into the article. Each now
+  becomes one line linking back to the figure on the page, with the author's
+  own description of it and its caption, translated like any paragraph.
+  Re-clip an article to pick this up.
 - **A clip records the build that wrote its body.** `tiro.clipper_commit` came
   from the popup's build, while the page body comes from the clipper
   extracting it, a separate file. The clipper now stamps its own commit. A body

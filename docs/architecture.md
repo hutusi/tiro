@@ -160,6 +160,16 @@ flowchart LR
    markdown can express (ADR 0011). It has to run second because Readability
    selects on the very attributes folding replaces; done first, a
    `<figure hidden>` became a plain `<p>` and its hidden image was published.
+
+   A figure the page draws with script — a `<figure>` holding only empty
+   containers, or a `<canvas>` and the labels, narration and buttons laid over
+   it — has nothing markdown can hold, and used to lose everything but its
+   caption. It crosses Readability with its label in a marked `<span>`, and
+   after it becomes one block: `[Interactive figure](page#id): label`, with the
+   caption on the next line, translated as prose. Its overlays are chrome and
+   are dropped. Which figures qualify is an allow-list, so images, svg charts,
+   quotes, code and third-party embeds (a `<script src>` in the figure) convert
+   as they always did.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
