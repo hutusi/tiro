@@ -88,7 +88,7 @@ across machines, not for an audience.
 
 | Permission | Justification |
 | --- | --- |
-| `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. |
+| `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. On a page whose figures its own script draws, the popup offers "Capture N figures"; only if the user presses it does the same grant take pictures of the visible tab (`captureVisibleTab`), cropped to each figure and committed with the clip, because markdown cannot hold a figure that only exists as a running script. |
 | `contextMenus` | Adds one item, "Clip link to Tiro", to the right-click menu on links. Choosing it saves that link's address into the user's own repository, so the page can be clipped later without being opened. It reads nothing from the page the link is on, and sends only the address, only on that click. Chrome shows no install warning for this permission. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. Before that, on the same click, it runs a two-line function that looks for the marker a Tiro site publishes, so the popup can offer collections instead of a clip on a page carrying that marker — on any domain; it does not check whose site it is. Both are bundled with the extension; nothing is fetched or evaluated at runtime. |
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup, plus collection changes not yet saved to the repository and the outcome of the last save (kept briefly after saving, at most a week, never synced). Removing an article from the popup deletes its entry from the clip record. Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
@@ -149,7 +149,9 @@ repository — a declaration that reads narrower than the code is a rejection.
 - **Personal communications, location, user activity**: No
 - **Website content**: **Yes** — the text of a page, read when the user opens
   the popup on it, and transmitted only if they then clip it, only to their own
-  GitHub repository. The same declaration is stretched to cover a PDF the user
+  GitHub repository. If the user presses "Capture figures", pictures of parts of
+  the page — each figure its script draws — are taken too, and transmitted the
+  same way, with the clip, to the same repository. The same declaration is stretched to cover a PDF the user
   imports from their own computer, whose text the extension reads in the page
   and commits the same way. That file is not website content and Google
   publishes no category that fits it, so it is declared here rather than left
@@ -171,7 +173,8 @@ deletes an article from the repository once the user confirms; neither 5 nor 6
 had been released, so it joined 6 rather than bumping to 7. Version 7 came when
 the popup began offering collections under a saved clip: 6 had shipped saying
 collection changes are made on a Tiro site, and they now are on any page just
-clipped.
+clipped. Version 7 also names "Capture figures", which takes pictures of parts
+of the page; 7 had not been released, so it joined 7 rather than bumping to 8.
 
 Required certifications, all true of this extension:
 

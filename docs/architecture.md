@@ -41,7 +41,11 @@ flowchart LR
 1. **Clip.** The Chrome extension repairs the page DOM, extracts it
    (Readability), converts it to Markdown (Turndown), assembles frontmatter,
    and commits a single `index.md` into the vault via the GitHub Contents API.
-   Images stay hotlinked (absolute URLs) at this stage.
+   Images stay hotlinked (absolute URLs) at this stage. The one exception is a
+   figure the page draws with script, captured on the reader's request (ADR
+   0039): its picture is taken in the popup and committed beside `index.md`,
+   as `assets/<12 hex>.webp`, in one Git Data API commit — named the way the
+   processor names its downloads, so processing keeps and prunes it like one.
 
    Two kinds of page are not read from the tab at all, for one reason: their
    publisher's URL forms are a single identity (ADR 0013), so a clip does not
@@ -169,7 +173,9 @@ flowchart LR
    caption on the next line, translated as prose. Its overlays are chrome and
    are dropped. Which figures qualify is an allow-list, so images, svg charts,
    quotes, code and third-party embeds (a `<script src>` in the figure) convert
-   as they always did.
+   as they always did. On request the popup replaces each link with a picture
+   of the figure (ADR 0039): it scrolls the tab to the figure, takes the visible
+   tab, crops it, and re-clips with the pictures in.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
@@ -406,6 +412,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 | iPhone Shortcut | fine-grained PAT (tiro-vault, Contents RW) | writing a saved link into `inbox/` — its own token, so a lost phone is one revocation (ADR 0034) |
 
 ## Risk register
+
+- **A captured figure is checked only live** (ADR 0039). The sweep and the
+  tests cover the placeholder and the DOM transform; scrolling, the screenshot
+  and the crop need a real browser, which is the manual pass. A re-clip
+  without a capture goes back to links, and the processor prunes the pictures.
 
 - **A saved link reads less than a browser clip** (ADR 0034). The processor's
   fetch carries no cookies and runs no script, so a paywall answers as to a

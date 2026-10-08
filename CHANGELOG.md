@@ -9,6 +9,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Capture interactive figures.** On a page whose figures its own script
+  draws, the popup offers "Capture N figures": it scrolls to each one, takes a
+  picture of it, and puts the pictures in the article in place of the links —
+  committed with the clip, in one commit, as images processing keeps like any
+  other. Only when asked, since it moves the page for about two seconds a
+  figure; a figure too tall for the screen, or with something on top of it,
+  stays a link. The data disclosure names it, still at version 7 (ADR 0039).
 - **Hacker News threads clip.** An item page used to be clipped as a stack of
   usernames and timestamps, with the post and every comment lost. It is now
   read from HN's own markup: the story link, the Ask/Show/Tell HN text, a
