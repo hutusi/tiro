@@ -4,6 +4,7 @@ import {
   type CaptureEffects,
   captureFigures,
   cropBox,
+  figuresShown,
   isSameBody,
   looksBlank,
   outputSize,
@@ -320,5 +321,26 @@ describe("isSameBody", () => {
     expect(isSameBody(onScreen, { ...onScreen, documentId: undefined })).toBe(
       false,
     );
+  });
+});
+
+describe("figuresShown", () => {
+  test("two figures sharing one picture are two figures shown", () => {
+    expect(
+      figuresShown(
+        [{ id: "aaaaaaaaaaaa" }, { id: "aaaaaaaaaaaa" }],
+        ["aaaaaaaaaaaa"],
+      ),
+    ).toBe(2);
+  });
+
+  test("a figure the re-clip could not find again is not counted", () => {
+    expect(
+      figuresShown(
+        [{ id: "aaaaaaaaaaaa" }, { id: "bbbbbbbbbbbb" }],
+        ["aaaaaaaaaaaa"],
+      ),
+    ).toBe(1);
+    expect(figuresShown([{ id: "aaaaaaaaaaaa" }], undefined)).toBe(0);
   });
 });

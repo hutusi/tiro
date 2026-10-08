@@ -184,6 +184,26 @@ export function isSameBody(onScreen: BodyOrigin, arrived: BodyOrigin): boolean {
   );
 }
 
+/**
+ * How many captured figures the re-clipped article shows by their picture —
+ * the count the reader is told.
+ *
+ * Counted by figure, not by file: two figures whose pictures came out
+ * identical share one file, and counting files said "1 of 2 captured; the
+ * rest stay as links" when both were in. A figure the re-clip could not find
+ * again (its page re-rendered it) has its picture shown by nothing, and is
+ * not counted.
+ */
+export function figuresShown(
+  taken: Iterable<{ id: string }>,
+  shown: readonly string[] | undefined,
+): number {
+  const files = new Set(shown ?? []);
+  let count = 0;
+  for (const { id } of taken) if (files.has(id)) count += 1;
+  return count;
+}
+
 /** What the capture loop needs from the world. */
 export interface CaptureEffects {
   /** Save the scroll and arm the watchdog; false when no clip has run. */

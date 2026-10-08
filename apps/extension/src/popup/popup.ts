@@ -33,6 +33,7 @@ import {
   captureFigures,
   cropAndEncode,
   FRAME_OPTIONS,
+  figuresShown,
   isSameBody,
 } from "../figure-capture.ts";
 import {
@@ -1489,7 +1490,7 @@ async function main(): Promise<void> {
     capture = {
       ...offer,
       step: "done",
-      captured: payload.snapshots?.length ?? 0,
+      captured: figuresShown(outcome.snapshots.values(), payload.snapshots),
     };
     render();
   }
