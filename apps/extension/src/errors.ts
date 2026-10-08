@@ -34,6 +34,13 @@ function describeGitHubFailure(error: unknown, m: Messages): string | null {
  * popup's language. The raw error keeps its detail for the console; the user
  * gets an instruction, not a stack trace. */
 export function describeClipError(error: unknown, m: Messages): string {
+  // A clip carrying figure snapshots commits through the Git Data API, which
+  // gives up as a 409 of its own when the branch keeps moving — and the
+  // one-file PUT ends the same way when its single retry is refused too.
+  // Neither is GitHub failing; the next press usually lands.
+  if (error instanceof GitHubHttpError && error.status === 409) {
+    return m.errClipBusy;
+  }
   return describeGitHubFailure(error, m) ?? m.errClipFailed(String(error));
 }
 
@@ -59,19 +66,23 @@ export function describeRemoveError(error: unknown, m: Messages): string {
  *
  * The worker records the failure as data — it has no locale — and the popup
  * that next opens turns it into a sentence. Rebuilt into the error shapes
- * `describeClipError` already knows, so a bad token reads the same whichever
- * action ran into it.
+ * the clip's description already knows, so a bad token reads the same
+ * whichever action ran into it — but not through `describeClipError` itself,
+ * whose busy-branch sentence tells the reader to press Clip.
  */
 export function describeFlushError(
   status: { error?: string; httpStatus?: number },
   m: Messages,
 ): string {
   const detail = status.error ?? "";
-  if (status.httpStatus !== undefined) {
-    return describeClipError(new GitHubHttpError(status.httpStatus, detail), m);
-  }
-  if (detail === "Failed to fetch") {
-    return describeClipError(new TypeError(detail), m);
+  const error =
+    status.httpStatus !== undefined
+      ? new GitHubHttpError(status.httpStatus, detail)
+      : detail === "Failed to fetch"
+        ? new TypeError(detail)
+        : null;
+  if (error !== null) {
+    return describeGitHubFailure(error, m) ?? m.errClipFailed(String(error));
   }
   // Not the clip fallback, which would say the page could not be *clipped*.
   // What is left is a collection file the vault holds and this cannot parse,

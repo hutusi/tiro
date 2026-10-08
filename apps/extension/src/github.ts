@@ -32,7 +32,12 @@ function headers(config: TiroExtensionConfig): Record<string, string> {
 /** btoa throws on non-Latin1 input (any Chinese title), so base64 must go
  * through TextEncoder, chunked to stay under argument-count limits. */
 export function encodeBase64Utf8(text: string): string {
-  const bytes = new TextEncoder().encode(text);
+  return encodeBase64Bytes(new TextEncoder().encode(text));
+}
+
+/** Bytes as base64 — a figure snapshot, or text already encoded — chunked to
+ * stay under argument-count limits. */
+export function encodeBase64Bytes(bytes: Uint8Array): string {
   let binary = "";
   const CHUNK = 0x8000;
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -249,12 +254,20 @@ export async function findExistingIndex(
       ? file.content
       : await fetchBlobContent(config, path, file.sha, fetchImpl),
   );
-  return {
-    path,
-    sha: file.sha,
-    unlisted: readsAsUnlisted(path, text),
-    body: bodyOf(text),
-  };
+  return { path, sha: file.sha, ...existingIndexFrom(path, text) };
+}
+
+/**
+ * What a re-clip must carry from the `index.md` it overwrites, read from that
+ * file's text — the half of `findExistingIndex` that needs no request, for a
+ * caller that already holds the text from a commit it is building on. Throws
+ * where that does: on frontmatter it cannot read, rather than guess.
+ */
+export function existingIndexFrom(
+  path: string,
+  text: string,
+): Pick<ExistingIndex, "unlisted" | "body"> {
+  return { unlisted: readsAsUnlisted(path, text), body: bodyOf(text) };
 }
 
 /** The article's body — whatever follows the frontmatter fence.
@@ -631,9 +644,14 @@ export async function readerAtHead(
   return { commit, reader: readerAt(config, commit, fetchImpl) };
 }
 
-/** One file a commit writes, or one it deletes. */
+/**
+ * One file a commit writes, or one it deletes. Text is carried inline; a
+ * binary file — a figure snapshot — is uploaded first with `createBlob` and
+ * named here by the blob's sha, since a tree entry's `content` is UTF-8 only.
+ */
 export type CommitFile =
   | { path: string; content: string }
+  | { path: string; blob: string }
   | { path: string; delete: true };
 
 export interface BuiltCommit {
@@ -649,9 +667,36 @@ export interface BuiltCommit {
  */
 function treeEntry(file: CommitFile): Record<string, unknown> {
   const blob = { path: file.path, mode: "100644", type: "blob" };
-  return "delete" in file
-    ? { ...blob, sha: null }
-    : { ...blob, content: file.content };
+  if ("delete" in file) return { ...blob, sha: null };
+  if ("blob" in file) return { ...blob, sha: file.blob };
+  return { ...blob, content: file.content };
+}
+
+/**
+ * Upload bytes as a blob, for a commit to name by sha.
+ *
+ * Not part of `commitFiles`' cycle, on purpose: a blob depends on nothing but
+ * its bytes, so it is uploaded once however many heads the commit has to try,
+ * and one that ends up unused is collected by GitHub like the dangling commit
+ * a refused ref update leaves.
+ */
+export async function createBlob(
+  config: TiroExtensionConfig,
+  bytes: Uint8Array,
+  fetchImpl: FetchLike = fetch,
+): Promise<string> {
+  const res = await expectOk(
+    await fetchImpl(`${API}/repos/${config.owner}/${config.repo}/git/blobs`, {
+      method: "POST",
+      headers: { ...headers(config), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: encodeBase64Bytes(bytes),
+        encoding: "base64",
+      }),
+    }),
+    "uploading a file",
+  );
+  return ((await res.json()) as { sha: string }).sha;
 }
 
 export interface CommitFilesOptions {

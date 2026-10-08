@@ -10,7 +10,6 @@ import {
   slugForUrl,
   sourceUrlOf,
 } from "@tiro/shared";
-import { buildClipFile } from "../clip.ts";
 import {
   type ClipCandidate,
   clipReady,
@@ -22,12 +21,12 @@ import {
   prefersCandidate,
   refusesAsEmpty,
 } from "../clip-candidate.ts";
+import { commitClip } from "../clip-commit.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
 import { readClipCollections } from "../collections-read.ts";
 import type { FlushReport } from "../collections-worker.ts";
 import { describeClipError, describeRemoveError } from "../errors.ts";
 import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
-import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
 import {
   formatClipDate,
   getLocale,
@@ -1162,11 +1161,6 @@ async function main(): Promise<void> {
       render();
       try {
         const nowIso = new Date().toISOString();
-        // The lookup comes first now: the flat layout makes the slug — and so
-        // the path — derivable without building the file, and a re-clip has to
-        // read the old article's `unlisted` flag before it rebuilds `index.md`
-        // over it (ADR 0017).
-        const slug = await slugForUrl(payload.url);
         // A PDF tab commits a stub. The viewer's shell holds no body worth
         // keeping, and the flags that describe one would be
         // claims about text nothing here has seen: `readability_failed` warns
@@ -1188,62 +1182,15 @@ async function main(): Promise<void> {
           clipperVersion: chrome.runtime.getManifest().version,
           clipperCommit: commit,
         };
-        /**
-         * A stub must not replace a body that is already there.
-         *
-         * A PDF clip carries no body and bets that the next processing run
-         * builds one. Written over a converted article that bet costs the
-         * article: if the fetch then fails, or the source has 404'd since, the
-         * Markdown is gone from the vault's current state and this stage
-         * cannot regenerate it — unlike an HTML re-clip, which replaces
-         * content with content. So the old body rides along until a
-         * conversion actually succeeds, and a failed reconversion costs
-         * freshness instead (ADR 0026).
-         *
-         * Read from the same lookup `unlisted` uses, and carried on the same
-         * principle: a re-clip rebuilds index.md from scratch, so anything it
-         * cannot regenerate has to be carried or it is dropped.
-         */
-        const carryBody = (found: typeof existing) =>
-          stub && found !== null ? { markdown: found.body } : {};
-        const existing = await findExistingIndex(config, slug);
-        const file = await buildClipFile({
-          ...clip,
-          ...carryBody(existing),
-          unlisted: existing?.unlisted,
-        });
-        const path = file.path;
-        await putFile(config, {
-          path,
-          contentBase64: encodeBase64Utf8(file.content),
-          message: `clip: ${file.title}`,
-          ...(existing !== null ? { sha: existing.sha } : {}),
-          // A stale sha means something committed to this article between the
-          // lookup above and this PUT. Retrying the bytes already built would
-          // overwrite whatever it did — including, if it was a hand-edit
-          // hiding the article, the `unlisted` flag this clip read as absent.
-          // So the retry redoes the lookup and rebuilds against the answer.
-          resolveConflict: async () => {
-            const again = await findExistingIndex(config, slug);
-            const rebuilt = await buildClipFile({
-              ...clip,
-              ...carryBody(again),
-              unlisted: again?.unlisted,
-            });
-            return {
-              ...(again !== null ? { sha: again.sha } : {}),
-              contentBase64: encodeBase64Utf8(rebuilt.content),
-            };
-          },
-        });
+        const { file, updated } = await commitClip(config, clip);
         saved = {
-          updated: existing !== null,
+          updated,
           links: {
             site: articleUrl(
               homepage ?? "https://tiro.ainaive.com/",
               file.slug,
             ),
-            vault: vaultFileUrl(config, path),
+            vault: vaultFileUrl(config, file.path),
           },
         };
         phase = "saved";

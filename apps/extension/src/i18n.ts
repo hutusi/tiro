@@ -128,6 +128,8 @@ const en = {
   errNetwork:
     "Network error: could not reach GitHub. Check your connection and try again.",
   errClipFailed: (detail: string) => `Clip failed: ${detail}`,
+  errClipBusy:
+    "The vault kept changing while Tiro tried to save this — press Clip again in a moment.",
 
   // Removal errors (describeRemoveError, ADR 0036)
   errRemoveBusy:
@@ -366,6 +368,7 @@ const zh: Messages = {
   errHttp: (status: number) => `GitHub 返回了 ${status}，请稍后重试。`,
   errNetwork: "网络错误：无法连接 GitHub，请检查网络后重试。",
   errClipFailed: (detail: string) => `剪藏失败：${detail}`,
+  errClipBusy: "保存时仓库一直在变化，请稍后再点一次剪藏。",
 
   errRemoveBusy: "移除时仓库一直在变化，请稍后重试。",
   errRemoveCollection: (path: string) =>
