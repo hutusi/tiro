@@ -3167,6 +3167,19 @@ describe("a figure the page draws with script is described, not lost", () => {
       }
     });
 
+    test("two figures showing one picture list it once", () => {
+      // Identical bytes share an id, and the commit carries each file once.
+      const clip = capture(
+        `${shell(`aria-label="One"`)}${shell(`aria-label="Two"`)}`,
+        [
+          [0, ID],
+          [1, ID],
+        ],
+      );
+      expect(clip.snapshots).toEqual([ID]);
+      expect(clip.markdown.split(`./assets/${ID}.webp`)).toHaveLength(3);
+    });
+
     test("a figure inside a link is not captured", () => {
       expect(
         capture(

@@ -151,3 +151,25 @@ describe("commitClip", () => {
     expect(gh.log()).toEqual(["root"]);
   });
 });
+
+describe("commitClip, two figures with one picture", () => {
+  test("identical snapshots are one file, and the clip still lands", async () => {
+    // Two figures whose pictures came out byte-identical share an id — the
+    // id is the bytes' hash — and so a path. Written twice, the commit is
+    // refused outright.
+    const gh = fakeGitHub({});
+    const slug = await slugForUrl(URL_);
+    await commitClip(
+      config,
+      clip,
+      { snapshots: [LATHE, GEARS, { ...LATHE }] },
+      gh.fetch,
+    );
+    const assets = [...gh.files().keys()].filter((p) => p.includes("/assets/"));
+    expect(assets.sort()).toEqual([
+      `articles/${slug}/assets/0123456789ab.webp`,
+      `articles/${slug}/assets/3f9a0c1b2d4e.webp`,
+    ]);
+    expect(gh.requests.filter((r) => r === "POST /git/blobs")).toHaveLength(2);
+  });
+});

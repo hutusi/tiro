@@ -1554,7 +1554,7 @@ export interface ScriptFigures {
   /** Each figure that reached the article, by its index among the page's
    * figures — the ones a capture can be offered for. */
   figures: number[];
-  /** The snapshots the article now shows, by id. */
+  /** The snapshots the article now shows, by id, each once. */
   snapshots: string[];
 }
 
@@ -1617,7 +1617,8 @@ export function scriptFiguresIn(
       // fold and the site both read as a picture.
       if (href === null) paragraph.appendChild(image);
       else link.appendChild(image);
-      snapshots.push(snapshot);
+      // Each file once: two figures can show one picture.
+      if (!snapshots.includes(snapshot)) snapshots.push(snapshot);
     } else {
       link.textContent = FIGURE_LABEL;
     }

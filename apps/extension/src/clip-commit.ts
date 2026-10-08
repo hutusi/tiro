@@ -140,8 +140,11 @@ async function commitWithSnapshots(
   fetchImpl: FetchLike,
 ): Promise<CommittedClip> {
   // Named — and so validated — before anything is uploaded: an id that is
-  // not a snapshot's would otherwise become a path in the vault.
-  const named = snapshots.map((snapshot) => ({
+  // not a snapshot's would otherwise become a path in the vault. One file per
+  // id: two figures whose pictures came out identical share a hash, so a name,
+  // and a path written twice makes `commitFiles` refuse the whole clip.
+  const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const named = [...byId.values()].map((snapshot) => ({
     path: `${assetsDir(slug)}/${snapshotAssetName(snapshot.id)}`,
     bytes: snapshot.bytes,
   }));
