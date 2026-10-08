@@ -4,6 +4,7 @@ import {
   type CaptureEffects,
   captureFigures,
   cropBox,
+  looksBlank,
   outputSize,
   SNAPSHOT_MAX_WIDTH,
   SNAPSHOTS_MAX_TOTAL_BYTES,
@@ -260,5 +261,29 @@ describe("captureFigures", () => {
     expect(outcome.snapshots.size).toBe(0);
     expect(outcome.skipped).toBe(2);
     expect(log.captures).toEqual([]);
+  });
+});
+
+describe("looksBlank", () => {
+  const flat = (n: number, rgba: number[]) =>
+    Uint8ClampedArray.from({ length: n * 4 }, (_, i) => rgba[i % 4] ?? 0);
+
+  test("a crop of one colour is blank — an unpainted canvas, an empty slot", () => {
+    expect(looksBlank(flat(64 * 64, [238, 238, 238, 255]))).toBe(true);
+    expect(looksBlank(new Uint8ClampedArray(0))).toBe(true);
+  });
+
+  test("compression noise does not make a picture", () => {
+    const pixels = flat(64 * 64, [244, 244, 244, 255]);
+    pixels[400] = 246;
+    pixels[801] = 241;
+    expect(looksBlank(pixels)).toBe(true);
+  });
+
+  test("a faint line across the figure does", () => {
+    // A one-pixel dark line over 600 pixels, averaged into a 64-pixel sample.
+    const pixels = flat(64 * 64, [244, 244, 244, 255]);
+    for (let x = 0; x < 64; x++) pixels[(32 * 64 + x) * 4] = 230;
+    expect(looksBlank(pixels)).toBe(false);
   });
 });

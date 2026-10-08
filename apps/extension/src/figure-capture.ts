@@ -66,6 +66,42 @@ export function outputSize(
   };
 }
 
+/** The side of the square a crop is sampled at to judge it blank. */
+const BLANK_SAMPLE = 64;
+
+/** How far a sampled pixel may stray from the first and the crop still read
+ * as one flat colour — the noise of compression and smoothing, no more. A
+ * one-pixel line across a 600-pixel figure averages to about ten levels at
+ * this sample size. */
+const BLANK_TOLERANCE = 3;
+
+/**
+ * True when RGBA pixels are, to the eye, one colour: a picture with nothing
+ * in it, which would publish an empty box and report the figure captured.
+ */
+export function looksBlank(pixels: Uint8ClampedArray): boolean {
+  const [r, g, b, a] = [pixels[0], pixels[1], pixels[2], pixels[3]];
+  if (
+    r === undefined ||
+    g === undefined ||
+    b === undefined ||
+    a === undefined
+  ) {
+    return true;
+  }
+  for (let i = 0; i + 3 < pixels.length; i += 4) {
+    if (
+      Math.abs((pixels[i] ?? 0) - r) > BLANK_TOLERANCE ||
+      Math.abs((pixels[i + 1] ?? 0) - g) > BLANK_TOLERANCE ||
+      Math.abs((pixels[i + 2] ?? 0) - b) > BLANK_TOLERANCE ||
+      Math.abs((pixels[i + 3] ?? 0) - a) > BLANK_TOLERANCE
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** A snapshot's id: the first 12 hex digits of its bytes' SHA-256. */
 export async function snapshotId(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
@@ -108,6 +144,16 @@ export async function cropAndEncode(
   if (context === null) return null;
   context.drawImage(bitmap, 0, 0);
   bitmap.close();
+  // A canvas that has mounted but not painted is laid out, so the scout takes
+  // it — and the picture is its background. Sampled small, since a flat crop
+  // is flat at any size and a figure's lines survive the averaging.
+  const sample = new OffscreenCanvas(BLANK_SAMPLE, BLANK_SAMPLE);
+  const sampled = sample.getContext("2d");
+  if (sampled === null) return null;
+  sampled.drawImage(canvas, 0, 0, BLANK_SAMPLE, BLANK_SAMPLE);
+  if (looksBlank(sampled.getImageData(0, 0, BLANK_SAMPLE, BLANK_SAMPLE).data)) {
+    return null;
+  }
   for (const quality of [0.85, 0.7]) {
     const blob = await canvas.convertToBlob({ type: "image/webp", quality });
     // A browser that cannot encode WebP answers with PNG instead, which the

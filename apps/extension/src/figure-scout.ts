@@ -154,6 +154,10 @@ export async function frameFigure(
     await frame();
     await frame();
   }
+  // Nothing laid out to picture: a slot whose script never ran, or has not
+  // yet. Its geometry alone would pass every check below and publish an empty
+  // box as the figure; left uncaptured, it stays a described link.
+  if (!drawn()) return { ok: false, reason: "empty" };
   let left = Number.POSITIVE_INFINITY;
   let top = Number.POSITIVE_INFINITY;
   let right = Number.NEGATIVE_INFINITY;
