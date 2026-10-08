@@ -3042,7 +3042,7 @@ describe("a figure the page draws with script is described, not lost", () => {
 
   test("a figure Readability renamed to a <div> is still found", () => {
     const doc = new Window({ url: PAGE }).document as unknown as Document;
-    const html = scriptFiguresIn(
+    const { html } = scriptFiguresIn(
       `<div data-tiro-figure="" aria-label="${LABEL}"><span>${LABEL}</span><figcaption>Slower than life.</figcaption></div>`,
       doc,
       PAGE,
@@ -3061,14 +3061,14 @@ describe("a figure the page draws with script is described, not lost", () => {
         "<figcaption>Slower than life.</figcaption>",
       ),
     );
-    expect(htmlToMarkdown(scriptFiguresIn(html, doc, PAGE)).markdown).toBe(
+    expect(htmlToMarkdown(scriptFiguresIn(html, doc, PAGE).html).markdown).toBe(
       `[Interactive figure](${U}): ${LABEL}  \nSlower than life.`,
     );
   });
 
   test("in a table cell, the caption joins with a space and the row holds", () => {
     const doc = new Window({ url: PAGE }).document as unknown as Document;
-    const html = scriptFiguresIn(
+    const { html } = scriptFiguresIn(
       `<table><tr><th>Figure</th><th>Note</th></tr><tr><td><figure data-tiro-figure="" aria-label="Lathe"><figcaption>Slow.</figcaption></figure></td><td>x</td></tr></table>`,
       doc,
       PAGE,
@@ -3076,6 +3076,116 @@ describe("a figure the page draws with script is described, not lost", () => {
     expect(htmlToMarkdown(html).markdown).toContain(
       `| [Interactive figure](${U}): Lathe Slow. | x`,
     );
+  });
+
+  describe("captured (ADR 0039)", () => {
+    const ID = "3f9a0c1b2d4e";
+
+    /** The whole payload, as the extension's re-clip runs it. */
+    function capture(markup: string, snapshots: [number, string][]) {
+      const window = new Window({ url: PAGE });
+      window.document.body.innerHTML = `<article><h1>Precision</h1>${filler}${markup}${filler}</article>`;
+      return clipPage(window.document as unknown as Document, PAGE, {
+        snapshots: new Map(snapshots),
+      });
+    }
+
+    test("a captured figure is shown by its snapshot, its caption beneath", () => {
+      const clip = capture(
+        mounted(
+          `aria-label="${LABEL}"`,
+          "<figcaption>Slower than life.</figcaption>",
+        ),
+        [[0, ID]],
+      );
+      expect(clip.markdown).toContain(
+        `[![${LABEL}](./assets/${ID}.webp)](${U})  \nSlower than life.`,
+      );
+      expect(clip.snapshots).toEqual([ID]);
+      expect(clip.scriptFigures).toEqual([0]);
+    });
+
+    test("with no caption, the page's description is the words beneath it", () => {
+      // Left in the alt text alone, the author's description reaches no reader.
+      expect(
+        capture(mounted(`aria-label="${LABEL}"`), [[0, ID]]).markdown,
+      ).toContain(`[![${LABEL}](./assets/${ID}.webp)](${U})  \n${LABEL}`);
+    });
+
+    test("with nothing said about it, the snapshot stands alone and links to it", () => {
+      const markdown = capture(
+        '<figure id="frontier"><canvas></canvas></figure>',
+        [[0, ID]],
+      ).markdown;
+      expect(markdown).toContain(
+        `[![Interactive figure](./assets/${ID}.webp)](${U}#frontier)\n`,
+      );
+    });
+
+    test("a figure is counted among all the page's figures, as the extension counts them", () => {
+      // The image figure ahead of it is figure 0; the drawn one is figure 1.
+      const markup = `<figure><img src="/a.jpg" alt="A"><figcaption>A.</figcaption></figure>${shell(`aria-label="${LABEL}"`)}`;
+      expect(capture(markup, []).scriptFigures).toEqual([1]);
+      const clip = capture(markup, [[1, ID]]);
+      expect(clip.markdown).toContain(`[![${LABEL}](./assets/${ID}.webp)]`);
+    });
+
+    test("only figures that reached the article can be offered", () => {
+      const clip = capture(
+        `${shell(`hidden aria-label="Hidden"`)}${shell(`aria-label="${LABEL}"`)}`,
+        [],
+      );
+      expect(clip.scriptFigures).toEqual([1]);
+    });
+
+    test("a figure whose markup changed since it was offered is still shown", () => {
+      // Its script may have added anything by the time the capture re-clips;
+      // the reader asked for the picture of the figure that was offered.
+      expect(
+        capture(
+          `<figure aria-label="${LABEL}"><div><img src="/poster.jpg"></div></figure>`,
+          [[0, ID]],
+        ).markdown,
+      ).toContain(`[![${LABEL}](./assets/${ID}.webp)](${U})`);
+    });
+
+    test("a snapshot id the page wrote itself shows nothing", () => {
+      const clip = capture(
+        shell(`aria-label="${LABEL}" data-tiro-snapshot="${ID}"`),
+        [],
+      );
+      expect(clip.markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+      expect(clip.markdown).not.toContain("./assets/");
+      expect(clip.snapshots).toEqual([]);
+    });
+
+    test("an id that is not a snapshot's is never a path", () => {
+      for (const id of ["../../x", `${ID}.webp`, "ABCDEF012345"]) {
+        const clip = capture(shell(`aria-label="${LABEL}"`), [[0, id]]);
+        expect(clip.markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+        expect(clip.markdown).not.toContain("./assets/");
+      }
+    });
+
+    test("a figure inside a link is not captured", () => {
+      expect(
+        capture(
+          `<a href="/x"><figure aria-label="L"><canvas></canvas></figure></a>`,
+          [[0, ID]],
+        ).snapshots,
+      ).toEqual([]);
+    });
+
+    test("a link to a captured figure keeps its target, after the picture", () => {
+      // ADR 0024: never an anchor in front of a leading picture.
+      const markdown = capture(
+        `<p>See <a href="#fig">the lathe</a>.</p>${mounted(`id="fig" aria-label="${LABEL}"`, "<figcaption>Slow.</figcaption>")}`,
+        [[0, ID]],
+      ).markdown;
+      expect(markdown).toContain(
+        `[![${LABEL}](./assets/${ID}.webp)](${U}#fig)  \n<span id="fig"></span>Slow.`,
+      );
+    });
   });
 });
 

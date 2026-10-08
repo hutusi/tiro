@@ -1,6 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
+  type ClipOptions,
   excerptWithoutPlaceholders,
   foldFiguresIn,
   hasLatexmlFullText,
@@ -44,7 +45,11 @@ import {
  * Mutates `doc`. Readability consumes what it parses, so callers with a live
  * page must pass a clone.
  */
-export function clipPage(doc: Document, url: string): ClipPayload {
+export function clipPage(
+  doc: Document,
+  url: string,
+  options: ClipOptions = {},
+): ClipPayload {
   // Asked before anything rewrites the DOM: the answer is about the document
   // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
   // the older viewer's shell is recognised by.
@@ -62,7 +67,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   if (isHackerNewsItem(doc)) return clipHackerNewsItem(doc, url);
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
-  prepareForClipping(doc);
+  prepareForClipping(doc, options);
   // Before Readability, which consumes the document — and after preparation, so
   // a formula in a title or abstract is already a marker rather than MathML.
   const latexml = readLatexmlMetadata(doc);
@@ -98,14 +103,13 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // an image figure by the time the fold looks (videosAsPostersIn). A figure
   // the page draws with script becomes a described link just after, and before
   // the anchors, which place the one it carries over (scriptFiguresIn).
+  const drawn = scriptFiguresIn(
+    videosAsPostersIn(extracted, doc, url),
+    doc,
+    url,
+  );
   const html = foldFiguresIn(
-    placeAnchorsIn(
-      restoreCodeLanguagesIn(
-        scriptFiguresIn(videosAsPostersIn(extracted, doc, url), doc, url),
-        doc,
-      ),
-      doc,
-    ),
+    placeAnchorsIn(restoreCodeLanguagesIn(drawn.html, doc), doc),
     doc,
   );
 
@@ -134,6 +138,8 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     pdfViewer: false,
     latexmlFullText,
     markdownSource: false,
+    scriptFigures: drawn.figures,
+    snapshots: drawn.snapshots,
   };
 }
 

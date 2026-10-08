@@ -19,6 +19,8 @@ import {
   languageFromFilename,
   languageFromLabel,
   normalizeUrl,
+  SNAPSHOT_ID,
+  snapshotAssetName,
 } from "@tiro/shared";
 import type TurndownService from "turndown";
 
@@ -1097,8 +1099,19 @@ const FIGURE_LABEL = "Interactive figure";
  * Marks a `<figure>` that `keepScriptFiguresThroughReadability` emptied, so the
  * pass after Readability can find it again. Found by this marker and never by
  * tag: Readability renames a sibling it appends to the article to `<div>`.
+ *
+ * Its value is the figure's index among the page's figures as the clip found
+ * them, which is how the extension names a figure to capture (ADR 0039).
  */
 const FIGURE_ATTR = "data-tiro-figure";
+
+/**
+ * The snapshot a marked figure is shown by, as a bare id (`SNAPSHOT_ID`). Never
+ * the file name: Readability turns any attribute on a `<figure>` whose value
+ * looks like an image address into an `<img>` (`_fixLazyImages`), and
+ * `<id>.webp` does.
+ */
+const SNAPSHOT_ATTR = "data-tiro-snapshot";
 
 /** A video address a reader can follow: http(s), resolved against the page.
  * `blob:` is what a streaming player hands its `<video>`, and it means nothing
@@ -1484,13 +1497,30 @@ function isScriptDrawnFigure(figure: Element): boolean {
  * hidden, furniture and byline verdicts on it still stand — the hazard ADR 0011
  * recorded for any pass that runs before extraction.
  */
-function keepScriptFiguresThroughReadability(doc: Document): void {
-  // Page-authored markers go first, as in every marker pass in this file.
-  for (const stale of Array.from(doc.querySelectorAll(`[${FIGURE_ATTR}]`))) {
-    stale.removeAttribute(FIGURE_ATTR);
+function keepScriptFiguresThroughReadability(
+  doc: Document,
+  figures: ReadonlyMap<Element, number>,
+  snapshots: ReadonlyMap<number, string>,
+): void {
+  // Page-authored markers go first, as in every marker pass in this file. A
+  // page that wrote its own snapshot id could otherwise point the article at
+  // any file in its assets.
+  for (const attr of [FIGURE_ATTR, SNAPSHOT_ATTR]) {
+    for (const stale of Array.from(doc.querySelectorAll(`[${attr}]`))) {
+      stale.removeAttribute(attr);
+    }
   }
   for (const figure of Array.from(doc.querySelectorAll("figure"))) {
-    if (!isScriptDrawnFigure(figure)) continue;
+    const index = figures.get(figure);
+    const snapshot = index === undefined ? undefined : snapshots.get(index);
+    // A figure the reader captured qualified when the capture was offered,
+    // and its markup has changed since — the capture scrolled it into view,
+    // and its script drew it. The picture of it is what they asked for.
+    const captured =
+      snapshot !== undefined &&
+      SNAPSHOT_ID.test(snapshot) &&
+      !insideLink(figure);
+    if (!captured && !isScriptDrawnFigure(figure)) continue;
     const caption = directCaption(figure);
     for (const child of Array.from(figure.childNodes)) {
       if (child !== caption) figure.removeChild(child);
@@ -1498,7 +1528,8 @@ function keepScriptFiguresThroughReadability(doc: Document): void {
     const keep = doc.createElement("span");
     keep.textContent = `${KEEP_MARK}${figureLabel(figure) || FIGURE_LABEL}${KEEP_MARK}`;
     figure.insertBefore(keep, caption);
-    figure.setAttribute(FIGURE_ATTR, "");
+    figure.setAttribute(FIGURE_ATTR, index === undefined ? "" : String(index));
+    if (captured) figure.setAttribute(SNAPSHOT_ATTR, snapshot);
   }
 }
 
@@ -1517,6 +1548,16 @@ function figureHref(pageUrl: string, id: string): string | null {
   return ANCHOR_ID.test(id) ? `${page}#${id}` : page;
 }
 
+/** What `scriptFiguresIn` made of the figures it found. */
+export interface ScriptFigures {
+  html: string;
+  /** Each figure that reached the article, by its index among the page's
+   * figures — the ones a capture can be offered for. */
+  figures: number[];
+  /** The snapshots the article now shows, by id. */
+  snapshots: string[];
+}
+
 /**
  * Turn every figure `keepScriptFiguresThroughReadability` marked into a
  * paragraph markdown can carry: a link back to the page, the page's own
@@ -1528,6 +1569,12 @@ function figureHref(pageUrl: string, id: string): string | null {
  * shows, and the way to it. The paragraph is prose, so it is translated as
  * prose, and it is one block, which is what keeps `zh.md` aligned (ADR 0003).
  *
+ * A figure the reader captured is shown by its snapshot instead —
+ * `[![label](./assets/<id>.webp)](page)` and its caption — the shape the fold
+ * builds for an image, which the processor leaves alone and the site renders
+ * as a figure (ADR 0039). The relative path is written here, after
+ * Readability, which would have made it absolute against the page.
+ *
  * Built here rather than left to `foldFiguresIn`, which needs an image to fold
  * a caption beside and would also miss a figure Readability renamed to a
  * `<div>`. Runs before `placeAnchorsIn`, which places the anchor carried over
@@ -1537,12 +1584,20 @@ export function scriptFiguresIn(
   html: string,
   doc: Document,
   pageUrl: string,
-): string {
+): ScriptFigures {
   const scratch = doc.implementation.createHTMLDocument("");
   scratch.body.innerHTML = html;
+  const figures: number[] = [];
+  const snapshots: string[] = [];
   for (const figure of Array.from(
     scratch.querySelectorAll(`[${FIGURE_ATTR}]`),
   )) {
+    const index = Number(figure.getAttribute(FIGURE_ATTR));
+    if (figure.getAttribute(FIGURE_ATTR) !== "" && Number.isInteger(index)) {
+      figures.push(index);
+    }
+    const snapshot = figure.getAttribute(SNAPSHOT_ATTR) ?? "";
+    const captured = SNAPSHOT_ID.test(snapshot);
     const label = figureLabel(figure);
     const caption = directCaption(figure);
     const captionText = (caption?.textContent ?? "")
@@ -1554,15 +1609,40 @@ export function scriptFiguresIn(
     const href = figureHref(pageUrl, figure.getAttribute("id") ?? "");
     const link = scratch.createElement(href === null ? "span" : "a");
     if (href !== null) link.setAttribute("href", href);
-    link.textContent = FIGURE_LABEL;
-    paragraph.appendChild(link);
+    if (captured) {
+      const image = scratch.createElement("img");
+      image.setAttribute("src", `./assets/${snapshotAssetName(snapshot)}`);
+      image.setAttribute("alt", label || FIGURE_LABEL);
+      // Unlinked, an image is the paragraph's first child itself — what the
+      // fold and the site both read as a picture.
+      if (href === null) paragraph.appendChild(image);
+      else link.appendChild(image);
+      snapshots.push(snapshot);
+    } else {
+      link.textContent = FIGURE_LABEL;
+    }
+    if (link.firstChild !== null) paragraph.appendChild(link);
     // A table row is one line of markdown, and a break would end it.
     const separator = (): Node =>
       figure.closest("td, th") === null
         ? scratch.createElement("br")
         : scratch.createTextNode(" ");
     let captionUsed = captionText === "";
-    if (label !== "") {
+    if (captured) {
+      // The picture shows the figure, so the words under it are the caption —
+      // or, with none, the page's description, which would otherwise be left
+      // in alt text no reader sees.
+      if (source !== null) {
+        paragraph.appendChild(separator());
+        while (source.firstChild !== null) {
+          paragraph.appendChild(source.firstChild);
+        }
+        captionUsed = true;
+      } else if (captionText === "" && label !== "") {
+        paragraph.appendChild(separator());
+        paragraph.appendChild(scratch.createTextNode(label));
+      }
+    } else if (label !== "") {
       paragraph.appendChild(scratch.createTextNode(`: ${label}`));
       // A caption that only repeats the label is said once.
       if (captionText === label) captionUsed = true;
@@ -1592,7 +1672,7 @@ export function scriptFiguresIn(
     // dropped: losing content off the page is worse than a loose caption.
     if (!captionUsed && caption !== null) paragraph.after(caption);
   }
-  return scratch.body.innerHTML;
+  return { html: scratch.body.innerHTML, figures, snapshots };
 }
 
 /**
@@ -2248,6 +2328,16 @@ function promoteTableHeaders(doc: Document): void {
   }
 }
 
+/** What a clip is told beyond the page itself. */
+export interface ClipOptions {
+  /**
+   * Snapshots the reader captured (ADR 0039): a figure's index among the
+   * page's `<figure>`s, in document order as the clip receives them, to the id
+   * of the picture to show it by.
+   */
+  snapshots?: ReadonlyMap<number, string>;
+}
+
 /**
  * Rewrite a *cloned* document in place. Never call this on the live page —
  * it removes and replaces nodes the user is looking at.
@@ -2257,7 +2347,19 @@ function promoteTableHeaders(doc: Document): void {
  * not about the page this saw, and answering it from here would let a formula
  * in a discarded sidebar set the flag (see markdown.ts).
  */
-export function prepareForClipping(doc: Document): void {
+export function prepareForClipping(
+  doc: Document,
+  options: ClipOptions = {},
+): void {
+  // Before anything moves or removes one: a figure's index is its place among
+  // the page's figures as they arrived, which is what the extension counts in
+  // the live page it captures from. Moving an element keeps its identity, so
+  // the map still finds it after `joinSplitArticleBodies`.
+  const figures = new Map(
+    Array.from(doc.querySelectorAll("figure")).map(
+      (figure, index) => [figure, index] as const,
+    ),
+  );
   // First, and order-independent: it changes no structure, only a tag name the
   // passes below have no opinion about.
   retagFontsAsSpans(doc);
@@ -2280,7 +2382,11 @@ export function prepareForClipping(doc: Document): void {
   // or a fence is already there to rule a figure out; before dropChartSvgs,
   // which would empty a chart's figure into one this mistakes for a shell; and
   // before markInDocumentAnchors, so a link to the figure marks what survives.
-  keepScriptFiguresThroughReadability(doc);
+  keepScriptFiguresThroughReadability(
+    doc,
+    figures,
+    options.snapshots ?? new Map(),
+  );
   // After normalizeMath, so a MathJax formula has already become its TeX
   // marker rather than an <svg> this could delete.
   dropChartSvgs(doc);
