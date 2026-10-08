@@ -1031,9 +1031,11 @@ figures". Pressing it:
 - puts the scroll back, and says how many it took. Stop keeps what is done.
 
 Clip then commits `index.md` and the pictures (`assets/<12 hex>.webp`) as one
-commit. A figure is left as its link when it is taller or wider than the
-window, has something on top of it (a sticky header, a cookie banner), keeps
-moving while it is taken, or would push the clip past 20 MB.
+commit. A figure is left as its link when nothing is drawn in it yet, when it
+is taller or wider than the window, has something on top of it (a sticky
+header, a cookie banner), keeps moving while it is taken, or would push the
+clip past 20 MB. If the page navigates, reloads or rewrites its address during
+the capture, the pictures are dropped and the article clips with its links.
 
 **A plain re-clip drops the pictures**: the body goes back to links and the
 next processing run prunes the files. Capture again to keep them. A larger
@@ -1554,8 +1556,8 @@ permanent extension ID, unrelated to the unpacked one.
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
-| The popup says some figures "stay as links to the page" | a figure taller or wider than the window, one with something laid over it, one that moved while it was taken, or the 20 MB budget (ADR 0039) | by design; enlarge the window, dismiss the banner or scroll the header away, and capture again |
-| "The pictures could not be put in the article" after a capture | the tab navigated or reloaded before the re-clip returned, so nothing would show the pictures | clip as it is — the figures are links — or reload, wait, and capture again |
+| The popup says some figures "stay as links to the page" | a figure with nothing drawn in it yet, one taller or wider than the window, one with something laid over it, one that moved while it was taken, or the 20 MB budget (ADR 0039) | by design; enlarge the window, dismiss the banner or scroll the header away, and capture again |
+| "The pictures could not be put in the article" after a capture | the tab navigated, reloaded or rewrote its address during the capture, so the clip that would show the pictures was of another page and was refused | clip as it is — the figures are links — or reload, wait, and capture again |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |

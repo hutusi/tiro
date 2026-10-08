@@ -28,10 +28,12 @@ import type { FlushReport } from "../collections-worker.ts";
 import { describeClipError, describeRemoveError } from "../errors.ts";
 import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
 import {
+  type BodyOrigin,
   type CaptureEffects,
   captureFigures,
   cropAndEncode,
   FRAME_OPTIONS,
+  isSameBody,
 } from "../figure-capture.ts";
 import {
   beginCapture,
@@ -649,6 +651,10 @@ async function main(): Promise<void> {
    * body, this popup's for one it fetched. Becomes `tiro.clipper_commit`, and
    * is set by `offer` for the same reason `sourceUrl` is. */
   let bodyCommit = "";
+  /** The document the tab body on screen was read from, which a capture's clip
+   * has to match (ADR 0039). Set by `offer`, with the body; undefined for a
+   * body the popup fetched. */
+  let bodyDocument: string | undefined;
   /** Non-null when this tab's document could be read from its publisher
    * instead of from the page — an arXiv paper, a GitHub markdown file. */
   let source: FetchableSource | null = null;
@@ -713,7 +719,7 @@ async function main(): Promise<void> {
   /** The clip a capture is waiting for, by the request it sent. */
   let pendingCapture: {
     requestId: string;
-    resolve: (payload: ClipResultMessage["payload"] | null) => void;
+    resolve: (message: ClipResultMessage | null) => void;
   } | null = null;
   /** Snapshot uploads, while a commit carrying them runs. */
   let uploading: { done: number; total: number } | null = null;
@@ -725,6 +731,9 @@ async function main(): Promise<void> {
     if (capture !== null) return capture;
     if (result === null || result.pdfViewer || source !== null) return null;
     if (best?.fromFetch === true) return null;
+    // Without the document's id, no capture's clip could be shown to come
+    // from this page, so none would ever be taken.
+    if (bodyDocument === undefined) return null;
     const offered = result.scriptFigures?.length ?? 0;
     return offered === 0
       ? null
@@ -849,6 +858,7 @@ async function main(): Promise<void> {
     fromFetch: boolean,
     source: string | undefined,
     commit: string,
+    documentId?: string,
   ): void {
     if (committing) return;
     const candidate = { isSource: isSourceBody(payload), fromFetch };
@@ -864,6 +874,7 @@ async function main(): Promise<void> {
     // candidate that lost would describe a body nobody is going to commit.
     sourceUrl = source;
     bodyCommit = commit;
+    bodyDocument = documentId;
     showPayload(payload);
   }
 
@@ -944,7 +955,7 @@ async function main(): Promise<void> {
     // else: it is the body on screen with pictures in, not a rival to it.
     if (message.requestId !== undefined) {
       if (pendingCapture?.requestId === message.requestId) {
-        pendingCapture.resolve(message.payload);
+        pendingCapture.resolve(message);
       }
       return;
     }
@@ -954,6 +965,7 @@ async function main(): Promise<void> {
       false,
       sourceUrlOf(message.payload.url),
       message.clipperCommit ?? "",
+      message.documentId,
     );
   });
 
@@ -1365,17 +1377,25 @@ async function main(): Promise<void> {
   }
 
   /** Clip the tab again, with the pictures in place of the links. Null when
-   * the clip never comes back. */
+   * the clip never comes back, or comes back from another page than the body
+   * on screen — the original body then stands, with its links. */
   async function reclipWithSnapshots(
+    onScreen: BodyOrigin,
     figures: [number, string][],
   ): Promise<ClipResultMessage["payload"] | null> {
+    // Asked before injecting anything: a tab that has moved would only give
+    // back a clip of wherever it is now.
+    try {
+      const current = await chrome.tabs.get(tabId);
+      if (current.url !== tabUrl) return null;
+    } catch {
+      return null;
+    }
     const requestId = crypto.randomUUID();
-    const arrived = new Promise<ClipResultMessage["payload"] | null>(
-      (resolve) => {
-        pendingCapture = { requestId, resolve };
-        setTimeout(() => resolve(null), 10_000);
-      },
-    );
+    const arrived = new Promise<ClipResultMessage | null>((resolve) => {
+      pendingCapture = { requestId, resolve };
+      setTimeout(() => resolve(null), 10_000);
+    });
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -1390,9 +1410,14 @@ async function main(): Promise<void> {
       pendingCapture = null;
       return null;
     }
-    const payload = await arrived;
+    const message = await arrived;
     pendingCapture = null;
-    return payload;
+    if (message === null) return null;
+    const from = {
+      url: message.payload.url,
+      documentId: message.documentId,
+    };
+    return isSameBody(onScreen, from) ? message.payload : null;
   }
 
   el.capture.addEventListener("click", () => {
@@ -1406,12 +1431,17 @@ async function main(): Promise<void> {
     ) {
       return;
     }
+    // Taken at the click, with the figures: the body the capture is for.
+    const onScreen: BodyOrigin = {
+      url: result?.url ?? "",
+      documentId: bodyDocument,
+    };
     void (async () => {
       stopCapture = false;
       capture = { ...offer, step: "capturing", at: 1 };
       render();
       try {
-        await runCapture(offer, figures);
+        await runCapture(offer, figures, onScreen);
       } catch (error) {
         // Never left saying "Capturing…": the body on screen still clips,
         // with links where the pictures would have gone.
@@ -1425,6 +1455,7 @@ async function main(): Promise<void> {
   async function runCapture(
     offer: CaptureState,
     figures: number[],
+    onScreen: BodyOrigin,
   ): Promise<void> {
     const outcome = await captureFigures(figures, captureEffects(), {
       onProgress: (at) => {
@@ -1444,6 +1475,7 @@ async function main(): Promise<void> {
       snapshotBytes.set(id, bytes);
     }
     const payload = await reclipWithSnapshots(
+      onScreen,
       [...outcome.snapshots].map(([index, { id }]) => [index, id]),
     );
     if (payload === null || committing) {

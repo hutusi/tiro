@@ -41,6 +41,11 @@ describe("isClipResult", () => {
     expect(isClipResult({ ...valid, requestId: 7 })).toBe(false);
   });
 
+  test("takes the document's id when it is a string, or absent", () => {
+    expect(isClipResult({ ...valid, documentId: "9f2c" })).toBe(true);
+    expect(isClipResult({ ...valid, documentId: null })).toBe(false);
+  });
+
   /** ADR 0039. Optional, since only a page clip has figures; the ids become
    * file names in the vault, so they are held to the snapshot shape. */
   test("takes figure indices and snapshot ids only in their own shapes", () => {

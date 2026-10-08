@@ -4,6 +4,7 @@ import {
   type CaptureEffects,
   captureFigures,
   cropBox,
+  isSameBody,
   looksBlank,
   outputSize,
   SNAPSHOT_MAX_WIDTH,
@@ -285,5 +286,34 @@ describe("looksBlank", () => {
     const pixels = flat(64 * 64, [244, 244, 244, 255]);
     for (let x = 0; x < 64; x++) pixels[(32 * 64 + x) * 4] = 230;
     expect(looksBlank(pixels)).toBe(false);
+  });
+});
+
+describe("isSameBody", () => {
+  const onScreen = { url: "https://a.example/story", documentId: "d1" };
+
+  test("a capture's clip of the same document at the same address is taken", () => {
+    expect(isSameBody(onScreen, { ...onScreen })).toBe(true);
+  });
+
+  test("one from a page the tab navigated to is not, even at the same address", () => {
+    // A reload or a same-address navigation is a new document.
+    expect(isSameBody(onScreen, { ...onScreen, documentId: "d2" })).toBe(false);
+  });
+
+  test("one from a page that rewrote its address is not", () => {
+    // Infinite scroll: the same document, now saying it is the next story.
+    expect(
+      isSameBody(onScreen, { ...onScreen, url: "https://a.example/next" }),
+    ).toBe(false);
+  });
+
+  test("without an id on either side there is no proof, so no", () => {
+    expect(
+      isSameBody({ ...onScreen, documentId: undefined }, { ...onScreen }),
+    ).toBe(false);
+    expect(isSameBody(onScreen, { ...onScreen, documentId: undefined })).toBe(
+      false,
+    );
   });
 });

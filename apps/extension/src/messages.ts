@@ -25,6 +25,10 @@ export interface ClipResultMessage {
    * for it (ADR 0039).
    */
   requestId?: string;
+  /** The document the clip was read from, so a capture's clip can be checked
+   * against the body on screen: a page that navigated in between is another
+   * article, and must not replace it. */
+  documentId?: string;
 }
 
 /** The popup's one message boundary. Today only this extension's own clipper
@@ -32,17 +36,19 @@ export interface ClipResultMessage {
  * so the guard checks the whole shape rather than trusting the type tag. */
 export function isClipResult(message: unknown): message is ClipResultMessage {
   if (typeof message !== "object" || message === null) return false;
-  const { type, payload, clipperCommit, requestId } = message as {
+  const { type, payload, clipperCommit, requestId, documentId } = message as {
     type?: unknown;
     payload?: unknown;
     clipperCommit?: unknown;
     requestId?: unknown;
+    documentId?: unknown;
   };
   if (type !== "tiro-clip-result") return false;
   if (clipperCommit !== undefined && typeof clipperCommit !== "string") {
     return false;
   }
   if (requestId !== undefined && typeof requestId !== "string") return false;
+  if (documentId !== undefined && typeof documentId !== "string") return false;
   if (typeof payload !== "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
   // Optional, since only a page clip has figures. The ids name files the

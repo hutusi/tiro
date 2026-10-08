@@ -166,6 +166,30 @@ export async function cropAndEncode(
   return null;
 }
 
+/** Where a body was read from: the page's address, and the document's id. */
+export interface BodyOrigin {
+  url: string;
+  documentId: string | undefined;
+}
+
+/**
+ * Whether a capture's clip may take the place of the body on screen.
+ *
+ * Only if it was read from the same document at the same address. The page
+ * can move while the capture runs — a link, a redirect, an infinite scroll
+ * that swaps the address as it loads the next story — and the clip would then
+ * be of another article, saved under the reader's Clip as if it were this one.
+ * The document id catches a navigation, even to the same address; the address
+ * catches a page that rewrote it without one. No id means no proof, and no.
+ */
+export function isSameBody(onScreen: BodyOrigin, arrived: BodyOrigin): boolean {
+  return (
+    onScreen.documentId !== undefined &&
+    onScreen.documentId === arrived.documentId &&
+    onScreen.url === arrived.url
+  );
+}
+
 /** What the capture loop needs from the world. */
 export interface CaptureEffects {
   /** Save the scroll and arm the watchdog; false when no clip has run. */

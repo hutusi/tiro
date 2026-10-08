@@ -98,6 +98,8 @@ For a tab body with such figures, the popup offers "Capture N figures":
 
 **Refused rather than taken badly**, leaving the figure a link:
 
+- a figure with nothing drawn in it — a slot whose script never ran, or a
+  canvas that comes out one flat colour;
 - a figure taller or wider than the viewport;
 - a figure with something on top of it, such as a sticky header or a banner;
 - a page that reflows under the picture twice;
@@ -148,6 +150,14 @@ received them, and the payload lists the indices of the drawn figures
   make it absolute.
 - **Page-authored markers are stripped.** Only the extension's own map writes
   them.
+- **The re-clip must come from the page on screen.** The clipper gives each
+  document a random id in the isolated world, and a navigation starts a new
+  world. The popup takes a capture's clip only when it carries the same
+  document id *and* the same address as the body on screen, and checks the
+  tab's address before re-clipping at all. A reload is a new document; an
+  infinite scroll that rewrites the address is a new address. Either way the
+  original body stands, with its links, rather than another article being
+  saved under this one's Clip.
 
 ## Rejected
 

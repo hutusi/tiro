@@ -36,6 +36,10 @@ export interface FigureScope {
   /** Read and cleared by the next `clipper.js` run (`setSnapshotRequest`). */
   __tiroSnapshotRequest?: SnapshotRequest;
   __tiroCapture?: { x: number; y: number; timer: number };
+  /** This document's id, made by the first clip of it. A navigation, even to
+   * the same address, starts a new document and a new isolated world, so a
+   * clip that reports another id came from another page. */
+  __tiroDocument?: string;
 }
 
 /** The pictures a re-clip is to show: figure index (into the last clip's

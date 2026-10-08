@@ -33,6 +33,12 @@ import type { ClipResultMessage } from "./messages.ts";
     if (at >= 0) snapshots.set(at, id);
   }
   scope.__tiroFigures = figures;
+  // From `getRandomValues`, which a plain-http page has too; `randomUUID`
+  // exists only in a secure context.
+  scope.__tiroDocument ??= Array.from(
+    crypto.getRandomValues(new Uint8Array(16)),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
   // Readability destructively mutates its input; always parse a clone. The
   // title falls back to the live document's, since the clone is consumed.
   const clone = document.cloneNode(true) as Document;
@@ -41,6 +47,7 @@ import type { ClipResultMessage } from "./messages.ts";
     type: "tiro-clip-result",
     payload: { ...payload, title: payload.title || document.title },
     clipperCommit: __CLIPPER_COMMIT__,
+    documentId: scope.__tiroDocument,
     ...(request !== undefined ? { requestId: request.requestId } : {}),
   };
   chrome.runtime.sendMessage(message).catch(() => {
