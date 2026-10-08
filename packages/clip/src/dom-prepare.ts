@@ -1074,13 +1074,14 @@ function captionSource(caption: Element): Element | null {
 const VIDEO_LABEL = "Video";
 
 /**
- * Brackets the text `keepVideosThroughReadability` gives a video, so text that
- * came from it can be told from text an author wrote. A private-use character:
- * no page's metadata carries one by accident, and it is not whitespace, so the
- * paragraph still reads as holding text.
+ * Brackets the text the clipper gives an element so that Readability keeps it
+ * — `keepVideosThroughReadability`'s for a video — so text that came from it
+ * can be told from text an author wrote. A private-use character: no page's
+ * metadata carries one by accident, and it is not whitespace, so the paragraph
+ * still reads as holding text.
  */
-const VIDEO_MARK = "\uE000";
-const VIDEO_PLACEHOLDER = `${VIDEO_MARK}${VIDEO_LABEL}${VIDEO_MARK}`;
+const KEEP_MARK = "\uE000";
+const VIDEO_PLACEHOLDER = `${KEEP_MARK}${VIDEO_LABEL}${KEEP_MARK}`;
 
 /** A video address a reader can follow: http(s), resolved against the page.
  * `blob:` is what a streaming player hands its `<video>`, and it means nothing
@@ -1133,7 +1134,7 @@ function videoSource(video: Element, base: string): string | null {
  * would discard the very attributes Readability reads to decide what is
  * hidden; here a hidden paragraph, or a hidden video, is still dropped with
  * everything in it. The text never reaches the markdown: `videosAsPostersIn`
- * replaces the whole element, and `excerptWithoutVideos` keeps it out of the
+ * replaces the whole element, and `excerptWithoutPlaceholders` keeps it out of the
  * one thing Readability reads from the text directly.
  *
  * The page's own fallback is replaced rather than kept beside the placeholder.
@@ -1153,7 +1154,8 @@ function keepVideosThroughReadability(doc: Document): void {
 }
 
 /**
- * Readability's excerpt, unless it was read out of a video.
+ * Readability's excerpt, unless it was read out of a placeholder the clipper
+ * added.
  *
  * With no description in the page's metadata, Readability uses the text of the
  * article's first `<p>`. When that paragraph holds a video, its text is the
@@ -1162,7 +1164,7 @@ function keepVideosThroughReadability(doc: Document): void {
  * summarised as `Video`, in the popup, the frontmatter and the site's feed,
  * even when the video itself was then dropped from the body.
  *
- * Recognised by `VIDEO_MARK`, which only the placeholder carries. Comparing
+ * Recognised by `KEEP_MARK`, which only a placeholder carries. Comparing
  * the excerpt with the first paragraph's text was tried first and cannot tell
  * where an excerpt came from: a page whose `<meta name="description">` is
  * "Video" — or whatever its fallback said — matched, and lost its authored
@@ -1174,12 +1176,12 @@ function keepVideosThroughReadability(doc: Document): void {
  * video is gone — the one Readability would have taken had the video's
  * paragraph been deleted, as it was before videos were kept.
  */
-export function excerptWithoutVideos(
+export function excerptWithoutPlaceholders(
   excerpt: string,
   content: string,
   doc: Document,
 ): string {
-  if (!excerpt.includes(VIDEO_MARK)) return excerpt;
+  if (!excerpt.includes(KEEP_MARK)) return excerpt;
   const scratch = doc.implementation.createHTMLDocument("");
   scratch.body.innerHTML = content;
   for (const video of Array.from(scratch.querySelectorAll("video"))) {

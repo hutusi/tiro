@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
-  excerptWithoutVideos,
+  excerptWithoutPlaceholders,
   foldFiguresIn,
   hasLatexmlFullText,
   placeAnchorsIn,
@@ -116,7 +116,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     title: latexml?.title ?? ((article?.title ?? "").trim() || doc.title),
     excerpt:
       latexml?.excerpt ??
-      excerptWithoutVideos(
+      excerptWithoutPlaceholders(
         article?.excerpt ?? "",
         article?.content ?? "",
         doc,
