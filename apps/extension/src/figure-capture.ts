@@ -66,13 +66,9 @@ export function outputSize(
   };
 }
 
-/** The side of the square a crop is sampled at to judge it blank. */
-const BLANK_SAMPLE = 64;
-
-/** How far a sampled pixel may stray from the first and the crop still read
- * as one flat colour — the noise of compression and smoothing, no more. A
- * one-pixel line across a 600-pixel figure averages to about ten levels at
- * this sample size. */
+/** How far a pixel may stray from the first and the crop still read as one
+ * flat colour: the noise of the resize, no more. The capture is a lossless
+ * PNG, so a drawn line differs by far more than this. */
 const BLANK_TOLERANCE = 3;
 
 /**
@@ -145,13 +141,11 @@ export async function cropAndEncode(
   context.drawImage(bitmap, 0, 0);
   bitmap.close();
   // A canvas that has mounted but not painted is laid out, so the scout takes
-  // it — and the picture is its background. Sampled small, since a flat crop
-  // is flat at any size and a figure's lines survive the averaging.
-  const sample = new OffscreenCanvas(BLANK_SAMPLE, BLANK_SAMPLE);
-  const sampled = sample.getContext("2d");
-  if (sampled === null) return null;
-  sampled.drawImage(canvas, 0, 0, BLANK_SAMPLE, BLANK_SAMPLE);
-  if (looksBlank(sampled.getImageData(0, 0, BLANK_SAMPLE, BLANK_SAMPLE).data)) {
+  // it — and the picture is its background. Judged at full size: a downscale
+  // samples rather than averages, and stepped over a one-pixel line, so a plot
+  // of thin lines was refused as blank. The scan stops at the first pixel that
+  // differs, so a real figure costs a few rows; only a blank one is read whole.
+  if (looksBlank(context.getImageData(0, 0, size.width, size.height).data)) {
     return null;
   }
   for (const quality of [0.85, 0.7]) {

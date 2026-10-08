@@ -281,10 +281,15 @@ describe("looksBlank", () => {
     expect(looksBlank(pixels)).toBe(true);
   });
 
-  test("a faint line across the figure does", () => {
-    // A one-pixel dark line over 600 pixels, averaged into a 64-pixel sample.
-    const pixels = flat(64 * 64, [244, 244, 244, 255]);
-    for (let x = 0; x < 64; x++) pixels[(32 * 64 + x) * 4] = 230;
+  test("one thin line across the figure does", () => {
+    // Full-size pixels, as `cropAndEncode` passes them: a one-pixel black
+    // line across a 600×400 white crop. A 64×64 sample of the same crop
+    // stepped over the line, which is why the crop is no longer sampled.
+    const width = 600;
+    const pixels = flat(width * 400, [255, 255, 255, 255]);
+    for (let x = 0; x < width; x++) {
+      pixels.fill(0, (199 * width + x) * 4, (199 * width + x) * 4 + 3);
+    }
     expect(looksBlank(pixels)).toBe(false);
   });
 });
