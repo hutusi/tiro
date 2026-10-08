@@ -493,7 +493,13 @@ export async function saveLanguage(setting: LanguageSetting): Promise<void> {
  * there is kept and committed on close — collection writes leave Tiro pages,
  * which is where version 5 placed them and the only place 6 said they happen.
  * Same destination, no new permission; bumped because 6 has shipped (0.16.0),
- * so anyone who accepted it accepted a narrower description. */
+ * so anyone who accepted it accepted a narrower description.
+ *
+ * Also 7: capturing figures (ADR 0039) — on request, the popup scrolls the page
+ * and takes pictures of parts of the tab, committed with the clip. A new kind
+ * of page data, so it is disclosed; folded into 7 rather than bumped to 8
+ * because 7 has not been released (0.16.0 asks for 6), the same reasoning that
+ * folded Remove into 6. */
 export const DISCLOSURE_VERSION = 7;
 
 export interface DisclosureState {

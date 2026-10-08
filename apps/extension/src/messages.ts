@@ -1,4 +1,5 @@
 import type { ClipPayload } from "@tiro/clip";
+import { SNAPSHOT_ID } from "@tiro/shared/documents";
 
 // Type-only: erased from the bundle, so the service worker, which imports
 // this file for its message types, never loads the DOM-bound clip package
@@ -18,6 +19,12 @@ export interface ClipResultMessage {
    * field, which then records no commit rather than the popup's.
    */
   clipperCommit?: string;
+  /**
+   * Set on the clip a figure capture asked for, echoing its request, so the
+   * popup takes this body in place of the one on screen — and no other clip
+   * for it (ADR 0039).
+   */
+  requestId?: string;
 }
 
 /** The popup's one message boundary. Today only this extension's own clipper
@@ -25,17 +32,40 @@ export interface ClipResultMessage {
  * so the guard checks the whole shape rather than trusting the type tag. */
 export function isClipResult(message: unknown): message is ClipResultMessage {
   if (typeof message !== "object" || message === null) return false;
-  const { type, payload, clipperCommit } = message as {
+  const { type, payload, clipperCommit, requestId } = message as {
     type?: unknown;
     payload?: unknown;
     clipperCommit?: unknown;
+    requestId?: unknown;
   };
   if (type !== "tiro-clip-result") return false;
   if (clipperCommit !== undefined && typeof clipperCommit !== "string") {
     return false;
   }
+  if (requestId !== undefined && typeof requestId !== "string") return false;
   if (typeof payload !== "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
+  // Optional, since only a page clip has figures. The ids name files the
+  // commit writes, so they are held to the snapshot shape here as well as
+  // where the path is made.
+  if (
+    p.scriptFigures !== undefined &&
+    !(
+      Array.isArray(p.scriptFigures) &&
+      p.scriptFigures.every((i) => Number.isInteger(i) && i >= 0)
+    )
+  ) {
+    return false;
+  }
+  if (
+    p.snapshots !== undefined &&
+    !(
+      Array.isArray(p.snapshots) &&
+      p.snapshots.every((id) => typeof id === "string" && SNAPSHOT_ID.test(id))
+    )
+  ) {
+    return false;
+  }
   return (
     typeof p.url === "string" &&
     typeof p.title === "string" &&

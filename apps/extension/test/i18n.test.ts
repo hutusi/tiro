@@ -154,3 +154,15 @@ describe("the disclosure and Remove (ADR 0036)", () => {
     expect(text("disclosure-body-2")).toBe(en.disclosureBody2);
   });
 });
+
+describe("the disclosure and capturing figures (ADR 0039)", () => {
+  // Pictures of the tab are a new kind of page data reaching the vault, and
+  // consent that never mentioned them would not cover them — in either
+  // language.
+  test("both disclosures name the capture, and say where the pictures go", () => {
+    expect(messages("en").disclosureBody2).toContain("“Capture figures”");
+    expect(messages("en").disclosureBody2).toContain("committed with the clip");
+    expect(messages("zh").disclosureBody2).toContain("「截取图示」");
+    expect(messages("zh").disclosureBody2).toContain("随剪藏一起提交");
+  });
+});

@@ -36,6 +36,36 @@ describe("isClipResult", () => {
     expect(isClipResult({ ...valid, clipperCommit: 42 })).toBe(false);
   });
 
+  test("takes a capture's request id when it is a string, or absent", () => {
+    expect(isClipResult({ ...valid, requestId: "r-1" })).toBe(true);
+    expect(isClipResult({ ...valid, requestId: 7 })).toBe(false);
+  });
+
+  /** ADR 0039. Optional, since only a page clip has figures; the ids become
+   * file names in the vault, so they are held to the snapshot shape. */
+  test("takes figure indices and snapshot ids only in their own shapes", () => {
+    const withPayload = (extra: Record<string, unknown>) => ({
+      ...valid,
+      payload: { ...valid.payload, ...extra },
+    });
+    expect(
+      isClipResult(
+        withPayload({ scriptFigures: [0, 4], snapshots: ["3f9a0c1b2d4e"] }),
+      ),
+    ).toBe(true);
+    for (const scriptFigures of [[-1], [1.5], ["2"], 3]) {
+      expect(isClipResult(withPayload({ scriptFigures }))).toBe(false);
+    }
+    for (const snapshots of [
+      ["../../index.md"],
+      ["3f9a0c1b2d4e.webp"],
+      ["3F9A0C1B2D4E"],
+      "3f9a0c1b2d4e",
+    ]) {
+      expect(isClipResult(withPayload({ snapshots }))).toBe(false);
+    }
+  });
+
   test("rejects other message types and non-objects", () => {
     expect(isClipResult({ ...valid, type: "other" })).toBe(false);
     expect(isClipResult(null)).toBe(false);

@@ -25,7 +25,10 @@
       <p id="disclosure-body-2">
         None of it is sent to your vault until you press “Clip to vault”, which
         commits it to the GitHub repository you configured. Close this popup
-        without clipping and the result is discarded. On a Tiro site — any
+        without clipping and the result is discarded. “Capture figures”,
+        offered on a page whose figures its own script draws, scrolls the page
+        to each one and keeps a picture of that part of the tab; the pictures
+        are committed with the clip, to the same repository. On a Tiro site — any
         page carrying Tiro's marker — the popup offers collections instead: a
         box you tick is kept, and committed to the same repository when you
         close the popup or press “Save now”, for an article it already holds.
@@ -119,6 +122,20 @@
         </button>
       </form>
     </section>
+
+    <!-- Capturing interactive figures (ADR 0039): offered above Clip, since
+      it changes what Clip commits. -->
+    <div id="capture-row" hidden>
+      <p id="capture-hint" class="note" hidden></p>
+      <div class="actions">
+        <button id="capture-stop" type="button" class="btn btn-secondary" hidden>
+          Stop
+        </button>
+        <button id="capture" type="button" class="btn btn-secondary" hidden>
+          Capture figures
+        </button>
+      </div>
+    </div>
 
     <div class="actions">
       <button id="source-fetch" type="button" class="btn btn-secondary" hidden>

@@ -37,6 +37,23 @@ export interface PreviewFacts {
   fromFetch: boolean;
 }
 
+/**
+ * Capturing the figures a page draws with script (ADR 0039): how many the body
+ * on screen has, and how far taking their pictures has got.
+ */
+export interface CaptureState {
+  /** Figures the body on screen can be captured for. */
+  offered: number;
+  step: "offered" | "capturing" | "placing" | "done";
+  /** Capturing: the figure being taken, from 1. */
+  at: number;
+  /** Done: how many pictures the article shows now. */
+  captured: number;
+  /** Done, but the clip carrying the pictures never came back, so the body on
+   * screen is still the one with links. */
+  lost: boolean;
+}
+
 export interface PopupLinks {
   /** The article on the site — exists once the vault workflow has run. */
   site: string;
@@ -88,6 +105,10 @@ export interface PopupState {
   /** Remove from Tiro (ADR 0036). Absent, or null, when there is nothing to
    * offer it for — a page this machine never clipped. */
   removal?: RemovalState | null;
+  /** Absent, or null, when the body on screen has no figure to capture. */
+  capture?: CaptureState | null;
+  /** Clipping: snapshots uploaded so far, before the commit that names them. */
+  uploading?: { done: number; total: number } | null;
 }
 
 export interface PopupView {
@@ -119,6 +140,10 @@ export interface PopupView {
    * is then the likelier intent, and Re-clip steps back to an outline. */
   clip: { visible: boolean; enabled: boolean; primary: boolean; label: string };
   links: (PopupLinks & { hint: boolean }) | null;
+  /** Capture the page's drawn figures, and the sentence saying what that does. */
+  capture: { visible: boolean; label: string; hint: string | null };
+  /** Stop a capture under way, keeping what it has taken. */
+  captureStop: { visible: boolean; label: string };
   remove: RemovalView;
 }
 
@@ -133,6 +158,10 @@ const FETCH_OVERRIDES: ReadonlySet<Phase> = new Set(["ready", "blocked"]);
  */
 function removalOfferable(s: PopupState): boolean {
   if (!s.configured || s.fetching) return false;
+  // A capture moves the page and is about to change what Clip commits.
+  if (s.capture?.step === "capturing" || s.capture?.step === "placing") {
+    return false;
+  }
   switch (s.phase) {
     case "saved":
       return true;
@@ -167,9 +196,18 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     progress: null,
     sourceFetch: { ...view.sourceFetch, visible: false },
     clip: { ...view.clip, visible: false, enabled: false },
+    capture: { ...view.capture, visible: false, hint: null },
+    captureStop: { ...view.captureStop, visible: false },
     links: null,
     remove,
   };
+}
+
+/** Roughly how long capturing takes, rounded to five seconds: the settle each
+ * figure waits, the wait for it to draw, and Chrome's capture rate. Said as a
+ * span the reader can plan around, not a promise. */
+export function captureSeconds(figures: number): number {
+  return Math.max(5, Math.round((figures * 2) / 5) * 5);
 }
 
 function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
@@ -246,6 +284,8 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
     },
     clip: clipDisabled,
     links: null,
+    capture: { visible: false, label: "", hint: null },
+    captureStop: { visible: false, label: m.captureStop },
   };
 
   switch (phase) {
@@ -282,8 +322,47 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
     }
     case "ready": {
       const clippedOn = s.clippedOn;
+      const capture = s.capture ?? null;
+      // A capture under way is what the popup is doing: Clip waits for the
+      // body it will produce, which is the one with the pictures in.
+      if (capture?.step === "capturing" || capture?.step === "placing") {
+        return {
+          ...base,
+          label: m.labelCapturing,
+          progress:
+            capture.step === "capturing"
+              ? m.capturingFigure(capture.at, capture.offered)
+              : m.capturePlacing,
+          captureStop: {
+            visible: capture.step === "capturing",
+            label: m.captureStop,
+          },
+        };
+      }
+      const offerCapture =
+        capture?.step === "offered" &&
+        capture.offered > 0 &&
+        s.configured &&
+        !s.gated;
+      const captureNote =
+        capture?.step !== "done"
+          ? null
+          : capture.lost
+            ? m.captureLost
+            : m.captureResult(capture.captured, capture.offered);
       return {
         ...base,
+        preview:
+          base.preview === null
+            ? null
+            : { ...base.preview, note: base.preview.note ?? captureNote },
+        capture: offerCapture
+          ? {
+              visible: true,
+              label: m.captureButton(capture.offered),
+              hint: m.captureHint(captureSeconds(capture.offered)),
+            }
+          : base.capture,
         label: s.gated
           ? ""
           : clippedOn === null
@@ -312,7 +391,14 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
       };
     }
     case "clipping":
-      return { ...base, label: m.labelSaving, progress: m.loadingSave };
+      return {
+        ...base,
+        label: m.labelSaving,
+        progress:
+          s.uploading != null && s.uploading.done < s.uploading.total
+            ? m.uploadingFigures(s.uploading.done, s.uploading.total)
+            : m.loadingSave,
+      };
     case "saved":
       return {
         ...base,

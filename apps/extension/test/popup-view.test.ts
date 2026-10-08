@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { messages } from "../src/i18n.ts";
 import {
   articleUrl,
+  captureSeconds,
   type PopupState,
   popupView,
   vaultFileUrl,
@@ -580,5 +581,117 @@ describe("popupView, Remove from Tiro (ADR 0036)", () => {
     expect(v.links).not.toBeNull();
     expect(v.remove.status).toEqual({ text: "Nope.", tone: "error" });
     expect(v.remove.offer.visible).toBe(true);
+  });
+});
+
+describe("capturing figures (ADR 0039)", () => {
+  const offered = {
+    offered: 29,
+    step: "offered" as const,
+    at: 0,
+    captured: 0,
+    lost: false,
+  };
+
+  test("a body with drawn figures offers to capture them, beside Clip", () => {
+    const v = popupView(state({ capture: offered }), m);
+    expect(v.capture.visible).toBe(true);
+    expect(v.capture.label).toBe(m.captureButton(29));
+    expect(v.capture.hint).toBe(m.captureHint(captureSeconds(29)));
+    // Clip stays on offer: capturing is a choice, never a toll.
+    expect(v.clip.enabled).toBe(true);
+    expect(v.captureStop.visible).toBe(false);
+  });
+
+  test("no offer without figures, before setup, or while the body is gated", () => {
+    for (const s of [
+      state(),
+      state({ capture: null }),
+      state({ capture: offered, configured: false }),
+      state({ capture: offered, gated: true }),
+    ]) {
+      expect(popupView(s, m).capture.visible).toBe(false);
+    }
+  });
+
+  test("while capturing, it says which figure, Clip waits, and Stop is there", () => {
+    const v = popupView(
+      state({ capture: { ...offered, step: "capturing", at: 7 } }),
+      m,
+    );
+    expect(v.label).toBe(m.labelCapturing);
+    expect(v.progress).toBe(m.capturingFigure(7, 29));
+    expect(v.clip.enabled).toBe(false);
+    expect(v.capture.visible).toBe(false);
+    expect(v.captureStop.visible).toBe(true);
+  });
+
+  test("placing the pictures has no Stop: it is one clip, already running", () => {
+    const v = popupView(state({ capture: { ...offered, step: "placing" } }), m);
+    expect(v.progress).toBe(m.capturePlacing);
+    expect(v.clip.enabled).toBe(false);
+    expect(v.captureStop.visible).toBe(false);
+  });
+
+  test("once done, the card says what came out and Clip is back", () => {
+    for (const [captured, lost, note] of [
+      [29, false, m.captureResult(29, 29)],
+      [27, false, m.captureResult(27, 29)],
+      [0, false, m.captureResult(0, 29)],
+      [0, true, m.captureLost],
+    ] as const) {
+      const v = popupView(
+        state({ capture: { ...offered, step: "done", captured, lost } }),
+        m,
+      );
+      expect(v.preview?.note).toBe(note);
+      expect(v.capture.visible).toBe(false);
+      expect(v.clip.enabled).toBe(true);
+    }
+  });
+
+  test("a capture under way is no moment to offer Remove", () => {
+    const removal = {
+      step: "offered" as const,
+      vault: "o/r",
+      title: null,
+      problem: null,
+    };
+    const during = popupView(
+      state({
+        clippedOn: "Oct 8",
+        removal,
+        capture: { ...offered, step: "capturing", at: 3 },
+      }),
+      m,
+    );
+    expect(during.remove.offer.visible).toBe(false);
+    const after = popupView(
+      state({
+        clippedOn: "Oct 8",
+        removal,
+        capture: { ...offered, step: "done", captured: 29 },
+      }),
+      m,
+    );
+    expect(after.remove.offer.visible).toBe(true);
+  });
+
+  test("while the commit runs, the uploads are counted, then the save", () => {
+    const uploading = popupView(
+      state({ phase: "clipping", uploading: { done: 12, total: 27 } }),
+      m,
+    );
+    expect(uploading.progress).toBe(m.uploadingFigures(12, 27));
+    const committing = popupView(
+      state({ phase: "clipping", uploading: { done: 27, total: 27 } }),
+      m,
+    );
+    expect(committing.progress).toBe(m.loadingSave);
+  });
+
+  test("the estimate is a span to plan around, never under five seconds", () => {
+    expect(captureSeconds(1)).toBe(5);
+    expect(captureSeconds(29)).toBe(60);
   });
 });

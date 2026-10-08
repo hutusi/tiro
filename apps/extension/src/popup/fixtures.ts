@@ -7,7 +7,7 @@ import type {
   CollectionsState,
 } from "./collections-view.ts";
 import type { RemovalState, RemovalStep } from "./removal-view.ts";
-import type { PopupState } from "./view.ts";
+import type { CaptureState, PopupState } from "./view.ts";
 
 /**
  * Canned states for eyeballing the popup outside a real clip:
@@ -27,6 +27,25 @@ const preview = {
   readabilityFailed: false,
   fromFetch: false,
 };
+
+/** An article whose figures its own script draws (ADR 0039). */
+const figures = {
+  title: "How Machines Learned Precision",
+  host: "glinscott.github.io",
+  words: 7105,
+  minutes: 30,
+  excerpt:
+    "How do you make an accurate machine without one to copy? Explore flat surfaces, screw-cutting lathes, and millionth-of-an-inch measurements through interactive 3D figures.",
+  readabilityFailed: false,
+  fromFetch: false,
+};
+
+function capture(
+  step: CaptureState["step"],
+  extra: Partial<CaptureState> = {},
+): CaptureState {
+  return { offered: 29, step, at: 0, captured: 0, lost: false, ...extra };
+}
 
 const links = {
   site: "https://tiro.ainaive.com/articles/lilianweng-github-io-posts-2026-07-04-harness-2c589c36/",
@@ -91,6 +110,43 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       removal: removal("offered"),
     },
     clipping: { ...base, phase: "clipping" },
+    // Capturing interactive figures (ADR 0039), on the article that prompted it.
+    "capture-offered": {
+      ...base,
+      preview: figures,
+      capture: capture("offered"),
+    },
+    capturing: {
+      ...base,
+      preview: figures,
+      capture: capture("capturing", { at: 7 }),
+    },
+    "capture-placing": {
+      ...base,
+      preview: figures,
+      capture: capture("placing"),
+    },
+    "capture-done": {
+      ...base,
+      preview: figures,
+      capture: capture("done", { captured: 29 }),
+    },
+    "capture-partial": {
+      ...base,
+      preview: figures,
+      capture: capture("done", { captured: 27 }),
+    },
+    "capture-lost": {
+      ...base,
+      preview: figures,
+      capture: capture("done", { lost: true }),
+    },
+    "uploading-figures": {
+      ...base,
+      phase: "clipping",
+      preview: figures,
+      uploading: { done: 12, total: 27 },
+    },
     saved: { ...base, phase: "saved", links, removal: removal("offered") },
     updated: {
       ...base,
