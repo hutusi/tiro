@@ -16,6 +16,26 @@ describe("withHtmlDocument", () => {
     expect(markdown).toContain("https://example.test/rel");
   });
 
+  test("a figure the page would draw with script is described, not lost", async () => {
+    // The processor's saved-link path never runs the page's script, so it only
+    // ever sees the empty shell — the shape the extension sees before a figure
+    // has scrolled into view.
+    const markdown = await withHtmlDocument(
+      "<html><head><title>T</title></head><body><article><h1>Title</h1><p>" +
+        "Some prose long enough to be an article about lathes and screws. ".repeat(
+          8,
+        ) +
+        '</p><figure class="interactive" aria-label="A lathe cutting a thread.">' +
+        '<div class="figure-canvas"></div><figcaption>Three times slower than life.</figcaption>' +
+        "</figure></article></body></html>",
+      "https://example.test/posts/one/",
+      (doc) => clipPage(doc, "https://example.test/posts/one/").markdown,
+    );
+    expect(markdown).toContain(
+      "[Interactive figure](https://example.test/posts/one): A lathe cutting a thread.  \nThree times slower than life.",
+    );
+  });
+
   test("a page's own scripts do not run, through parsing or clipping", async () => {
     // The processor parses pages nobody vetted in a job holding secrets. A
     // script parsed through innerHTML never runs — here, as in a browser — and

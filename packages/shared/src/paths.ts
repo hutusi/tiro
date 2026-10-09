@@ -22,6 +22,29 @@ export function assetsDir(slug: string): string {
 }
 
 /**
+ * A figure snapshot's id: the first 12 hex digits of the SHA-256 of its bytes.
+ * It travels bare — never with its extension — because Readability turns any
+ * attribute on a `<figure>` that looks like an image filename into an `<img>`
+ * (`_fixLazyImages`), and a marker carrying one would publish a page-absolute
+ * image in its place.
+ */
+export const SNAPSHOT_ID = /^[0-9a-f]{12}$/;
+
+/**
+ * The file a figure snapshot is committed as, in the article's `assets/`
+ * (ADR 0039): its id and `.webp`.
+ *
+ * The processor's own shape — `<12 hex><ext>` — on purpose. Once committed, a
+ * snapshot is an asset like any it downloaded: kept while `index.md` names it,
+ * pruned by `reconcileAssets` once a re-clip no longer does. A name of its own
+ * would be "someone else's file" to the processor and never pruned at all.
+ */
+export function snapshotAssetName(id: string): string {
+  if (!SNAPSHOT_ID.test(id)) throw new Error(`not a snapshot id: ${id}`);
+  return `${id}.webp`;
+}
+
+/**
  * The largest article asset the site will serve. Cloudflare Pages rejects
  * files over 25 MB; the processor caps downloads at 10 MB, so anything bigger
  * is unexpected. The site's `copy-assets` skips it loudly, which is why a

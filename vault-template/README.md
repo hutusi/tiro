@@ -8,7 +8,7 @@ their Chinese translations, and the processing workflow.
 ```
 articles/<slug>/index.md   # original article + frontmatter
 articles/<slug>/zh.md      # paragraph-aligned Chinese translation
-articles/<slug>/assets/    # images downloaded by the workflow
+articles/<slug>/assets/    # images downloaded by the workflow, and figure pictures the extension captured
 collections/<id>.md               # a hand-picked list of articles (favorites.md is one)
 inbox/                            # links saved without their page; each becomes an article
 config/tiro.yml                   # LLM provider config + category taxonomy

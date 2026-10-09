@@ -10,6 +10,7 @@ import {
   MATH_ATTR,
   placeAnchorsIn,
   prepareForClipping,
+  scriptFiguresIn,
   videosAsPostersIn,
 } from "../src/dom-prepare.ts";
 import { htmlToMarkdown } from "../src/markdown.ts";
@@ -2770,6 +2771,434 @@ describe("a video keeps its place in the article", () => {
     expect(htmlToMarkdown(html).markdown).toBe(
       "[![Video](https://schlarp.example/posts/frame.png)](https://schlarp.example/posts/led-strip/clip.mp4)",
     );
+  });
+});
+
+describe("a figure the page draws with script is described, not lost", () => {
+  const PAGE = "https://precision.example/how-machines/";
+  /** Where the placeholder links: the page as the article records it. */
+  const U = "https://precision.example/how-machines";
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+  const LABEL =
+    "A lathe cutting a thread: the work turns as the tool advances.";
+
+  /** The whole clip, as the extension runs it, on a page at `url`. */
+  function clip(markup: string, url = PAGE): string {
+    const window = new Window({ url });
+    window.document.body.innerHTML = `<article><h1>Precision</h1>${filler}${markup}${filler}</article>`;
+    return clipPage(window.document as unknown as Document, url).markdown;
+  }
+
+  /** Before its script runs: the shell the page ships. */
+  const shell = (attrs: string, caption = "") =>
+    `<figure class="interactive" ${attrs}><div class="figure-canvas"></div>${caption}</figure>`;
+
+  /** After: what the clipped page held — measured on the article that prompted
+   * this — a canvas, the labels and narration laid over it, and the buttons
+   * that step it. */
+  const mounted = (attrs: string, caption = "") =>
+    `<figure class="interactive" ${attrs}>` +
+    '<div class="figure-canvas has-narration-band"><canvas width="1296" height="746"></canvas>' +
+    '<div class="scene-overlay"><div class="scene-label">wooden pattern</div><div class="scene-label">the core</div></div>' +
+    '<div class="figure-narration"><div>Damp sand is rammed around the pattern.</div><div class="narration-readout">&nbsp;</div></div></div>' +
+    '<div class="figure-controls"><div class="control-buttons"><button type="button">❚❚ Pause</button></div>' +
+    '<div class="control-buttons"><button type="button">1. Ramming</button><button type="button">2. Opening</button></div>' +
+    '<input type="range" min="0" max="10"><svg viewBox="0 0 10 10"><line x1="0" y1="0" x2="5" y2="5"></line></svg></div>' +
+    `${caption}</figure>`;
+
+  const OVERLAY = [
+    "wooden pattern",
+    "the core",
+    "Damp sand",
+    "Pause",
+    "Ramming",
+  ];
+
+  test("an unmounted figure becomes a link to it, with the page's description", () => {
+    // Today Readability turns the empty <div> into a <p> and deletes it, and
+    // the figure leaves no trace at all.
+    expect(clip(shell(`aria-label="${LABEL}"`))).toContain(
+      `[Interactive figure](${U}): ${LABEL}`,
+    );
+  });
+
+  test("a mounted figure says the same, and its overlays are not prose", () => {
+    const markdown = clip(mounted(`aria-label="${LABEL}"`));
+    expect(markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+    for (const soup of OVERLAY) expect(markdown).not.toContain(soup);
+  });
+
+  test("its caption joins it, one block, instead of reading as prose", () => {
+    const markdown = clip(
+      mounted(
+        `aria-label="${LABEL}"`,
+        "<figcaption>The figure runs three times slower than life.</figcaption>",
+      ),
+    );
+    const expected = `[Interactive figure](${U}): ${LABEL}  \nThe figure runs three times slower than life.`;
+    expect(markdown).toContain(expected);
+    expect(splitBlocks(markdown).some((block) => block.text === expected)).toBe(
+      true,
+    );
+  });
+
+  test("a caption's link survives the fold", () => {
+    expect(
+      clip(
+        shell(
+          `aria-label="${LABEL}"`,
+          '<figcaption>A planer, from <a href="https://models.example/planer">a model</a>.</figcaption>',
+        ),
+      ),
+    ).toContain(
+      `${LABEL}  \nA planer, from [a model](https://models.example/planer).`,
+    );
+  });
+
+  test("a caption that repeats the label is said once", () => {
+    const markdown = clip(
+      shell(`aria-label="${LABEL}"`, `<figcaption>${LABEL}</figcaption>`),
+    );
+    expect(markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+    expect(markdown.split(LABEL)).toHaveLength(2);
+  });
+
+  test("with no label, the caption describes it, and an id is the link's target", () => {
+    // Red Blob Games' shape: a bare canvas, an id, a caption, no aria-label.
+    expect(
+      clip(
+        '<figure id="diagram-early-exit"><canvas width="600" height="300"></canvas>' +
+          "<figcaption>Without early exit</figcaption></figure>",
+      ),
+    ).toContain(
+      `[Interactive figure](${U}#diagram-early-exit): Without early exit`,
+    );
+  });
+
+  test("a canvas with nothing said about it is still marked", () => {
+    // The prose around it refers to it, and the canvas proves something was
+    // drawn there.
+    expect(
+      clip(
+        '<figure id="frontier"><canvas width="600" height="300"></canvas></figure>',
+      ),
+    ).toContain(`[Interactive figure](${U}#frontier)\n`);
+  });
+
+  test("an empty shell with nothing to say or show is dropped, as today", () => {
+    expect(clip(shell(""))).not.toContain("Interactive figure");
+  });
+
+  test("the link carries no tracking parameters", () => {
+    const markdown = clip(
+      shell(`aria-label="${LABEL}"`),
+      `${PAGE}?utm_source=hn&ref=feed`,
+    );
+    expect(markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+  });
+
+  test("a canvas's fallback text is never published", () => {
+    const markdown = clip(
+      `<figure aria-label="${LABEL}"><canvas>Your browser does not support canvas.</canvas></figure>`,
+    );
+    expect(markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+    expect(markdown).not.toContain("does not support");
+  });
+
+  test("a caption a paragraph cannot hold is kept as its own block", () => {
+    const markdown = clip(
+      shell(
+        `aria-label="${LABEL}"`,
+        "<figcaption><p>First part.</p><p>Second part.</p></figcaption>",
+      ),
+    );
+    expect(markdown).toContain(
+      `[Interactive figure](${U}): ${LABEL}\n\nFirst part.\n\nSecond part.`,
+    );
+  });
+
+  describe("what is not a figure the page draws", () => {
+    test.each([
+      [
+        "an image figure",
+        '<figure><img src="/lathe.jpg" alt="A lathe"><figcaption>A lathe.</figcaption></figure>',
+      ],
+      [
+        "a chart drawn as svg, with no canvas",
+        '<figure aria-label="Chart"><svg viewBox="0 0 10 10"><rect width="5" height="5"></rect></svg><figcaption>Sales.</figcaption></figure>',
+      ],
+      [
+        "a pull quote",
+        "<figure><blockquote>Precision is a habit.</blockquote><figcaption>Whitworth</figcaption></figure>",
+      ],
+      [
+        "a lone caption",
+        "<figure><figcaption>Whitworth, 1856</figcaption></figure>",
+      ],
+      [
+        "a code listing",
+        "<figure><pre><code>let x = 1;</code></pre><figcaption>Listing 1</figcaption></figure>",
+      ],
+      [
+        "an image left for browsers without script",
+        '<figure aria-label="Lathe"><div></div><noscript><img src="/lathe.jpg"></noscript><figcaption>A lathe.</figcaption></figure>',
+      ],
+      [
+        "a figure saying something in markup",
+        '<figure aria-label="Lathe"><div>Spindle speed: 300 rpm</div><figcaption>Settings.</figcaption></figure>',
+      ],
+      [
+        "an image the page has yet to load, named on a container",
+        '<figure aria-label="Lathe"><div data-src="/lathe.jpg"></div><figcaption>A lathe.</figcaption></figure>',
+      ],
+      [
+        "a picture painted as a background",
+        '<figure aria-label="Lathe"><div style="background-image: url(/lathe.jpg)"></div><figcaption>A lathe.</figcaption></figure>',
+      ],
+      [
+        "a third-party embed its own script fills",
+        // Buzzsprout's podcast player, as a vault article ships it.
+        '<figure><div id="buzzsprout-player-1"></div><script src="https://www.buzzsprout.com/1/1-episode.js?container_id=buzzsprout-player-1" type="text/javascript"></script>' +
+          "<figcaption><em>Click lower right to download.</em></figcaption></figure>",
+      ],
+      [
+        "a figure inside a link",
+        `<a href="/lathe"><figure aria-label="Lathe"><canvas></canvas></figure></a>`,
+      ],
+      [
+        "a figure with two captions",
+        '<figure aria-label="Lathe"><canvas></canvas><figcaption>One.</figcaption><figcaption>Two.</figcaption></figure>',
+      ],
+    ])("%s", (_name, markup) => {
+      expect(clip(markup)).not.toContain("Interactive figure");
+    });
+
+    test("a figure naming its own lazy image keeps the image Readability recovers", () => {
+      // `_fixLazyImages` appends an <img> to a figure with none, from any
+      // attribute that looks like an image address. Describing it instead
+      // would replace a picture the clip could have had.
+      const markdown = clip(
+        '<figure data-src="https://precision.example/lathe.jpg"><div></div><figcaption>A lathe.</figcaption></figure>',
+      );
+      expect(markdown).not.toContain("Interactive figure");
+      expect(markdown).toContain("https://precision.example/lathe.jpg");
+    });
+
+    test("a figure the page hid stays hidden", () => {
+      for (const markup of [
+        shell(`hidden aria-label="${LABEL}"`),
+        shell(`style="display: none" aria-label="${LABEL}"`),
+        shell(`aria-hidden="true" aria-label="${LABEL}"`),
+        `<div hidden>${mounted(`aria-label="${LABEL}"`)}</div>`,
+        `<figure aria-label="${LABEL}"><div hidden><canvas></canvas></div></figure>`,
+      ]) {
+        expect(clip(markup)).not.toContain("Interactive figure");
+      }
+    });
+  });
+
+  test("a link to the figure keeps its target", () => {
+    const markdown = clip(
+      `<p>See <a href="#fig-lathe">the lathe</a>.</p>${mounted(`id="fig-lathe" aria-label="${LABEL}"`)}`,
+    );
+    expect(markdown).toContain(
+      `<span id="fig-lathe"></span>[Interactive figure](${U}#fig-lathe): ${LABEL}`,
+    );
+  });
+
+  test("a marker the page wrote itself means nothing", () => {
+    // An image figure carrying the attribute stays an image figure, and folds.
+    const markdown = clip(
+      '<figure data-tiro-figure=""><img src="/lathe.jpg" alt="A lathe"><figcaption>A lathe.</figcaption></figure>',
+    );
+    expect(markdown).toContain(
+      "![A lathe](https://precision.example/lathe.jpg)  \nA lathe.",
+    );
+    expect(markdown).not.toContain("Interactive figure");
+  });
+
+  test("the text that keeps a figure through Readability never reaches the markdown", () => {
+    for (const markup of [
+      shell(`aria-label="${LABEL}"`),
+      mounted(""),
+      `<div>${shell(`aria-label="${LABEL}"`, "<figcaption>Caption.</figcaption>")}</div>`,
+    ]) {
+      expect(clip(markup)).not.toContain("");
+    }
+  });
+
+  test("the excerpt is the introduction, not the opening figure's label", () => {
+    // A <div> round the figure becomes the article's first <p>, and with no
+    // description of its own Readability takes that paragraph's text.
+    const INTRO = "How do you make an accurate machine without one to copy?";
+    const window = new Window({ url: PAGE });
+    window.document.write(
+      `<html><head><title>Precision</title></head><body><article><div>${shell(`aria-label="${LABEL}"`)}</div><p>${INTRO}</p>${filler}</article></body></html>`,
+    );
+    expect(clipPage(window.document as unknown as Document, PAGE).excerpt).toBe(
+      INTRO,
+    );
+  });
+
+  test("a figure Readability renamed to a <div> is still found", () => {
+    const doc = new Window({ url: PAGE }).document as unknown as Document;
+    const { html } = scriptFiguresIn(
+      `<div data-tiro-figure="" aria-label="${LABEL}"><span>${LABEL}</span><figcaption>Slower than life.</figcaption></div>`,
+      doc,
+      PAGE,
+    );
+    expect(htmlToMarkdown(html).markdown).toBe(
+      `[Interactive figure](${U}): ${LABEL}  \nSlower than life.`,
+    );
+  });
+
+  test("the raw-body fallback describes it too", () => {
+    // What reaches the conversion when Readability returns nothing: the
+    // prepared body, figures already emptied and marked.
+    const { html, doc } = prepare(
+      shell(
+        `aria-label="${LABEL}"`,
+        "<figcaption>Slower than life.</figcaption>",
+      ),
+    );
+    expect(htmlToMarkdown(scriptFiguresIn(html, doc, PAGE).html).markdown).toBe(
+      `[Interactive figure](${U}): ${LABEL}  \nSlower than life.`,
+    );
+  });
+
+  test("in a table cell, the caption joins with a space and the row holds", () => {
+    const doc = new Window({ url: PAGE }).document as unknown as Document;
+    const { html } = scriptFiguresIn(
+      `<table><tr><th>Figure</th><th>Note</th></tr><tr><td><figure data-tiro-figure="" aria-label="Lathe"><figcaption>Slow.</figcaption></figure></td><td>x</td></tr></table>`,
+      doc,
+      PAGE,
+    );
+    expect(htmlToMarkdown(html).markdown).toContain(
+      `| [Interactive figure](${U}): Lathe Slow. | x`,
+    );
+  });
+
+  describe("captured (ADR 0039)", () => {
+    const ID = "3f9a0c1b2d4e";
+
+    /** The whole payload, as the extension's re-clip runs it. */
+    function capture(markup: string, snapshots: [number, string][]) {
+      const window = new Window({ url: PAGE });
+      window.document.body.innerHTML = `<article><h1>Precision</h1>${filler}${markup}${filler}</article>`;
+      return clipPage(window.document as unknown as Document, PAGE, {
+        snapshots: new Map(snapshots),
+      });
+    }
+
+    test("a captured figure is shown by its snapshot, its caption beneath", () => {
+      const clip = capture(
+        mounted(
+          `aria-label="${LABEL}"`,
+          "<figcaption>Slower than life.</figcaption>",
+        ),
+        [[0, ID]],
+      );
+      expect(clip.markdown).toContain(
+        `[![${LABEL}](./assets/${ID}.webp)](${U})  \nSlower than life.`,
+      );
+      expect(clip.snapshots).toEqual([ID]);
+      expect(clip.scriptFigures).toEqual([0]);
+    });
+
+    test("with no caption, the page's description is the words beneath it", () => {
+      // Left in the alt text alone, the author's description reaches no reader.
+      expect(
+        capture(mounted(`aria-label="${LABEL}"`), [[0, ID]]).markdown,
+      ).toContain(`[![${LABEL}](./assets/${ID}.webp)](${U})  \n${LABEL}`);
+    });
+
+    test("with nothing said about it, the snapshot stands alone and links to it", () => {
+      const markdown = capture(
+        '<figure id="frontier"><canvas></canvas></figure>',
+        [[0, ID]],
+      ).markdown;
+      expect(markdown).toContain(
+        `[![Interactive figure](./assets/${ID}.webp)](${U}#frontier)\n`,
+      );
+    });
+
+    test("a figure is counted among all the page's figures, as the extension counts them", () => {
+      // The image figure ahead of it is figure 0; the drawn one is figure 1.
+      const markup = `<figure><img src="/a.jpg" alt="A"><figcaption>A.</figcaption></figure>${shell(`aria-label="${LABEL}"`)}`;
+      expect(capture(markup, []).scriptFigures).toEqual([1]);
+      const clip = capture(markup, [[1, ID]]);
+      expect(clip.markdown).toContain(`[![${LABEL}](./assets/${ID}.webp)]`);
+    });
+
+    test("only figures that reached the article can be offered", () => {
+      const clip = capture(
+        `${shell(`hidden aria-label="Hidden"`)}${shell(`aria-label="${LABEL}"`)}`,
+        [],
+      );
+      expect(clip.scriptFigures).toEqual([1]);
+    });
+
+    test("a figure whose markup changed since it was offered is still shown", () => {
+      // Its script may have added anything by the time the capture re-clips;
+      // the reader asked for the picture of the figure that was offered.
+      expect(
+        capture(
+          `<figure aria-label="${LABEL}"><div><img src="/poster.jpg"></div></figure>`,
+          [[0, ID]],
+        ).markdown,
+      ).toContain(`[![${LABEL}](./assets/${ID}.webp)](${U})`);
+    });
+
+    test("a snapshot id the page wrote itself shows nothing", () => {
+      const clip = capture(
+        shell(`aria-label="${LABEL}" data-tiro-snapshot="${ID}"`),
+        [],
+      );
+      expect(clip.markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+      expect(clip.markdown).not.toContain("./assets/");
+      expect(clip.snapshots).toEqual([]);
+    });
+
+    test("an id that is not a snapshot's is never a path", () => {
+      for (const id of ["../../x", `${ID}.webp`, "ABCDEF012345"]) {
+        const clip = capture(shell(`aria-label="${LABEL}"`), [[0, id]]);
+        expect(clip.markdown).toContain(`[Interactive figure](${U}): ${LABEL}`);
+        expect(clip.markdown).not.toContain("./assets/");
+      }
+    });
+
+    test("two figures showing one picture list it once", () => {
+      // Identical bytes share an id, and the commit carries each file once.
+      const clip = capture(
+        `${shell(`aria-label="One"`)}${shell(`aria-label="Two"`)}`,
+        [
+          [0, ID],
+          [1, ID],
+        ],
+      );
+      expect(clip.snapshots).toEqual([ID]);
+      expect(clip.markdown.split(`./assets/${ID}.webp`)).toHaveLength(3);
+    });
+
+    test("a figure inside a link is not captured", () => {
+      expect(
+        capture(
+          `<a href="/x"><figure aria-label="L"><canvas></canvas></figure></a>`,
+          [[0, ID]],
+        ).snapshots,
+      ).toEqual([]);
+    });
+
+    test("a link to a captured figure keeps its target, after the picture", () => {
+      // ADR 0024: never an anchor in front of a leading picture.
+      const markdown = capture(
+        `<p>See <a href="#fig">the lathe</a>.</p>${mounted(`id="fig" aria-label="${LABEL}"`, "<figcaption>Slow.</figcaption>")}`,
+        [[0, ID]],
+      ).markdown;
+      expect(markdown).toContain(
+        `[![${LABEL}](./assets/${ID}.webp)](${U}#fig)  \n<span id="fig"></span>Slow.`,
+      );
+    });
   });
 });
 

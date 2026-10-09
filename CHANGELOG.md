@@ -9,6 +9,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **Capture interactive figures.** On a page whose figures its own script
+  draws, the popup offers "Capture N figures": it scrolls to each one, takes a
+  picture of it, and puts the pictures in the article in place of the links —
+  committed with the clip, in one commit, as images processing keeps like any
+  other. Only when asked, since it moves the page for about two seconds a
+  figure; a figure too tall for the screen, or with something on top of it,
+  stays a link. The data disclosure names it, still at version 7 (ADR 0039).
 - **Hacker News threads clip.** An item page used to be clipped as a stack of
   usernames and timestamps, with the post and every comment lost. It is now
   read from HN's own markup: the story link, the Ask/Show/Tell HN text, a
@@ -28,6 +35,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An interactive figure is described, not lost.** A figure a page draws
+  with its own script — a canvas filled once it scrolls into view — vanished
+  from the clip and left its caption behind as loose prose, while the figures
+  already drawn leaked their labels and button text into the article. Each now
+  becomes one line linking back to the figure on the page, with the author's
+  own description of it and its caption, translated like any paragraph.
+  Re-clip an article to pick this up.
 - **A clip records the build that wrote its body.** `tiro.clipper_commit` came
   from the popup's build, while the page body comes from the clipper
   extracting it, a separate file. The clipper now stamps its own commit. A body

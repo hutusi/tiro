@@ -10,7 +10,6 @@ import {
   slugForUrl,
   sourceUrlOf,
 } from "@tiro/shared";
-import { buildClipFile } from "../clip.ts";
 import {
   type ClipCandidate,
   clipReady,
@@ -22,12 +21,28 @@ import {
   prefersCandidate,
   refusesAsEmpty,
 } from "../clip-candidate.ts";
+import { commitClip, type Snapshot } from "../clip-commit.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
 import { readClipCollections } from "../collections-read.ts";
 import type { FlushReport } from "../collections-worker.ts";
 import { describeClipError, describeRemoveError } from "../errors.ts";
 import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
-import { encodeBase64Utf8, findExistingIndex, putFile } from "../github.ts";
+import {
+  type BodyOrigin,
+  type CaptureEffects,
+  captureFigures,
+  cropAndEncode,
+  FRAME_OPTIONS,
+  figuresShown,
+  isSameBody,
+} from "../figure-capture.ts";
+import {
+  beginCapture,
+  endCapture,
+  type FrameResult,
+  frameFigure,
+  setSnapshotRequest,
+} from "../figure-scout.ts";
 import {
   formatClipDate,
   getLocale,
@@ -71,6 +86,7 @@ import { createToggleChannel, type ToggleOp } from "./recorder.ts";
 import type { RemovalState, RemovalView } from "./removal-view.ts";
 import {
   articleUrl,
+  type CaptureState,
   type Phase,
   type PopupLinks,
   type PopupState,
@@ -109,6 +125,10 @@ const el = {
   ) as HTMLParagraphElement,
   message: document.getElementById("message") as HTMLParagraphElement,
   sourceFetch: document.getElementById("source-fetch") as HTMLButtonElement,
+  captureRow: document.getElementById("capture-row") as HTMLDivElement,
+  captureHint: document.getElementById("capture-hint") as HTMLParagraphElement,
+  capture: document.getElementById("capture") as HTMLButtonElement,
+  captureStop: document.getElementById("capture-stop") as HTMLButtonElement,
   clip: document.getElementById("clip") as HTMLButtonElement,
   saved: document.getElementById("saved") as HTMLDivElement,
   view: document.getElementById("view") as HTMLAnchorElement,
@@ -180,6 +200,13 @@ function apply(view: PopupView): void {
   }
   el.sourceFetch.hidden = !view.sourceFetch.visible;
   el.sourceFetch.textContent = view.sourceFetch.label;
+  el.captureRow.hidden = !view.capture.visible && !view.captureStop.visible;
+  el.capture.hidden = !view.capture.visible;
+  el.capture.textContent = view.capture.label;
+  el.captureHint.hidden = view.capture.hint === null;
+  el.captureHint.textContent = view.capture.hint ?? "";
+  el.captureStop.hidden = !view.captureStop.visible;
+  el.captureStop.textContent = view.captureStop.label;
   el.clip.hidden = !view.clip.visible;
   el.clip.disabled = !view.clip.enabled;
   el.clip.textContent = view.clip.label;
@@ -625,6 +652,10 @@ async function main(): Promise<void> {
    * body, this popup's for one it fetched. Becomes `tiro.clipper_commit`, and
    * is set by `offer` for the same reason `sourceUrl` is. */
   let bodyCommit = "";
+  /** The document the tab body on screen was read from, which a capture's clip
+   * has to match (ADR 0039). Set by `offer`, with the body; undefined for a
+   * body the popup fetched. */
+  let bodyDocument: string | undefined;
   /** Non-null when this tab's document could be read from its publisher
    * instead of from the page — an arXiv paper, a GitHub markdown file. */
   let source: FetchableSource | null = null;
@@ -676,6 +707,39 @@ async function main(): Promise<void> {
   let saved: { updated: boolean; links: PopupLinks } | null = null;
   /** Local record: where a previous clip of this page landed. */
   let previousLinks: PopupLinks | null = null;
+
+  /* ------------------------------------- capturing figures (ADR 0039) */
+
+  /** Set once a capture starts: how far it has got. Before that the offer is
+   * derived from the body on screen, in `captureOffer`. */
+  let capture: CaptureState | null = null;
+  /** The pictures taken, by id — the name the payload gives them. */
+  const snapshotBytes = new Map<string, Uint8Array>();
+  /** The reader pressed Stop. */
+  let stopCapture = false;
+  /** The clip a capture is waiting for, by the request it sent. */
+  let pendingCapture: {
+    requestId: string;
+    resolve: (message: ClipResultMessage | null) => void;
+  } | null = null;
+  /** Snapshot uploads, while a commit carrying them runs. */
+  let uploading: { done: number; total: number } | null = null;
+
+  /** The capture on offer for the body on screen, if any. Only a tab body
+   * from an ordinary page: a publisher's copy is not what the tab shows, and
+   * a PDF has no figures to frame. */
+  function captureOffer(): CaptureState | null {
+    if (capture !== null) return capture;
+    if (result === null || result.pdfViewer || source !== null) return null;
+    if (best?.fromFetch === true) return null;
+    // Without the document's id, no capture's clip could be shown to come
+    // from this page, so none would ever be taken.
+    if (bodyDocument === undefined) return null;
+    const offered = result.scriptFigures?.length ?? 0;
+    return offered === 0
+      ? null
+      : { offered, step: "offered", at: 0, captured: 0, lost: false };
+  }
 
   function fetchPolicy(): FetchPolicy {
     return source === null
@@ -769,6 +833,8 @@ async function main(): Promise<void> {
           : null),
       links: saved?.links ?? previousLinks,
       removal,
+      capture: captureOffer(),
+      uploading,
     };
     apply(popupView(state, m));
   }
@@ -793,6 +859,7 @@ async function main(): Promise<void> {
     fromFetch: boolean,
     source: string | undefined,
     commit: string,
+    documentId?: string,
   ): void {
     if (committing) return;
     const candidate = { isSource: isSourceBody(payload), fromFetch };
@@ -808,6 +875,7 @@ async function main(): Promise<void> {
     // candidate that lost would describe a body nobody is going to commit.
     sourceUrl = source;
     bodyCommit = commit;
+    bodyDocument = documentId;
     showPayload(payload);
   }
 
@@ -884,12 +952,21 @@ async function main(): Promise<void> {
   chrome.runtime.onMessage.addListener((message: unknown, sender) => {
     if (sender.tab?.id !== tabId || !isClipResult(message)) return;
     if (pageKind !== "ordinary") return;
+    // A capture's clip goes to the capture that asked for it, and nowhere
+    // else: it is the body on screen with pictures in, not a rival to it.
+    if (message.requestId !== undefined) {
+      if (pendingCapture?.requestId === message.requestId) {
+        pendingCapture.resolve(message);
+      }
+      return;
+    }
     tabResolved = true;
     offer(
       message.payload,
       false,
       sourceUrlOf(message.payload.url),
       message.clipperCommit ?? "",
+      message.documentId,
     );
   });
 
@@ -1152,6 +1229,8 @@ async function main(): Promise<void> {
     // the button shut over an empty body, and this is what holds if it ever
     // does not.
     if (result === null || removalHolds() || hasNothingToClip(result)) return;
+    // Clip waits for the body a capture is about to hand it.
+    if (capture?.step === "capturing" || capture?.step === "placing") return;
     // All three captured at the click, for one reason: `sourceUrl` and
     // `bodyCommit` describe the body being committed, and reading them from
     // the closure later would let a body that arrived mid-upload retag the one
@@ -1162,11 +1241,6 @@ async function main(): Promise<void> {
       render();
       try {
         const nowIso = new Date().toISOString();
-        // The lookup comes first now: the flat layout makes the slug — and so
-        // the path — derivable without building the file, and a re-clip has to
-        // read the old article's `unlisted` flag before it rebuilds `index.md`
-        // over it (ADR 0017).
-        const slug = await slugForUrl(payload.url);
         // A PDF tab commits a stub. The viewer's shell holds no body worth
         // keeping, and the flags that describe one would be
         // claims about text nothing here has seen: `readability_failed` warns
@@ -1188,62 +1262,31 @@ async function main(): Promise<void> {
           clipperVersion: chrome.runtime.getManifest().version,
           clipperCommit: commit,
         };
-        /**
-         * A stub must not replace a body that is already there.
-         *
-         * A PDF clip carries no body and bets that the next processing run
-         * builds one. Written over a converted article that bet costs the
-         * article: if the fetch then fails, or the source has 404'd since, the
-         * Markdown is gone from the vault's current state and this stage
-         * cannot regenerate it — unlike an HTML re-clip, which replaces
-         * content with content. So the old body rides along until a
-         * conversion actually succeeds, and a failed reconversion costs
-         * freshness instead (ADR 0026).
-         *
-         * Read from the same lookup `unlisted` uses, and carried on the same
-         * principle: a re-clip rebuilds index.md from scratch, so anything it
-         * cannot regenerate has to be carried or it is dropped.
-         */
-        const carryBody = (found: typeof existing) =>
-          stub && found !== null ? { markdown: found.body } : {};
-        const existing = await findExistingIndex(config, slug);
-        const file = await buildClipFile({
-          ...clip,
-          ...carryBody(existing),
-          unlisted: existing?.unlisted,
+        // Every picture the body names, or no commit: a body naming a file
+        // that was never written would publish a broken image.
+        const snapshots: Snapshot[] = (payload.snapshots ?? []).map((id) => {
+          const bytes = snapshotBytes.get(id);
+          if (bytes === undefined) {
+            throw new Error(`the picture ${id} the article shows was lost`);
+          }
+          return { id, bytes };
         });
-        const path = file.path;
-        await putFile(config, {
-          path,
-          contentBase64: encodeBase64Utf8(file.content),
-          message: `clip: ${file.title}`,
-          ...(existing !== null ? { sha: existing.sha } : {}),
-          // A stale sha means something committed to this article between the
-          // lookup above and this PUT. Retrying the bytes already built would
-          // overwrite whatever it did — including, if it was a hand-edit
-          // hiding the article, the `unlisted` flag this clip read as absent.
-          // So the retry redoes the lookup and rebuilds against the answer.
-          resolveConflict: async () => {
-            const again = await findExistingIndex(config, slug);
-            const rebuilt = await buildClipFile({
-              ...clip,
-              ...carryBody(again),
-              unlisted: again?.unlisted,
-            });
-            return {
-              ...(again !== null ? { sha: again.sha } : {}),
-              contentBase64: encodeBase64Utf8(rebuilt.content),
-            };
+        const { file, updated } = await commitClip(config, clip, {
+          snapshots,
+          onUpload: (done, total) => {
+            uploading = { done, total };
+            render();
           },
         });
+        uploading = null;
         saved = {
-          updated: existing !== null,
+          updated,
           links: {
             site: articleUrl(
               homepage ?? "https://tiro.ainaive.com/",
               file.slug,
             ),
-            vault: vaultFileUrl(config, path),
+            vault: vaultFileUrl(config, file.path),
           },
         };
         phase = "saved";
@@ -1262,12 +1305,198 @@ async function main(): Promise<void> {
         void offerClipCollections(file.slug);
       } catch (error) {
         console.error("clip failed:", error);
+        uploading = null;
         committing = false;
         phase = "failed";
         problem = { text: describeClipError(error, m), error: true };
         render();
       }
     })(result, sourceUrl, bodyCommit);
+  });
+
+  /** The tab, as the capture loop needs it. Each call into the page is its
+   * own injection; one that fails — the tab navigated, closed — answers as a
+   * figure that is gone, and the loop moves on. */
+  function captureEffects(): CaptureEffects {
+    const inject = async <Args extends unknown[], Result>(
+      func: (...args: Args) => Result,
+      args: Args,
+    ): Promise<Awaited<Result> | undefined> => {
+      try {
+        const [injection] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func,
+          args,
+        });
+        return injection?.result as Awaited<Result> | undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const gone: FrameResult = { ok: false, reason: "gone" };
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+    return {
+      begin: async () =>
+        (await inject(beginCapture, [FRAME_OPTIONS.watchdogMs])) != null,
+      frame: async (index) =>
+        (await inject(frameFigure, [index, { ...FRAME_OPTIONS }])) ?? gone,
+      measure: async (index) =>
+        (await inject(frameFigure, [
+          index,
+          { ...FRAME_OPTIONS, scroll: false, waitMs: 0, settleMs: 0 },
+        ])) ?? gone,
+      end: async () => {
+        await inject(endCapture, []);
+      },
+      captureTab: async () => {
+        // The visible tab of the window, whichever it is now — so a picture
+        // is taken only while it is still the one the popup opened on.
+        let current: chrome.tabs.Tab;
+        try {
+          current = await chrome.tabs.get(tabId);
+        } catch {
+          return null;
+        }
+        if (!current.active || current.url !== tabUrl) return null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            return await chrome.tabs.captureVisibleTab(current.windowId, {
+              format: "png",
+            });
+          } catch {
+            // Most likely the per-second quota; one wait covers it.
+            if (attempt === 0) await sleep(1000);
+          }
+        }
+        return null;
+      },
+      encode: cropAndEncode,
+      sleep,
+      now: () => Date.now(),
+    };
+  }
+
+  /** Clip the tab again, with the pictures in place of the links. Null when
+   * the clip never comes back, or comes back from another page than the body
+   * on screen — the original body then stands, with its links. */
+  async function reclipWithSnapshots(
+    onScreen: BodyOrigin,
+    figures: [number, string][],
+  ): Promise<ClipResultMessage["payload"] | null> {
+    // Asked before injecting anything: a tab that has moved would only give
+    // back a clip of wherever it is now.
+    try {
+      const current = await chrome.tabs.get(tabId);
+      if (current.url !== tabUrl) return null;
+    } catch {
+      return null;
+    }
+    const requestId = crypto.randomUUID();
+    const arrived = new Promise<ClipResultMessage | null>((resolve) => {
+      pendingCapture = { requestId, resolve };
+      setTimeout(() => resolve(null), 10_000);
+    });
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: setSnapshotRequest,
+        args: [{ requestId, figures }],
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["clipper.js"],
+      });
+    } catch {
+      pendingCapture = null;
+      return null;
+    }
+    const message = await arrived;
+    pendingCapture = null;
+    if (message === null) return null;
+    const from = {
+      url: message.payload.url,
+      documentId: message.documentId,
+    };
+    return isSameBody(onScreen, from) ? message.payload : null;
+  }
+
+  el.capture.addEventListener("click", () => {
+    const offer = captureOffer();
+    const figures = result?.scriptFigures ?? [];
+    if (
+      offer?.step !== "offered" ||
+      figures.length === 0 ||
+      committing ||
+      removalHolds()
+    ) {
+      return;
+    }
+    // Taken at the click, with the figures: the body the capture is for.
+    const onScreen: BodyOrigin = {
+      url: result?.url ?? "",
+      documentId: bodyDocument,
+    };
+    void (async () => {
+      stopCapture = false;
+      capture = { ...offer, step: "capturing", at: 1 };
+      render();
+      try {
+        await runCapture(offer, figures, onScreen);
+      } catch (error) {
+        // Never left saying "Capturing…": the body on screen still clips,
+        // with links where the pictures would have gone.
+        console.error("capture failed:", error);
+        capture = { ...offer, step: "done", lost: true };
+        render();
+      }
+    })();
+  });
+
+  async function runCapture(
+    offer: CaptureState,
+    figures: number[],
+    onScreen: BodyOrigin,
+  ): Promise<void> {
+    const outcome = await captureFigures(figures, captureEffects(), {
+      onProgress: (at) => {
+        if (capture !== null) capture = { ...capture, at };
+        render();
+      },
+      stopped: () => stopCapture,
+    });
+    if (outcome.snapshots.size === 0) {
+      capture = { ...offer, step: "done", captured: 0 };
+      render();
+      return;
+    }
+    capture = { ...offer, step: "placing" };
+    render();
+    for (const { id, bytes } of outcome.snapshots.values()) {
+      snapshotBytes.set(id, bytes);
+    }
+    const payload = await reclipWithSnapshots(
+      onScreen,
+      [...outcome.snapshots].map(([index, { id }]) => [index, id]),
+    );
+    if (payload === null || committing) {
+      capture = { ...offer, step: "done", lost: payload === null };
+      render();
+      return;
+    }
+    // In place of the body on screen, not offered against it: the same tab
+    // and the same clipper, with the pictures the reader asked for.
+    result = payload;
+    capture = {
+      ...offer,
+      step: "done",
+      captured: figuresShown(outcome.snapshots.values(), payload.snapshots),
+    };
+    render();
+  }
+
+  el.captureStop.addEventListener("click", () => {
+    stopCapture = true;
   });
 
   /**

@@ -21,4 +21,14 @@ export interface ClipPayload {
    * which is a rendering — which is what tells the popup a better body is
    * still one fetch away. */
   markdownSource: boolean;
+  /**
+   * The figures the page draws with script that reached the article, each by
+   * its index among the page's `<figure>`s (ADR 0039) — what the popup can
+   * offer to capture. Absent where no page was clipped: a PDF, a markdown
+   * file, a Hacker News thread.
+   */
+  scriptFigures?: number[];
+  /** The snapshots the article shows, by id: exactly the files a commit has
+   * to carry beside it. */
+  snapshots?: string[];
 }

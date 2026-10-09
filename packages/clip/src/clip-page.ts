@@ -1,13 +1,15 @@
 import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
-  excerptWithoutVideos,
+  type ClipOptions,
+  excerptWithoutPlaceholders,
   foldFiguresIn,
   hasLatexmlFullText,
   placeAnchorsIn,
   prepareForClipping,
   readLatexmlMetadata,
   restoreCodeLanguagesIn,
+  scriptFiguresIn,
   videosAsPostersIn,
 } from "./dom-prepare.ts";
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
@@ -43,7 +45,11 @@ import {
  * Mutates `doc`. Readability consumes what it parses, so callers with a live
  * page must pass a clone.
  */
-export function clipPage(doc: Document, url: string): ClipPayload {
+export function clipPage(
+  doc: Document,
+  url: string,
+  options: ClipOptions = {},
+): ClipPayload {
   // Asked before anything rewrites the DOM: the answer is about the document
   // that arrived, and `unwrapMediaWrappers` is entitled to remove the embed
   // the older viewer's shell is recognised by.
@@ -61,7 +67,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   if (isHackerNewsItem(doc)) return clipHackerNewsItem(doc, url);
   // Recover math and code languages first — Readability prunes low-text
   // subtrees, and a formula it drops cannot be recovered afterwards.
-  prepareForClipping(doc);
+  prepareForClipping(doc, options);
   // Before Readability, which consumes the document — and after preparation, so
   // a formula in a title or abstract is already a marker rather than MathML.
   const latexml = readLatexmlMetadata(doc);
@@ -94,12 +100,16 @@ export function clipPage(doc: Document, url: string): ClipPayload {
   // caption, and folding then carries the anchor into the caption half of the
   // paragraph it builds, where the picture is still the first thing in it.
   // Videos become linked posters before any of it, so that a video's figure is
-  // an image figure by the time the fold looks (videosAsPostersIn).
+  // an image figure by the time the fold looks (videosAsPostersIn). A figure
+  // the page draws with script becomes a described link just after, and before
+  // the anchors, which place the one it carries over (scriptFiguresIn).
+  const drawn = scriptFiguresIn(
+    videosAsPostersIn(extracted, doc, url),
+    doc,
+    url,
+  );
   const html = foldFiguresIn(
-    placeAnchorsIn(
-      restoreCodeLanguagesIn(videosAsPostersIn(extracted, doc, url), doc),
-      doc,
-    ),
+    placeAnchorsIn(restoreCodeLanguagesIn(drawn.html, doc), doc),
     doc,
   );
 
@@ -116,7 +126,7 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     title: latexml?.title ?? ((article?.title ?? "").trim() || doc.title),
     excerpt:
       latexml?.excerpt ??
-      excerptWithoutVideos(
+      excerptWithoutPlaceholders(
         article?.excerpt ?? "",
         article?.content ?? "",
         doc,
@@ -128,6 +138,8 @@ export function clipPage(doc: Document, url: string): ClipPayload {
     pdfViewer: false,
     latexmlFullText,
     markdownSource: false,
+    scriptFigures: drawn.figures,
+    snapshots: drawn.snapshots,
   };
 }
 

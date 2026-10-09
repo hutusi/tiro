@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { describeClipError, describeRemoveError } from "../src/errors.ts";
+import {
+  describeClipError,
+  describeFlushError,
+  describeRemoveError,
+} from "../src/errors.ts";
 import { GitHubHttpError } from "../src/github.ts";
 import { messages } from "../src/i18n.ts";
 import { UnreadableCollectionError } from "../src/remove-article.ts";
@@ -50,6 +54,15 @@ describe("describeClipError", () => {
     expect(describeClipError(new TypeError("Failed to fetch"), zh)).toContain(
       "网络错误",
     );
+  });
+
+  test("a branch that kept moving says to try again, not that GitHub failed", () => {
+    expect(
+      describeClipError(
+        new GitHubHttpError(409, "main kept moving — gave up after 3 attempts"),
+        zh,
+      ),
+    ).toBe(zh.errClipBusy);
   });
 
   test("an unexpected error keeps its detail", () => {
@@ -114,5 +127,26 @@ describe("describeRemoveError", () => {
     expect(message).toContain("boom");
     expect(message).toContain("remove");
     expect(message).not.toContain("Clip");
+  });
+});
+
+describe("describeFlushError", () => {
+  test("a flush the branch kept refusing is not told to press Clip", () => {
+    // The clip's busy sentence names its button; a collection flush has none.
+    const en = messages("en");
+    const text = describeFlushError(
+      { error: "main kept moving — gave up after 3 attempts", httpStatus: 409 },
+      en,
+    );
+    expect(text).toBe(en.errHttp(409));
+  });
+
+  test("a bad token reads as it does for a clip", () => {
+    expect(describeFlushError({ httpStatus: 401 }, zh)).toBe(
+      zh.errTokenInvalid,
+    );
+    expect(describeFlushError({ error: "Failed to fetch" }, zh)).toBe(
+      zh.errNetwork,
+    );
   });
 });

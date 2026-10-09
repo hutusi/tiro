@@ -818,7 +818,9 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   `reading`, `ready-zh`, `ready-raw`, and Remove's `remove-checking`,
   `remove-confirm`, `remove-confirm-untitled`, `removing`, `removed`,
   `remove-gone`, `remove-failed`, `remove-failed-collection`,
-  `remove-not-yet`; add `&lang=zh` for the Chinese table. The list lives in
+  `remove-not-yet`, and capturing figures' `capture-offered`, `capturing`,
+  `capture-placing`, `capture-done`, `capture-partial`, `capture-lost`,
+  `uploading-figures`; add `&lang=zh` for the Chinese table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging. The collections panel has its own set at
   `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
@@ -956,7 +958,9 @@ Two decisions worth not relitigating:
   so every user who sees 6 sees it with that sentence. Once a version has
   shipped, a change like that is a bump — which is what **7** is: collections
   offered under a clip (ADR 0037) put collection writes on ordinary pages,
-  where 6, already released, said they happen only on a Tiro site.
+  where 6, already released, said they happen only on a Tiro site. 7 also names
+  "Capture figures" (ADR 0039), which takes pictures of parts of the page: it
+  joined 7 because 7 had not been released, the reasoning that put Remove in 6.
   Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
@@ -1011,6 +1015,38 @@ Two decisions worth not relitigating:
   up to 500 entries (~35-50 KB) exceeds sync's 8,192-byte per-item cap, and
   `tiroDisclosure` because consent to read pages belongs to an install, not an
   account.
+
+### Capturing interactive figures
+
+A figure a page draws with its own script — a canvas filled once it scrolls
+into view — clips as one line, `[Interactive figure](page): description`, with
+its caption beneath (ADR 0039). On such a page the popup also offers "Capture N
+figures". Pressing it:
+
+- scrolls the tab to each figure and waits about two seconds for it to draw
+  and settle — keep the popup open, since closing it ends the capture (a
+  watchdog in the page puts the scroll back within eight seconds);
+- takes the visible tab and crops it to the figure; with what it took, re-clips
+  the page, so the preview now carries pictures;
+- puts the scroll back, and says how many it took. Stop keeps what is done.
+
+Clip then commits `index.md` and the pictures (`assets/<12 hex>.webp`) as one
+commit. A figure is left as its link when nothing is drawn in it yet, when it
+is taller or wider than the window, has something on top of it (a sticky
+header, a cookie banner), keeps moving while it is taken, or would push the
+clip past 20 MB. If the page navigates, reloads or rewrites its address during
+the capture, the pictures are dropped and the article clips with its links.
+
+**A plain re-clip drops the pictures**: the body goes back to links and the
+next processing run prunes the files. Capture again to keep them. A larger
+window captures larger figures; a figure too tall for the screen fits once the
+window is taller.
+
+The capture runs only in a browser, so the sweep cannot check it. The manual
+pass after changing it: capture the glinscott article (29 figures, about a
+minute); check the scroll comes back, the vault gets one commit, the processed
+article keeps its `assets/*.webp`, and the site shows them as figures linking
+to the page; then Stop mid-way, and close the popup mid-way.
 
 ### Installing on another computer
 
@@ -1242,7 +1278,10 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    builds its article in JavaScript arrives as a shell — four articles in the
    current corpus do — and lazy-loaded images resolve in a browser and not here.
    Those are flagged, but the flag is a heuristic on length. Only a headless
-   browser fixes this properly, and that is a different tool.
+   browser fixes this properly, and that is a different tool. A figure the
+   page draws with script is the exception that agrees: the empty shell seen
+   here and the drawn canvas the extension sees become the same
+   `[Interactive figure](…)` block, so a diff there is real.
 2. **`--baseline` resolves dependencies from the working tree.** The worktree
    holds source, not `node_modules`, so both sides import today's Readability
    and Turndown. That is what you want when judging your own change and exactly
@@ -1517,6 +1556,8 @@ permanent extension ID, unrelated to the unpacked one.
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
+| The popup says some figures "stay as links to the page" | a figure with nothing drawn in it yet, one taller or wider than the window, one with something laid over it, one that moved while it was taken, or the 20 MB budget (ADR 0039) | by design; enlarge the window, dismiss the banner or scroll the header away, and capture again |
+| "The pictures could not be put in the article" after a capture | the tab navigated, reloaded or rewrote its address during the capture, so the clip that would show the pictures was of another page and was refused | clip as it is — the figures are links — or reload, wait, and capture again |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |

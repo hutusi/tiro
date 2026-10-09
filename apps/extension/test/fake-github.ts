@@ -2,8 +2,12 @@ import type { FetchLike } from "../src/github.ts";
 
 /**
  * An in-memory repository that speaks just enough of the GitHub API for the
- * collection flush and article removal: the branch ref, commits, trees with
- * inline content or `sha: null` deletions, and the Contents API read side.
+ * collection flush, article removal and a clip: the branch ref, commits, blobs,
+ * trees with inline content, blob shas or `sha: null` deletions, and the
+ * Contents API — reads, and the one-file PUT a clip commits with.
+ *
+ * A file written from an uploaded blob reads back as `blob:<base64>`, so a
+ * test can tell the bytes it uploaded from text committed inline.
  *
  * It enforces the one rule the flush's correctness rests on — a ref update
  * that is not forced must be a fast-forward — so a concurrent commit is a real
@@ -38,6 +42,7 @@ export function fakeGitHub(
     `${kind}${(++seq).toString(16).padStart(6, "0")}`;
   const trees = new Map<string, Map<string, string>>();
   const commits = new Map<string, Commit>();
+  const blobs = new Map<string, string>();
 
   const rootTree = sha("t");
   trees.set(rootTree, new Map(Object.entries(initial)));
@@ -163,6 +168,12 @@ export function fakeGitHub(
               return json(422, { message: `no ${entry.path} to delete` });
             }
             next.delete(entry.path);
+          } else if (typeof entry.sha === "string") {
+            const uploaded = blobs.get(entry.sha);
+            if (uploaded === undefined) {
+              return json(422, { message: `no blob ${entry.sha}` });
+            }
+            next.set(entry.path, `blob:${uploaded}`);
           } else {
             next.set(entry.path, entry.content ?? "");
           }
@@ -170,6 +181,31 @@ export function fakeGitHub(
         const t = sha("t");
         trees.set(t, next);
         return json(201, { sha: t });
+      }
+      if (method === "POST" && path === "/git/blobs") {
+        if (body.encoding !== "base64" || typeof body.content !== "string") {
+          return json(422, { message: "fake: base64 blobs only" });
+        }
+        const b = sha("b");
+        blobs.set(b, body.content);
+        return json(201, { sha: b });
+      }
+      if (method === "PUT" && path.startsWith("/contents/")) {
+        // GitHub's rule for the one-file write: replacing a file needs the
+        // sha it replaces, and creating one must not send any.
+        const file = path.slice("/contents/".length);
+        const exists = filesOf(head).has(file);
+        if (exists && body.sha !== `b-${file}`) {
+          return json(409, { message: "sha does not match" });
+        }
+        if (!exists && body.sha !== undefined) {
+          return json(422, { message: "no file to update" });
+        }
+        fake.commitDirect(
+          { [file]: Buffer.from(body.content, "base64").toString("utf8") },
+          body.message,
+        );
+        return json(exists ? 200 : 201, { content: { sha: `b-${file}` } });
       }
       if (method === "POST" && path === "/git/commits") {
         const c = sha("c");

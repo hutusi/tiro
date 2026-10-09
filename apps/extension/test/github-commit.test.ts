@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   commitFiles,
+  createBlob,
   type FetchLike,
   GitHubHttpError,
   readAtHead,
@@ -37,6 +38,34 @@ describe("commitFiles", () => {
     expect(gh.files().get("collections/reading.md")).toBe("read");
     // Untouched files survive: the tree is built on the head's, not from scratch.
     expect(gh.files().get("articles/a/index.md")).toBe("A");
+  });
+
+  test("names an uploaded blob by its sha, beside text carried inline", async () => {
+    const gh = fakeGitHub({});
+    const sha = await createBlob(
+      config,
+      new Uint8Array([0, 255, 128]),
+      gh.fetch,
+    );
+    await commitFiles(
+      config,
+      {
+        build: async () => ({
+          message: "clip: x",
+          files: [
+            { path: "articles/x/index.md", content: "body" },
+            { path: "articles/x/assets/0123456789ab.webp", blob: sha },
+          ],
+        }),
+      },
+      gh.fetch,
+    );
+    expect(gh.files().get("articles/x/index.md")).toBe("body");
+    // Bytes that are not UTF-8, which inline `content` could not have carried.
+    expect(gh.files().get("articles/x/assets/0123456789ab.webp")).toBe(
+      `blob:${Buffer.from([0, 255, 128]).toString("base64")}`,
+    );
+    expect(gh.log()).toEqual(["root", "clip: x"]);
   });
 
   test("builds against the head it parents on", async () => {

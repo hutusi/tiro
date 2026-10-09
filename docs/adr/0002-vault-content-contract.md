@@ -16,6 +16,10 @@ between them must survive retries, re-clips, and concurrent runs.
   frontmatter), `zh.md` (translation, absent for Chinese originals), and
   `assets/` (images downloaded by the processor). `config/tiro.yml` holds LLM
   config and the category taxonomy.
+  > **Narrowed by [ADR 0039](0039-script-drawn-figures.md).** The extension
+  > may also write into `assets/`: pictures of figures a page draws with
+  > script, captured on request and named as the processor names its own
+  > downloads, so the processor keeps and prunes them like any other.
 - **Slug** is deterministic from the URL: normalize (strip fragment,
   `utm_*`/`fbclid`/`gclid`, trailing slash), slugify host+path truncated to
   ~60 chars, append `-` + first 8 hex of SHA-256 of the normalized URL.
