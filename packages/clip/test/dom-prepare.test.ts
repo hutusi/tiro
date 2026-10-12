@@ -2815,6 +2815,16 @@ describe("an embedded video keeps its place in the article", () => {
     );
   });
 
+  test("an empty or boilerplate aria-label does not hide the title", () => {
+    for (const ariaLabel of ["", "YouTube video player"]) {
+      expect(
+        clip(
+          `<p><iframe aria-label="${ariaLabel}" title="Conference keynote" src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>`,
+        ),
+      ).toContain(`[![Conference keynote](${THUMB})](${WATCH})`);
+    }
+  });
+
   test("the moment it starts at is kept", () => {
     // Substack's privacy-enhanced embed, starting at 9:03.
     const markdown = clip(

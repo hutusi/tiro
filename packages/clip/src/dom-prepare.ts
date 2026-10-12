@@ -1291,18 +1291,17 @@ function embeddedVideo(url: URL): { watch: string; poster: string | null } {
   return { watch: url.href, poster: null };
 }
 
-/** A player's own name for what it plays, unless that name is boilerplate. */
+/**
+ * A player's own name for what it plays: its `aria-label`, else its `title`,
+ * passing over one that is empty or boilerplate — embed code that labels every
+ * player "YouTube video player" can still carry the video's name in the other.
+ */
 function embedLabel(frame: Element): string {
-  const own = (
-    frame.getAttribute("aria-label") ??
-    frame.getAttribute("title") ??
-    ""
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-  return own === "" || PLAYER_BOILERPLATE.has(own.toLowerCase())
-    ? VIDEO_LABEL
-    : own;
+  for (const name of ["aria-label", "title"]) {
+    const own = (frame.getAttribute(name) ?? "").replace(/\s+/g, " ").trim();
+    if (own !== "" && !PLAYER_BOILERPLATE.has(own.toLowerCase())) return own;
+  }
+  return VIDEO_LABEL;
 }
 
 /**
