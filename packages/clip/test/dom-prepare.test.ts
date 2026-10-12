@@ -2923,10 +2923,14 @@ describe("an embedded video keeps its place in the article", () => {
       // The "listen to this article" player Noema and Spectrum carry.
       '<p><iframe src="https://embed-player.newsoveraudio.com/v4?key=x" title="Listen"></iframe></p>',
       '<p><iframe src="https://ads.example/slot?u=//www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>',
+      // A host that only begins like a player's is not that player.
+      '<p><iframe src="https://www.youtube.com.example.org/embed/Jg7ooLzzXeg"></iframe></p>',
+      '<p><iframe src="https://www.theatlantic.com.example.org/video/iframe/595672/"></iframe></p>',
     ]) {
       const markdown = clip(markup);
       expect(markdown).not.toContain("newsoveraudio");
       expect(markdown).not.toContain("youtube");
+      expect(markdown).not.toContain("example.org");
       expect(markdown).not.toContain("Listen");
     }
   });

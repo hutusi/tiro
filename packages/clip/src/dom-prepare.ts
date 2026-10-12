@@ -1182,13 +1182,19 @@ export const VIDEO_EMBEDS = new RegExp(
 );
 
 /**
- * `VIDEO_EMBEDS` held to the start of an address. Readability's test is
- * unanchored, which is right for it — it only decides what to keep — but an
- * address merely *mentioning* a player in its query is not that player, and
- * this decides where a link goes. The group matters: `^` before a bare
- * alternation would anchor only its first branch.
+ * `VIDEO_EMBEDS` held to a whole address, tested against `//host/path`.
+ * Readability's test is unanchored, which is right for it — it only decides
+ * what to keep — but this decides where a link goes, so both ends of the host
+ * are checked:
+ *
+ * - **the start**, so an address merely *mentioning* a player in its query is
+ *   not that player. The group matters: `^` before a bare alternation would
+ *   anchor only its first branch.
+ * - **the end**, so `www.youtube.com.example.org` is not YouTube. A host is
+ *   followed by its path, which always begins with `/`; a branch that already
+ *   reaches into the path (The Atlantic's) ends at a segment boundary too.
  */
-const EMBED_ADDRESS = new RegExp(`^(?:${VIDEO_EMBEDS.source})`, "i");
+const EMBED_ADDRESS = new RegExp(`^(?:${VIDEO_EMBEDS.source})(?=/|$)`, "i");
 
 /**
  * What a player's frame says of itself when its page gave it no name: the

@@ -67,8 +67,9 @@ is "Video", as for a `<video>`.
 citation (and extended in §3), and `clipPage` hands it to Readability as
 `allowedVideoRegex`. The pass
 after Readability converts a frame only when its address matches the same
-list, held to the start of the address so that a query string merely naming a
-player does not count. Readability tests every attribute, so the pass reads
+list, held to the whole host at both ends: a query string merely naming a
+player does not count, and neither does a host that only begins like one
+(`www.youtube.com.example.org`). Readability tests every attribute, so the pass reads
 `src` first and then any attribute a lazy loader parked the address in.
 
 The two can therefore never disagree about what an embed is. A frame the list
