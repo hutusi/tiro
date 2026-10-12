@@ -792,12 +792,22 @@ const PULL_QUOTE_TAGS: ReadonlySet<string> = new Set([
   "BLOCKQUOTE",
 ]);
 
+/**
+ * What a pull quote never holds. Substack's pull-quote block is a styled
+ * container an author can fill with anything: Brad Montague's "Enjoy every
+ * sandwich" puts a dialogue, a captioned picture and three more paragraphs in
+ * one. That is the article itself rather than a line repeated from it, and it
+ * stays the content it was.
+ */
+const NOT_IN_A_PULL_QUOTE =
+  "img, picture, figure, video, audio, iframe, table, pre, ul, ol, h1, h2, h3, h4, h5, h6, hr";
+
 function isPullQuote(element: Element): boolean {
   if (!PULL_QUOTE_TAGS.has(element.tagName)) return false;
-  if (element.hasAttribute("data-flatplan-pullquote")) return true;
-  return Array.from(element.classList).some((token) =>
-    PULL_QUOTE_CLASS.test(token),
-  );
+  const named =
+    element.hasAttribute("data-flatplan-pullquote") ||
+    Array.from(element.classList).some((token) => PULL_QUOTE_CLASS.test(token));
+  return named && element.querySelector(NOT_IN_A_PULL_QUOTE) === null;
 }
 
 /**

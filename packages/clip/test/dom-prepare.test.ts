@@ -2998,6 +2998,19 @@ describe("a pull quote is kept, marked as one", () => {
     expect(nested.split(PULL_QUOTE_MARK)).toHaveLength(2);
   });
 
+  test("a pull-quote container holding a picture stays the content it was", () => {
+    // Brad Montague's Substack: dialogue, a picture and more prose in one
+    // `div.pullquote`, none of it repeated from the body.
+    const markdown = clip(
+      '<div class="pullquote"><p><strong>Dave:</strong> What do you know now?</p><figure><img src="https://schlarp.example/sandwich.png" alt="A sandwich"></figure><p>Warren: enjoy every sandwich.</p></div>',
+    );
+    expect(markdown).toContain("**Dave:** What do you know now?");
+    expect(markdown).toContain(
+      "![A sandwich](https://schlarp.example/sandwich.png)",
+    );
+    expect(markdown).not.toContain(PULL_QUOTE_MARK);
+  });
+
   test("a hidden pull quote stays hidden", () => {
     for (const hidden of ['style="display:none"', "hidden"]) {
       expect(
