@@ -2872,17 +2872,19 @@ describe("an embedded video keeps its place in the article", () => {
       '<p>See <a href="#talk">the talk</a>.</p><p><iframe id="talk" src="https://player.vimeo.com/video/76979871"></iframe> The whole talk.</p>',
     );
     expect(markdown).toContain(
-      '<span id="talk"></span>[Video](https://vimeo.com/76979871) The whole talk.',
+      '<span id="talk"></span>[Video](https://player.vimeo.com/video/76979871) The whole talk.',
     );
   });
 
-  test("a Vimeo player becomes a link to the video's page", () => {
+  test("a Vimeo player is linked as it is, hash, start time and all", () => {
+    // Not vimeo.com/<id>: a video hidden from Vimeo plays in an embed while
+    // that page refuses its readers, and the embed cannot say which it is.
     expect(
       clip(
-        '<p><iframe src="https://player.vimeo.com/video/76979871?h=8272103f6e&amp;title=0" title="The New Vimeo Player"></iframe></p>',
+        '<p><iframe src="https://player.vimeo.com/video/76979871?h=8272103f6e&amp;title=0#t=1m30s" title="The New Vimeo Player"></iframe></p>',
       ),
     ).toContain(
-      "[The New Vimeo Player](https://vimeo.com/76979871/8272103f6e)",
+      "[The New Vimeo Player](https://player.vimeo.com/video/76979871?h=8272103f6e&title=0#t=1m30s)",
     );
   });
 

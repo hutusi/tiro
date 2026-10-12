@@ -1243,13 +1243,19 @@ function embedSource(frame: Element, base: string): URL | null {
  *   `hqdefault` still, the one size YouTube makes for every video: the larger
  *   `maxresdefault` is missing for many, and a still that 404s is a broken
  *   image once processing falls back to hotlinking it.
- * - **Vimeo** — the video's page, keeping the hash an unlisted one needs.
- *   No still: Vimeo's are named by an id the embed address does not carry.
  * - **The Atlantic** — its page for the video, `/video/index/<n>/`, which
  *   redirects to the slugged address and plays the video. No still: the
  *   player's page names one, and the clip never sees that page.
  * - **Anything else Readability keeps** — the player itself, which is a page
- *   a reader can open.
+ *   a reader can open, kept whole: its query and fragment are how it was told
+ *   what to play and from where.
+ *
+ * Vimeo is deliberately in the last group. Its own page, `vimeo.com/<id>`, is
+ * the nicer link, but a video set to "Hide from Vimeo" plays in an embed while
+ * that page refuses its readers, and nothing in the embed's address says
+ * which a video is. The player is the address the article was already
+ * playing, and it keeps the unlisted `h=` hash and the `#t=1m30s` start time
+ * without having to know about either.
  */
 function embeddedVideo(url: URL): { watch: string; poster: string | null } {
   if (YOUTUBE_HOST.test(url.hostname)) {
@@ -1264,17 +1270,6 @@ function embeddedVideo(url: URL): { watch: string; poster: string | null } {
       return {
         watch: watch.href,
         poster: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-      };
-    }
-  }
-  if (url.hostname.toLowerCase() === "player.vimeo.com") {
-    const id = /^\/video\/(\d+)\/?$/.exec(url.pathname)?.[1];
-    if (id !== undefined) {
-      const hash = url.searchParams.get("h");
-      const unlisted = hash !== null && /^[0-9a-f]+$/i.test(hash);
-      return {
-        watch: `https://vimeo.com/${id}${unlisted ? `/${hash}` : ""}`,
-        poster: null,
       };
     }
   }

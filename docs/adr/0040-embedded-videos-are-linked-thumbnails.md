@@ -51,10 +51,11 @@ Where the link goes and what the still is:
 - **YouTube** (`youtube.com`, `youtube-nocookie.com`, `/embed/<id>`): the
   watch page, with the embed's `start` carried as `t`. The still is
   `i.ytimg.com/vi/<id>/hqdefault.jpg`.
-- **Vimeo**: the video's own page, keeping the hash an unlisted video needs.
-  No still, so it is a plain link.
-- **Any other player Readability keeps**, a YouTube playlist included: a plain
-  link to the player itself, which a reader can open.
+- **Vimeo**: the player address itself, whole. That keeps the `h=` hash an
+  unlisted video needs and a `#t=1m30s` start time. No still, so it is a plain
+  link.
+- **Any other player Readability keeps**, a YouTube playlist included: the
+  same, a plain link to the player itself, which a reader can open.
 
 The label is the player's `aria-label` or `title`, unless it is embed-code
 boilerplate ("YouTube video player", "embedded interactive content"…). Then it
@@ -123,6 +124,10 @@ link in an article.
 - **Embedding a player on the site**, or a click-to-play facade. It would run
   third-party code on a fully public site, and would put an `<iframe>` past the
   sanitizer (invariant 5) for a feature a link already gives.
+- **Vimeo's own page, `vimeo.com/<id>`.** It is the nicer link, but a video set
+  to "Hide from Vimeo" plays in an embed while that page refuses its readers.
+  Nothing in the embed's address says which a video is. The player is the
+  address the article was already playing, so it is the one known to work.
 - **`maxresdefault.jpg`.** It is the larger still, but YouTube does not make
   it for every video. A still that 404s is a broken image once processing
   falls back to hotlinking it. `hqdefault` exists for every video; it is 4:3,
