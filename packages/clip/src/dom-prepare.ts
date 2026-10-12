@@ -19,6 +19,7 @@ import {
   languageFromFilename,
   languageFromLabel,
   normalizeUrl,
+  PULL_QUOTE_MARK,
   SNAPSHOT_ID,
   snapshotAssetName,
 } from "@tiro/shared";
@@ -772,6 +773,103 @@ function retagFontsAsSpans(doc: Document): void {
     font.replaceWith(span);
   }
 }
+
+/**
+ * Marks a pull quote across Readability, for `pullQuoteTurndownRule` (ADR
+ * 0041). Found by this marker and never by tag, for the reason `FIGURE_ATTR`
+ * gives: a quote that is a sibling of the container Readability picks comes
+ * back renamed to `<div>`.
+ */
+export const PULL_QUOTE_ATTR = "data-tiro-pullquote";
+
+/** What a page calls a pull quote: The Atlantic's CMS attribute, or the class
+ * Substack, Literary Hub and most hand-written themes use. */
+const PULL_QUOTE_CLASS = /^pull-?quote$/i;
+const PULL_QUOTE_TAGS: ReadonlySet<string> = new Set([
+  "ASIDE",
+  "DIV",
+  "P",
+  "BLOCKQUOTE",
+]);
+
+function isPullQuote(element: Element): boolean {
+  if (!PULL_QUOTE_TAGS.has(element.tagName)) return false;
+  if (element.hasAttribute("data-flatplan-pullquote")) return true;
+  return Array.from(element.classList).some((token) =>
+    PULL_QUOTE_CLASS.test(token),
+  );
+}
+
+/**
+ * Re-tag every pull quote as a marked `<blockquote>`, before Readability reads
+ * the page.
+ *
+ * A pull quote is the sentence a magazine repeats in large type between its
+ * paragraphs. The Atlantic writes each one as an `<aside>`, and Readability
+ * removes every `<aside>` from what it returns, so "Lola's Story" lost all six.
+ * A Substack `div.pullquote` holding links is cleaned away as "a little linky".
+ * The owner chose to keep them even though their words repeat the body's.
+ *
+ * **A blockquote, because Readability leaves it be.** Nothing in its cleaning
+ * passes removes one, and it is not a tag it scores, so the container it picks
+ * is the one it picked before. A `<div>` loses its attributes when Readability
+ * turns it into a paragraph, and a `<p>` would come out as prose no one could
+ * tell from the body.
+ *
+ * **Every attribute is carried over**, unlike `retagFontsAsSpans`: a hidden
+ * pull quote must stay hidden, and the class weighs on which container wins.
+ * Only the tag changes, which is the hazard ADR 0011 recorded for a pass
+ * before extraction kept as small as it goes.
+ */
+function markPullQuotes(doc: Document): void {
+  // A page's own attributes are untrusted input, and this one is read back
+  // after Readability with no record of who wrote it (see `markCodeLanguages`).
+  for (const stale of Array.from(
+    doc.querySelectorAll(`[${PULL_QUOTE_ATTR}]`),
+  )) {
+    stale.removeAttribute(PULL_QUOTE_ATTR);
+  }
+  const quotes = Array.from(
+    doc.querySelectorAll("aside, div, p, blockquote"),
+  ).filter(isPullQuote);
+  // One quote, however many wrappers the page marked: the outermost speaks for
+  // it. Settled before any re-tag, which empties the element an inner quote
+  // would be found inside.
+  const outermost = quotes.filter(
+    (element) =>
+      !quotes.some((other) => other !== element && other.contains(element)),
+  );
+  for (const element of outermost) {
+    if ((element.textContent ?? "").trim() === "") continue;
+    let quote = element;
+    if (element.tagName !== "BLOCKQUOTE") {
+      quote = doc.createElement("blockquote");
+      for (const attribute of Array.from(element.attributes)) {
+        quote.setAttribute(attribute.name, attribute.value);
+      }
+      for (const child of Array.from(element.childNodes)) {
+        quote.appendChild(child);
+      }
+      element.replaceWith(quote);
+    }
+    quote.setAttribute(PULL_QUOTE_ATTR, "");
+  }
+}
+
+/**
+ * Write a marked pull quote as a blockquote opening with `PULL_QUOTE_MARK`, on
+ * a line of its own, which is how the site tells it from a quotation. The
+ * prefixing is Turndown's own blockquote rule, so the quote is one top-level
+ * block that `zh.md` aligns with like any other.
+ */
+export const pullQuoteTurndownRule: TurndownService.Rule = {
+  filter: (node) => node.getAttribute?.(PULL_QUOTE_ATTR) != null,
+  replacement: (content) => {
+    const body = content.replace(/^\n+|\n+$/g, "");
+    if (body.trim() === "") return "";
+    return `\n\n${`${PULL_QUOTE_MARK}\n${body}`.replace(/^/gm, "> ")}\n\n`;
+  },
+};
 
 /**
  * Remove an `<svg>` that paints text, so a chart cannot arrive as glyph soup.
@@ -2560,6 +2658,10 @@ export function prepareForClipping(
   // Early: it only moves whole blocks, and every pass below should see the
   // article as the one body it is.
   joinSplitArticleBodies(doc);
+  // After the join, which refuses to close up over a blockquote but not over
+  // an aside: a pull quote marked first would leave a split body in halves
+  // that it joins today.
+  markPullQuotes(doc);
   normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);
