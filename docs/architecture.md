@@ -281,6 +281,9 @@ flowchart LR
    the sanitizer clobbers `id` to `user-content-…` and leaves `href="#…"` alone,
    so in-document links are reconciled with their targets there — and scoped to
    the pane they render into, since both columns share one document (ADR 0024).
+   A picture linking to a video gets a play badge the same way: a pass after
+   the sanitizer marks it with a class no clipped markup can carry, and the
+   stylesheet draws the badge. The site runs no player (ADR 0040).
 
    A fence that still carries no language after the clipper's chain gets one
    inferred from its code at build time (`@tiro/shared`'s `detect-language.ts`),

@@ -571,6 +571,38 @@ html[data-page="reader"][data-paired][data-reader-mode="both"] {
   text-align: center;
 }
 
+/* A picture that opens a video (rehypeVideoLinks, after sanitize: ADR 0040).
+ * The link shrinks to its picture so the badge centres on the picture rather
+ * than on the column, and stays a block so the picture's own margins collapse
+ * through it as they would without the link. The badge sits on the picture,
+ * not on the paper, so it is the same on every paper. */
+.prose :where(a.video-link) {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+.prose :where(a.video-link)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3.5rem;
+  height: 3.5rem;
+  translate: -50% -50%;
+  border-radius: 9999px;
+  background: rgb(0 0 0 / 0.6)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6.5v11l9-5.5z' fill='white'/%3E%3C/svg%3E")
+    center / 55% no-repeat;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.85);
+  pointer-events: none;
+}
+.prose :where(a.video-link:hover)::after,
+.prose :where(a.video-link:focus-visible)::after {
+  background-color: var(--accent-fill);
+}
+
 /* A Hacker News thread (ADR 0038): every comment is a blockquote, nested one
  * level per reply, opening with a line naming its author and date. Typography
  * sets a blockquote as a citation — italic, medium weight, wrapped in curly

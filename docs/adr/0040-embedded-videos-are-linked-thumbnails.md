@@ -93,6 +93,31 @@ names one.
 A publisher's player joins the list only when its address shape is known to
 mean a video. Any other frame from the same host is still dropped.
 
+### 4. The site marks a picture that opens a video, and plays nothing itself
+
+Without a mark, a linked still is a photograph like any other, and nothing
+says a click plays something. `rehypeVideoLinks` runs after rehype-sanitize
+and gives an `<a>` holding nothing but an image the class `video-link` when
+its address opens a video:
+
+- a YouTube watch page;
+- a Vimeo video page;
+- The Atlantic's video page;
+- a video file (`.mp4`, `.webm`, `.mov`, `.m4v`), which is how the clipper
+  links a `<video>`'s poster.
+
+The stylesheet draws a play badge centred on the picture. It sits on the
+picture, not on the paper, so one style serves every paper. A text link gets
+no badge, since its words already say what it is.
+
+The class is added after the sanitizer for the reason Shiki's are (ADR
+0009). The schema allows a class on no link, so clipped markup cannot claim
+the badge, and only this pass can grant it. The address is matched after
+parsing it, so a query string that merely names a video page does not count.
+
+Clicking opens the video where it lives, in the same tab, like every other
+link in an article.
+
 ## Rejected
 
 - **Embedding a player on the site**, or a click-to-play facade. It would run
