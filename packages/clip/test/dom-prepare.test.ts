@@ -3046,6 +3046,17 @@ describe("a pull quote is kept, marked as one", () => {
     expect(nested.split(PULL_QUOTE_MARK)).toHaveLength(2);
   });
 
+  test("a comment beside the wrapped paragraph does not lose the mark", () => {
+    // Readability counts a lone paragraph past comments and replaces the
+    // wrapper with it, so the mark has to be on the paragraph by then.
+    for (const quote of [
+      `<div class="pullquote"><!-- note --><p>${LINE}</p></div>`,
+      `<div class="pullquote"><p>${LINE}</p><!----></div>`,
+    ]) {
+      expect(clip(quote)).toContain(MARKED);
+    }
+  });
+
   test("a pull-quote container holding a picture stays the content it was", () => {
     // Brad Montague's Substack: dialogue, a picture and more prose in one
     // `div.pullquote`, none of it repeated from the body.

@@ -881,8 +881,14 @@ function pullQuoteHost(element: Element, doc: Document): Element {
   const quote =
     element.tagName === "ASIDE" ? retagged(element, "div", doc) : element;
   if (quote.tagName !== "DIV") return quote;
+  // Counted as Readability's `_hasSingleTagInsideElement` counts: elements,
+  // and text with something in it. A comment beside the paragraph — a Vue
+  // `<!---->` placeholder — is neither, and counting it left the marker on a
+  // wrapper Readability then replaced with the unmarked paragraph.
   const content = Array.from(quote.childNodes).filter(
-    (node) => node.nodeType === 1 || (node.textContent ?? "").trim() !== "",
+    (node) =>
+      node.nodeType === 1 ||
+      (node.nodeType === 3 && (node.textContent ?? "").trim() !== ""),
   );
   const only = content.length === 1 ? content[0] : undefined;
   if (only !== undefined && (only as Element).tagName === "P") {
