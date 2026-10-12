@@ -35,6 +35,13 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Pull quotes are kept.** The sentence a magazine repeats in large type
+  between its paragraphs — The Atlantic's, a Substack pull quote, Literary
+  Hub's — was dropped, or came through as a duplicate paragraph. It is now kept
+  where it stood, and the site sets it as a pull quote, upright between two
+  hairlines, rather than as a quotation of someone else. A Substack pull-quote
+  block holding pictures stays the ordinary content it is. Re-clip an article
+  to pick this up (ADR 0041).
 - **An embedded video is kept.** A YouTube video embedded in an article — or a
   Vimeo one, or any player Readability recognises — vanished from the clip
   without a trace. It now becomes its thumbnail, linking to the watch page at
