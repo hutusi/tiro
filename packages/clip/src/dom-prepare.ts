@@ -811,8 +811,8 @@ function isPullQuote(element: Element): boolean {
 }
 
 /**
- * Re-tag every pull quote as a marked `<blockquote>`, before Readability reads
- * the page.
+ * Mark every pull quote for `pullQuoteTurndownRule`, before Readability reads
+ * the page, in a shape Readability keeps.
  *
  * A pull quote is the sentence a magazine repeats in large type between its
  * paragraphs. The Atlantic writes each one as an `<aside>`, and Readability
@@ -820,16 +820,17 @@ function isPullQuote(element: Element): boolean {
  * A Substack `div.pullquote` holding links is cleaned away as "a little linky".
  * The owner chose to keep them even though their words repeat the body's.
  *
- * **A blockquote, because Readability leaves it be.** Nothing in its cleaning
- * passes removes one, and it is not a tag it scores, so the container it picks
- * is the one it picked before. A `<div>` loses its attributes when Readability
- * turns it into a paragraph, and a `<p>` would come out as prose no one could
- * tell from the body.
+ * **The quote's text ends up in a `<p>`.** A paragraph is what Readability
+ * scores, what its sibling rule takes from beside the container it picks, and
+ * what an in-page link's anchor is placed in (`TEXT_HOST`). The first version
+ * re-tagged every quote as a `<blockquote>` holding its text directly, which
+ * Readability does not score: a pull quote beside the article was dropped
+ * where main kept it, and a link to one lost its target (`pullQuoteHost` has
+ * the shapes).
  *
- * **Every attribute is carried over**, unlike `retagFontsAsSpans`: a hidden
- * pull quote must stay hidden, and the class weighs on which container wins.
- * Only the tag changes, which is the hazard ADR 0011 recorded for a pass
- * before extraction kept as small as it goes.
+ * **Hidden quotes are left alone**, for Readability to drop as it always has:
+ * unwrapping one would shed the attribute that hides it. Elsewhere every
+ * attribute is carried over, since the class weighs on which container wins.
  */
 function markPullQuotes(doc: Document): void {
   // A page's own attributes are untrusted input, and this one is read back
@@ -851,19 +852,58 @@ function markPullQuotes(doc: Document): void {
   );
   for (const element of outermost) {
     if ((element.textContent ?? "").trim() === "") continue;
-    let quote = element;
-    if (element.tagName !== "BLOCKQUOTE") {
-      quote = doc.createElement("blockquote");
-      for (const attribute of Array.from(element.attributes)) {
-        quote.setAttribute(attribute.name, attribute.value);
-      }
-      for (const child of Array.from(element.childNodes)) {
-        quote.appendChild(child);
-      }
-      element.replaceWith(quote);
-    }
-    quote.setAttribute(PULL_QUOTE_ATTR, "");
+    if (readabilityHides(element)) continue;
+    pullQuoteHost(element, doc).setAttribute(PULL_QUOTE_ATTR, "");
   }
+}
+
+/** Readability's `DIV_TO_P_ELEMS`: a `<div>` holding none of these, at any
+ * depth, is one it turns into a paragraph itself. */
+const READABILITY_BLOCKS = "blockquote, dl, div, img, ol, p, pre, table, ul";
+
+/**
+ * The element that carries a pull quote's marker across Readability, each
+ * shape chosen so Readability reads what it would make of the page itself.
+ *
+ * - **A `<p>` or a `<blockquote>`** is marked where it stands, so Readability
+ *   reads exactly the page.
+ * - **A wrapper around one paragraph**, Substack's `div.pullquote > p`, becomes
+ *   that paragraph, with the wrapper's attributes where the paragraph has none.
+ *   Readability does the same to such a `<div>` unless it is linky, and then
+ *   deletes it instead.
+ * - **A wrapper around text**, as The Atlantic writes its `<aside>`, becomes a
+ *   paragraph of that text: what Readability makes of a `<div>` holding no
+ *   block.
+ * - **A wrapper around several paragraphs** becomes a `<blockquote>`, which no
+ *   cleaning pass removes, scored through its paragraphs as the wrapper was.
+ */
+function pullQuoteHost(element: Element, doc: Document): Element {
+  if (element.tagName === "P" || element.tagName === "BLOCKQUOTE") {
+    return element;
+  }
+  const content = Array.from(element.childNodes).filter(
+    (node) => node.nodeType === 1 || (node.textContent ?? "").trim() !== "",
+  );
+  const only = content.length === 1 ? content[0] : undefined;
+  if (only !== undefined && (only as Element).tagName === "P") {
+    const paragraph = only as Element;
+    for (const attribute of Array.from(element.attributes)) {
+      if (!paragraph.hasAttribute(attribute.name)) {
+        paragraph.setAttribute(attribute.name, attribute.value);
+      }
+    }
+    element.replaceWith(paragraph);
+    return paragraph;
+  }
+  const tag =
+    element.querySelector(READABILITY_BLOCKS) === null ? "p" : "blockquote";
+  const host = doc.createElement(tag);
+  for (const attribute of Array.from(element.attributes)) {
+    host.setAttribute(attribute.name, attribute.value);
+  }
+  for (const child of Array.from(element.childNodes)) host.appendChild(child);
+  element.replaceWith(host);
+  return host;
 }
 
 /**

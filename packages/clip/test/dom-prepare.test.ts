@@ -2955,15 +2955,23 @@ describe("a pull quote is kept, marked as one", () => {
     "I had a family, a career, a house in the suburbs—the American dream. And then I had a slave.";
   const MARKED = `> ${PULL_QUOTE_MARK}\n> ${LINE}`;
 
-  /** The whole clip, as the extension runs it, on a page at `PAGE`. */
-  function clip(markup: string): string {
+  /** The whole clip, as the extension runs it, of a page whose body is
+   * `body`. */
+  function clipBody(body: string): string {
     const window = new Window({ url: PAGE });
-    window.document.body.innerHTML = `<article><h1>Lola</h1>${before}${markup}${after}</article>`;
+    window.document.body.innerHTML = body;
     const payload = clipPage(window.document as unknown as Document, PAGE);
     // Not the raw-body fallback, which keeps every aside and would pass
     // without Readability ever seeing one.
     expect(payload.readabilityFailed).toBe(false);
     return payload.markdown;
+  }
+
+  /** The same, with `markup` between two paragraphs of an article. */
+  function clip(markup: string): string {
+    return clipBody(
+      `<article><h1>Lola</h1>${before}${markup}${after}</article>`,
+    );
   }
 
   test("The Atlantic's aside stays where it was, as one marked block", () => {
@@ -2975,6 +2983,37 @@ describe("a pull quote is kept, marked as one", () => {
     expect(blocks[at]?.text).toBe(MARKED);
     expect(blocks[at - 1]?.text).toStartWith("Before the quote");
     expect(blocks[at + 1]?.text).toStartWith("After the quote");
+  });
+
+  test("a pull quote beside the article's container is kept", () => {
+    // Readability takes a paragraph from beside the container it picks, and
+    // main kept these. A first version made each a `<blockquote>` holding its
+    // text directly, which Readability neither scores nor takes, and lost them.
+    const container = `<div class="post-content">${before}${after}</div>`;
+    for (const quote of [
+      `<p class="pullquote">${LINE}</p>`,
+      `<div class="pullquote"><p>${LINE}</p></div>`,
+      `<aside data-flatplan-pullquote="true">${LINE}</aside>`,
+    ]) {
+      expect(clipBody(`${container}${quote}`)).toContain(MARKED);
+    }
+  });
+
+  test("a link to a pull quote keeps its target", () => {
+    // The anchor is placed in a paragraph (`TEXT_HOST`), so the quote's text
+    // must still be in one.
+    for (const quote of [
+      `<p id="pull" class="pullquote">${LINE}</p>`,
+      `<aside id="pull" data-flatplan-pullquote="true">${LINE}</aside>`,
+    ]) {
+      const markdown = clip(
+        `<p>As <a href="#pull">the quote</a> says.</p>${quote}`,
+      );
+      expect(markdown).toContain("[the quote](#pull)");
+      expect(markdown).toContain(
+        `> ${PULL_QUOTE_MARK}\n> <span id="pull"></span>${LINE}`,
+      );
+    }
   });
 
   test("a linky Substack pull quote keeps its links", () => {

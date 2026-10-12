@@ -46,26 +46,44 @@ the clipper and the site read the shape.
 - **On a line of its own.** A line opening with `<!--` is an HTML block that
   swallows any text after it on that line.
 
-### 2. The clipper re-tags a pull quote before Readability
+### 2. The clipper marks a pull quote before Readability, in a paragraph
 
 `markPullQuotes` runs in `prepareForClipping`, after
 `joinSplitArticleBodies` (see below). It looks for an `aside`, `div`, `p` or
 `blockquote` that the page calls a pull quote: The Atlantic's
-`data-flatplan-pullquote`, or a `pullquote` / `pull-quote` class. Each one is
-re-tagged as a `<blockquote>` carrying `data-tiro-pullquote`.
+`data-flatplan-pullquote`, or a `pullquote` / `pull-quote` class. It puts
+`data-tiro-pullquote` on an element that holds the quote's text.
 
-- **Why a blockquote.** No Readability cleaning pass removes one, and it is
-  not a tag Readability scores, so it picks the same container. A `<div>`
-  loses its attributes when Readability turns it into a paragraph, and a `<p>`
-  comes out as prose.
-- **Every attribute is carried over**, so a hidden pull quote stays hidden,
-  and the class weighs on the container exactly as before. Only the tag
-  changes, which keeps a pass before extraction as small as it goes (ADR
-  0011).
-- **Found again by the marker, not the tag.** A quote that sits beside the
-  container Readability picks comes back renamed to `<div>`. So the Turndown
-  rule fires on the marker, the way a script-drawn figure is found after
-  extraction (ADR 0039). A marker the page wrote itself is cleared first.
+**The text ends up in a `<p>`**, because a paragraph is what Readability
+scores, what its sibling rule takes from beside the container it picks, and
+what an in-page link's anchor is placed in. The shapes, each what Readability
+would make of the page itself:
+
+- **A `<p>` or a `<blockquote>`** is marked where it stands, so Readability
+  reads exactly the page.
+- **A wrapper around one paragraph** (Substack's `div.pullquote > p`) becomes
+  that paragraph, keeping the wrapper's attributes where the paragraph has
+  none. Readability does the same to such a `<div>` unless it is linky, and
+  then deletes it instead, which is how Lenny's was lost.
+- **A wrapper around text** (The Atlantic's `<aside>`) becomes a paragraph of
+  that text, as Readability makes of a `<div>` that holds no block.
+- **A wrapper around several paragraphs** becomes a `<blockquote>`. No
+  cleaning pass removes one, and it is scored through its paragraphs as the
+  wrapper was.
+
+The first version re-tagged every quote as a `<blockquote>` holding its text
+directly. Readability does not score such text, so a review found two
+regressions against main: a pull quote beside the container was dropped where
+main kept it, and a link to one lost its target.
+
+- **Every attribute is carried over** on a re-tag, and the class weighs on the
+  container exactly as before. A **hidden** quote is left alone for
+  Readability to drop, since unwrapping one could shed what hides it.
+- **Found again by the marker, not the tag.** A blockquote that sits beside
+  the container Readability picks comes back renamed to `<div>`, so the
+  Turndown rule fires on the marker, the way a script-drawn figure is found
+  after extraction (ADR 0039). A marker the page wrote itself is cleared
+  first.
 - **After the join.** `joinSplitArticleBodies` refuses to close up over a
   blockquote but not over an aside, so marking first would leave in halves a
   split body it joins today.

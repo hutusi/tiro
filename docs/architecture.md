@@ -188,9 +188,10 @@ flowchart LR
    A pull quote, the sentence a magazine repeats in large type between its
    paragraphs, is kept and marked as one (ADR 0041). Readability removes every
    `<aside>`, which is how The Atlantic writes them, so an element the page
-   calls a pull quote is re-tagged a marked `<blockquote>` before it, and
-   written as a blockquote whose first line is `<!-- pull quote -->`: one block,
-   translated like any other, that the site can tell from a quotation.
+   calls a pull quote is marked before it, its text kept in a paragraph as
+   Readability would make one, and written as a blockquote whose first line is
+   `<!-- pull quote -->`: one block, translated like any other, that the site
+   can tell from a quotation.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
