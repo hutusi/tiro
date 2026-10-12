@@ -1,4 +1,4 @@
-import { checkAlignment, splitBlocks } from "@tiro/shared";
+import { checkAlignment, isPullQuoteBlock, splitBlocks } from "@tiro/shared";
 import {
   type Pane,
   type RenderOptions,
@@ -62,8 +62,11 @@ export function buildReaderView(
 ): ReaderView {
   // The pane travels with every call: both columns land in one document, so
   // ids and the links pointing at them are scoped to the column they are in.
-  const render = (text: string, pane: Pane): string =>
-    renderBlockHtml(text, slug, { ...options, pane });
+  const render = (
+    text: string,
+    pane: Pane,
+    extra: Pick<RenderOptions, "pullQuote"> = {},
+  ): string => renderBlockHtml(text, slug, { ...options, ...extra, pane });
   // Taken from the renderer rather than re-derived from the source: what
   // carries an id is decided by the parser and the sanitizer between them, and
   // every attempt to answer it from the markdown got a different answer.
@@ -97,10 +100,19 @@ export function buildReaderView(
   }
   return {
     kind: "paired",
-    rows: originalBlocks.map((block, i) => ({
-      original: render(block.text, "original"),
-      translation: render(zhBlocks[i]?.text ?? "", "translation"),
-    })),
+    rows: originalBlocks.map((block, i) => {
+      // The original decides for both panes: the translator is handed the
+      // pull-quote mark with the rest of the quote and may drop or translate
+      // it, and a row styled one way on the left and another on the right
+      // would be worse than either.
+      const pullQuote = isPullQuoteBlock(block.text);
+      return {
+        original: render(block.text, "original", { pullQuote }),
+        translation: render(zhBlocks[i]?.text ?? "", "translation", {
+          pullQuote,
+        }),
+      };
+    }),
     firstAnchors,
   };
 }

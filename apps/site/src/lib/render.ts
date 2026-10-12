@@ -1,4 +1,8 @@
-import { normalizeBlockMath, splitBlocks } from "@tiro/shared";
+import {
+  isPullQuoteBlock,
+  normalizeBlockMath,
+  splitBlocks,
+} from "@tiro/shared";
 import type { ElementContent, Root } from "hast";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -263,6 +267,37 @@ function rehypeVideoLinks() {
   };
 }
 
+/**
+ * Show a pull quote as the aside it is (ADR 0041).
+ *
+ * The clipper writes one as a blockquote opening with `PULL_QUOTE_MARK`, and
+ * typography styles a blockquote as a quotation of someone else, which a
+ * magazine's own sentence repeated in large type is not. This renames the
+ * block's blockquote to `<aside class="pull-quote">`, the element HTML has for
+ * exactly this.
+ *
+ * Search still reads it. A magazine's pull quote repeats the body, but a
+ * Substack author's need not, and a word left out of the index is a page that
+ * cannot be found by it; a repeated one costs nothing, since results are pages.
+ *
+ * Whether a block is one is decided before rendering (`RenderOptions.pullQuote`),
+ * not from the tree, because the mark is a comment and the sanitizer removes
+ * comments. Must run **after** rehype-sanitize, for the reason the video badge
+ * does (ADR 0009): the schema allows the class on nothing, so only this pass
+ * can grant it.
+ */
+function rehypePullQuotes() {
+  return (tree: Root, file: { data: Record<string, unknown> }): void => {
+    if (file.data.pullQuote !== true) return;
+    for (const node of tree.children) {
+      if (node.type !== "element" || node.tagName !== "blockquote") continue;
+      node.tagName = "aside";
+      node.properties.className = ["pull-quote"];
+      return;
+    }
+  };
+}
+
 /** Which of the reader's two columns a block is being rendered into. */
 export type Pane = "original" | "translation";
 
@@ -425,6 +460,7 @@ function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
       .use(rehypeScrollableTables)
       .use(rehypeFigureCaptions)
       .use(rehypeVideoLinks)
+      .use(rehypePullQuotes)
       .use(rehypeKatex, KATEX_OPTIONS)
       .use(rehypeIgnoreMathmlInSearch)
       // Last, so what it records is what gets stringified — the generators
@@ -457,6 +493,10 @@ export interface RenderOptions {
    * it, because both panes share one document. Defaults to the original, which
    * is what a single-pane article is. */
   pane?: Pane;
+  /** Render the block as a pull quote (ADR 0041). Left out, the block's own
+   * mark decides; the reader passes the original's answer to both panes, so a
+   * translator that drops or translates the mark changes nothing. */
+  pullQuote?: boolean;
 }
 
 // Parse and sanitize only: no Shiki, no KaTeX, nothing stringified. The front
@@ -528,7 +568,10 @@ export function renderBlock(
     options.inlineMath === true,
     options.pane ?? "original",
   );
-  const file = processor.processSync(withAssets);
+  const file = processor.processSync({
+    value: withAssets,
+    data: { pullQuote: options.pullQuote ?? isPullQuoteBlock(blockText) },
+  });
   const ids = (file.data as { anchorIds?: string[] }).anchorIds;
   return { html: String(file), anchorIds: ids ?? [] };
 }

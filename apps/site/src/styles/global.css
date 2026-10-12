@@ -603,6 +603,28 @@ html[data-page="reader"][data-paired][data-reader-mode="both"] {
   background-color: var(--accent-fill);
 }
 
+/* A pull quote (rehypePullQuotes, after sanitize: ADR 0041): a sentence the
+ * article repeats in large type, set as a magazine sets it rather than as a
+ * quotation of someone else — upright, larger, between two hairlines, with no
+ * quote marks and no rail. */
+.prose :where(aside.pull-quote) {
+  margin-block: 2em;
+  padding-block: 0.9em;
+  border-block: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 1.3em;
+  line-height: 1.5;
+}
+.prose:where([lang="zh-CN"], [lang="zh"]) :where(aside.pull-quote) {
+  line-height: 1.75;
+}
+.prose :where(aside.pull-quote p) {
+  margin-block: 0;
+}
+.prose :where(aside.pull-quote p + p) {
+  margin-top: 0.6em;
+}
+
 /* A Hacker News thread (ADR 0038): every comment is a blockquote, nested one
  * level per reply, opening with a line naming its author and date. Typography
  * sets a blockquote as a citation — italic, medium weight, wrapped in curly
