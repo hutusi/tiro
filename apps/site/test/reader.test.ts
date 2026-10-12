@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PULL_QUOTE_MARK } from "@tiro/shared";
 import { buildReaderView, skipsLiftedH1 } from "../src/lib/reader.ts";
 import { renderBlockHtml } from "../src/lib/render.ts";
 
@@ -603,5 +604,34 @@ describe("in-document anchors are scoped to their pane", () => {
     const row = view.rows[1];
     expect(row?.original).toContain('id="tiro-o-fn1"');
     expect(row?.translation).toContain('id="tiro-t-fn1"');
+  });
+});
+
+describe("a pull quote in the reader (ADR 0041)", () => {
+  const original = `A paragraph.\n\n> ${PULL_QUOTE_MARK}\n> I had a family.\n\nAnother.`;
+
+  test("the original's mark decides for both panes", () => {
+    // The translator dropped the mark; the row is still a pull quote on both
+    // sides rather than an aside beside a blockquote.
+    const view = buildReaderView(
+      original,
+      "一个段落。\n\n> 我曾有一个家庭。\n\n另一个。",
+      "s",
+    );
+    expect(view.kind).toBe("paired");
+    if (view.kind !== "paired") return;
+    expect(view.rows[1]?.original).toContain('<aside class="pull-quote"');
+    expect(view.rows[1]?.translation).toContain('<aside class="pull-quote"');
+  });
+
+  test("a mark the translation invented does not make a quotation one", () => {
+    const view = buildReaderView(
+      "A paragraph.\n\n> Someone said this.",
+      `一个段落。\n\n> ${PULL_QUOTE_MARK}\n> 有人这样说。`,
+      "s",
+    );
+    expect(view.kind).toBe("paired");
+    if (view.kind !== "paired") return;
+    expect(view.rows[1]?.translation).toContain("<blockquote>");
   });
 });

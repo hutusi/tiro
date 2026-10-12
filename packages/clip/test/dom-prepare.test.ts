@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Readability } from "@mozilla/readability";
-import { splitBlocks } from "@tiro/shared";
+import { isPullQuoteBlock, PULL_QUOTE_MARK, splitBlocks } from "@tiro/shared";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
 import {
@@ -8,6 +8,7 @@ import {
   CODE_LANG_ATTR,
   foldFiguresIn,
   MATH_ATTR,
+  PULL_QUOTE_ATTR,
   placeAnchorsIn,
   prepareForClipping,
   scriptFiguresIn,
@@ -2943,6 +2944,155 @@ describe("an embedded video keeps its place in the article", () => {
       expect(markdown).not.toContain("example.org");
       expect(markdown).not.toContain("Listen");
     }
+  });
+});
+
+describe("a pull quote is kept, marked as one", () => {
+  const PAGE = "https://schlarp.example/magazine/lola/";
+  const before = `<p>${"Before the quote, a sentence with enough words to score. ".repeat(12)}</p>`;
+  const after = `<p>${"After the quote, a sentence with enough words to score. ".repeat(12)}</p>`;
+  const LINE =
+    "I had a family, a career, a house in the suburbs—the American dream. And then I had a slave.";
+  const MARKED = `> ${PULL_QUOTE_MARK}\n> ${LINE}`;
+
+  /** The whole clip, as the extension runs it, of a page whose body is
+   * `body`. */
+  function clipBody(body: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = body;
+    const payload = clipPage(window.document as unknown as Document, PAGE);
+    // Not the raw-body fallback, which keeps every aside and would pass
+    // without Readability ever seeing one.
+    expect(payload.readabilityFailed).toBe(false);
+    return payload.markdown;
+  }
+
+  /** The same, with `markup` between two paragraphs of an article. */
+  function clip(markup: string): string {
+    return clipBody(
+      `<article><h1>Lola</h1>${before}${markup}${after}</article>`,
+    );
+  }
+
+  test("The Atlantic's aside stays where it was, as one marked block", () => {
+    const markdown = clip(
+      `<aside class="ArticlePullquote_root__z11cW" data-flatplan-pullquote="true">${LINE}</aside>`,
+    );
+    const blocks = splitBlocks(markdown);
+    const at = blocks.findIndex((block) => isPullQuoteBlock(block.text));
+    expect(blocks[at]?.text).toBe(MARKED);
+    expect(blocks[at - 1]?.text).toStartWith("Before the quote");
+    expect(blocks[at + 1]?.text).toStartWith("After the quote");
+  });
+
+  test("a pull quote beside the article's container is kept", () => {
+    // Readability takes a paragraph from beside the container it picks, and
+    // main kept these. A first version made each a `<blockquote>` holding its
+    // text directly, which Readability neither scores nor takes, and lost them.
+    const container = `<div class="post-content">${before}${after}</div>`;
+    for (const quote of [
+      `<p class="pullquote">${LINE}</p>`,
+      `<div class="pullquote"><p>${LINE}</p></div>`,
+      `<aside data-flatplan-pullquote="true">${LINE}</aside>`,
+    ]) {
+      expect(clipBody(`${container}${quote}`)).toContain(MARKED);
+    }
+  });
+
+  test("a link to a pull quote keeps its target", () => {
+    // The anchor is placed in a paragraph (`TEXT_HOST`), so the quote's text
+    // must still be in one.
+    for (const quote of [
+      `<p id="pull" class="pullquote">${LINE}</p>`,
+      `<aside id="pull" data-flatplan-pullquote="true">${LINE}</aside>`,
+    ]) {
+      const markdown = clip(
+        `<p>As <a href="#pull">the quote</a> says.</p>${quote}`,
+      );
+      expect(markdown).toContain("[the quote](#pull)");
+      expect(markdown).toContain(
+        `> ${PULL_QUOTE_MARK}\n> <span id="pull"></span>${LINE}`,
+      );
+    }
+  });
+
+  test("Readability still judges a quote's wrapper", () => {
+    // A wrapper it discards on main, it still discards: one marked `sidebar`
+    // or `complementary`, and Lenny's Newsletter's "Listen on…", cleaned away
+    // as "a little linky". Unwrapping the paragraph first had published them.
+    for (const quote of [
+      `<div class="pullquote sidebar"><p class="quote-text">${LINE}</p></div>`,
+      `<div class="pullquote" role="complementary"><p role="note">${LINE}</p></div>`,
+      `<aside class="pullquote sidebar"><p>${LINE}</p></aside>`,
+      '<div class="pullquote"><p><strong><span>Listen on </span><a href="https://youtu.be/zMvBMfj4cSQ">YouTube</a><span>, </span><a href="https://open.spotify.com/episode/1">Spotify</a></strong></p></div>',
+    ]) {
+      const markdown = clip(quote);
+      expect(markdown).not.toContain(LINE);
+      expect(markdown).not.toContain("Listen on");
+    }
+    // A wrapper it keeps, as a paragraph, carries the mark to it.
+    expect(
+      clip(`<div class="pullquote" id="outer"><p id="inner">${LINE}</p></div>`),
+    ).toContain(MARKED);
+  });
+
+  test("a paragraph classed as one is marked, once however it is wrapped", () => {
+    // Literary Hub's shape, which came through as a duplicate paragraph.
+    expect(clip(`<p class="pullquote">${LINE}</p>`)).toContain(MARKED);
+    const nested = clip(
+      `<div class="pull-quote"><p class="pullquote">${LINE}</p></div>`,
+    );
+    expect(nested).toContain(MARKED);
+    expect(nested.split(PULL_QUOTE_MARK)).toHaveLength(2);
+  });
+
+  test("a comment beside the wrapped paragraph does not lose the mark", () => {
+    // Readability counts a lone paragraph past comments and replaces the
+    // wrapper with it, so the mark has to be on the paragraph by then.
+    for (const quote of [
+      `<div class="pullquote"><!-- note --><p>${LINE}</p></div>`,
+      `<div class="pullquote"><p>${LINE}</p><!----></div>`,
+    ]) {
+      expect(clip(quote)).toContain(MARKED);
+    }
+  });
+
+  test("a pull-quote container holding a picture stays the content it was", () => {
+    // Brad Montague's Substack: dialogue, a picture and more prose in one
+    // `div.pullquote`, none of it repeated from the body.
+    const markdown = clip(
+      '<div class="pullquote"><p><strong>Dave:</strong> What do you know now?</p><figure><img src="https://schlarp.example/sandwich.png" alt="A sandwich"></figure><p>Warren: enjoy every sandwich.</p></div>',
+    );
+    expect(markdown).toContain("**Dave:** What do you know now?");
+    expect(markdown).toContain(
+      "![A sandwich](https://schlarp.example/sandwich.png)",
+    );
+    expect(markdown).not.toContain(PULL_QUOTE_MARK);
+  });
+
+  test("a hidden pull quote stays hidden", () => {
+    for (const hidden of ['style="display:none"', "hidden"]) {
+      expect(
+        clip(`<aside data-flatplan-pullquote="true" ${hidden}>${LINE}</aside>`),
+      ).not.toContain(LINE);
+    }
+  });
+
+  test("any other aside is still dropped, and a quotation is not marked", () => {
+    // Discourse's reply quote and a related-links box are asides too.
+    const markdown = clip(
+      `<aside class="quote no-group" data-username="kim"><p>Kim wrote this in an earlier reply.</p></aside><aside class="related"><p>Related: another story</p></aside><blockquote><p>${LINE}</p></blockquote>`,
+    );
+    expect(markdown).not.toContain("Kim wrote");
+    expect(markdown).not.toContain("Related:");
+    expect(markdown).toContain(`> ${LINE}`);
+    expect(markdown).not.toContain(PULL_QUOTE_MARK);
+  });
+
+  test("a marker the page wrote itself marks nothing", () => {
+    const markdown = clip(`<p ${PULL_QUOTE_ATTR}>${LINE}</p>`);
+    expect(markdown).toContain(LINE);
+    expect(markdown).not.toContain(PULL_QUOTE_MARK);
   });
 });
 

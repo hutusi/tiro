@@ -184,6 +184,14 @@ flowchart LR
    itself (The Atlantic's, linked to its video page), is handed to it as
    `allowedVideoRegex`, so the frames it keeps and the frames converted after
    it are the same set. Turndown has no rule for either, and wrote nothing.
+
+   A pull quote, the sentence a magazine repeats in large type between its
+   paragraphs, is kept and marked as one (ADR 0041). Readability removes every
+   `<aside>`, which is how The Atlantic writes them, so an element the page
+   calls a pull quote is marked before it, its text kept in a paragraph as
+   Readability would make one, and written as a blockquote whose first line is
+   `<!-- pull quote -->`: one block, translated like any other, that the site
+   can tell from a quotation.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
@@ -284,6 +292,10 @@ flowchart LR
    A picture linking to a video gets a play badge the same way: a pass after
    the sanitizer marks it with a class no clipped markup can carry, and the
    stylesheet draws the badge. The site runs no player (ADR 0040).
+   A pull quote's blockquote becomes `<aside class="pull-quote">` in a pass
+   there too, decided before rendering since the mark is a comment the
+   sanitizer drops, and in paired rows by the original for both panes, since
+   the translator may lose it (ADR 0041).
 
    A fence that still carries no language after the clipper's chain gets one
    inferred from its code at build time (`@tiro/shared`'s `detect-language.ts`),

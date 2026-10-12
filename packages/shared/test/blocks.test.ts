@@ -5,10 +5,12 @@ import {
   foldedFigureCount,
   htmlRanges,
   imageOffsets,
+  isPullQuoteBlock,
   joinBlocks,
   markdownLinks,
   mathRanges,
   normalizeBlockMath,
+  PULL_QUOTE_MARK,
   plainText,
   splitBlocks,
   verbatimRanges,
@@ -149,6 +151,32 @@ describe("splitBlocks", () => {
   test("returns an empty array for an empty body", () => {
     expect(splitBlocks("")).toEqual([]);
     expect(splitBlocks("\n\n")).toEqual([]);
+  });
+});
+
+describe("isPullQuoteBlock", () => {
+  const quote = `> ${PULL_QUOTE_MARK}\n> I had a family, a career — and then a **slave**.`;
+
+  test("a blockquote opening with the mark is one block, and a pull quote", () => {
+    // One block is what keeps `zh.md` aligned: the mark must not split it.
+    const blocks = splitBlocks(`Before.\n\n${quote}\n\nAfter.`);
+    expect(blocks.map((b) => b.type)).toEqual([
+      "paragraph",
+      "blockquote",
+      "paragraph",
+    ]);
+    expect(isPullQuoteBlock(blocks[1]?.text ?? "")).toBe(true);
+    expect(isPullQuoteBlock(quote.replaceAll("\n", "\r\n"))).toBe(true);
+  });
+
+  test("a quotation without the mark, or with it elsewhere, is not", () => {
+    expect(isPullQuoteBlock("> Someone else said this.")).toBe(false);
+    expect(isPullQuoteBlock(`> Said.\n>\n> ${PULL_QUOTE_MARK}`)).toBe(false);
+    expect(isPullQuoteBlock(`> > ${PULL_QUOTE_MARK}\n> > Nested.`)).toBe(false);
+    expect(isPullQuoteBlock(`${PULL_QUOTE_MARK}\n\nA paragraph.`)).toBe(false);
+    // On the same line the comment swallows the text into one HTML block,
+    // which renders as nothing: the shape the clipper must never write.
+    expect(isPullQuoteBlock(`> ${PULL_QUOTE_MARK} Text.`)).toBe(false);
   });
 });
 

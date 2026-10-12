@@ -8,6 +8,7 @@ import {
   anchorReplacement,
   MATH_ATTR,
   mathTurndownRule,
+  pullQuoteTurndownRule,
 } from "./dom-prepare.ts";
 
 export interface MarkdownResult {
@@ -112,6 +113,7 @@ export function htmlToMarkdown(html: string): MarkdownResult {
   turndown.use(gfm);
   turndown.addRule("tiroInlineLink", inlineLinkRule);
   turndown.addRule("tiroMath", mathTurndownRule);
+  turndown.addRule("tiroPullQuote", pullQuoteTurndownRule);
   if (hasMath) {
     const base = turndown.escape.bind(turndown);
     turndown.escape = (text: string) => escapeLiteralDollars(base(text));

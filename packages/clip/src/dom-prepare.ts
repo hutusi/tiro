@@ -19,6 +19,7 @@ import {
   languageFromFilename,
   languageFromLabel,
   normalizeUrl,
+  PULL_QUOTE_MARK,
   SNAPSHOT_ID,
   snapshotAssetName,
 } from "@tiro/shared";
@@ -772,6 +773,160 @@ function retagFontsAsSpans(doc: Document): void {
     font.replaceWith(span);
   }
 }
+
+/**
+ * Marks a pull quote across Readability, for `pullQuoteTurndownRule` (ADR
+ * 0041). Found by this marker and never by tag, for the reason `FIGURE_ATTR`
+ * gives: a quote that is a sibling of the container Readability picks comes
+ * back renamed to `<div>`.
+ */
+export const PULL_QUOTE_ATTR = "data-tiro-pullquote";
+
+/** What a page calls a pull quote: The Atlantic's CMS attribute, or the class
+ * Substack, Literary Hub and most hand-written themes use. */
+const PULL_QUOTE_CLASS = /^pull-?quote$/i;
+const PULL_QUOTE_TAGS: ReadonlySet<string> = new Set([
+  "ASIDE",
+  "DIV",
+  "P",
+  "BLOCKQUOTE",
+]);
+
+/**
+ * What a pull quote never holds. Substack's pull-quote block is a styled
+ * container an author can fill with anything: Brad Montague's "Enjoy every
+ * sandwich" puts a dialogue, a captioned picture and three more paragraphs in
+ * one. That is the article itself rather than a line repeated from it, and it
+ * stays the content it was.
+ */
+const NOT_IN_A_PULL_QUOTE =
+  "img, picture, figure, video, audio, iframe, table, pre, ul, ol, h1, h2, h3, h4, h5, h6, hr";
+
+function isPullQuote(element: Element): boolean {
+  if (!PULL_QUOTE_TAGS.has(element.tagName)) return false;
+  const named =
+    element.hasAttribute("data-flatplan-pullquote") ||
+    Array.from(element.classList).some((token) => PULL_QUOTE_CLASS.test(token));
+  return named && element.querySelector(NOT_IN_A_PULL_QUOTE) === null;
+}
+
+/**
+ * Mark every pull quote for `pullQuoteTurndownRule`, before Readability reads
+ * the page, without changing what Readability decides about it.
+ *
+ * A pull quote is the sentence a magazine repeats in large type between its
+ * paragraphs. The Atlantic writes each one as an `<aside>`, and Readability
+ * removes every `<aside>` from what it returns, so "Lola's Story" lost all six.
+ * The owner chose to keep them even though their words repeat the body's.
+ *
+ * **Readability still judges every quote**, the `<aside>` included, by the
+ * same class, role, visibility and link density it would read on the page.
+ * That is what this pass gives up rescuing: a quote whose wrapper says
+ * `sidebar`, or that is mostly links (Lenny's Newsletter's "Listen on…"), is
+ * dropped as it always was. Two earlier versions rescued more and broke more.
+ * Re-tagging each quote as a `<blockquote>` holding its text directly, which
+ * Readability does not score, dropped a pull quote beside the article that
+ * main kept, and cost a link to one its target. Unwrapping a `<div>` around a
+ * paragraph before Readability saw it published the content of a wrapper
+ * marked `sidebar` (`pullQuoteHost` has the shapes).
+ */
+function markPullQuotes(doc: Document): void {
+  // A page's own attributes are untrusted input, and this one is read back
+  // after Readability with no record of who wrote it (see `markCodeLanguages`).
+  for (const stale of Array.from(
+    doc.querySelectorAll(`[${PULL_QUOTE_ATTR}]`),
+  )) {
+    stale.removeAttribute(PULL_QUOTE_ATTR);
+  }
+  const quotes = Array.from(
+    doc.querySelectorAll("aside, div, p, blockquote"),
+  ).filter(isPullQuote);
+  // One quote, however many wrappers the page marked: the outermost speaks for
+  // it. Settled before any re-tag, which empties the element an inner quote
+  // would be found inside.
+  const outermost = quotes.filter(
+    (element) =>
+      !quotes.some((other) => other !== element && other.contains(element)),
+  );
+  for (const element of outermost) {
+    if ((element.textContent ?? "").trim() === "") continue;
+    pullQuoteHost(element, doc).setAttribute(PULL_QUOTE_ATTR, "");
+  }
+}
+
+/** Readability's `DIV_TO_P_ELEMS`: a `<div>` holding none of these, at any
+ * depth, is one it turns into a paragraph itself. */
+const READABILITY_BLOCKS = "blockquote, dl, div, img, ol, p, pre, table, ul";
+
+/**
+ * The element that carries a pull quote's marker across Readability: the one
+ * that is still there when Readability has made of the page what it would
+ * anyway, so the quote's text sits in a paragraph wherever Readability puts
+ * one, which is what its sibling rule takes and where an anchor is placed.
+ *
+ * - **An `<aside>`** becomes the `<div>` Readability would have judged had it
+ *   not deleted every aside, keeping every attribute, and is then one.
+ * - **A `<p>` or a `<blockquote>`** carries its own marker.
+ * - **A `<div>` around one paragraph** leaves the marker on the paragraph.
+ *   Readability replaces such a `<div>` with its paragraph unless it is linky,
+ *   having first judged the `<div>` and dropped it if its class or role says
+ *   sidebar; either way the marker goes where the text goes.
+ * - **A `<div>` around text** becomes a paragraph of it, keeping every
+ *   attribute. Readability does the same, but builds a new paragraph and the
+ *   marker would be lost with the old element.
+ * - **A `<div>` around more** carries its own marker, kept or cleaned as
+ *   Readability decides.
+ */
+function pullQuoteHost(element: Element, doc: Document): Element {
+  const quote =
+    element.tagName === "ASIDE" ? retagged(element, "div", doc) : element;
+  if (quote.tagName !== "DIV") return quote;
+  // Counted as Readability's `_hasSingleTagInsideElement` counts: elements,
+  // and text with something in it. A comment beside the paragraph — a Vue
+  // `<!---->` placeholder — is neither, and counting it left the marker on a
+  // wrapper Readability then replaced with the unmarked paragraph.
+  const content = Array.from(quote.childNodes).filter(
+    (node) =>
+      node.nodeType === 1 ||
+      (node.nodeType === 3 && (node.textContent ?? "").trim() !== ""),
+  );
+  const only = content.length === 1 ? content[0] : undefined;
+  if (only !== undefined && (only as Element).tagName === "P") {
+    return only as Element;
+  }
+  return quote.querySelector(READABILITY_BLOCKS) === null
+    ? retagged(quote, "p", doc)
+    : quote;
+}
+
+/** `element` as a `tag`, with every attribute and child it had, in its
+ * place. */
+function retagged(element: Element, tag: string, doc: Document): Element {
+  const replacement = doc.createElement(tag);
+  for (const attribute of Array.from(element.attributes)) {
+    replacement.setAttribute(attribute.name, attribute.value);
+  }
+  for (const child of Array.from(element.childNodes)) {
+    replacement.appendChild(child);
+  }
+  element.replaceWith(replacement);
+  return replacement;
+}
+
+/**
+ * Write a marked pull quote as a blockquote opening with `PULL_QUOTE_MARK`, on
+ * a line of its own, which is how the site tells it from a quotation. The
+ * prefixing is Turndown's own blockquote rule, so the quote is one top-level
+ * block that `zh.md` aligns with like any other.
+ */
+export const pullQuoteTurndownRule: TurndownService.Rule = {
+  filter: (node) => node.getAttribute?.(PULL_QUOTE_ATTR) != null,
+  replacement: (content) => {
+    const body = content.replace(/^\n+|\n+$/g, "");
+    if (body.trim() === "") return "";
+    return `\n\n${`${PULL_QUOTE_MARK}\n${body}`.replace(/^/gm, "> ")}\n\n`;
+  },
+};
 
 /**
  * Remove an `<svg>` that paints text, so a chart cannot arrive as glyph soup.
@@ -2560,6 +2715,10 @@ export function prepareForClipping(
   // Early: it only moves whole blocks, and every pass below should see the
   // article as the one body it is.
   joinSplitArticleBodies(doc);
+  // After the join, which refuses to close up over a blockquote but not over
+  // an aside: a pull quote marked first would leave a split body in halves
+  // that it joins today.
+  markPullQuotes(doc);
   normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);

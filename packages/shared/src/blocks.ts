@@ -1093,6 +1093,40 @@ function blocksFrom(source: string, from: typeof parser): Block[] {
   });
 }
 
+/**
+ * The line that marks a blockquote as a pull quote (ADR 0041): the sentence a
+ * magazine repeats in large type between paragraphs, which a reader should not
+ * take for a quotation of someone else. The clipper writes it as the quote's
+ * first line:
+ *
+ * ```md
+ * > <!-- pull quote -->
+ * > I had a family, a career, a house in the suburbs…
+ * ```
+ *
+ * A comment, because a Markdown viewer shows nothing for it and an older site
+ * renders the quote as a plain blockquote. On a line of its own, because a line
+ * opening with `<!--` is an HTML block that would swallow any text after it.
+ */
+export const PULL_QUOTE_MARK = "<!-- pull quote -->";
+
+/**
+ * Whether a block is a pull quote: one blockquote whose first child is
+ * `PULL_QUOTE_MARK`.
+ *
+ * Read from the tree rather than the text, as `foldedFigureCount` is: a CRLF
+ * document, or a quote nested one level deeper, only looks like the mark to a
+ * string test.
+ */
+export function isPullQuoteBlock(text: string): boolean {
+  if (!text.includes(PULL_QUOTE_MARK)) return false;
+  const tree = parser.parse(text) as Root;
+  const [quote, ...rest] = tree.children;
+  if (quote?.type !== "blockquote" || rest.length > 0) return false;
+  const first = quote.children[0];
+  return first?.type === "html" && first.value.trim() === PULL_QUOTE_MARK;
+}
+
 /** Reassemble blocks into a canonical markdown body (blank-line separated). */
 export function joinBlocks(blocks: readonly Block[]): string {
   return `${blocks
