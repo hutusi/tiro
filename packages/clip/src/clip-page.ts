@@ -10,6 +10,7 @@ import {
   readLatexmlMetadata,
   restoreCodeLanguagesIn,
   scriptFiguresIn,
+  VIDEO_EMBEDS,
   videosAsPostersIn,
 } from "./dom-prepare.ts";
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
@@ -81,7 +82,11 @@ export function clipPage(
   const preparedBody = doc.body?.innerHTML ?? "";
   let article: ReturnType<Readability["parse"]> = null;
   try {
-    article = new Readability(doc).parse();
+    // Told which players to keep in the very terms the pass after it converts
+    // them by, so the two agree on what an embed is (`VIDEO_EMBEDS`).
+    article = new Readability(doc, {
+      allowedVideoRegex: VIDEO_EMBEDS,
+    }).parse();
   } catch {
     article = null;
   }
@@ -99,8 +104,9 @@ export function clipPage(
   // Anchors are placed between the two: a `<figure id>` resolves to its
   // caption, and folding then carries the anchor into the caption half of the
   // paragraph it builds, where the picture is still the first thing in it.
-  // Videos become linked posters before any of it, so that a video's figure is
-  // an image figure by the time the fold looks (videosAsPostersIn). A figure
+  // Videos — and the embedded players Readability kept — become linked posters
+  // before any of it, so that a video's figure is an image figure by the time
+  // the fold looks (videosAsPostersIn). A figure
   // the page draws with script becomes a described link just after, and before
   // the anchors, which place the one it carries over (scriptFiguresIn).
   const drawn = scriptFiguresIn(

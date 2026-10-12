@@ -176,6 +176,13 @@ flowchart LR
    as they always did. On request the popup replaces each link with a picture
    of the figure (ADR 0039): it scrolls the tab to the figure, takes the visible
    tab, crops it, and re-clips with the pictures in.
+
+   A video becomes its still, linked to where it plays: a `<video>` its
+   poster and file, and an embedded player Readability keeps (YouTube, Vimeo…)
+   its thumbnail and watch page, `[![label](still)](watch)` (ADR 0040).
+   Readability's own player allowlist is handed back to it as
+   `allowedVideoRegex`, so the frames it keeps and the frames converted after
+   it are the same set. Turndown has no rule for either, and wrote nothing.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,

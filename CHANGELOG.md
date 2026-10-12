@@ -35,6 +35,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An embedded video is kept.** A YouTube video embedded in an article — or a
+  Vimeo one, or any player Readability recognises — vanished from the clip
+  without a trace. It now becomes its thumbnail, linking to the watch page at
+  the moment the embed started, and the thumbnail is downloaded with the
+  article's other images. A player with no thumbnail to name becomes a link.
+  Re-clip an article to pick this up (ADR 0040).
 - **An interactive figure is described, not lost.** A figure a page draws
   with its own script — a canvas filled once it scrolls into view — vanished
   from the clip and left its caption behind as loose prose, while the figures
