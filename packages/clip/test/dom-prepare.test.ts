@@ -2897,6 +2897,25 @@ describe("an embedded video keeps its place in the article", () => {
     );
   });
 
+  test("The Atlantic's own player becomes a link to its page for the video", () => {
+    // The live markup of a 2019 Ideas article, lazy-loaded and unscrolled:
+    // the publisher's player page, whose YouTube id the clip never sees.
+    const markdown = clip(
+      '<div class="ArticleLegacyHtml_root__WFd2I ArticleLegacyHtml_paragraph__cY6a3"><figure class="c-embedded-video"><div class="embed-wrapper" style="display: block; position:relative; width:100%; height:0; overflow:hidden; padding-bottom:56.25%;"><iframe allowfullscreen="allowfullscreen" class="lazyload" data-include="module:theatlantic/js/utils/iframe-resizer" data-src="https://www.theatlantic.com/video/iframe/595672/" frameborder="0" height="360" style="position:absolute; width:100%; height:100%; top:0; left:0; border:0;" title="embedded interactive content" width="640"></iframe></div></figure></div>',
+    );
+    expect(markdown).toContain(
+      "[Video](https://www.theatlantic.com/video/index/595672/)",
+    );
+  });
+
+  test("any other frame of The Atlantic's is still dropped", () => {
+    const markdown = clip(
+      '<p><iframe src="https://www.theatlantic.com/newsletters/sign-up/iframe/" title="Newsletter"></iframe></p>',
+    );
+    expect(markdown).not.toContain("theatlantic");
+    expect(markdown).not.toContain("Newsletter");
+  });
+
   test("a frame that is not a video player still produces nothing", () => {
     for (const markup of [
       // The "listen to this article" player Noema and Spectrum carry.

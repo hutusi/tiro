@@ -180,7 +180,8 @@ flowchart LR
    A video becomes its still, linked to where it plays: a `<video>` its
    poster and file, and an embedded player Readability keeps (YouTube, Vimeo…)
    its thumbnail and watch page, `[![label](still)](watch)` (ADR 0040).
-   Readability's own player allowlist is handed back to it as
+   Readability's own player allowlist, plus the few players a publisher hosts
+   itself (The Atlantic's, linked to its video page), is handed to it as
    `allowedVideoRegex`, so the frames it keeps and the frames converted after
    it are the same set. Turndown has no rule for either, and wrote nothing.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or

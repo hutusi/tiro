@@ -60,10 +60,11 @@ The label is the player's `aria-label` or `title`, unless it is embed-code
 boilerplate ("YouTube video player", "embedded interactive content"…). Then it
 is "Video", as for a `<video>`.
 
-### 2. Readability's list is the one list
+### 2. One list decides, for Readability and for the conversion
 
-`VIDEO_EMBEDS` is Readability's own `REGEXPS.videos`, copied with a citation,
-and `clipPage` hands it back to Readability as `allowedVideoRegex`. The pass
+`VIDEO_EMBEDS` starts from Readability's own `REGEXPS.videos`, copied with a
+citation (and extended in §3), and `clipPage` hands it to Readability as
+`allowedVideoRegex`. The pass
 after Readability converts a frame only when its address matches the same
 list, held to the start of the address so that a query string merely naming a
 player does not count. Readability tests every attribute, so the pass reads
@@ -72,6 +73,25 @@ player does not count. Readability tests every attribute, so the pass reads
 The two can therefore never disagree about what an embed is. A frame the list
 does not name is left for Turndown to drop, as before; only the raw-body
 fallback lets one through.
+
+### 3. A publisher's own player is linked to the publisher's video page
+
+The page that prompted this held no YouTube frame at all. The Atlantic embeds
+its own player, `theatlantic.com/video/iframe/595672/`, titled "embedded
+interactive content" and lazy-loaded from a `data-src`. That page loads the
+YouTube player inside itself, so the video's id is named only there, and the
+clip never sees it. Readability's list does not name the host either, so the
+frame was dropped before anything could convert it.
+
+`VIDEO_EMBEDS` is therefore Readability's list plus `PUBLISHER_PLAYERS`, a
+short list of such players, one entry so far. Readability is told to keep
+them, and each becomes a plain link to the publisher's page for the video:
+for The Atlantic, `/video/index/<n>/`, which redirects to the slugged address
+and plays it (checked live). There is no still, since only the player's page
+names one.
+
+A publisher's player joins the list only when its address shape is known to
+mean a video. Any other frame from the same host is still dropped.
 
 ## Rejected
 
@@ -85,11 +105,18 @@ fallback lets one through.
 - **A pass before Readability.** Readability's own allowlist already keeps the
   right frames, and its visibility, comment and promo judgements stand only if
   nothing rewrites the DOM it judges (ADR 0011).
+- **Reading the publisher's player page for the real video.** In the
+  reader's tab that page is same-origin and readable, but only once a lazy
+  loader has loaded it, which happens when the reader scrolls to it. It is
+  never there on the saved-link path, which fetches one document (ADR 0034).
+  A link that works every time beats a still that works sometimes.
 
 ## Consequences
 
 - An article with an embedded video gains one image block, or one link, where
-  the video was. Re-clip to pick it up; the 8 corpus articles above are owed.
+  the video was. Re-clip to pick it up; the 8 corpus articles above, and the
+  Atlantic article that prompted this, are owed. The sweep cannot check The
+  Atlantic, which refuses its fetches.
 - A still is the video's thumbnail, not the moment it starts at.
 - `&apos;`-style double escaping in a publisher's `title` reaches the alt text
   as written; markdown decodes it when rendering.

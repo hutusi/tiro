@@ -1145,28 +1145,50 @@ function videoSource(video: Element, base: string): string | null {
 }
 
 /**
- * The players Readability keeps: its own `REGEXPS.videos`, copied from
+ * The players Readability keeps on its own: its `REGEXPS.videos`, copied from
  * `Readability.js` (0.6.0, ~153). Every other `<iframe>` it cleans away, in
  * `_clean` and `_cleanConditionally` alike, testing this against each of the
  * frame's attributes — so a lazy `data-src` counts as much as a `src`.
+ */
+const READABILITY_VIDEOS =
+  /\/\/(www\.)?((dailymotion|youtube|youtube-nocookie|player\.vimeo|v\.qq)\.com|(archive|upload\.wikimedia)\.org|player\.twitch\.tv)/i;
+
+/**
+ * Players a publisher hosts itself, which Readability's list cannot know. Each
+ * is a page of the publisher's own that loads the real player inside it, so
+ * the video itself is named nowhere in the article — only in that page, which
+ * the clip never sees. What a clip can keep is a link to the publisher's page
+ * for the video (`embeddedVideo`).
  *
- * Handed back to Readability as its `allowedVideoRegex` (`clipPage`), so the
- * two can never disagree about what an embed is: `videosAsPostersIn` converts
+ * - **The Atlantic**: `theatlantic.com/video/iframe/<n>/`, lazy-loaded from a
+ *   `data-src` in `figure.c-embedded-video`, around a YouTube player. Its
+ *   archive articles carry it; Readability dropped it, and with it the video.
+ */
+const PUBLISHER_PLAYERS = /\/\/(www\.)?theatlantic\.com\/video\/iframe\/\d+/i;
+
+/**
+ * Every player a clip keeps: Readability's own and the publishers' above.
+ *
+ * Handed to Readability as its `allowedVideoRegex` (`clipPage`), so the two
+ * can never disagree about what an embed is: `videosAsPostersIn` converts
  * exactly the frames Readability decided to keep, and Readability's judgement
  * — which, measured on the corpus, kept every video in an article body and
  * dropped a floating "latest video" promo and the videos in a comment
  * thread — is the one being trusted.
  */
-export const VIDEO_EMBEDS =
-  /\/\/(www\.)?((dailymotion|youtube|youtube-nocookie|player\.vimeo|v\.qq)\.com|(archive|upload\.wikimedia)\.org|player\.twitch\.tv)/i;
+export const VIDEO_EMBEDS = new RegExp(
+  `${READABILITY_VIDEOS.source}|${PUBLISHER_PLAYERS.source}`,
+  "i",
+);
 
 /**
  * `VIDEO_EMBEDS` held to the start of an address. Readability's test is
  * unanchored, which is right for it — it only decides what to keep — but an
  * address merely *mentioning* a player in its query is not that player, and
- * this decides where a link goes.
+ * this decides where a link goes. The group matters: `^` before a bare
+ * alternation would anchor only its first branch.
  */
-const EMBED_ADDRESS = new RegExp(`^${VIDEO_EMBEDS.source}`, "i");
+const EMBED_ADDRESS = new RegExp(`^(?:${VIDEO_EMBEDS.source})`, "i");
 
 /**
  * What a player's frame says of itself when its page gave it no name: the
@@ -1223,6 +1245,9 @@ function embedSource(frame: Element, base: string): URL | null {
  *   image once processing falls back to hotlinking it.
  * - **Vimeo** — the video's page, keeping the hash an unlisted one needs.
  *   No still: Vimeo's are named by an id the embed address does not carry.
+ * - **The Atlantic** — its page for the video, `/video/index/<n>/`, which
+ *   redirects to the slugged address and plays the video. No still: the
+ *   player's page names one, and the clip never sees that page.
  * - **Anything else Readability keeps** — the player itself, which is a page
  *   a reader can open.
  */
@@ -1249,6 +1274,15 @@ function embeddedVideo(url: URL): { watch: string; poster: string | null } {
       const unlisted = hash !== null && /^[0-9a-f]+$/i.test(hash);
       return {
         watch: `https://vimeo.com/${id}${unlisted ? `/${hash}` : ""}`,
+        poster: null,
+      };
+    }
+  }
+  if (/^(www\.)?theatlantic\.com$/i.test(url.hostname)) {
+    const id = /^\/video\/iframe\/(\d+)\/?$/.exec(url.pathname)?.[1];
+    if (id !== undefined) {
+      return {
+        watch: `https://www.theatlantic.com/video/index/${id}/`,
         poster: null,
       };
     }
