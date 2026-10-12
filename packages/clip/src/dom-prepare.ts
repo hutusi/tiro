@@ -1145,6 +1145,166 @@ function videoSource(video: Element, base: string): string | null {
 }
 
 /**
+ * The players Readability keeps on its own: its `REGEXPS.videos`, copied from
+ * `Readability.js` (0.6.0, ~153). Every other `<iframe>` it cleans away, in
+ * `_clean` and `_cleanConditionally` alike, testing this against each of the
+ * frame's attributes — so a lazy `data-src` counts as much as a `src`.
+ */
+const READABILITY_VIDEOS =
+  /\/\/(www\.)?((dailymotion|youtube|youtube-nocookie|player\.vimeo|v\.qq)\.com|(archive|upload\.wikimedia)\.org|player\.twitch\.tv)/i;
+
+/**
+ * Players a publisher hosts itself, which Readability's list cannot know. Each
+ * is a page of the publisher's own that loads the real player inside it, so
+ * the video itself is named nowhere in the article — only in that page, which
+ * the clip never sees. What a clip can keep is a link to the publisher's page
+ * for the video (`embeddedVideo`).
+ *
+ * - **The Atlantic**: `theatlantic.com/video/iframe/<n>/`, lazy-loaded from a
+ *   `data-src` in `figure.c-embedded-video`, around a YouTube player. Its
+ *   archive articles carry it; Readability dropped it, and with it the video.
+ */
+const PUBLISHER_PLAYERS = /\/\/(www\.)?theatlantic\.com\/video\/iframe\/\d+/i;
+
+/**
+ * Every player a clip keeps: Readability's own and the publishers' above.
+ *
+ * Handed to Readability as its `allowedVideoRegex` (`clipPage`), so the two
+ * can never disagree about what an embed is: `videosAsPostersIn` converts
+ * exactly the frames Readability decided to keep, and Readability's judgement
+ * — which, measured on the corpus, kept every video in an article body and
+ * dropped a floating "latest video" promo and the videos in a comment
+ * thread — is the one being trusted.
+ */
+export const VIDEO_EMBEDS = new RegExp(
+  `${READABILITY_VIDEOS.source}|${PUBLISHER_PLAYERS.source}`,
+  "i",
+);
+
+/**
+ * `VIDEO_EMBEDS` held to a whole address, tested against `//host/path`.
+ * Readability's test is unanchored, which is right for it — it only decides
+ * what to keep — but this decides where a link goes, so both ends of the host
+ * are checked:
+ *
+ * - **the start**, so an address merely *mentioning* a player in its query is
+ *   not that player. The group matters: `^` before a bare alternation would
+ *   anchor only its first branch.
+ * - **the end**, so `www.youtube.com.example.org` is not YouTube. A host is
+ *   followed by its path, which always begins with `/`; a branch that already
+ *   reaches into the path (The Atlantic's) ends at a segment boundary too.
+ */
+const EMBED_ADDRESS = new RegExp(`^(?:${VIDEO_EMBEDS.source})(?=/|$)`, "i");
+
+/**
+ * What a player's frame says of itself when its page gave it no name: the
+ * titles embed codes ship with. Compared lower-cased and whitespace-folded.
+ * A label that is one of these would only repeat what the link already is.
+ */
+const PLAYER_BOILERPLATE: ReadonlySet<string> = new Set([
+  "youtube video player",
+  "youtube embed",
+  "youtube",
+  "vimeo",
+  "video",
+  "video player",
+  "embedded video",
+  "embedded content",
+  "embedded interactive content",
+]);
+
+const YOUTUBE_HOST = /^(www\.|m\.)?youtube(-nocookie)?\.com$/i;
+const YOUTUBE_EMBED = /^\/embed\/([A-Za-z0-9_-]{11})\/?$/;
+/** The playlist player, `/embed/videoseries?list=…`, whose name happens to be
+ * eleven characters of the right alphabet — exactly the shape of a video id. */
+const YOUTUBE_PLAYLIST = "videoseries";
+
+/**
+ * The address a player frame loads, when it is one of `VIDEO_EMBEDS`: its
+ * `src`, else whichever other attribute a lazy loader parked it in
+ * (`data-src`, `data-lazy-src`, `data-runner-src` all occur in the corpus).
+ * `src` first, because once the loader has run that is what the reader saw;
+ * an `about:blank` placeholder there is not followable and falls through.
+ */
+function embedSource(frame: Element, base: string): URL | null {
+  const attributes = Array.from(frame.attributes);
+  const ordered = [
+    ...attributes.filter((attr) => attr.name === "src"),
+    ...attributes.filter((attr) => attr.name !== "src"),
+  ];
+  for (const attr of ordered) {
+    const href = followableUrl(attr.value, base);
+    if (href === null) continue;
+    const url = new URL(href);
+    if (EMBED_ADDRESS.test(`//${url.host}${url.pathname}`)) return url;
+  }
+  return null;
+}
+
+/**
+ * Where a reader watches an embedded video, and a still to show for it.
+ *
+ * - **YouTube** — the watch page, keeping the moment the embed starts at (an
+ *   author who embeds a talk at 1:14:32 means that minute), and the
+ *   `hqdefault` still, the one size YouTube makes for every video: the larger
+ *   `maxresdefault` is missing for many, and a still that 404s is a broken
+ *   image once processing falls back to hotlinking it.
+ * - **The Atlantic** — its page for the video, `/video/index/<n>/`, which
+ *   redirects to the slugged address and plays the video. No still: the
+ *   player's page names one, and the clip never sees that page.
+ * - **Anything else Readability keeps** — the player itself, which is a page
+ *   a reader can open, kept whole: its query and fragment are how it was told
+ *   what to play and from where.
+ *
+ * Vimeo is deliberately in the last group. Its own page, `vimeo.com/<id>`, is
+ * the nicer link, but a video set to "Hide from Vimeo" plays in an embed while
+ * that page refuses its readers, and nothing in the embed's address says
+ * which a video is. The player is the address the article was already
+ * playing, and it keeps the unlisted `h=` hash and the `#t=1m30s` start time
+ * without having to know about either.
+ */
+function embeddedVideo(url: URL): { watch: string; poster: string | null } {
+  if (YOUTUBE_HOST.test(url.hostname)) {
+    const id = YOUTUBE_EMBED.exec(url.pathname)?.[1];
+    if (id !== undefined && id !== YOUTUBE_PLAYLIST) {
+      const watch = new URL("https://www.youtube.com/watch");
+      watch.searchParams.set("v", id);
+      const start = /^(\d+)s?$/.exec(url.searchParams.get("start") ?? "")?.[1];
+      if (start !== undefined && Number(start) > 0) {
+        watch.searchParams.set("t", `${Number(start)}s`);
+      }
+      return {
+        watch: watch.href,
+        poster: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+      };
+    }
+  }
+  if (/^(www\.)?theatlantic\.com$/i.test(url.hostname)) {
+    const id = /^\/video\/iframe\/(\d+)\/?$/.exec(url.pathname)?.[1];
+    if (id !== undefined) {
+      return {
+        watch: `https://www.theatlantic.com/video/index/${id}/`,
+        poster: null,
+      };
+    }
+  }
+  return { watch: url.href, poster: null };
+}
+
+/**
+ * A player's own name for what it plays: its `aria-label`, else its `title`,
+ * passing over one that is empty or boilerplate — embed code that labels every
+ * player "YouTube video player" can still carry the video's name in the other.
+ */
+function embedLabel(frame: Element): string {
+  for (const name of ["aria-label", "title"]) {
+    const own = (frame.getAttribute(name) ?? "").replace(/\s+/g, " ").trim();
+    if (own !== "" && !PLAYER_BOILERPLATE.has(own.toLowerCase())) return own;
+  }
+  return VIDEO_LABEL;
+}
+
+/**
  * Give every `<video>` text of its own, so Readability keeps the paragraph it
  * sits in.
  *
@@ -1252,10 +1412,19 @@ export function excerptWithoutPlaceholders(
  * `blob:` keeps its poster unlinked. One with neither has nothing to show a
  * reader and is dropped — its fallback text with it, which is never content.
  *
+ * An embedded player becomes the same shape, for the same reason: Readability
+ * keeps a YouTube `<iframe>` and Turndown, with no rule for one, writes
+ * nothing, so every embedded video in the vault had gone without a trace.
+ * The link is where the video is watched and the poster is a still of it
+ * where one can be named (`embeddedVideo`). Only frames Readability itself
+ * would keep are touched (`VIDEO_EMBEDS`); any other frame — which only the
+ * raw-body fallback lets through — is left for Turndown to drop, as before.
+ *
  * Runs after Readability for the reason `foldFiguresIn` does, and before it,
  * because the fold has to see the image this builds. Readability only gets
  * that far with the video because `keepVideosThroughReadability` gave it
- * text. Resolved against the page's address rather than trusted to be
+ * text; a frame needs no such help, since Readability counts one as content.
+ * Resolved against the page's address rather than trusted to be
  * absolute: on the raw-body fallback Readability never resolved anything.
  */
 export function videosAsPostersIn(
@@ -1270,41 +1439,65 @@ export function videosAsPostersIn(
   // for a document built somewhere that never learned where it came from.
   const base = /^https?:/i.test(doc.baseURI) ? doc.baseURI : (pageUrl ?? "");
   for (const video of Array.from(scratch.querySelectorAll("video"))) {
-    const source = videoSource(video, base);
-    const poster = followableUrl(video.getAttribute("poster"), base);
-    const label =
-      (
-        video.getAttribute("aria-label") ??
-        video.getAttribute("title") ??
-        ""
-      ).trim() || VIDEO_LABEL;
-    let replacement: Element | null = null;
-    if (poster !== null) {
-      const image = scratch.createElement("img");
-      image.setAttribute("src", poster);
-      image.setAttribute("alt", label);
-      replacement = image;
-    }
-    if (source !== null) {
-      const link = scratch.createElement("a");
-      link.setAttribute("href", source);
-      if (replacement === null) link.textContent = label;
-      else link.appendChild(replacement);
-      replacement = link;
-    }
-    if (replacement === null) {
-      video.remove();
-      continue;
-    }
-    // A link may point at the video. The marker moves to what replaces it and
-    // `placeAnchorsIn` decides as it would for any element: a text link gets
-    // its anchor, and a poster is refused the way every picture is, since an
-    // anchor in front of one would cost the caption fold.
-    const anchor = video.getAttribute(ANCHOR_ATTR);
-    if (anchor !== null) replacement.setAttribute(ANCHOR_ATTR, anchor);
-    video.replaceWith(replacement);
+    replaceWithPoster(video, {
+      source: videoSource(video, base),
+      poster: followableUrl(video.getAttribute("poster"), base),
+      label:
+        (
+          video.getAttribute("aria-label") ??
+          video.getAttribute("title") ??
+          ""
+        ).trim() || VIDEO_LABEL,
+    });
+  }
+  for (const frame of Array.from(scratch.querySelectorAll("iframe"))) {
+    const embed = embedSource(frame, base);
+    if (embed === null) continue;
+    const { watch, poster } = embeddedVideo(embed);
+    replaceWithPoster(frame, {
+      source: watch,
+      poster,
+      label: embedLabel(frame),
+    });
   }
   return scratch.body.innerHTML;
+}
+
+/**
+ * Put a video's poster, linking to where it plays, in the place of `element`:
+ * `<a href=source><img src=poster alt=label></a>`, or whichever half there is.
+ * With neither, the element goes, since it has nothing to show a reader.
+ */
+function replaceWithPoster(
+  element: Element,
+  media: { source: string | null; poster: string | null; label: string },
+): void {
+  const owner = element.ownerDocument;
+  let replacement: Element | null = null;
+  if (media.poster !== null) {
+    const image = owner.createElement("img");
+    image.setAttribute("src", media.poster);
+    image.setAttribute("alt", media.label);
+    replacement = image;
+  }
+  if (media.source !== null) {
+    const link = owner.createElement("a");
+    link.setAttribute("href", media.source);
+    if (replacement === null) link.textContent = media.label;
+    else link.appendChild(replacement);
+    replacement = link;
+  }
+  if (replacement === null) {
+    element.remove();
+    return;
+  }
+  // A link may point at the video. The marker moves to what replaces it and
+  // `placeAnchorsIn` decides as it would for any element: a text link gets
+  // its anchor, and a poster is refused the way every picture is, since an
+  // anchor in front of one would cost the caption fold.
+  const anchor = element.getAttribute(ANCHOR_ATTR);
+  if (anchor !== null) replacement.setAttribute(ANCHOR_ATTR, anchor);
+  element.replaceWith(replacement);
 }
 
 /**

@@ -207,6 +207,62 @@ function rehypeFigureCaptions() {
   };
 }
 
+/**
+ * Where a link opens a video: a video's own page on a host the clipper links
+ * videos to (ADR 0040), or a video file, which is where the clipper links a
+ * `<video>`'s poster. Matched on the parsed address, never the raw string, so
+ * a query naming one of these is not one.
+ */
+const VIDEO_PAGES: readonly RegExp[] = [
+  /^(www\.|m\.)?youtube\.com\/watch$/i,
+  /^youtu\.be\/[A-Za-z0-9_-]+$/i,
+  /^vimeo\.com\/\d+(\/[0-9a-f]+)?\/?$/i,
+  /^www\.theatlantic\.com\/video\/index\/\d+\//i,
+];
+const VIDEO_FILE = /\.(mp4|m4v|webm|mov)$/i;
+
+function opensVideo(href: unknown): boolean {
+  if (typeof href !== "string") return false;
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  const page = `${url.hostname}${url.pathname}`;
+  return (
+    VIDEO_PAGES.some((pattern) => pattern.test(page)) ||
+    VIDEO_FILE.test(url.pathname)
+  );
+}
+
+/**
+ * Mark a picture that opens a video, so the stylesheet can draw a play badge
+ * over it.
+ *
+ * The clipper turns a video — a `<video>`, or an embedded YouTube player — into
+ * its still linking to where it plays (ADR 0040). Without a badge that is a
+ * photograph like any other, and nothing says a click plays something. The
+ * site runs no player of its own: the link is the whole feature, and the
+ * badge only says where it goes.
+ *
+ * A picture only, as `isPicture` draws the line: a text link to a video says
+ * what it is in its own words. Must run **after** rehype-sanitize, for the
+ * reason the table wrapper does (ADR 0009): the class is one the schema allows
+ * on nothing, so clipped markup can never supply it — only this pass can.
+ */
+function rehypeVideoLinks() {
+  return (tree: Root): void => {
+    visit(tree, "element", (node) => {
+      if (node.tagName !== "a" || !isPicture(node)) return undefined;
+      if (!opensVideo(node.properties?.href)) return undefined;
+      node.properties.className = ["video-link"];
+      return "skip";
+    });
+  };
+}
+
 /** Which of the reader's two columns a block is being rendered into. */
 export type Pane = "original" | "translation";
 
@@ -368,6 +424,7 @@ function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
       .use(rehypeShiki)
       .use(rehypeScrollableTables)
       .use(rehypeFigureCaptions)
+      .use(rehypeVideoLinks)
       .use(rehypeKatex, KATEX_OPTIONS)
       .use(rehypeIgnoreMathmlInSearch)
       // Last, so what it records is what gets stringified — the generators

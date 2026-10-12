@@ -176,6 +176,14 @@ flowchart LR
    as they always did. On request the popup replaces each link with a picture
    of the figure (ADR 0039): it scrolls the tab to the figure, takes the visible
    tab, crops it, and re-clips with the pictures in.
+
+   A video becomes its still, linked to where it plays: a `<video>` its
+   poster and file, and an embedded player Readability keeps (YouTube, Vimeo…)
+   its thumbnail and watch page, `[![label](still)](watch)` (ADR 0040).
+   Readability's own player allowlist, plus the few players a publisher hosts
+   itself (The Atlantic's, linked to its video page), is handed to it as
+   `allowedVideoRegex`, so the frames it keeps and the frames converted after
+   it are the same set. Turndown has no rule for either, and wrote nothing.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
@@ -273,6 +281,9 @@ flowchart LR
    the sanitizer clobbers `id` to `user-content-…` and leaves `href="#…"` alone,
    so in-document links are reconciled with their targets there — and scoped to
    the pane they render into, since both columns share one document (ADR 0024).
+   A picture linking to a video gets a play badge the same way: a pass after
+   the sanitizer marks it with a class no clipped markup can carry, and the
+   stylesheet draws the badge. The site runs no player (ADR 0040).
 
    A fence that still carries no language after the clipper's chain gets one
    inferred from its code at build time (`@tiro/shared`'s `detect-language.ts`),

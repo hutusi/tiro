@@ -2774,6 +2774,178 @@ describe("a video keeps its place in the article", () => {
   });
 });
 
+describe("an embedded video keeps its place in the article", () => {
+  const PAGE = "https://schlarp.example/posts/talks/";
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  function clip(markup: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<article><h1>Talks</h1>${filler}${markup}${filler}</article>`;
+    return clipPage(window.document as unknown as Document, PAGE).markdown;
+  }
+
+  const THUMB = "https://i.ytimg.com/vi/Jg7ooLzzXeg/hqdefault.jpg";
+  const WATCH = "https://www.youtube.com/watch?v=Jg7ooLzzXeg";
+
+  test("a YouTube player becomes its still, linking to the watch page", () => {
+    // The embed code YouTube hands out, as Noema pasted it.
+    const markdown = clip(
+      '<p><iframe loading="lazy" width="560" height="315" src="https://www.youtube.com/embed/Jg7ooLzzXeg?si=UWQOrVuW-Mjhp-eS" title="YouTube video player" frameborder="0" allowfullscreen></iframe></p>',
+    );
+    // The title is the embed code's own boilerplate, so it says nothing, and
+    // the `si` tracking parameter is not carried to the link.
+    expect(markdown).toContain(`[![Video](${THUMB})](${WATCH})`);
+  });
+
+  test("a player alone in a <div> survives too", () => {
+    expect(
+      clip(
+        '<div><iframe src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></div>',
+      ),
+    ).toContain(`[![Video](${THUMB})](${WATCH})`);
+  });
+
+  test("the page's title for the video names it", () => {
+    // Stratechery's oEmbed markup.
+    const markdown = clip(
+      '<p><iframe title="Nvidia&apos;s Risky Business | Stratechery by Ben Thompson" width="500" height="281" src="https://www.youtube.com/embed/bBYZn5vEgxY?feature=oembed&amp;enablejsapi=1" frameborder="0"></iframe></p>',
+    );
+    expect(markdown).toContain(
+      "[![Nvidia's Risky Business | Stratechery by Ben Thompson](https://i.ytimg.com/vi/bBYZn5vEgxY/hqdefault.jpg)](https://www.youtube.com/watch?v=bBYZn5vEgxY)",
+    );
+  });
+
+  test("an empty or boilerplate aria-label does not hide the title", () => {
+    for (const ariaLabel of ["", "YouTube video player"]) {
+      expect(
+        clip(
+          `<p><iframe aria-label="${ariaLabel}" title="Conference keynote" src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>`,
+        ),
+      ).toContain(`[![Conference keynote](${THUMB})](${WATCH})`);
+    }
+  });
+
+  test("the moment it starts at is kept", () => {
+    // Substack's privacy-enhanced embed, starting at 9:03.
+    const markdown = clip(
+      '<div class="youtube-inner"><iframe src="https://www.youtube-nocookie.com/embed/KT4n-z_4QJU?start=543s&amp;rel=0&amp;autoplay=0" frameborder="0" loading="lazy" allowfullscreen="true"></iframe></div>',
+    );
+    expect(markdown).toContain(
+      "(https://www.youtube.com/watch?v=KT4n-z_4QJU&t=543s)",
+    );
+    expect(
+      clip(
+        '<p><iframe src="https://www.youtube.com/embed/H7_d_sgui6o?version=3&amp;start=4432"></iframe></p>',
+      ),
+    ).toContain("(https://www.youtube.com/watch?v=H7_d_sgui6o&t=4432s)");
+  });
+
+  test("a lazy player is read from where its loader parked the address", () => {
+    // IEEE Spectrum's, which never had a `src` in the page as served.
+    const markdown = clip(
+      '<div class="rm-embed"><iframe allowfullscreen="" frameborder="0" height="auto" type="lazy-iframe" scrolling="no" data-runner-src="https://www.youtube.com/embed/HPWDMHH4rY4?rel=0" width="100%"></iframe></div>',
+    );
+    expect(markdown).toContain(
+      "[![Video](https://i.ytimg.com/vi/HPWDMHH4rY4/hqdefault.jpg)](https://www.youtube.com/watch?v=HPWDMHH4rY4)",
+    );
+    // And a `src` still holding the loader's placeholder falls through to it.
+    expect(
+      clip(
+        '<p><iframe src="about:blank" data-src="https://www.youtube.com/embed/HPWDMHH4rY4"></iframe></p>',
+      ),
+    ).toContain("(https://www.youtube.com/watch?v=HPWDMHH4rY4)");
+  });
+
+  test("a captioned player folds its caption like a captioned image", () => {
+    const markdown = clip(
+      '<figure><iframe src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe>' +
+        "<figcaption>Hinton on machine consciousness.</figcaption></figure>",
+    );
+    expect(markdown).toContain(
+      `[![Video](${THUMB})](${WATCH})  \nHinton on machine consciousness.`,
+    );
+  });
+
+  test("a player the page hid stays hidden", () => {
+    for (const markup of [
+      '<p hidden><iframe src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>',
+      '<p style="display: none"><iframe src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>',
+      '<p><iframe hidden src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>',
+      '<p><iframe aria-hidden="true" src="https://www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>',
+    ]) {
+      expect(clip(markup)).not.toContain("Jg7ooLzzXeg");
+    }
+  });
+
+  test("a link to a player keeps its target", () => {
+    const markdown = clip(
+      '<p>See <a href="#talk">the talk</a>.</p><p><iframe id="talk" src="https://player.vimeo.com/video/76979871"></iframe> The whole talk.</p>',
+    );
+    expect(markdown).toContain(
+      '<span id="talk"></span>[Video](https://player.vimeo.com/video/76979871) The whole talk.',
+    );
+  });
+
+  test("a Vimeo player is linked as it is, hash, start time and all", () => {
+    // Not vimeo.com/<id>: a video hidden from Vimeo plays in an embed while
+    // that page refuses its readers, and the embed cannot say which it is.
+    expect(
+      clip(
+        '<p><iframe src="https://player.vimeo.com/video/76979871?h=8272103f6e&amp;title=0#t=1m30s" title="The New Vimeo Player"></iframe></p>',
+      ),
+    ).toContain(
+      "[The New Vimeo Player](https://player.vimeo.com/video/76979871?h=8272103f6e&title=0#t=1m30s)",
+    );
+  });
+
+  test("any other player Readability keeps is linked as it is", () => {
+    // A playlist has no single video to name a still after.
+    expect(
+      clip(
+        '<p><iframe src="https://www.youtube.com/embed/videoseries?list=PL123"></iframe></p>',
+      ),
+    ).toContain(
+      "[Video](https://www.youtube.com/embed/videoseries?list=PL123)",
+    );
+  });
+
+  test("The Atlantic's own player becomes a link to its page for the video", () => {
+    // The live markup of a 2019 Ideas article, lazy-loaded and unscrolled:
+    // the publisher's player page, whose YouTube id the clip never sees.
+    const markdown = clip(
+      '<div class="ArticleLegacyHtml_root__WFd2I ArticleLegacyHtml_paragraph__cY6a3"><figure class="c-embedded-video"><div class="embed-wrapper" style="display: block; position:relative; width:100%; height:0; overflow:hidden; padding-bottom:56.25%;"><iframe allowfullscreen="allowfullscreen" class="lazyload" data-include="module:theatlantic/js/utils/iframe-resizer" data-src="https://www.theatlantic.com/video/iframe/595672/" frameborder="0" height="360" style="position:absolute; width:100%; height:100%; top:0; left:0; border:0;" title="embedded interactive content" width="640"></iframe></div></figure></div>',
+    );
+    expect(markdown).toContain(
+      "[Video](https://www.theatlantic.com/video/index/595672/)",
+    );
+  });
+
+  test("any other frame of The Atlantic's is still dropped", () => {
+    const markdown = clip(
+      '<p><iframe src="https://www.theatlantic.com/newsletters/sign-up/iframe/" title="Newsletter"></iframe></p>',
+    );
+    expect(markdown).not.toContain("theatlantic");
+    expect(markdown).not.toContain("Newsletter");
+  });
+
+  test("a frame that is not a video player still produces nothing", () => {
+    for (const markup of [
+      // The "listen to this article" player Noema and Spectrum carry.
+      '<p><iframe src="https://embed-player.newsoveraudio.com/v4?key=x" title="Listen"></iframe></p>',
+      '<p><iframe src="https://ads.example/slot?u=//www.youtube.com/embed/Jg7ooLzzXeg"></iframe></p>',
+      // A host that only begins like a player's is not that player.
+      '<p><iframe src="https://www.youtube.com.example.org/embed/Jg7ooLzzXeg"></iframe></p>',
+      '<p><iframe src="https://www.theatlantic.com.example.org/video/iframe/595672/"></iframe></p>',
+    ]) {
+      const markdown = clip(markup);
+      expect(markdown).not.toContain("newsoveraudio");
+      expect(markdown).not.toContain("youtube");
+      expect(markdown).not.toContain("example.org");
+      expect(markdown).not.toContain("Listen");
+    }
+  });
+});
+
 describe("a figure the page draws with script is described, not lost", () => {
   const PAGE = "https://precision.example/how-machines/";
   /** Where the placeholder links: the page as the article records it. */
