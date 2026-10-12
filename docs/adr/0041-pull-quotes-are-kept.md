@@ -12,12 +12,8 @@ has six, and its clip had none.
 **Readability is where they go.** The Atlantic writes each one as
 `<aside class="ArticlePullquote_root__…" data-flatplan-pullquote="true">`,
 and Readability removes every `<aside>` from what it returns
-(`_prepArticle`). Other publishers lose them differently:
-
-- A Substack `div.pullquote` holding links is cleaned away as "a little
-  linky" (Lenny's Newsletter).
-- Literary Hub's `<p class="pullquote">` survives, but as a paragraph that
-  reads as the body saying the same thing twice.
+(`_prepArticle`). Literary Hub's `<p class="pullquote">` survives, but as a
+paragraph that reads as the body saying the same thing twice.
 
 **Their words are already in the article.** Of Lola's six, four repeat a
 body sentence word for word and two condense a passage. Leaving them out
@@ -46,47 +42,52 @@ the clipper and the site read the shape.
 - **On a line of its own.** A line opening with `<!--` is an HTML block that
   swallows any text after it on that line.
 
-### 2. The clipper marks a pull quote before Readability, in a paragraph
+### 2. The clipper marks a pull quote, and Readability still judges it
 
 `markPullQuotes` runs in `prepareForClipping`, after
 `joinSplitArticleBodies` (see below). It looks for an `aside`, `div`, `p` or
 `blockquote` that the page calls a pull quote: The Atlantic's
 `data-flatplan-pullquote`, or a `pullquote` / `pull-quote` class. It puts
-`data-tiro-pullquote` on an element that holds the quote's text.
+`data-tiro-pullquote` on the element that will still hold the quote's text
+once Readability has made of the page what it would anyway:
 
-**The text ends up in a `<p>`**, because a paragraph is what Readability
-scores, what its sibling rule takes from beside the container it picks, and
-what an in-page link's anchor is placed in. The shapes, each what Readability
-would make of the page itself:
+- **An `<aside>`** becomes the `<div>` Readability would have judged had it
+  not deleted every aside, with every attribute, and is then one.
+- **A `<p>` or a `<blockquote>`** carries its own marker.
+- **A `<div>` around one paragraph** leaves the marker on the paragraph.
+  Readability judges the `<div>` and then, unless it is linky, replaces it
+  with that paragraph.
+- **A `<div>` around text** becomes a paragraph of it, with every attribute.
+  Readability does the same, but builds a new element, and the marker would
+  be lost with the old one.
+- **A `<div>` around more** carries its own marker, kept or cleaned as
+  Readability decides.
 
-- **A `<p>` or a `<blockquote>`** is marked where it stands, so Readability
-  reads exactly the page.
-- **A wrapper around one paragraph** (Substack's `div.pullquote > p`) becomes
-  that paragraph, keeping the wrapper's attributes where the paragraph has
-  none. Readability does the same to such a `<div>` unless it is linky, and
-  then deletes it instead, which is how Lenny's was lost.
-- **A wrapper around text** (The Atlantic's `<aside>`) becomes a paragraph of
-  that text, as Readability makes of a `<div>` that holds no block.
-- **A wrapper around several paragraphs** becomes a `<blockquote>`. No
-  cleaning pass removes one, and it is scored through its paragraphs as the
-  wrapper was.
+**Readability's verdicts stand, the aside's deletion apart.** A quote's
+wrapper is still judged by its own class, role, visibility and link density.
+So a quote whose wrapper says `sidebar` or `complementary` is dropped as it
+always was, and so is Lenny's Newsletter's "Listen on YouTube, Spotify…",
+which Readability cleans away as "a little linky". Two earlier versions
+rescued more and broke more, each found in review against main:
 
-The first version re-tagged every quote as a `<blockquote>` holding its text
-directly. Readability does not score such text, so a review found two
-regressions against main: a pull quote beside the container was dropped where
-main kept it, and a link to one lost its target.
+- Re-tagging every quote as a `<blockquote>` holding its text directly lost
+  pull quotes beside the article's container, which Readability's sibling
+  rule takes only as paragraphs. It also cost a link to one its target, since
+  an anchor is placed in a paragraph. Readability does not score text that
+  sits loose in a blockquote.
+- Unwrapping a `<div>` around a paragraph before Readability saw it published
+  the content of a wrapper marked `sidebar`, whose class went with it.
 
-- **Every attribute is carried over** on a re-tag, and the class weighs on the
-  container exactly as before. A **hidden** quote is left alone for
-  Readability to drop, since unwrapping one could shed what hides it.
-- **Found again by the marker, not the tag.** A blockquote that sits beside
-  the container Readability picks comes back renamed to `<div>`, so the
+The rest:
+
+- **Found again by the marker, not the tag.** A quote that sits beside the
+  container Readability picks may come back renamed to `<div>`, so the
   Turndown rule fires on the marker, the way a script-drawn figure is found
   after extraction (ADR 0039). A marker the page wrote itself is cleared
   first.
 - **After the join.** `joinSplitArticleBodies` refuses to close up over a
-  blockquote but not over an aside, so marking first would leave in halves a
-  split body it joins today.
+  blockquote but not over an aside, so changing an aside first would leave in
+  halves a split body it joins today.
 - **Text only.** An element holding a picture, figure, list, table, code
   block or heading is not a pull quote, whatever its class says. Substack's
   pull-quote block is a container an author can fill with anything: Brad
@@ -140,9 +141,7 @@ nothing, so clipped markup cannot claim it.
   Re-clip to pick this up. Owed: "Lola's Story". The sweep cannot check The
   Atlantic, which refuses its fetches; Lola was checked offline from an
   archived copy and gains exactly its six, every other block byte-identical.
-- In the sweep corpus two articles change. Lenny's Newsletter regains its
-  "Listen on YouTube, Spotify, and Apple Podcasts" pull quote, and Literary
-  Hub's two duplicate paragraphs become pull quotes.
-- An `<aside>` that a page marks `role="complementary"` is still removed
-  before Readability scores, since the role is carried over with the rest.
-  None has been seen on a pull quote.
+- In the sweep corpus one article changes: Literary Hub's two duplicate
+  paragraphs become pull quotes.
+- A pull quote Readability drops for its wrapper's sake stays dropped:
+  Lenny's linky one, and any whose wrapper is classed or roled as a sidebar.

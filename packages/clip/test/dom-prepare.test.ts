@@ -3016,15 +3016,24 @@ describe("a pull quote is kept, marked as one", () => {
     }
   });
 
-  test("a linky Substack pull quote keeps its links", () => {
-    // Lenny's Newsletter: Readability cleaned this `<div>` away as "a little
-    // linky".
-    const markdown = clip(
-      '<div class="pullquote"><p><strong><span>Listen on </span><a href="https://youtu.be/zMvBMfj4cSQ">YouTube</a><span>, </span><a href="https://open.spotify.com/episode/1">Spotify</a><span>, and </span><a href="https://podcasts.apple.com/podcast/1">Apple Podcasts</a></strong></p></div>',
-    );
-    expect(markdown).toContain(
-      `> ${PULL_QUOTE_MARK}\n> **Listen on [YouTube](https://youtu.be/zMvBMfj4cSQ), [Spotify](https://open.spotify.com/episode/1), and [Apple Podcasts](https://podcasts.apple.com/podcast/1)**`,
-    );
+  test("Readability still judges a quote's wrapper", () => {
+    // A wrapper it discards on main, it still discards: one marked `sidebar`
+    // or `complementary`, and Lenny's Newsletter's "Listen on…", cleaned away
+    // as "a little linky". Unwrapping the paragraph first had published them.
+    for (const quote of [
+      `<div class="pullquote sidebar"><p class="quote-text">${LINE}</p></div>`,
+      `<div class="pullquote" role="complementary"><p role="note">${LINE}</p></div>`,
+      `<aside class="pullquote sidebar"><p>${LINE}</p></aside>`,
+      '<div class="pullquote"><p><strong><span>Listen on </span><a href="https://youtu.be/zMvBMfj4cSQ">YouTube</a><span>, </span><a href="https://open.spotify.com/episode/1">Spotify</a></strong></p></div>',
+    ]) {
+      const markdown = clip(quote);
+      expect(markdown).not.toContain(LINE);
+      expect(markdown).not.toContain("Listen on");
+    }
+    // A wrapper it keeps, as a paragraph, carries the mark to it.
+    expect(
+      clip(`<div class="pullquote" id="outer"><p id="inner">${LINE}</p></div>`),
+    ).toContain(MARKED);
   });
 
   test("a paragraph classed as one is marked, once however it is wrapped", () => {

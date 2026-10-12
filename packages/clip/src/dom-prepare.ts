@@ -812,25 +812,23 @@ function isPullQuote(element: Element): boolean {
 
 /**
  * Mark every pull quote for `pullQuoteTurndownRule`, before Readability reads
- * the page, in a shape Readability keeps.
+ * the page, without changing what Readability decides about it.
  *
  * A pull quote is the sentence a magazine repeats in large type between its
  * paragraphs. The Atlantic writes each one as an `<aside>`, and Readability
  * removes every `<aside>` from what it returns, so "Lola's Story" lost all six.
- * A Substack `div.pullquote` holding links is cleaned away as "a little linky".
  * The owner chose to keep them even though their words repeat the body's.
  *
- * **The quote's text ends up in a `<p>`.** A paragraph is what Readability
- * scores, what its sibling rule takes from beside the container it picks, and
- * what an in-page link's anchor is placed in (`TEXT_HOST`). The first version
- * re-tagged every quote as a `<blockquote>` holding its text directly, which
- * Readability does not score: a pull quote beside the article was dropped
- * where main kept it, and a link to one lost its target (`pullQuoteHost` has
- * the shapes).
- *
- * **Hidden quotes are left alone**, for Readability to drop as it always has:
- * unwrapping one would shed the attribute that hides it. Elsewhere every
- * attribute is carried over, since the class weighs on which container wins.
+ * **Readability still judges every quote**, the `<aside>` included, by the
+ * same class, role, visibility and link density it would read on the page.
+ * That is what this pass gives up rescuing: a quote whose wrapper says
+ * `sidebar`, or that is mostly links (Lenny's Newsletter's "Listen on…"), is
+ * dropped as it always was. Two earlier versions rescued more and broke more.
+ * Re-tagging each quote as a `<blockquote>` holding its text directly, which
+ * Readability does not score, dropped a pull quote beside the article that
+ * main kept, and cost a link to one its target. Unwrapping a `<div>` around a
+ * paragraph before Readability saw it published the content of a wrapper
+ * marked `sidebar` (`pullQuoteHost` has the shapes).
  */
 function markPullQuotes(doc: Document): void {
   // A page's own attributes are untrusted input, and this one is read back
@@ -852,7 +850,6 @@ function markPullQuotes(doc: Document): void {
   );
   for (const element of outermost) {
     if ((element.textContent ?? "").trim() === "") continue;
-    if (readabilityHides(element)) continue;
     pullQuoteHost(element, doc).setAttribute(PULL_QUOTE_ATTR, "");
   }
 }
@@ -862,48 +859,52 @@ function markPullQuotes(doc: Document): void {
 const READABILITY_BLOCKS = "blockquote, dl, div, img, ol, p, pre, table, ul";
 
 /**
- * The element that carries a pull quote's marker across Readability, each
- * shape chosen so Readability reads what it would make of the page itself.
+ * The element that carries a pull quote's marker across Readability: the one
+ * that is still there when Readability has made of the page what it would
+ * anyway, so the quote's text sits in a paragraph wherever Readability puts
+ * one, which is what its sibling rule takes and where an anchor is placed.
  *
- * - **A `<p>` or a `<blockquote>`** is marked where it stands, so Readability
- *   reads exactly the page.
- * - **A wrapper around one paragraph**, Substack's `div.pullquote > p`, becomes
- *   that paragraph, with the wrapper's attributes where the paragraph has none.
- *   Readability does the same to such a `<div>` unless it is linky, and then
- *   deletes it instead.
- * - **A wrapper around text**, as The Atlantic writes its `<aside>`, becomes a
- *   paragraph of that text: what Readability makes of a `<div>` holding no
- *   block.
- * - **A wrapper around several paragraphs** becomes a `<blockquote>`, which no
- *   cleaning pass removes, scored through its paragraphs as the wrapper was.
+ * - **An `<aside>`** becomes the `<div>` Readability would have judged had it
+ *   not deleted every aside, keeping every attribute, and is then one.
+ * - **A `<p>` or a `<blockquote>`** carries its own marker.
+ * - **A `<div>` around one paragraph** leaves the marker on the paragraph.
+ *   Readability replaces such a `<div>` with its paragraph unless it is linky,
+ *   having first judged the `<div>` and dropped it if its class or role says
+ *   sidebar; either way the marker goes where the text goes.
+ * - **A `<div>` around text** becomes a paragraph of it, keeping every
+ *   attribute. Readability does the same, but builds a new paragraph and the
+ *   marker would be lost with the old element.
+ * - **A `<div>` around more** carries its own marker, kept or cleaned as
+ *   Readability decides.
  */
 function pullQuoteHost(element: Element, doc: Document): Element {
-  if (element.tagName === "P" || element.tagName === "BLOCKQUOTE") {
-    return element;
-  }
-  const content = Array.from(element.childNodes).filter(
+  const quote =
+    element.tagName === "ASIDE" ? retagged(element, "div", doc) : element;
+  if (quote.tagName !== "DIV") return quote;
+  const content = Array.from(quote.childNodes).filter(
     (node) => node.nodeType === 1 || (node.textContent ?? "").trim() !== "",
   );
   const only = content.length === 1 ? content[0] : undefined;
   if (only !== undefined && (only as Element).tagName === "P") {
-    const paragraph = only as Element;
-    for (const attribute of Array.from(element.attributes)) {
-      if (!paragraph.hasAttribute(attribute.name)) {
-        paragraph.setAttribute(attribute.name, attribute.value);
-      }
-    }
-    element.replaceWith(paragraph);
-    return paragraph;
+    return only as Element;
   }
-  const tag =
-    element.querySelector(READABILITY_BLOCKS) === null ? "p" : "blockquote";
-  const host = doc.createElement(tag);
+  return quote.querySelector(READABILITY_BLOCKS) === null
+    ? retagged(quote, "p", doc)
+    : quote;
+}
+
+/** `element` as a `tag`, with every attribute and child it had, in its
+ * place. */
+function retagged(element: Element, tag: string, doc: Document): Element {
+  const replacement = doc.createElement(tag);
   for (const attribute of Array.from(element.attributes)) {
-    host.setAttribute(attribute.name, attribute.value);
+    replacement.setAttribute(attribute.name, attribute.value);
   }
-  for (const child of Array.from(element.childNodes)) host.appendChild(child);
-  element.replaceWith(host);
-  return host;
+  for (const child of Array.from(element.childNodes)) {
+    replacement.appendChild(child);
+  }
+  element.replaceWith(replacement);
+  return replacement;
 }
 
 /**
