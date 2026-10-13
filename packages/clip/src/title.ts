@@ -121,6 +121,49 @@ export function chooseTitle(title: string, evidence: TitleEvidence): string {
   );
 }
 
+/** How X labels an Article's headline, the view that shows one in full, and
+ * its text. */
+const X_ARTICLE_TITLE = '[data-testid="twitter-article-title"]';
+const X_ARTICLE_VIEW = '[data-testid="twitterArticleReadView"]';
+const X_ARTICLE_TEXT = '[data-testid="twitterArticleRichTextView"]';
+
+/**
+ * An X Article's headline, taken out of the page so the body does not open by
+ * repeating it (ADR 0043).
+ *
+ * X fits neither half of the rule above. Its headline is a `<div>`, not an
+ * `<h1>` — the article's own section headings are the `<h1>`s — and the page a
+ * browser renders carries no `og:title` and no JSON-LD, which X serves only to
+ * crawlers. With nothing to confirm, Readability's title stands, and that is
+ * the tab's: `(5) X` on an Article's own URL, the reader's unread count and the
+ * site's name. All three X clips in the vault were filed under a tab title.
+ *
+ * X does label the headline, on `/article/` and `/status/` URLs alike. This
+ * keys on that label rather than on the host, the way a Hacker News thread is
+ * recognised (ADR 0038), so a page without it is untouched. Two guards:
+ *
+ * - **The label must sit in the view showing that Article's text**, as it did
+ *   on all three pages measured. A post quoting an Article may preview it in
+ *   a card, and that Article's title is not the post's.
+ * - **Exactly one may be shown.** A page with several has no single headline.
+ *
+ * Removed, not just read: one of the three clips arrived with the headline as
+ * its body's first paragraph, under the same words as the title above it.
+ */
+export function takeXArticleTitle(doc: Document): string | undefined {
+  const shown = Array.from(doc.querySelectorAll(X_ARTICLE_TITLE)).filter(
+    (element) =>
+      element.closest(X_ARTICLE_VIEW)?.querySelector(X_ARTICLE_TEXT) != null &&
+      !hiddenWithin(element),
+  );
+  const [only] = shown;
+  if (only === undefined || shown.length > 1) return undefined;
+  const text = headlineText(only);
+  if (text === "") return undefined;
+  only.remove();
+  return text;
+}
+
 /** Whether `element` or anything around it is hidden by the page. */
 function hiddenWithin(element: Element): boolean {
   for (
