@@ -20,6 +20,7 @@ import {
   normalizeSourceMarkdown,
   plainTextMarkdownSource,
 } from "./plain-markdown.ts";
+import { chooseTitle, readTitleEvidence } from "./title.ts";
 
 /**
  * Turn a page into the article Tiro stores. The whole clip, in one place.
@@ -76,6 +77,10 @@ export function clipPage(
   // popup needs it to decide whether clipping the tab would file a lesser body
   // under a paper's canonical slug — see `needsFullTextFetch`.
   const latexmlFullText = hasLatexmlFullText(doc);
+  // The headline the page shows, and what its metadata says the title is —
+  // before Readability, which removes the `<h1>` along with the rest of the
+  // page around the article (ADR 0042).
+  const titleEvidence = readTitleEvidence(doc);
   // Snapshot before Readability, which consumes the document. Serializing
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
@@ -129,7 +134,10 @@ export function clipPage(
   // `†thanks:` notes and all.
   return {
     url,
-    title: latexml?.title ?? ((article?.title ?? "").trim() || doc.title),
+    title:
+      latexml?.title ??
+      (chooseTitle((article?.title ?? "").trim(), titleEvidence).trim() ||
+        doc.title),
     excerpt:
       latexml?.excerpt ??
       excerptWithoutPlaceholders(

@@ -18,3 +18,4 @@ export * from "./html-urls.ts";
 export * from "./markdown.ts";
 export type { ClipPayload } from "./payload.ts";
 export * from "./plain-markdown.ts";
+export * from "./title.ts";
