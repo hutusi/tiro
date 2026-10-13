@@ -832,13 +832,22 @@ const X_INLINE = new Set([
  * - Every heading went too, 15 of 15 in one Article. Draft names a block's
  *   style in its class, and `longform-header-two` matches the `header` in
  *   Readability's pattern for page furniture, which it removes before scoring
- *   anything. So a text block loses its class; nothing downstream reads it.
+ *   anything. So a text block loses Draft's style names, `longform-…`, and
+ *   keeps every other class.
  *
  * So the block becomes the paragraph it is, from X's own markup: no layout is
  * read, since inside a text block every `<div>` is Draft's wrapper around the
  * line or a link's wrapper within it. A heading, list item or quote keeps its
  * tag. A block holding anything else is left as it was, as is anything outside
  * an Article's text, so no other page is affected.
+ *
+ * **A block with anything hidden in or around it is left exactly as the page
+ * had it** (`pageHides`). On a detached copy a class is often all that says
+ * hidden, and the rewrite would undo what Readability relies on to leave it
+ * out: a hidden `<div>` turned `<p>` or `<span>` is no longer the kind of
+ * element it cleans by class weight, and a hidden heading stripped of its
+ * class is no longer furniture. None of the 248 text blocks on the three
+ * Articles measured is hidden, so this costs the real pages nothing.
  */
 function retagXArticleBlocks(doc: Document): void {
   for (const block of Array.from(
@@ -853,14 +862,31 @@ function retagXArticleBlocks(doc: Document): void {
     ) {
       continue;
     }
+    if (hiddenOrWithinHidden(block) || inner.some(pageHides)) continue;
     // Innermost first, so a wrapper is re-tagged around what its children
     // already became.
     for (const div of inner.filter((e) => e.tagName === "DIV").reverse()) {
       retagged(div, "span", doc);
     }
-    block.removeAttribute("class");
+    const kept = classListOf(block).filter(
+      (token) => !token.startsWith("longform-"),
+    );
+    if (kept.length === 0) block.removeAttribute("class");
+    else block.setAttribute("class", kept.join(" "));
     if (block.tagName === "DIV") retagged(block, "p", doc);
   }
+}
+
+/** Whether the page hides `element` or anything it sits in. */
+function hiddenOrWithinHidden(element: Element): boolean {
+  for (
+    let node: Element | null = element;
+    node !== null;
+    node = node.parentElement
+  ) {
+    if (pageHides(node)) return true;
+  }
+  return false;
 }
 
 /**

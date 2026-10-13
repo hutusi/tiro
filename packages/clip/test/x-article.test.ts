@@ -87,14 +87,17 @@ const blocks = [
   paragraph(line(PROSE)),
 ];
 
-function articlePage(titles: string[] = [title(HEADLINE)]): string {
+function articlePage(
+  titles: string[] = [title(HEADLINE)],
+  text: string[] = blocks,
+): string {
   return `
 <header role="banner"><nav><a href="/home">Home</a><a href="/explore">Explore</a><a href="/notifications">Notifications</a></nav></header>
 <main role="main"><div data-testid="primaryColumn">
   <div><h2 role="heading">Article</h2></div>
   <div data-testid="twitterArticleReadView">
     <div><div>${titles.join("")}</div></div>
-    <div data-testid="twitterArticleRichTextView"><div><div class="DraftEditor-root"><div class="DraftEditor-editorContainer"><div class="public-DraftEditor-content" contenteditable="false" data-testid="longformRichTextComponent"><div data-contents="true">${blocks.join("")}</div></div></div></div></div></div>
+    <div data-testid="twitterArticleRichTextView"><div><div class="DraftEditor-root"><div class="DraftEditor-editorContainer"><div class="public-DraftEditor-content" contenteditable="false" data-testid="longformRichTextComponent"><div data-contents="true">${text.join("")}</div></div></div></div></div></div>
   </div>
   <div role="group"><span>469</span><span>4.1K</span><span>21K</span></div>
 </div></main>`;
@@ -185,6 +188,55 @@ describe("an X Article's text keeps its links", () => {
   });
 });
 
+describe("a block the page hides stays hidden", () => {
+  // On a detached copy a class is often all that says hidden. Each case here
+  // is one the clip left out before the X pass existed, and must still.
+  // (A part hidden only by a class is not among them: Readability publishes
+  // it on any page, once its <div> has become a paragraph.)
+  const hidden = [
+    block("h2", "longform-header-two hidden", line("A hidden heading")),
+    block(
+      "div",
+      "longform-unstyled hidden",
+      line("A hidden paragraph, which a reader of the page never sees at all."),
+    ),
+    paragraph(
+      line("Visible words "),
+      `<div style="display: none">${line("and hidden ones")}</div>`,
+      line(" in one paragraph."),
+    ),
+    `<div class="hidden">${block("h2", "longform-header-two", line("A heading in a hidden wrapper"))}</div>`,
+  ];
+  const { markdown } = clipped(
+    articlePage(
+      [title(HEADLINE)],
+      [...blocks.slice(0, 3), ...hidden, ...blocks.slice(3)],
+    ),
+  );
+
+  test("a heading hidden by its class", () => {
+    expect(markdown).not.toContain("A hidden heading");
+  });
+
+  test("a paragraph hidden by its class", () => {
+    expect(markdown).not.toContain("A hidden paragraph");
+  });
+
+  test("a part of a block the page hides", () => {
+    expect(markdown).toContain("Visible words");
+    expect(markdown).not.toContain("and hidden ones");
+  });
+
+  test("a block inside a hidden wrapper", () => {
+    expect(markdown).not.toContain("A heading in a hidden wrapper");
+  });
+
+  test("the visible blocks around them are still read", () => {
+    expect(markdown).toMatch(/^## Knowing your unknowns$/m);
+    expect(markdown).toContain("See [the guide](https://example.com/guide/).");
+  });
+});
+
 describe("only an X Article's text blocks are re-tagged", () => {
   function prepared(body: string): Document {
     const window = new Window({ url: URL });
@@ -206,11 +258,22 @@ describe("only an X Article's text blocks are re-tagged", () => {
     expect(block?.textContent).toBe("a b");
   });
 
-  test("a block keeps its tag otherwise, and loses Draft's class", () => {
+  test("a block keeps its tag otherwise, and loses Draft's style name", () => {
     const doc = prepared(inArticle(heading("two", "Heading")));
     const block = doc.querySelector("[data-block]");
     expect(block?.tagName).toBe("H2");
     expect(block?.hasAttribute("class")).toBe(false);
+  });
+
+  test("keeps every class that is not a Draft style name", () => {
+    const doc = prepared(
+      inArticle(
+        block("h2", "longform-header-two r-1qd0xha extra", line("Heading")),
+      ),
+    );
+    expect(doc.querySelector("[data-block]")?.getAttribute("class")).toBe(
+      "r-1qd0xha extra",
+    );
   });
 
   test("leaves Draft blocks outside an Article's text", () => {

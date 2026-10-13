@@ -77,11 +77,23 @@ body would open by repeating the title. None of the three clips did.
   Draft's wrapper or a link's wrapper.
 - A `<div>` block becomes a `<p>`. Headings, list items and quotes keep their
   tags.
-- The block loses its class, which names a Draft style and nothing downstream
-  reads.
+- The block loses Draft's style names, `longform-…`. Its other classes stay.
 
-A `<section>` block holds media and is left alone. So is a block holding
-anything but `<div>`s and phrasing elements.
+Some blocks are left exactly as they are:
+
+- A `<section>` block, which holds media.
+- A block holding anything but `<div>`s and phrasing elements.
+- **A block that is hidden, holds a hidden part, or sits inside something
+  hidden** (`pageHides`). On a detached copy a class is often the only sign
+  that something is hidden. The rewrite would remove what Readability relies
+  on to leave it out:
+  - A hidden `<div>` that becomes a `<p>` or `<span>` is no longer an element
+    Readability judges by class.
+  - A hidden heading stripped of its class no longer looks like page furniture.
+
+  None of the 248 text blocks on the three Articles is hidden. A Codex review
+  caught the first version, which dropped the block's whole class and with it
+  any class that hid the block.
 
 ## Alternatives considered
 
