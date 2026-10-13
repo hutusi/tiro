@@ -119,6 +119,43 @@ describe("clipPage titles an article with the headline it displays", () => {
     const head = `<meta property="og:title" content="Only Metadata">`;
     expect(clipPage(pageFrom(head, ARTICLE), URL).title).toBe("Only Metadata");
   });
+
+  /**
+   * Both headings are confirmed, the hidden one by `alternativeHeadline` and
+   * the shown one by `og:title`, and the hidden one comes first. Taking the
+   * first confirmed `<h1>` would file the article under a heading nobody saw.
+   */
+  test.each([
+    ["the hidden attribute", "<h1 hidden>Sticky Copy</h1>"],
+    ["an inline display: none", '<h1 style="display: none">Sticky Copy</h1>'],
+    ["aria-hidden", '<h1 aria-hidden="true">Sticky Copy</h1>'],
+    ["a hiding class", '<h1 class="sr-only">Sticky Copy</h1>'],
+    [
+      "a hidden ancestor",
+      "<div hidden><header><h1>Sticky Copy</h1></header></div>",
+    ],
+  ])("an <h1> hidden by %s is passed over", (_, hidden) => {
+    const head = `<meta property="og:title" content="Shown Headline">
+      ${jsonLd({
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        headline: "Search Headline",
+        alternativeHeadline: "Sticky Copy",
+      })}`;
+    const body = `${hidden}<header><h1>Shown Headline</h1></header>${ARTICLE}`;
+    expect(clipPage(pageFrom(head, body), URL).title).toBe("Shown Headline");
+  });
+
+  test("a hidden <h1> alone leaves Readability's title standing", () => {
+    const head = `<meta property="og:title" content="Sticky Copy">
+      ${jsonLd({
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        headline: "Search Headline",
+      })}`;
+    const body = `<h1 hidden>Sticky Copy</h1>${ARTICLE}`;
+    expect(clipPage(pageFrom(head, body), URL).title).toBe("Search Headline");
+  });
 });
 
 describe("chooseTitle", () => {
@@ -171,6 +208,19 @@ describe("chooseTitle", () => {
 });
 
 describe("readTitleEvidence", () => {
+  /**
+   * An icon the page marks `aria-hidden` has no letters, so words would still
+   * match and the icon would lead the title. Screen-reader text has letters,
+   * and would keep the `<h1>` from matching any claim at all.
+   */
+  test("reads only the parts of an <h1> the page shows", () => {
+    const doc = pageFrom(
+      "",
+      '<h1><span aria-hidden="true">★ </span>The Story<span class="visually-hidden"> (opens in a new tab)</span><span hidden> draft</span></h1>',
+    );
+    expect(readTitleEvidence(doc).headlines).toEqual(["The Story"]);
+  });
+
   test("reads an <h1> as it reads, a <br> as a space", () => {
     const doc = pageFrom(
       "",

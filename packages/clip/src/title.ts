@@ -17,9 +17,11 @@
  * search headline can be.
  */
 
+import { pageHides } from "./dom-prepare.ts";
+
 /** What a page says its title is, read before Readability consumes it. */
 export interface TitleEvidence {
-  /** Every non-empty `<h1>`, as the reader saw its text. */
+  /** Every non-empty `<h1>` the page shows, as the reader saw its text. */
   headlines: string[];
   /** The page's metadata titles, as plain text: `og:title`, `twitter:title`,
    * and every JSON-LD article's `headline`, `name` and `alternativeHeadline`.
@@ -49,6 +51,11 @@ const C1 = /[\u0080-\u009f]/;
 export function readTitleEvidence(doc: Document): TitleEvidence {
   const headlines: string[] = [];
   for (const h1 of Array.from(doc.querySelectorAll("h1"))) {
+    // A hidden `<h1>` is not the headline the page displays, even when its
+    // metadata names it: a sticky header's copy, a screen-reader-only heading,
+    // or one of two responsive heroes. Taken, it could also win over the
+    // visible one just by coming first.
+    if (hiddenWithin(h1)) continue;
     const text = headlineText(h1);
     if (text !== "") headlines.push(text);
   }
@@ -107,14 +114,38 @@ export function chooseTitle(title: string, evidence: TitleEvidence): string {
   );
 }
 
-/** A headline's text as it reads: a `<br>` is a space, not a join. */
+/** Whether `element` or anything around it is hidden by the page. */
+function hiddenWithin(element: Element): boolean {
+  for (
+    let node: Element | null = element;
+    node !== null;
+    node = node.parentElement
+  ) {
+    if (pageHides(node)) return true;
+  }
+  return false;
+}
+
+/**
+ * A headline's text as it reads: a `<br>` is a space, not a join, and a part
+ * the page hides is not read at all. An `aria-hidden` icon would otherwise lead
+ * the title, since words match on letters and digits and would not notice it,
+ * and a screen-reader-only "(opens in a new tab)" would keep the `<h1>` from
+ * matching anything.
+ */
 function headlineText(element: Element): string {
   const parts: string[] = [];
   const walk = (node: Node): void => {
     for (const child of Array.from(node.childNodes)) {
       if (child.nodeType === 3) parts.push(child.nodeValue ?? "");
       else if (child.nodeName === "BR") parts.push(" ");
-      else if (child.nodeType === 1 && !UNREAD.has(child.nodeName)) walk(child);
+      else if (
+        child.nodeType === 1 &&
+        !UNREAD.has(child.nodeName) &&
+        !pageHides(child as Element)
+      ) {
+        walk(child);
+      }
     }
   };
   walk(element);

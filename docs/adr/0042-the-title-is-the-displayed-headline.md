@@ -42,8 +42,18 @@ headline.** Readability's title stands when nothing confirms one.
 Readability, which removes the `<h1>` with the rest of the page around the
 article:
 
-- **Headlines:** every non-empty `<h1>`, read as it displays, so a `<br>`
-  counts as a space.
+- **Headlines:** every non-empty `<h1>` the page shows, read as it displays.
+  A `<br>` counts as a space. An `<h1>` is skipped when it or an ancestor is
+  hidden by any means a detached DOM can read (`pageHides`):
+  - `hidden`
+  - `aria-hidden`
+  - inline `display: none` or `visibility: hidden`
+  - a hiding class such as `sr-only`
+
+  Hidden parts inside an `<h1>` are not read either. A hidden `<h1>` can be
+  named by the page's metadata too, as with a sticky header's copy, and if it
+  came first it would win. A hidden icon has no letters to fail the word match,
+  so it would lead the title.
 - **Claims:** `og:title`, `twitter:title`, and the `headline`, `name` and
   `alternativeHeadline` of every JSON-LD node typed as an article. The node can
   be in an array or a `@graph`.

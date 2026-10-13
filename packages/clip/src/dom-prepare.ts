@@ -2308,6 +2308,20 @@ function readabilityHides(element: Element): boolean {
 }
 
 /**
+ * True when the page hides `element` itself, by any means a detached DOM can
+ * read: Readability's own test, or a class that spells `display: none`
+ * (`hidesElement`, which counts `md:hidden` as hidden because no viewport is
+ * here to say otherwise). A stylesheet rule is out of reach, since there is no
+ * stylesheet in scope. Ancestors are the caller's to walk.
+ */
+export function pageHides(element: Element): boolean {
+  return (
+    readabilityHides(element) ||
+    classListOf(element).some((token) => hidesElement(token, element))
+  );
+}
+
+/**
  * Elements a layout wrapper may hold and still be nothing but layout.
  *
  * An allow-list for the same reason `CAPTION_INLINE` is one: an element nobody
