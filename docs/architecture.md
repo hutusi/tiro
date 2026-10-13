@@ -192,6 +192,13 @@ flowchart LR
    Readability would make one, and written as a blockquote whose first line is
    `<!-- pull quote -->`: one block, translated like any other, that the site
    can tell from a quotation.
+
+   The title is the headline the page shows (ADR 0042). Readability reads
+   JSON-LD first, and a publisher may put a headline written for search there.
+   The Atlantic does so on about half its articles. So the page's `<h1>` wins
+   when `og:title`, `twitter:title` or a JSON-LD article's `headline`, `name`
+   or `alternativeHeadline` confirms it. The evidence is read before
+   Readability, which removes the `<h1>`, and the body is untouched.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
