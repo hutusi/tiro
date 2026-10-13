@@ -1259,6 +1259,11 @@ Read the output as a prompt for judgement, not a verdict:
   were fine: one article's four "lost" images are commenter avatars, and the
   other is a pre-existing extraction gap both clipper versions share. Two clips
   differing is not the same as the newer one being wrong.
+- **A `title "…" → "…"` part is a title the clipper now reads differently**
+  (ADR 0042). Both modes compare titles as well as bodies; in the advisor, the
+  committed title is what a re-clip would overwrite, a hand-edited one
+  included. A title-only change needs no re-clip — retitle the article in place
+  (see **Backfilling translated titles**).
 - **`?` lines are the sweep's own blind spots**, not findings. Fetch failures,
   and pages that clip to almost nothing because they build their article in
   JavaScript (`--min-chars`, default 500). Every article failing exits non-zero;
@@ -1344,6 +1349,24 @@ Both forced paths overwrite it, and they differ in what else they touch —
 `backfill-titles --force` rewrites the title and nothing else, while a forced
 *processing* run (`run --force`, or the workflow with `force: true`) re-rolls the
 summary and the tags alongside it.
+
+#### Retitling an article in place
+
+When `title` is the only thing wrong — a clipper fix changed which headline a
+page is filed under (ADR 0042), or the publisher retitled the piece — edit
+`title:` in the article's `index.md`, then translate the new one:
+
+```sh
+TIRO_LLM_API_KEY=… bun run packages/processor/src/cli.ts backfill-titles \
+  --vault ../tiro-vault --slug <slug> --force
+```
+
+`--force` is what replaces the `title_zh` already there, and `--slug` is what
+keeps it to this article: without it, `--force` re-translates every title in
+the vault. A re-clip would fix the title too, at the price of reprocessing the
+whole article — a new summary and new tags for one changed line. The Atlantic
+cannot be swept, since it refuses the sweep's fetch, so its titles were measured
+in Chrome: the page's `<h1>` against its `og:title` and JSON-LD.
 
 ### Measuring the vault's tags
 

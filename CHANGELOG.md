@@ -35,6 +35,15 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An article is titled with the headline its page shows.** Many Atlantic
+  articles were filed under a headline written for search engines, which the
+  page never displays: "I'm 53 years old. I'm 36 in my head." for "The Puzzling
+  Gap Between How Old You Are and How Old You Think You Are". 44 of 97 were
+  affected. The clip now takes the page's `<h1>` whenever the page's own
+  metadata confirms it is the headline. Elsewhere this also drops a "— Site
+  Name" suffix from a title, and repairs a title whose dashes became control
+  characters. Existing articles were retitled in place. `sweep` now reports
+  title changes alongside body changes (ADR 0042).
 - **Pull quotes are kept.** The sentence a magazine repeats in large type
   between its paragraphs — The Atlantic's, a Substack pull quote, Literary
   Hub's — was dropped, or came through as a duplicate paragraph. It is now kept
