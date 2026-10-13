@@ -31,7 +31,6 @@ The bodies were worse than the titles:
   [example artifacts for finding unknowns here], but be sure…" was filed as
   "I've made some" and "but be sure…".
 - **Every heading was gone**, 15 of 15 in one Article and 3 of 3 in another.
-- One body opened by repeating its headline.
 
 **X writes an Article as Draft.js blocks built from generic views.** Every
 element is a `<div>` unless it is a heading, list item or quote, and a class
@@ -66,8 +65,9 @@ rule, under two guards:
   in a card, and that title is not the post's.
 - Exactly one may be shown.
 
-The element is removed before Readability runs, so the body does not open
-with it.
+The element is also removed before Readability runs. It sits in the same view
+as the text, so if Readability ever took that whole view as the article, the
+body would open by repeating the title. None of the three clips did.
 
 **The text** is read block by block (`retagXArticleBlocks` in
 `packages/clip/src/dom-prepare.ts`). Inside `twitterArticleRichTextView`, each
@@ -110,6 +110,10 @@ anything but `<div>`s and phrasing elements.
 - **The three X articles are re-clipped**, by the owner in Chrome, because X
   shows Articles only to a logged-in reader. Each is summarised and translated
   again.
+- **An Article that opens with its own headline keeps it.** Jensen Huang's
+  does: its text has 41 blocks, the clip has 41, and the first is the
+  headline. Those are the author's words, not the label this reads, so the
+  site shows the title above a first paragraph that repeats it.
 - **A plain post is unchanged.** It has neither label, so it keeps the tab's
   title, unread count and all. That title at least quotes the post. A rule for
   it can come when the vault holds one.

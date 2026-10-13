@@ -147,8 +147,11 @@ const X_ARTICLE_TEXT = '[data-testid="twitterArticleRichTextView"]';
  *   a card, and that Article's title is not the post's.
  * - **Exactly one may be shown.** A page with several has no single headline.
  *
- * Removed, not just read: one of the three clips arrived with the headline as
- * its body's first paragraph, under the same words as the title above it.
+ * Removed, not just read. It sits in the same view as the text, so if
+ * Readability ever takes that whole view as the article, the body would open
+ * by repeating the title. None of the three did. Jensen Huang's Article does
+ * open with its headline, but as the first paragraph of its own text: the
+ * author's words, which the clip keeps.
  */
 export function takeXArticleTitle(doc: Document): string | undefined {
   const shown = Array.from(doc.querySelectorAll(X_ARTICLE_TITLE)).filter(
