@@ -12,9 +12,10 @@
  *
  *   --baseline <git-ref>   Regression sweep. Clips each page twice, once with
  *                          the working tree and once with the clipper at
- *                          <ref>, and diffs the two. Answers "did my change
- *                          break anything on the corpus?" — the check to run
- *                          before merging a clipper change.
+ *                          <ref>, and diffs the two, body and title.
+ *                          Answers "did my change break anything on the
+ *                          corpus?" — the check to run before merging a
+ *                          clipper change.
  *
  *   --fill-languages       Language backfill. Clips each page, and copies the
  *                          fence languages the current clipper recovers onto
@@ -33,7 +34,7 @@
  *                          Reports only, until `--write`.
  *
  *   (default)              Re-clip advisor. Compares a fresh clip against the
- *                          body committed in the vault. Answers "which
+ *                          body and title committed in the vault. Answers "which
  *                          articles would gain from being re-clipped?"
  *
  * Three things it cannot see, all of which can make a result wrong rather than
@@ -299,7 +300,7 @@ export function isPlainText(header: string | null): boolean {
   return (header ?? "").split(";")[0]?.trim().toLowerCase() === "text/plain";
 }
 
-type Clip = (doc: Document, url: string) => { markdown: string };
+type Clip = (doc: Document, url: string) => { markdown: string; title: string };
 
 /**
  * Clip one page with a given implementation, in the one hardened document
@@ -1035,7 +1036,7 @@ async function main() {
 
   console.log(
     baselineClip === null
-      ? `Re-clip advisor — ${articles.length} article(s), vault body vs a fresh clip`
+      ? `Re-clip advisor — ${articles.length} article(s), vault body and title vs a fresh clip`
       : `Regression sweep — ${articles.length} article(s), ${args.baseline} vs working tree`,
   );
 
@@ -1045,14 +1046,22 @@ async function main() {
   for (const article of articles) {
     let after: string;
     let before: string;
+    let titleAfter: string;
+    let titleBefore: string;
     try {
       const url = sourceUrl(article);
       const html = await fetchPage(url, args.pages, article.slug);
-      after = (await clipHtml(html, url, clipPage)).markdown;
-      before =
-        baselineClip === null
-          ? article.body
-          : (await clipHtml(html, url, baselineClip)).markdown;
+      const fresh = await clipHtml(html, url, clipPage);
+      after = fresh.markdown;
+      titleAfter = fresh.title.trim();
+      if (baselineClip === null) {
+        before = article.body;
+        titleBefore = article.frontmatter.title;
+      } else {
+        const old = await clipHtml(html, url, baselineClip);
+        before = old.markdown;
+        titleBefore = old.title.trim();
+      }
     } catch (error) {
       // Neither a page that will not load nor one that will not clip is a
       // finding about the corpus, and neither may stop the rest being reported.
@@ -1081,12 +1090,32 @@ async function main() {
       continue;
     }
 
-    if (baselineClip !== null && before === after) continue;
+    // The title is reported beside the body because nothing else would show
+    // it: every count above reads the body, so a change to how the clipper
+    // titles a page — ADR 0042 moved 44 Atlantic articles — swept clean. In
+    // advisor mode the committed title is what a re-clip would overwrite, a
+    // hand-edited one included.
+    const retitled =
+      titleBefore === titleAfter
+        ? null
+        : `title ${JSON.stringify(titleBefore)} → ${JSON.stringify(titleAfter)}`;
     const delta = describe(countMarkdown(before), countMarkdown(after));
-    if (baselineClip === null && delta === null) continue;
+    // The advisor's body always differs as text — the committed body was
+    // clipped from Chrome's DOM, this one from raw HTML — so only its counts
+    // are a finding. A regression sweep's two clips read the same HTML, and
+    // any difference at all is one.
+    const body =
+      baselineClip === null
+        ? delta
+        : before === after
+          ? null
+          : (delta ?? "text differs");
+    if (body === null && retitled === null) continue;
 
     changed++;
-    console.log(`  ${article.slug}: ${delta ?? "text differs"}`);
+    console.log(
+      `  ${article.slug}: ${[body, retitled].filter((part) => part !== null).join("; ")}`,
+    );
   }
 
   const scope = baselineClip === null ? "would change" : "differ";
