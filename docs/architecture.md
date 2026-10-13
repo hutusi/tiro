@@ -199,6 +199,13 @@ flowchart LR
    when `og:title`, `twitter:title` or a JSON-LD article's `headline`, `name`
    or `alternativeHeadline` confirms it. The evidence is read before
    Readability, which removes the `<h1>`, and the body is untouched.
+
+   An X Article is read from X's own labels (ADR 0043). Its rendered page has
+   no metadata to confirm anything, so the title is the element X labels
+   `twitter-article-title`. Its text is Draft.js blocks of `<div>`s, which
+   Readability split at every link and stripped of every heading, so each text
+   block becomes the paragraph, heading, list item or quote it is before
+   Readability reads it.
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
