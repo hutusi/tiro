@@ -1263,7 +1263,9 @@ Read the output as a prompt for judgement, not a verdict:
   (ADR 0042). Both modes compare titles as well as bodies; in the advisor, the
   committed title is what a re-clip would overwrite, a hand-edited one
   included. A title-only change needs no re-clip — retitle the article in place
-  (see **Backfilling translated titles**).
+  (see **Backfilling translated titles**). A page too thin to compare still has
+  its title compared under `--baseline`, where both sides read the same HTML,
+  and a difference there is reported with `(body too thin to compare)`.
 - **`?` lines are the sweep's own blind spots**, not findings. Fetch failures,
   and pages that clip to almost nothing because they build their article in
   JavaScript (`--min-chars`, default 500). Every article failing exits non-zero;

@@ -1071,6 +1071,16 @@ async function main() {
       continue;
     }
 
+    // The title is reported beside the body because nothing else would show
+    // it: every count below reads the body, so a change to how the clipper
+    // titles a page — ADR 0042 moved 44 Atlantic articles — swept clean. In
+    // advisor mode the committed title is what a re-clip would overwrite, a
+    // hand-edited one included.
+    const retitled =
+      titleBefore === titleAfter
+        ? null
+        : `title ${JSON.stringify(titleBefore)} → ${JSON.stringify(titleAfter)}`;
+
     // A page whose article is built in JavaScript arrives as a shell, and its
     // "losses" are the sweep's blind spot rather than the clipper's doing.
     //
@@ -1083,6 +1093,18 @@ async function main() {
     // rendered DOM, which this cannot see, so the fresh clip stands alone.
     const bothThin = baselineClip === null || before.length < args.minChars;
     if (after.length < args.minChars && bothThin) {
+      // A shell's body cannot be compared, but in baseline mode its title can:
+      // both sides read the same HTML, and a title comes from metadata that a
+      // client-rendered page serves like any other. In advisor mode the
+      // committed title was read from the rendered page, whose `<h1>` a shell
+      // lacks, so a difference there says nothing about the clipper.
+      if (baselineClip !== null && retitled !== null) {
+        changed++;
+        console.log(
+          `  ${article.slug}: ${retitled} (body too thin to compare)`,
+        );
+        continue;
+      }
       console.log(
         `  ?  ${article.slug}: clipped to ${after.length} chars — likely client-rendered, ignore its delta`,
       );
@@ -1090,15 +1112,6 @@ async function main() {
       continue;
     }
 
-    // The title is reported beside the body because nothing else would show
-    // it: every count above reads the body, so a change to how the clipper
-    // titles a page — ADR 0042 moved 44 Atlantic articles — swept clean. In
-    // advisor mode the committed title is what a re-clip would overwrite, a
-    // hand-edited one included.
-    const retitled =
-      titleBefore === titleAfter
-        ? null
-        : `title ${JSON.stringify(titleBefore)} → ${JSON.stringify(titleAfter)}`;
     const delta = describe(countMarkdown(before), countMarkdown(after));
     // The advisor's body always differs as text — the committed body was
     // clipped from Chrome's DOM, this one from raw HTML — so only its counts
