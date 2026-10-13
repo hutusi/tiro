@@ -265,6 +265,24 @@ describe("readTitleEvidence", () => {
     expect(readTitleEvidence(doc).claims).toEqual(["In the Graph"]);
   });
 
+  test("knows an article type written as its full IRI", () => {
+    const doc = pageFrom(
+      jsonLd([
+        { "@type": "https://schema.org/NewsArticle", headline: "Absolute" },
+        { "@type": "http://schema.org/BlogPosting", headline: "Insecure" },
+        { "@type": "schema:Article", headline: "Compact" },
+        { "@type": "https://schema.org/Organization", name: "Publisher" },
+        { "@type": "https://example.com/Article", headline: "Elsewhere" },
+      ]),
+      "",
+    );
+    expect(readTitleEvidence(doc).claims).toEqual([
+      "Absolute",
+      "Insecure",
+      "Compact",
+    ]);
+  });
+
   test("reads og:title and twitter:title, by property or by name", () => {
     const doc = pageFrom(
       `<meta property="og:title" content="Open Graph">

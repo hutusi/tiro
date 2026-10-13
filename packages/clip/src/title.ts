@@ -38,6 +38,13 @@ export interface TitleEvidence {
 const ARTICLE_TYPE =
   /^(?:Article|AdvertiserContentArticle|NewsArticle|AnalysisNewsArticle|AskPublicNewsArticle|BackgroundNewsArticle|BlogPosting|DiscussionForumPosting|LiveBlogPosting|OpinionNewsArticle|ReportageNewsArticle|ReviewNewsArticle|Report|SatiricalArticle|ScholarlyArticle|MedicalScholarlyArticle|SocialMediaPosting|TechArticle)$/;
 
+/**
+ * A type may be written as its full IRI — `https://schema.org/NewsArticle` —
+ * which JSON-LD allows and the bare-name list above would refuse. That node's
+ * `alternativeHeadline` can be the only claim that names the `<h1>`.
+ */
+const SCHEMA_IRI = /^(?:https?:\/\/schema\.org\/|schema:)/;
+
 const TITLE_KEYS = ["headline", "name", "alternativeHeadline"] as const;
 
 /**
@@ -166,7 +173,12 @@ function collectArticleTitles(node: unknown, into: string[]): void {
   }
   const type = record["@type"];
   const types = Array.isArray(type) ? type : [type];
-  if (!types.some((t) => typeof t === "string" && ARTICLE_TYPE.test(t))) {
+  if (
+    !types.some(
+      (t) =>
+        typeof t === "string" && ARTICLE_TYPE.test(t.replace(SCHEMA_IRI, "")),
+    )
+  ) {
     return;
   }
   for (const key of TITLE_KEYS) {

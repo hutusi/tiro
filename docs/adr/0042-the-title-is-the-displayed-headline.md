@@ -56,7 +56,8 @@ article:
   so it would lead the title.
 - **Claims:** `og:title`, `twitter:title`, and the `headline`, `name` and
   `alternativeHeadline` of every JSON-LD node typed as an article. The node can
-  be in an array or a `@graph`.
+  be in an array or a `@graph`, and its type can be a bare name or a schema.org
+  IRI.
 
 `chooseTitle` then decides:
 
