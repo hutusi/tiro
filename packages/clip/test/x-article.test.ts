@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { clipPage } from "../src/clip-page.ts";
+import { prepareForClipping } from "../src/dom-prepare.ts";
 
 /**
  * An X Article as Chrome renders it, in the shape measured on three Articles in
@@ -149,5 +150,79 @@ describe("an X Article is titled with the headline X labels", () => {
       title(HEADLINE),
     ]);
     expect(clipped(page).title).toBe(HEADLINE);
+  });
+});
+
+describe("an X Article's text keeps its links", () => {
+  const { markdown } = clipped(articlePage());
+
+  test("a link stays in its sentence", () => {
+    expect(markdown).toContain(
+      "I've made some [example artifacts for finding unknowns here,](https://example.com/unknowns/) but be sure to come back to build the intuition for when to use them.",
+    );
+  });
+
+  // Mostly link: a paragraph Readability builds from a <div> is deleted whole
+  // past a fifth of link text, and this one is well past it.
+  test("a short paragraph that is mostly link survives", () => {
+    expect(markdown).toContain("See [the guide](https://example.com/guide/).");
+  });
+
+  test("a list item keeps its link", () => {
+    expect(markdown).toContain(
+      "References: [a list of them](https://example.com/refs/) for later.",
+    );
+  });
+
+  // Draft's `longform-header-two` reads as page furniture to Readability,
+  // which took every heading out of the vault's X clips. An <h1> comes out as
+  // `##` because Readability demotes it, as it does on every page.
+  test("headings, list items and quotes keep what they are", () => {
+    expect(markdown).toMatch(/^## Knowing your unknowns$/m);
+    expect(markdown).toMatch(/^## Post implementation$/m);
+    expect(markdown).toMatch(/^-\s+Known knowns: what is in my prompt\.$/m);
+    expect(markdown).toMatch(/^> A quoted line, kept as a quote\.$/m);
+  });
+});
+
+describe("only an X Article's text blocks are re-tagged", () => {
+  function prepared(body: string): Document {
+    const window = new Window({ url: URL });
+    window.document.body.innerHTML = body;
+    const doc = window.document as unknown as Document;
+    prepareForClipping(doc);
+    return doc;
+  }
+
+  const inArticle = (html: string) =>
+    `<div data-testid="twitterArticleRichTextView">${html}</div>`;
+
+  test("a block is a paragraph, and its wrappers are spans", () => {
+    const doc = prepared(inArticle(paragraph(line("a "), link("/b", "b"))));
+    const block = doc.querySelector("[data-block]");
+    expect(block?.tagName).toBe("P");
+    expect(block?.querySelector("div")).toBeNull();
+    expect(block?.querySelector("span.r-inline > a")?.textContent).toBe("b");
+    expect(block?.textContent).toBe("a b");
+  });
+
+  test("a block keeps its tag otherwise, and loses Draft's class", () => {
+    const doc = prepared(inArticle(heading("two", "Heading")));
+    const block = doc.querySelector("[data-block]");
+    expect(block?.tagName).toBe("H2");
+    expect(block?.hasAttribute("class")).toBe(false);
+  });
+
+  test("leaves Draft blocks outside an Article's text", () => {
+    const body = paragraph(line("a"));
+    expect(prepared(body).body.innerHTML).toBe(body);
+  });
+
+  // A media block, and a text block holding something no line of text holds.
+  test("leaves a block that holds more than a line of text", () => {
+    const media = `<section data-block="true"><div><a href="/m"><div>image</div></a></div></section>`;
+    const odd = `<div class="longform-unstyled" data-block="true"><div><ol><li>a list</li></ol></div></div>`;
+    const body = inArticle(media + odd);
+    expect(prepared(body).body.innerHTML).toBe(body);
   });
 });

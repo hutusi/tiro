@@ -774,6 +774,95 @@ function retagFontsAsSpans(doc: Document): void {
   }
 }
 
+/** An X Article's text, as X labels it. */
+const X_ARTICLE_TEXT = '[data-testid="twitterArticleRichTextView"]';
+
+/** The Draft.js blocks of an X Article that hold a line of text. A `<section>`
+ * block holds media, and is left to the passes that read media. */
+const X_TEXT_BLOCKS = new Set([
+  "DIV",
+  "P",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LI",
+  "BLOCKQUOTE",
+]);
+
+/** What a text block's line is made of, besides the `<div>`s re-tagged. */
+const X_INLINE = new Set([
+  "A",
+  "B",
+  "BR",
+  "CODE",
+  "EM",
+  "I",
+  "IMG",
+  "S",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "U",
+]);
+
+/**
+ * Read each text block of an X Article as the one line of text it is: its
+ * `<div>`s become `<span>`s, and a `<div>` block becomes a `<p>` (ADR 0043).
+ *
+ * X writes an Article as Draft.js blocks built from generic views, so every
+ * element is a `<div>` and a class decides how it is laid out. A paragraph is a
+ * block `<div>` around a block `<div>` around the spans of its text, and each
+ * link in it is wrapped in one more `<div>`, which X styles `display: inline`.
+ * Readability goes by the tag, and that cost the vault every link in X's
+ * text — 8 of 8 in one Article and 2 of 2 in another:
+ *
+ * - The link's `<div>` is a block to Readability, so the paragraph is split
+ *   there. "I've made some [example artifacts here], but be sure…" became
+ *   "I've made some" and "but be sure…", and the link, alone in its block, went
+ *   with the page furniture.
+ * - Making only that `<div>` a `<span>` turns the split paragraph into a lost
+ *   one. A paragraph Readability builds from a `<div>` is deleted whole when
+ *   more than a fifth of its text is link text (`_cleanConditionally`), and a
+ *   short sentence carrying a link is exactly that. A `<p>` is never put to
+ *   that test.
+ * - Every heading went too, 15 of 15 in one Article. Draft names a block's
+ *   style in its class, and `longform-header-two` matches the `header` in
+ *   Readability's pattern for page furniture, which it removes before scoring
+ *   anything. So a text block loses its class; nothing downstream reads it.
+ *
+ * So the block becomes the paragraph it is, from X's own markup: no layout is
+ * read, since inside a text block every `<div>` is Draft's wrapper around the
+ * line or a link's wrapper within it. A heading, list item or quote keeps its
+ * tag. A block holding anything else is left as it was, as is anything outside
+ * an Article's text, so no other page is affected.
+ */
+function retagXArticleBlocks(doc: Document): void {
+  for (const block of Array.from(
+    doc.querySelectorAll(`${X_ARTICLE_TEXT} [data-block="true"]`),
+  )) {
+    if (!X_TEXT_BLOCKS.has(block.tagName)) continue;
+    const inner = Array.from(block.querySelectorAll("*"));
+    if (
+      !inner.every(
+        (element) => element.tagName === "DIV" || X_INLINE.has(element.tagName),
+      )
+    ) {
+      continue;
+    }
+    // Innermost first, so a wrapper is re-tagged around what its children
+    // already became.
+    for (const div of inner.filter((e) => e.tagName === "DIV").reverse()) {
+      retagged(div, "span", doc);
+    }
+    block.removeAttribute("class");
+    if (block.tagName === "DIV") retagged(block, "p", doc);
+  }
+}
+
 /**
  * Marks a pull quote across Readability, for `pullQuoteTurndownRule` (ADR
  * 0041). Found by this marker and never by tag, for the reason `FIGURE_ATTR`
@@ -2726,6 +2815,8 @@ export function prepareForClipping(
   // First, and order-independent: it changes no structure, only a tag name the
   // passes below have no opinion about.
   retagFontsAsSpans(doc);
+  // The same kind of change, and as early, for the same reason.
+  retagXArticleBlocks(doc);
   // Early: it only moves whole blocks, and every pass below should see the
   // article as the one body it is.
   joinSplitArticleBodies(doc);
