@@ -1370,6 +1370,10 @@ whole article — a new summary and new tags for one changed line. The Atlantic
 cannot be swept, since it refuses the sweep's fetch, so its titles were measured
 in Chrome: the page's `<h1>` against its `og:title` and JSON-LD.
 
+An X Article filed before ADR 0043 is re-clipped rather than retitled, since
+its body lost every heading and link too. Only the owner can re-clip one, in
+Chrome while logged in to X.
+
 ### Measuring the vault's tags
 
 `tags` reads every article and reports what its tags look like (ADR 0033, ADR
@@ -1603,4 +1607,5 @@ permanent extension ID, unrelated to the unpacked one.
 | A web PDF in the vault titled with its bare host, with an empty body, `readability_failed: true` and no `tiro.source_media` — its summary says the article is empty | the clipper did not recognise Chrome's PDF viewer, so the popup committed the viewer's shell as a page — what happened to every web PDF on a Chrome whose viewer leaves no `<embed>` in the DOM (154 is one) until the content-type check (ADR 0026, corrected 2026-10-03) | re-clip it with a current build: the stub replaces it and the next run converts it. A build with the empty-clip refusal says "Nothing on this page could be read" instead of committing |
 | The popup says "Nothing on this page could be read, so there is nothing to clip." | the body that would be committed is empty and is not a PDF stub — the tab yielded nothing, or a publisher fetch returned an empty document (a markdown file holding only whitespace) | if the tab is showing a PDF, Chrome's viewer has changed shape again — check `document.contentType` in the tab's console (`application/pdf` and `text/pdf` are what `isPdfViewerDocument` asks for). Otherwise the page draws its content where the clipper cannot reach it (a canvas, a cross-origin frame), or the fetched document really is empty |
 | A clipped Hacker News thread is missing comments that are on the page | the clip keeps what the tab shows (ADR 0038): a subthread folded with `[–]` is left out with its replies, and so are the comments HN folds itself — flagged ones and off-topic subthreads — which is also all a saved link can see | expand them on the page, then clip again from the tab: the same slug is overwritten |
+| An X Article in the vault titled `(5) X` or `Name on X: "…" / X`, with no headings and paragraphs cut where a link was | it was clipped before ADR 0043, which reads an Article from X's own labels | re-clip it in Chrome, logged in to X, with a build that has ADR 0043. Retitling alone would leave the body broken |
 | `zh.md` contains `TIROMATH0` | a checkpoint written before math restoration — should be impossible | delete `.tiro-zh-cache.json` and reprocess with `force` + slug |

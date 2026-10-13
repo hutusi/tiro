@@ -44,6 +44,12 @@ versions follow the `0.x` line while Tiro is a personal system.
   Name" suffix from a title, and repairs a title whose dashes became control
   characters. Existing articles were retitled in place. `sweep` now reports
   title changes alongside body changes (ADR 0042).
+- **X Articles clip whole.** A long-form post on X was filed under the tab's
+  title, such as "(5) X", and lost every heading and every link in its text,
+  with each paragraph that held a link cut in two. The clip now reads an
+  Article from X's own labels: its headline is the title, and each block of its
+  text is the paragraph, heading, list item or quote it is. Clips made before
+  this need re-clipping (ADR 0043).
 - **Pull quotes are kept.** The sentence a magazine repeats in large type
   between its paragraphs — The Atlantic's, a Substack pull quote, Literary
   Hub's — was dropped, or came through as a duplicate paragraph. It is now kept

@@ -20,7 +20,7 @@ import {
   normalizeSourceMarkdown,
   plainTextMarkdownSource,
 } from "./plain-markdown.ts";
-import { chooseTitle, readTitleEvidence } from "./title.ts";
+import { chooseTitle, readTitleEvidence, takeXArticleTitle } from "./title.ts";
 
 /**
  * Turn a page into the article Tiro stores. The whole clip, in one place.
@@ -77,6 +77,10 @@ export function clipPage(
   // popup needs it to decide whether clipping the tab would file a lesser body
   // under a paper's canonical slug — see `needsFullTextFetch`.
   const latexmlFullText = hasLatexmlFullText(doc);
+  // An X Article's headline, which X labels and nothing else on the rendered
+  // page names (ADR 0043). Taken out before Readability, so the body does not
+  // open with it.
+  const xArticleTitle = takeXArticleTitle(doc);
   // The headline the page shows, and what its metadata says the title is —
   // before Readability, which removes the `<h1>` along with the rest of the
   // page around the article (ADR 0042).
@@ -136,6 +140,7 @@ export function clipPage(
     url,
     title:
       latexml?.title ??
+      xArticleTitle ??
       (chooseTitle((article?.title ?? "").trim(), titleEvidence).trim() ||
         doc.title),
     excerpt:
