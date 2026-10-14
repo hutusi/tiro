@@ -206,6 +206,40 @@ describe("captureFigures", () => {
     expect(outcome.skipped).toBe(1);
   });
 
+  test("a figure the page moved while it was framed is framed once more, then left", async () => {
+    // A scroll library puts its own position back after the first scroll, so
+    // the figure that fits is not on screen when it is measured.
+    const framed = (call: number): FrameResult =>
+      call === 1
+        ? { ok: false, reason: "moved" }
+        : {
+            ok: true,
+            rect: { x: 0, y: 100, width: 600, height: 400 },
+            innerWidth: 1280,
+          };
+    const settles = fakeTab({ frame: (_index, call) => framed(call) });
+    expect([
+      ...(await captureFigures([4], settles.effects)).snapshots.keys(),
+    ]).toEqual([4]);
+    const never = fakeTab({ frame: () => ({ ok: false, reason: "moved" }) });
+    const outcome = await captureFigures([4], never.effects);
+    expect(outcome.snapshots.size).toBe(0);
+    expect(outcome.skipped).toBe(1);
+  });
+
+  test("a figure that will never fit is not framed twice", async () => {
+    let frames = 0;
+    const { effects } = fakeTab({
+      frame: () => {
+        frames += 1;
+        return { ok: false, reason: "too-big" };
+      },
+    });
+    const outcome = await captureFigures([4], effects);
+    expect(outcome.skipped).toBe(1);
+    expect(frames).toBe(1);
+  });
+
   test("pictures are spaced past Chrome's capture rate", async () => {
     // Frames that take no time, so only the spacing keeps captures apart.
     const { effects: quick, log } = fakeTab({ frameMs: 0 });

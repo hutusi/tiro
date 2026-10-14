@@ -25,7 +25,10 @@ export type FrameResult =
        * scrollbar included, which is what scales the rect into its pixels. */
       innerWidth: number;
     }
-  | { ok: false; reason: "gone" | "empty" | "too-big" | "covered" };
+  | {
+      ok: false;
+      reason: "gone" | "empty" | "too-big" | "moved" | "covered";
+    };
 
 /** What the clipper leaves in the isolated world, and the scout keeps there
  * between its calls. */
@@ -205,7 +208,13 @@ export async function frameFigure(
   const width = document.documentElement.clientWidth;
   const height = document.documentElement.clientHeight;
   if (left < -1 || top < -1 || right > width + 1 || bottom > height + 1) {
-    return { ok: false, reason: "too-big" };
+    // One that would fit is not where it was scrolled to: the page moved it
+    // while it settled. A scroll library does this — Anthropic's pages put
+    // their own position back within a frame of the first scroll — and so does
+    // a reflow above it. Worth framing again, which one that will never fit
+    // is not.
+    const fits = right - left <= width + 2 && bottom - top <= height + 2;
+    return { ok: false, reason: fits ? "moved" : "too-big" };
   }
   const inset = 6;
   const points: [number, number][] = [
