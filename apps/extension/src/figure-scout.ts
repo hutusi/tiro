@@ -133,10 +133,32 @@ export async function frameFigure(
   // row of controls beside it, which does nothing in a picture and can make a
   // figure too tall to fit the screen. A figure drawn some other way is taken
   // whole, less its caption.
+  //
+  // A chart drawn into a box of its own, with no <figure> round it (ADR 0044),
+  // sets its title and legend beside the plot rather than over it, and a
+  // chart without its legend cannot be read. So the box is taken whole, less
+  // what is not on screen — a tooltip waiting for a hover sits at the box's
+  // corner, invisible, and would stretch the picture — and less a paragraph,
+  // which the article carries as text.
+  const orphan = figure.tagName.toUpperCase() !== "FIGURE";
   const parts = () => {
     const children = Array.from(figure.children).filter(
       (child) => child.tagName.toUpperCase() !== "FIGCAPTION",
     );
+    if (orphan) {
+      return children.filter((child) => {
+        const role = child.getAttribute("role");
+        if (role === "status" || role === "tooltip") return false;
+        if (child.getAttribute("aria-hidden") === "true") return false;
+        if (child.tagName.toUpperCase() === "P") return false;
+        const style = getComputedStyle(child);
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0"
+        );
+      });
+    }
     const drawing = children.filter(
       (child) => isMedia(child) || child.querySelector(MEDIA) !== null,
     );
