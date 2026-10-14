@@ -1,4 +1,4 @@
-import { clipPage } from "@tiro/clip";
+import { clipPage, figureHosts } from "@tiro/clip";
 import type { FigureScope } from "./figure-scout.ts";
 import type { ClipResultMessage } from "./messages.ts";
 
@@ -14,11 +14,12 @@ import type { ClipResultMessage } from "./messages.ts";
  */
 (() => {
   const scope = globalThis as unknown as FigureScope;
-  // The page's figures, listed just before the clone so the two lists line
-  // up one to one: `clipPage` counts the clone's, and a payload's
+  // The page's figures, and the boxes its orphan charts are drawn in, listed
+  // just before the clone so the two lists line up one to one: `clipPage`
+  // counts the clone's with the same function, and a payload's
   // `scriptFigures` index this list. Kept for the scout, which frames the
-  // live elements a capture was offered for (ADR 0039).
-  const figures: Element[] = Array.from(document.querySelectorAll("figure"));
+  // live elements a capture was offered for (ADR 0039, ADR 0044).
+  const figures: Element[] = figureHosts(document);
   // A capture's re-clip: the popup left the pictures to show, keyed by the
   // *previous* run's list. Matched by element rather than by index, so a figure
   // the page added, removed or re-rendered since cannot put one figure's

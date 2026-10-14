@@ -1403,7 +1403,8 @@ const FIGURE_LABEL = "Interactive figure";
  * tag: Readability renames a sibling it appends to the article to `<div>`.
  *
  * Its value is the figure's index among the page's figures as the clip found
- * them, which is how the extension names a figure to capture (ADR 0039).
+ * them (`figureHosts`), which is how the extension names a figure to capture
+ * (ADR 0039).
  */
 const FIGURE_ATTR = "data-tiro-figure";
 
@@ -2276,6 +2277,105 @@ function chartFigure(host: Element): ChartFigure | null {
 }
 
 /**
+ * How much an orphan chart's box may hold beside the drawing and still be the
+ * chart's: GitHub's chart engine puts about 210 characters there — title,
+ * subtitle, legend, the tooltip's rows — and Anthropic's scenario chart 75. A
+ * box with more is the article around the chart.
+ */
+const ORPHAN_TEXT_MAX = 500;
+const ORPHAN_PARAGRAPHS_MAX = 2;
+
+/** What an orphan chart's box never holds outside a drawing: the article's own
+ * structure, and anything that is content in its own right. */
+const ORPHAN_BOUNDARY =
+  "h1, h2, h3, h4, h5, h6, a[href], img, picture, video, audio, iframe, object, embed, canvas, table, pre, blockquote, ul, ol, dl, figure, form, hr";
+
+/** Text outside scripts, styles and drawings: what a box says in words. */
+function textBesideDrawings(node: Node): string {
+  let text = "";
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === child.TEXT_NODE) {
+      text += child.textContent ?? "";
+      continue;
+    }
+    if (child.nodeType !== child.ELEMENT_NODE) continue;
+    const tag = (child as Element).tagName.toUpperCase();
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "SVG") continue;
+    text += textBesideDrawings(child);
+  }
+  return text;
+}
+
+/** True when `box` holds one chart and nothing but what goes with it. */
+function holdsOneChart(box: Element): boolean {
+  if (chartSvgsIn(box).length !== 1) return false;
+  // Inside a drawing, an <a> or an <image> is part of the picture.
+  const boundary = Array.from(box.querySelectorAll(ORPHAN_BOUNDARY));
+  if (boundary.some((element) => element.closest("svg") === null)) {
+    return false;
+  }
+  if (box.querySelectorAll("p").length > ORPHAN_PARAGRAPHS_MAX) return false;
+  return collapsed(textBesideDrawings(box)).length <= ORPHAN_TEXT_MAX;
+}
+
+/**
+ * The box a chart with no `<figure>` round it is drawn in, or `null` when
+ * nothing can be told apart from the article (ADR 0044).
+ *
+ * A chart library mounts into the `<div>` the author left for it — GitHub's
+ * blog renders into `<div id="gh-chart-…" class="ghchart">` — and fills it
+ * with a title, a subtitle, a legend and a tooltip around the `<svg>`. With
+ * no figure to say where the chart ends, the box is found by climbing:
+ * through `<div>`s only, while the box holds this one chart, none of the
+ * article's own structure, and no more words than a chart's chrome; the
+ * outermost such box is the chart's. A `<section>`, an `<article>`, a
+ * heading, a link, a list or a third paragraph is where the article begins.
+ *
+ * Reads structure, attributes and text only — never layout or style — so the
+ * live page and its clone find the same boxes (`figureHosts`).
+ */
+function orphanChartHost(svg: Element): Element | null {
+  let host: Element | null = null;
+  for (
+    let box = svg.parentElement;
+    box !== null && box.tagName.toUpperCase() === "DIV";
+    box = box.parentElement
+  ) {
+    if (!holdsOneChart(box)) break;
+    host = box;
+  }
+  if (host === null) return null;
+  // A box with nothing to say about its chart is not one to describe.
+  const says =
+    svgLabel(svg) !== "" ||
+    figureLabel(host) !== "" ||
+    host.querySelector("p") !== null;
+  return says ? host : null;
+}
+
+/**
+ * Every `<figure>` on the page, and every box an orphan chart is drawn in, in
+ * document order: the list a capture names a figure by (ADR 0039, ADR 0044).
+ *
+ * The extension lists the live page's with this, and the clip its clone's, so
+ * the two have to agree element for element — which is why it reads only
+ * what `cloneNode` copies exactly: structure, attributes and text.
+ */
+export function figureHosts(doc: Document): Element[] {
+  const orphans = new Set<Element>();
+  for (const svg of chartSvgsIn(doc.documentElement)) {
+    if (svg.closest("figure") !== null) continue;
+    const host = orphanChartHost(svg);
+    if (host !== null) orphans.add(host);
+  }
+  if (orphans.size === 0) return Array.from(doc.querySelectorAll("figure"));
+  return Array.from(doc.querySelectorAll("figure, div")).filter(
+    (element) =>
+      element.tagName.toUpperCase() === "FIGURE" || orphans.has(element),
+  );
+}
+
+/**
  * The caption a described chart carries across Readability: one
  * `<figcaption>` of its lines, each moved rather than copied so a link, an id
  * and the marks inside it come along. One block, which is what keeps `zh.md`
@@ -2321,7 +2421,10 @@ function chartCaption(
  * A figure holding a chart drawn as `<svg>` is kept the same way (ADR 0044),
  * its caption built from the prose around the chart (`chartFigure`): a figure
  * the page draws on a canvas is still read as ADR 0039 reads it, and a chart
- * this cannot describe is left for `dropChartSvgs`.
+ * this cannot describe is left for `dropChartSvgs`. So is the box an orphan
+ * chart is drawn in, which then becomes a `<figure>` itself, every attribute
+ * kept: left a `<div>` holding one `<span>`, Readability would replace it
+ * with a paragraph of its own and the marker would be lost with it.
  */
 function keepScriptFiguresThroughReadability(
   doc: Document,
@@ -2336,7 +2439,7 @@ function keepScriptFiguresThroughReadability(
       stale.removeAttribute(attr);
     }
   }
-  for (const figure of Array.from(doc.querySelectorAll("figure"))) {
+  for (const figure of figureHosts(doc)) {
     const index = figures.get(figure);
     const snapshot = index === undefined ? undefined : snapshots.get(index);
     // A figure the reader captured qualified when the capture was offered,
@@ -2346,9 +2449,11 @@ function keepScriptFiguresThroughReadability(
       snapshot !== undefined &&
       SNAPSHOT_ID.test(snapshot) &&
       !insideLink(figure);
-    const drawn = isScriptDrawnFigure(figure);
+    const orphan = figure.tagName.toUpperCase() !== "FIGURE";
+    const drawn = !orphan && isScriptDrawnFigure(figure);
     const chart = drawn ? null : chartFigure(figure);
-    if (!captured && !drawn && chart === null) continue;
+    // An orphan chart's box is a figure only while it can be described.
+    if (chart === null && (orphan || (!captured && !drawn))) continue;
     const caption =
       chart === null
         ? directCaption(figure)
@@ -2368,6 +2473,7 @@ function keepScriptFiguresThroughReadability(
     }
     figure.setAttribute(FIGURE_ATTR, index === undefined ? "" : String(index));
     if (captured) figure.setAttribute(SNAPSHOT_ATTR, snapshot);
+    if (orphan) retagged(figure, "figure", doc);
   }
 }
 
@@ -3195,8 +3301,8 @@ function promoteTableHeaders(doc: Document): void {
 export interface ClipOptions {
   /**
    * Snapshots the reader captured (ADR 0039): a figure's index among the
-   * page's `<figure>`s, in document order as the clip receives them, to the id
-   * of the picture to show it by.
+   * page's figures and orphan charts (`figureHosts`), in document order as the
+   * clip receives them, to the id of the picture to show it by.
    */
   snapshots?: ReadonlyMap<number, string>;
 }
@@ -3215,13 +3321,12 @@ export function prepareForClipping(
   options: ClipOptions = {},
 ): void {
   // Before anything moves or removes one: a figure's index is its place among
-  // the page's figures as they arrived, which is what the extension counts in
-  // the live page it captures from. Moving an element keeps its identity, so
+  // the page's figures, and the boxes its orphan charts are drawn in, as they
+  // arrived (`figureHosts`) — which is what the extension counts in the live
+  // page it captures from. Moving an element keeps its identity, so
   // the map still finds it after `joinSplitArticleBodies`.
   const figures = new Map(
-    Array.from(doc.querySelectorAll("figure")).map(
-      (figure, index) => [figure, index] as const,
-    ),
+    figureHosts(doc).map((figure, index) => [figure, index] as const),
   );
   // First, and order-independent: it changes no structure, only a tag name the
   // passes below have no opinion about.

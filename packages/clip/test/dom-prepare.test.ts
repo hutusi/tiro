@@ -6,6 +6,7 @@ import { clipPage } from "../src/clip-page.ts";
 import {
   ANCHOR_ATTR,
   CODE_LANG_ATTR,
+  figureHosts,
   foldFiguresIn,
   MATH_ATTR,
   PULL_QUOTE_ATTR,
@@ -3757,6 +3758,139 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
     expect(markdown).toContain(
       `| [Interactive figure](${U}): Widget Bench 2.0 Accuracy vs Cost ${FOOTNOTE} | x`,
     );
+  });
+
+  describe("a chart with no figure round it", () => {
+    /** GitHub's blog chart engine, as its line renderer builds one — invented
+     * content in its shape: a title, a rule, a subtitle, a legend in a header,
+     * the plot, and a tooltip the stylesheet alone hides, already filled. */
+    const ghchart = (attrs = "") =>
+      `<div id="gh-chart-demo" class="ghchart" data-gh-rendered="1" ${attrs}>` +
+      '<span class="ghchart__title">Widgets per team</span><div class="ghchart__rule"></div>' +
+      '<p class="ghchart__subtitle">By quarter, 2026. Counts are cumulative.</p>' +
+      '<div class="ghchart__header"><div class="ghchart__legend">' +
+      '<span class="ghchart__legend-item"><span class="ghchart__swatch"></span>Alpha</span>' +
+      '<span class="ghchart__legend-item"><span class="ghchart__swatch"></span>Beta</span></div></div>' +
+      plot(
+        'class="ghchart__plot" role="img" aria-label="Widgets per team line chart"',
+      ) +
+      '<div class="ghchart__tooltip" role="status" data-visible="false"><div class="ghchart__tt-title">Q1</div>' +
+      '<div class="ghchart__tt-row"><span class="ghchart__tt-swatch"></span><span class="ghchart__tt-name">Alpha</span><span class="ghchart__tt-value">3</span></div></div>' +
+      "</div>";
+    const GHCHART = `[Interactive figure](${U}#gh-chart-demo): Widgets per team line chart  \nBy quarter, 2026. Counts are cumulative.`;
+
+    test("the box a chart library drew into is described, its tooltip never published", () => {
+      // Today the plot is deleted and its title, subtitle and the tooltip's
+      // frozen rows — "Q1 / Alpha3" — arrive as paragraphs.
+      const markdown = clip(ghchart());
+      expect(markdown).toContain(GHCHART);
+      expect(isOneBlock(markdown, GHCHART)).toBe(true);
+      for (const chrome of ["Q1", "Alpha", "Beta", "Tick0", "\uE000"]) {
+        expect(markdown).not.toContain(chrome);
+      }
+    });
+
+    test("the box ends where the article's structure begins", () => {
+      const markdown = clip(
+        '<div class="post-body"><h2>Results</h2><p>Every team shipped more widgets than planned this year.</p>' +
+          `${ghchart()}<p>The north team led for the third year running.</p></div>`,
+      );
+      expect(markdown).toContain(GHCHART);
+      expect(markdown).toContain("## Results");
+      expect(markdown).toContain(
+        "Every team shipped more widgets than planned this year.",
+      );
+      expect(markdown).toContain(
+        "The north team led for the third year running.",
+      );
+    });
+
+    test("a paragraph beside the box is the article's, not the chart's", () => {
+      // Anthropic's scenario chart, invented: a title, preset buttons and the
+      // plot in one box, its key and a sentence about it in the next.
+      const SPELL =
+        "As the years pass, jobs in affected occupations decrease while others increase.";
+      const markdown = clip(
+        '<section class="reallocation"><div class="figures"><div class="paper" aria-hidden="true"></div>' +
+          '<p class="chart-title">Where workers are in 2030 (percent of all workers)</p>' +
+          '<div class="toggle" role="group" aria-label="Scenario"><button type="button">Modest</button><button type="button" aria-pressed="true">Substantial</button></div>' +
+          `<div class="figure"><div class="chart-wrap">${plot('role="img" aria-label="the share of all workers in each place"')}</div></div></div>` +
+          `<div class="figure"><p class="spell">${SPELL}</p></div></section>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): the share of all workers in each place  \nWhere workers are in 2030 (percent of all workers)`,
+      );
+      expect(isOneBlock(markdown, SPELL)).toBe(true);
+      expect(markdown).not.toContain("Modest");
+    });
+
+    test("a third paragraph is the article around the chart", () => {
+      const markdown = clip(
+        '<div class="wrap"><p>First point about widgets.</p><p>Second point about widgets.</p>' +
+          `<p>Third point about widgets.</p><div class="chart">${plot('role="img" aria-label="Widgets"')}</div></div>`,
+      );
+      expect(markdown).toContain(`[Interactive figure](${U}): Widgets\n`);
+      for (const n of ["First", "Second", "Third"]) {
+        expect(markdown).toContain(`${n} point about widgets.`);
+      }
+    });
+
+    test.each([
+      ["with nothing to say", `<div class="chart">${plot("")}</div>`],
+      [
+        "under a heading in its own box",
+        `<div><h3>Sales</h3>${plot('aria-label="Sales"')}</div>`,
+      ],
+      [
+        "loose in a section",
+        `<section>${plot('aria-label="Sales"')}<p>Sales rose.</p></section>`,
+      ],
+    ])("a chart %s is deleted, as today", (_name, markup) => {
+      const markdown = clip(markup);
+      expect(markdown).not.toContain("Interactive figure");
+      expect(markdown).not.toContain("Tick0");
+    });
+
+    test("a chart the page hid stays hidden", () => {
+      for (const markup of [
+        ghchart("hidden"),
+        `<div style="display: none">${ghchart()}</div>`,
+      ]) {
+        const markdown = clip(markup);
+        expect(markdown).not.toContain("Interactive figure");
+        expect(markdown).not.toContain("By quarter");
+      }
+    });
+
+    test("a link to the chart keeps its target", () => {
+      const markdown = clip(
+        `<p>See <a href="#gh-chart-demo">the chart</a>.</p>${ghchart()}`,
+      );
+      expect(markdown).toContain(`<span id="gh-chart-demo"></span>${GHCHART}`);
+    });
+
+    test("figures and orphan charts are listed in document order, the same on a clone", () => {
+      // The extension lists the live page's, and the clip its clone's: a
+      // capture finds its figure only if the two agree.
+      const doc = docFrom(
+        `<figure id="a"><img src="/a.jpg"></figure>${ghchart()}<figure id="c"><canvas></canvas></figure>`,
+      );
+      const ids = figureHosts(doc).map((element) => element.id);
+      expect(ids).toEqual(["a", "gh-chart-demo", "c"]);
+      const clone = doc.cloneNode(true) as Document;
+      expect(figureHosts(clone).map((element) => element.id)).toEqual(ids);
+    });
+
+    test("an orphan chart is offered and captured by its place among the figures", () => {
+      const ID = "3f9a0c1b2d4e";
+      const markup = `<figure><img src="/a.jpg" alt="A"><figcaption>A.</figcaption></figure>${ghchart()}<figure id="frontier"><canvas></canvas></figure>`;
+      expect(capture(markup, []).scriptFigures).toEqual([1, 2]);
+      const result = capture(markup, [[1, ID]]);
+      expect(result.markdown).toContain(
+        `[![Widgets per team line chart](./assets/${ID}.webp)](${U}#gh-chart-demo)  \nBy quarter, 2026. Counts are cumulative.`,
+      );
+      expect(result.snapshots).toEqual([ID]);
+    });
   });
 
   describe("captured", () => {

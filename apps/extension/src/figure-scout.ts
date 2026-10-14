@@ -30,8 +30,9 @@ export type FrameResult =
 /** What the clipper leaves in the isolated world, and the scout keeps there
  * between its calls. */
 export interface FigureScope {
-  /** The page's `<figure>`s as the last clip found them, in document order:
-   * the list a payload's `scriptFigures` indexes. Set by `clipper.js`. */
+  /** The page's figures, and the boxes its orphan charts are drawn in
+   * (`figureHosts`), as the last clip found them, in document order: the list
+   * a payload's `scriptFigures` indexes. Set by `clipper.js`. */
   __tiroFigures?: Element[];
   /** Read and cleared by the next `clipper.js` run (`setSnapshotRequest`). */
   __tiroSnapshotRequest?: SnapshotRequest;

@@ -22,9 +22,10 @@ export interface ClipPayload {
    * still one fetch away. */
   markdownSource: boolean;
   /**
-   * The figures the page draws with script that reached the article, each by
-   * its index among the page's `<figure>`s (ADR 0039) — what the popup can
-   * offer to capture. Absent where no page was clipped: a PDF, a markdown
+   * The figures the page draws with script, and the charts it draws as
+   * `<svg>`, that reached the article, each by its index among the page's
+   * figures and orphan charts (`figureHosts`; ADR 0039, ADR 0044) — what the
+   * popup can offer to capture. Absent where no page was clipped: a PDF, a markdown
    * file, a Hacker News thread.
    */
   scriptFigures?: number[];
