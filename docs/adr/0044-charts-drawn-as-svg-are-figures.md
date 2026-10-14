@@ -100,8 +100,9 @@ A Latin full stop also needs a space in the run, so "approx." stays a label.
 A full-width stop (`。！？`) does not, because Chinese and Japanese write no
 spaces: "所有地区的销售额均有所增长。" is a sentence.
 
-A run is read whole, formatting and all: "Sales exclude <strong>returns
-</strong>." is no sentence node by node. A paragraph holding swatches is
+A run is read whole, across the inline elements it is set in, `<span>`
+included: "Sales exclude <strong>returns</strong>." and "<span>Sales
+rose</span> sharply." are no sentences node by node. A paragraph holding swatches is
 likewise judged on all its words together. There, length counts as well: a
 legend long enough to pass for prose is published as it is today, while a
 sentence taken for a legend would be lost.
@@ -117,9 +118,19 @@ block, so `zh.md` stays aligned.
   a target inside it would go with it. ADR 0039's caption, said once when it
   repeats the label, follows the same rule.
 - **What Readability would hide stays hidden.** A line is rebuilt from its
-  children, so its own attributes never reach Readability. A line it would
-  remove (`hidden`, `aria-hidden`, a hiding class) is left out here instead,
-  its id with it, as Readability would have removed it.
+  children, out of Readability's sight, so it is settled here as reading it
+  in place would have:
+  - A line Readability would remove (`hidden`, `aria-hidden`, a hiding class)
+    is left out, its id with it.
+  - So is anything inside one, at any depth.
+  - Only then is a drawing inside a link turned into the words that are its
+    label, so a label the page hid stays hidden.
+  - Breaks at either end of a line go.
+- **Judged as published, checked whole.** Whether a line is empty or repeats
+  the label is judged on the settled line: one that was only an icon is empty
+  once the icon goes. The caption is then checked as `chartCaption` will build
+  it, all lines and separators together, since lines that each hold together
+  can still put two breaks side by side and end the block.
 - **No other target is lost.** The id of a caption set as lines of its
   children, and of a line said once or with no words, is kept on an empty
   element at the head of the caption, so a link to it lands on this block.

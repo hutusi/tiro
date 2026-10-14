@@ -2016,10 +2016,11 @@ function readsAsProse(text: string): boolean {
 
 /**
  * Inline elements a sentence is set across: `Sales exclude <strong>returns
- * </strong>.` is one sentence in three nodes, and no one of them reads as one.
- * Not `<span>`, which a chart uses as a box as often as a run of words.
+ * </strong>.` and `<span>Sales rose</span> sharply.` are each one sentence in
+ * several nodes, and no one of them reads as one.
  */
 const SENTENCE_INLINE: ReadonlySet<string> = new Set([
+  "SPAN",
   "B",
   "STRONG",
   "I",
@@ -2034,20 +2035,29 @@ const SENTENCE_INLINE: ReadonlySet<string> = new Set([
   "BDO",
 ]);
 
-/** The words set directly in `element`: its own text, and the text of the
- * formatting inside it — the run a sentence would be. */
+/**
+ * The words set directly in `element`, run together as a reader meets them:
+ * its own text and the inline elements around it — less what is chrome, a
+ * drawing, or a box of words that is a caption line of its own. The run a
+ * sentence would be.
+ */
 function runText(element: Element): string {
   let text = "";
   for (const child of Array.from(element.childNodes)) {
     if (child.nodeType === child.TEXT_NODE) {
       text += child.textContent ?? "";
-    } else if (
-      child.nodeType === child.ELEMENT_NODE &&
-      SENTENCE_INLINE.has((child as Element).tagName.toUpperCase()) &&
-      !readabilityRemoves(child as Element)
-    ) {
-      text += textBesideDrawings(child);
+      continue;
     }
+    if (child.nodeType !== child.ELEMENT_NODE) continue;
+    const node = child as Element;
+    if (
+      !SENTENCE_INLINE.has(node.tagName.toUpperCase()) ||
+      isChartChrome(node) ||
+      isCaptionBox(node)
+    ) {
+      continue;
+    }
+    text += runText(node);
   }
   return text;
 }
@@ -2090,13 +2100,25 @@ function carriesMoreThanText(element: Element): boolean {
 }
 
 /**
- * Settle the drawings in one caption line, for a paragraph to hold. An icon is
- * chrome, as everywhere else in a chart's host, and goes. One inside a link is
- * that link's label — `<a><svg><text>Source data</text></svg></a>` — and
- * becomes the words Turndown would have read out of it, or the link is left
- * with nothing to say. False, changing nothing, when the line holds a chart.
+ * Settle one caption line as the article would have it, for a paragraph to
+ * hold. A line is rebuilt from its children, out of Readability's sight, so
+ * this does what reading it in place would have:
+ *
+ * - **What Readability would remove goes** — hidden, or named or cast as
+ *   furniture — at any depth, and first.
+ * - **An icon goes**, as everywhere else in a chart's host.
+ * - **A drawing inside a link is that link's label** — `<a><svg><text>Source
+ *   data</text></svg></a>` — and becomes the words Turndown would have read
+ *   out of it. After the first step, so a label the page hid stays hidden.
+ * - **Breaks at either end go**: the line beside it brings its own, and two
+ *   together end the block.
+ *
+ * False when the line holds a chart, which is no caption.
  */
-function settleLineDrawings(line: Element): boolean {
+function settleLine(line: Element): boolean {
+  for (const element of Array.from(line.querySelectorAll("*"))) {
+    if (line.contains(element) && readabilityRemoves(element)) element.remove();
+  }
   const drawings = Array.from(line.querySelectorAll("svg"));
   if (drawings.some(isChartSvg)) return false;
   for (const svg of drawings) {
@@ -2105,7 +2127,26 @@ function settleLineDrawings(line: Element): boolean {
     if (svg.closest("a") === null) svg.remove();
     else svg.replaceWith(collapsed(svg.textContent));
   }
+  const blank = (node: ChildNode | null): node is ChildNode =>
+    node !== null &&
+    (node.nodeName === "BR" ||
+      (node.nodeType === node.TEXT_NODE && collapsed(node.textContent) === ""));
+  while (blank(line.firstChild)) line.firstChild.remove();
+  while (blank(line.lastChild)) line.lastChild.remove();
   return true;
+}
+
+/** `source`'s children, moved into a `<span>` and settled: one caption line. */
+function captionLine(doc: Document, source: Element, move: boolean): Element {
+  const line = doc.createElement("span");
+  if (move) {
+    while (source.firstChild !== null) line.appendChild(source.firstChild);
+  } else {
+    for (const child of Array.from(source.childNodes)) {
+      line.appendChild(child.cloneNode(true));
+    }
+  }
+  return line;
 }
 
 /** What draws or works a chart rather than describing it: controls, the
@@ -2189,6 +2230,28 @@ const CHART_LAYOUT: ReadonlySet<string> = new Set([
   "BR",
   "WBR",
 ]);
+
+/** True when `node` is a chart's chrome: a control, a live readout, or what
+ * Readability would have removed. */
+function isChartChrome(node: Element): boolean {
+  return (
+    readabilityRemoves(node) ||
+    CHART_CHROME.has(node.tagName.toUpperCase()) ||
+    CHART_CHROME_ROLES.has(node.getAttribute("role") ?? "") ||
+    node.hasAttribute("aria-live")
+  );
+}
+
+/** True when `node` is a box of words a caption line is taken from: prose,
+ * set in nothing a paragraph cannot hold. */
+function isCaptionBox(node: Element): boolean {
+  const tag = node.tagName.toUpperCase();
+  return (
+    (tag === "DIV" || tag === "SPAN") &&
+    readsAsProse(collapsed(node.textContent)) &&
+    isFoldableContent(node)
+  );
+}
 
 /** Readability's `UNLIKELY_ROLES` (`Readability.js:177`): a region it removes
  * before scoring, whatever it holds. */
@@ -2344,11 +2407,7 @@ function chartFigure(host: Element): ChartFigure | null {
         continue;
       }
       if (!CHART_LAYOUT.has(tag) && !tag.includes("-")) return false;
-      if (
-        (tag === "DIV" || tag === "SPAN") &&
-        readsAsProse(collapsed(node.textContent)) &&
-        isFoldableContent(node)
-      ) {
+      if (isCaptionBox(node)) {
         pieces.push(node);
         continue;
       }
@@ -2361,7 +2420,10 @@ function chartFigure(host: Element): ChartFigure | null {
     figureLabel(host) ||
     joinedLabels([...new Set(shown.map(svgLabel).filter((l) => l !== ""))]);
   const said = new Set([label, ...shown.map(svgLabel)]);
+  const doc = host.ownerDocument;
+  const inCell = host.closest("td, th") !== null;
   const lines: Element[] = [];
+  const settled: Element[] = [];
   const targets: string[] = [];
   const keepTarget = (element: Element): void => {
     const id = element.getAttribute("id");
@@ -2377,24 +2439,38 @@ function chartFigure(host: Element): ChartFigure | null {
       // there for Readability to read: one it would remove goes here, id and
       // all, as Readability would have removed it.
       if (readabilityRemoves(source)) continue;
-      const text = collapsed(source.textContent);
+      // Judged as it will be published, not as it stands: a line that is
+      // only an icon is empty once the icon goes.
+      const line = captionLine(doc, source, false);
+      // A chart in a line is not a caption.
+      if (!settleLine(line)) return null;
+      const text = collapsed(line.textContent);
       // Empty, it would put two breaks together and end the block. Said once,
       // it only repeats what the link already says — unless a link or a
       // target inside it would go with it. Either way, its id stays.
-      if (text === "" || (said.has(text) && !carriesMoreThanText(source))) {
+      if (text === "" || (said.has(text) && !carriesMoreThanText(line))) {
         keepTarget(source);
         continue;
       }
       lines.push(source);
+      settled.push(line);
     }
   }
-  for (const source of lines) {
-    const line = source.cloneNode(true) as Element;
-    // A chart in a line is not a caption.
-    if (!settleLineDrawings(line)) return null;
-    if (!isFoldableContent(line) || !breaksAreSafe(line)) return null;
+  // The caption as `chartCaption` will build it, checked whole: lines that
+  // each hold together can still end the block beside one another.
+  const composed = doc.createElement("span");
+  for (const [index, line] of settled.entries()) {
+    if (index > 0) composed.appendChild(lineSeparator(doc, inCell));
+    composed.appendChild(line);
   }
+  if (!isFoldableContent(composed) || !breaksAreSafe(composed)) return null;
   return { label, lines, targets };
+}
+
+/** What stands between two caption lines: a break, or a space in a table
+ * cell, where a break would end the row. */
+function lineSeparator(doc: Document, inCell: boolean): Node {
+  return inCell ? doc.createTextNode(" ") : doc.createElement("br");
 }
 
 /**
@@ -2517,16 +2593,11 @@ function chartCaption(
     caption.appendChild(target);
   }
   for (const [index, source] of chart.lines.entries()) {
-    if (index > 0) {
-      caption.appendChild(
-        inCell ? doc.createTextNode(" ") : doc.createElement("br"),
-      );
-    }
-    const line = doc.createElement("span");
+    if (index > 0) caption.appendChild(lineSeparator(doc, inCell));
+    const line = captionLine(doc, source, true);
     const id = source.getAttribute("id");
     if (id !== null) line.setAttribute("id", id);
-    while (source.firstChild !== null) line.appendChild(source.firstChild);
-    settleLineDrawings(line);
+    settleLine(line);
     caption.appendChild(line);
   }
   return caption;

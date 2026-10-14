@@ -3752,6 +3752,56 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
       );
     });
 
+    test("a drawing the page hid inside a caption link stays hidden", () => {
+      for (const drawing of [
+        "<svg hidden><text>Secret</text></svg>",
+        '<svg aria-hidden="true"><text>Secret</text></svg>',
+        '<svg><text aria-hidden="true">Secret</text></svg>',
+      ]) {
+        const markdown = clip(
+          `<figure>${plot('aria-label="Sales"')}<figcaption>By region. <a href="/source">${drawing}Source</a></figcaption></figure>`,
+        );
+        expect(markdown).toContain(
+          `[Interactive figure](${U}): Sales  \nBy region. [Source](https://charts.example/source)`,
+        );
+        expect(markdown).not.toContain("Secret");
+      }
+    });
+
+    test("a sentence set across a span loose beside a chart is not lost", () => {
+      expect(
+        clip(
+          `<figure>${plot('aria-label="Sales"')}<span>Sales rose</span> sharply.</figure>`,
+        ),
+      ).toContain("Sales rose sharply.");
+    });
+
+    test("a line that was only an icon leaves no gap, captured or not", () => {
+      const icon =
+        '<svg viewBox="0 0 8 8"><title>Info</title><circle r="4"></circle></svg>';
+      const markup = `<figure>${plot('aria-label="Sales"')}<figcaption><span>${icon}</span><span>By region.</span></figcaption></figure>`;
+      const described = `[Interactive figure](${U}): Sales  \nBy region.`;
+      const markdown = clip(markup);
+      expect(isOneBlock(markdown, described)).toBe(true);
+      const ID = "3f9a0c1b2d4e";
+      const pictured = `[![Sales](./assets/${ID}.webp)](${U})  \nBy region.`;
+      expect(isOneBlock(capture(markup, [[0, ID]]).markdown, pictured)).toBe(
+        true,
+      );
+    });
+
+    test("a line ending in a break does not end the block", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<figcaption><span>By region.<br></span><span>Source: the ledger.</span></figcaption></figure>`,
+      );
+      expect(
+        isOneBlock(
+          markdown,
+          `[Interactive figure](${U}): Sales  \nBy region.  \nSource: the ledger.`,
+        ),
+      ).toBe(true);
+    });
+
     test("a caption's target survives a hidden first line", () => {
       const markdown = clip(
         `<p>See <a href="#cap">the caption</a>.</p><figure>${plot('aria-label="Sales"')}<figcaption id="cap"><span hidden>Hidden</span><span>Visible</span></figcaption></figure>`,
