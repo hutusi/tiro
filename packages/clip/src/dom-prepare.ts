@@ -2014,16 +2014,66 @@ function readsAsProse(text: string): boolean {
   );
 }
 
-/** True when any run of text in `element`, outside its drawings, reads as
- * prose (`readsAsProse`). */
+/**
+ * Inline elements a sentence is set across: `Sales exclude <strong>returns
+ * </strong>.` is one sentence in three nodes, and no one of them reads as one.
+ * Not `<span>`, which a chart uses as a box as often as a run of words.
+ */
+const SENTENCE_INLINE: ReadonlySet<string> = new Set([
+  "B",
+  "STRONG",
+  "I",
+  "EM",
+  "SMALL",
+  "SUB",
+  "SUP",
+  "ABBR",
+  "TIME",
+  "MARK",
+  "BDI",
+  "BDO",
+]);
+
+/** The words set directly in `element`: its own text, and the text of the
+ * formatting inside it — the run a sentence would be. */
+function runText(element: Element): string {
+  let text = "";
+  for (const child of Array.from(element.childNodes)) {
+    if (child.nodeType === child.TEXT_NODE) {
+      text += child.textContent ?? "";
+    } else if (
+      child.nodeType === child.ELEMENT_NODE &&
+      SENTENCE_INLINE.has((child as Element).tagName.toUpperCase()) &&
+      !readabilityRemoves(child as Element)
+    ) {
+      text += textBesideDrawings(child);
+    }
+  }
+  return text;
+}
+
+/**
+ * True when `element` holds a sentence outside its drawings: all its words
+ * together read as prose, or one run of them does on its own. Together,
+ * because a sentence set in several elements reads as one only whole; and
+ * length counts there too, since a legend long enough to pass for prose is
+ * published as it is today, while a sentence taken for a legend is lost.
+ */
 function holdsProse(element: Element): boolean {
+  return (
+    readsAsProse(collapsed(textBesideDrawings(element))) ||
+    holdsProseRun(element)
+  );
+}
+
+function holdsProseRun(element: Element): boolean {
   for (const child of Array.from(element.childNodes)) {
     if (child.nodeType === child.TEXT_NODE) {
       if (readsAsProse(collapsed(child.textContent))) return true;
     } else if (
       child.nodeType === child.ELEMENT_NODE &&
       (child as Element).tagName.toUpperCase() !== "SVG" &&
-      holdsProse(child as Element)
+      holdsProseRun(child as Element)
     ) {
       return true;
     }
@@ -2031,10 +2081,31 @@ function holdsProse(element: Element): boolean {
   return false;
 }
 
-/** True when `element` carries more than words: a link, or an id something
- * may point at. Saying such a line once would lose what it carries. */
+/** True when `element` carries more than words: a link, or an id or name
+ * something may point at. Saying such a line once would lose what it carries. */
 function carriesMoreThanText(element: Element): boolean {
-  return element.querySelector(`a[href], [id], [${ANCHOR_ATTR}]`) !== null;
+  return (
+    element.querySelector(`a[href], a[name], [id], [${ANCHOR_ATTR}]`) !== null
+  );
+}
+
+/**
+ * Settle the drawings in one caption line, for a paragraph to hold. An icon is
+ * chrome, as everywhere else in a chart's host, and goes. One inside a link is
+ * that link's label — `<a><svg><text>Source data</text></svg></a>` — and
+ * becomes the words Turndown would have read out of it, or the link is left
+ * with nothing to say. False, changing nothing, when the line holds a chart.
+ */
+function settleLineDrawings(line: Element): boolean {
+  const drawings = Array.from(line.querySelectorAll("svg"));
+  if (drawings.some(isChartSvg)) return false;
+  for (const svg of drawings) {
+    // Inside one already settled.
+    if (!line.contains(svg)) continue;
+    if (svg.closest("a") === null) svg.remove();
+    else svg.replaceWith(collapsed(svg.textContent));
+  }
+  return true;
 }
 
 /** What draws or works a chart rather than describing it: controls, the
@@ -2152,10 +2223,15 @@ function readabilityRemoves(element: Element): boolean {
 }
 
 /** What a chart host comes to: what it shows, by the page's own words, and
- * the elements its caption's lines are taken from, in reading order. */
+ * its caption. */
 interface ChartFigure {
   label: string;
-  lines: { source: Element; id: string | null }[];
+  /** The elements the caption's lines are taken from, in reading order. */
+  lines: Element[];
+  /** Ids no line carries — a caption piece's own, or a line's said once —
+   * which a link may still point at. Kept empty at the head of the caption,
+   * so such a link lands on the block that stands for them. */
+  targets: string[];
 }
 
 /**
@@ -2163,30 +2239,15 @@ interface ChartFigure {
  * two boxes the stylesheet stacks — Anthropic's `Terminal-Bench 4.0` over
  * `Accuracy vs Cost` — and run together as one line they read as one word.
  */
-function captionLines(piece: Element): ChartFigure["lines"] {
+function captionLines(piece: Element): Element[] {
   const children = meaningfulChildren(piece);
   const [only] = children;
   // A caption marked up as one paragraph, the shape `captionSource` unwraps.
-  if (children.length === 1 && only?.nodeName === "P") {
-    const paragraph = only as Element;
-    return [
-      {
-        source: paragraph,
-        id: paragraph.getAttribute("id") ?? piece.getAttribute("id"),
-      },
-    ];
-  }
+  if (children.length === 1 && only?.nodeName === "P") return [only as Element];
   const stacked =
     children.length >= 2 &&
     children.every((node) => ["SPAN", "DIV", "P"].includes(node.nodeName));
-  if (!stacked) return [{ source: piece, id: piece.getAttribute("id") }];
-  // The piece's own id goes with its first line, where a link to it lands.
-  return (children as Element[]).map((child, index) => ({
-    source: child,
-    id:
-      child.getAttribute("id") ??
-      (index === 0 ? piece.getAttribute("id") : null),
-  }));
+  return stacked ? (children as Element[]) : [piece];
 }
 
 /**
@@ -2233,10 +2294,13 @@ function chartFigure(host: Element): ChartFigure | null {
   const shown: Element[] = [];
   const pieces: Element[] = [];
   const read = (element: Element): boolean => {
+    // A sentence loose beside a chart is the author's, and has no paragraph
+    // to be carried in: leave the host as it is. Read whole, since a sentence
+    // set across <b> and <em> is no sentence node by node.
+    if (readsAsProse(collapsed(runText(element)))) return false;
     for (const child of Array.from(element.childNodes)) {
       if (child.nodeType === child.TEXT_NODE) {
-        // A sentence loose beside a chart is the author's, and has no
-        // paragraph to be carried in: leave the host as it is.
+        // And one node of it alone, ahead of a label it runs into.
         if (readsAsProse(collapsed(child.textContent))) return false;
         continue;
       }
@@ -2297,29 +2361,40 @@ function chartFigure(host: Element): ChartFigure | null {
     figureLabel(host) ||
     joinedLabels([...new Set(shown.map(svgLabel).filter((l) => l !== ""))]);
   const said = new Set([label, ...shown.map(svgLabel)]);
-  const lines = pieces.flatMap(captionLines).filter(({ source, id }) => {
-    // A line is rebuilt from its children, so its own attributes are not
-    // there for Readability to read: one it would remove goes here.
-    if (readabilityRemoves(source)) return false;
-    const text = collapsed(source.textContent);
-    // Empty, it would put two breaks together, and end the block.
-    if (text === "") return false;
-    // Said once: a line that only repeats what the link already says — unless
-    // it carries a link, or an id something may point at.
-    if (id !== null || carriesMoreThanText(source)) return true;
-    return !said.has(text);
-  });
-  for (const { source } of lines) {
-    // An icon in a line is chrome, as it is everywhere else in the host, and
-    // `chartCaption` drops it; a chart in one is not a caption.
-    const line = source.cloneNode(true) as Element;
-    for (const svg of Array.from(line.querySelectorAll("svg"))) {
-      if (isChartSvg(svg)) return null;
-      svg.remove();
+  const lines: Element[] = [];
+  const targets: string[] = [];
+  const keepTarget = (element: Element): void => {
+    const id = element.getAttribute("id");
+    if (id !== null) targets.push(id);
+  };
+  for (const piece of pieces) {
+    const sources = captionLines(piece);
+    // A piece set as lines of its children is no line itself; its id is not
+    // to be lost with it.
+    if (!sources.includes(piece)) keepTarget(piece);
+    for (const source of sources) {
+      // A line is rebuilt from its children, so its own attributes are not
+      // there for Readability to read: one it would remove goes here, id and
+      // all, as Readability would have removed it.
+      if (readabilityRemoves(source)) continue;
+      const text = collapsed(source.textContent);
+      // Empty, it would put two breaks together and end the block. Said once,
+      // it only repeats what the link already says — unless a link or a
+      // target inside it would go with it. Either way, its id stays.
+      if (text === "" || (said.has(text) && !carriesMoreThanText(source))) {
+        keepTarget(source);
+        continue;
+      }
+      lines.push(source);
     }
+  }
+  for (const source of lines) {
+    const line = source.cloneNode(true) as Element;
+    // A chart in a line is not a caption.
+    if (!settleLineDrawings(line)) return null;
     if (!isFoldableContent(line) || !breaksAreSafe(line)) return null;
   }
-  return { label, lines };
+  return { label, lines, targets };
 }
 
 /**
@@ -2424,27 +2499,34 @@ export function figureHosts(doc: Document): Element[] {
 /**
  * The caption a described chart carries across Readability: one
  * `<figcaption>` of its lines, each moved rather than copied so a link, an id
- * and the marks inside it come along. One block, which is what keeps `zh.md`
- * aligned (ADR 0003): lines are separated by a break, or by a space in a table
- * cell, where a break would end the row.
+ * and the marks inside it come along, behind an empty element for each target
+ * no line carries. One block, which is what keeps `zh.md` aligned (ADR 0003):
+ * lines are separated by a break, or by a space in a table cell, where a break
+ * would end the row.
  */
 function chartCaption(
   doc: Document,
-  lines: ChartFigure["lines"],
+  chart: ChartFigure,
   inCell: boolean,
 ): Element | null {
-  if (lines.length === 0) return null;
+  if (chart.lines.length === 0 && chart.targets.length === 0) return null;
   const caption = doc.createElement("figcaption");
-  for (const [index, { source, id }] of lines.entries()) {
+  for (const id of chart.targets) {
+    const target = doc.createElement("span");
+    target.setAttribute("id", id);
+    caption.appendChild(target);
+  }
+  for (const [index, source] of chart.lines.entries()) {
     if (index > 0) {
       caption.appendChild(
         inCell ? doc.createTextNode(" ") : doc.createElement("br"),
       );
     }
     const line = doc.createElement("span");
+    const id = source.getAttribute("id");
     if (id !== null) line.setAttribute("id", id);
     while (source.firstChild !== null) line.appendChild(source.firstChild);
-    for (const icon of Array.from(line.querySelectorAll("svg"))) icon.remove();
+    settleLineDrawings(line);
     caption.appendChild(line);
   }
   return caption;
@@ -2509,7 +2591,7 @@ function keepScriptFiguresThroughReadability(
     const caption =
       chart === null
         ? directCaption(figure)
-        : chartCaption(doc, chart.lines, figure.closest("td, th") !== null);
+        : chartCaption(doc, chart, figure.closest("td, th") !== null);
     for (const child of Array.from(figure.childNodes)) {
       if (child !== caption) figure.removeChild(child);
     }
@@ -2676,6 +2758,15 @@ export function scriptFiguresIn(
     const anchors = [figure, caption]
       .map((element) => element?.getAttribute(ANCHOR_ATTR) ?? "")
       .filter((value) => value !== "");
+    // A caption said once, or with no words, is dropped, but a target in it
+    // is still the end of a link: it goes where the text now is.
+    if (captionUsed && caption !== null) {
+      for (const left of Array.from(
+        caption.querySelectorAll(`[${ANCHOR_ATTR}]`),
+      )) {
+        anchors.push(left.getAttribute(ANCHOR_ATTR) ?? "");
+      }
+    }
     if (anchors.length > 0) {
       paragraph.setAttribute(ANCHOR_ATTR, anchors.join(" "));
     }

@@ -3726,6 +3726,49 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
       expect(markdown).not.toContain("Info");
     });
 
+    test("a sentence set in several elements is still a sentence, beside an icon", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<p><svg viewBox="0 0 8 8"><circle r="4"></circle></svg>Sales exclude <strong>returns and cancelled orders</strong>.</p></figure>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): Sales  \nSales exclude **returns and cancelled orders**.`,
+      );
+    });
+
+    test("a sentence set in several elements loose beside a chart is not lost", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<b>Sales rose</b> sharply.</figure>`,
+      );
+      expect(markdown).toContain("**Sales rose** sharply.");
+    });
+
+    test("a link whose label is painted in an svg keeps its label", () => {
+      expect(
+        clip(
+          `<figure>${plot('aria-label="Sales"')}<figcaption>By region. <a href="/source"><svg><text>Source data</text></svg></a></figcaption></figure>`,
+        ),
+      ).toContain(
+        `[Interactive figure](${U}): Sales  \nBy region. [Source data](https://charts.example/source)`,
+      );
+    });
+
+    test("a caption's target survives a hidden first line", () => {
+      const markdown = clip(
+        `<p>See <a href="#cap">the caption</a>.</p><figure>${plot('aria-label="Sales"')}<figcaption id="cap"><span hidden>Hidden</span><span>Visible</span></figcaption></figure>`,
+      );
+      expect(markdown).toContain('<span id="cap"></span>');
+      expect(markdown).not.toContain("Hidden");
+    });
+
+    test("a caption's target survives when nothing of it is left to say", () => {
+      const markdown = clip(
+        `<p>See <a href="#cap">the caption</a>.</p><figure>${plot('aria-label="Sales"')}<figcaption id="cap">Sales</figcaption></figure>`,
+      );
+      expect(markdown).toContain('<span id="cap"></span>');
+      // Said once: the target is kept without the words.
+      expect(markdown.split("Sales")).toHaveLength(2);
+    });
+
     test("a short Chinese sentence is prose, not a label", () => {
       const markdown = clip(
         `<figure>${plot('aria-label="销售额"')}<div>所有地区的销售额均有所增长。</div></figure>`,

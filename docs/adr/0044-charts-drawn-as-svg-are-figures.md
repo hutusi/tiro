@@ -88,7 +88,7 @@ Inside the host:
 | | What |
 |---|---|
 | **Kept, as the caption** | every `<figcaption>` at any depth; every `<p>`, unless it holds swatches and no sentence (that is a legend); a `<div>` or `<span>` of inline text that reads as prose |
-| **Dropped** | controls; live readouts (`role="status"`, `tooltip`, `tab`, `toolbar`, `group`, `aria-live`); anything hidden; anything Readability would remove before reading (its unlikely-candidate names and roles); swatches and icons, in a caption line too; any run of text that reads as a label |
+| **Dropped** | controls; live readouts (`role="status"`, `tooltip`, `tab`, `toolbar`, `group`, `aria-live`); anything hidden; anything Readability would remove before reading (its unlikely-candidate names and roles); swatches and icons, in a caption line too (one inside a link is that link's label, and is kept as its words); any run of text that reads as a label |
 | **Leaves the host as it converts today** | anything else: a picture, a table, a heading, a quotation, code, math, a link outside the caption, a sentence loose beside the chart, an element nobody has considered |
 
 **A label versus prose.** A run is prose if it is longer than 80 characters
@@ -100,6 +100,12 @@ A Latin full stop also needs a space in the run, so "approx." stays a label.
 A full-width stop (`。！？`) does not, because Chinese and Japanese write no
 spaces: "所有地区的销售额均有所增长。" is a sentence.
 
+A run is read whole, formatting and all: "Sales exclude <strong>returns
+</strong>." is no sentence node by node. A paragraph holding swatches is
+likewise judged on all its words together. There, length counts as well: a
+legend long enough to pass for prose is published as it is today, while a
+sentence taken for a legend would be lost.
+
 **The block.** It is ADR 0039's: `[Interactive figure](page#id): label`, then
 the caption, its lines separated by breaks (spaces in a table cell). It is one
 block, so `zh.md` stays aligned.
@@ -107,13 +113,18 @@ block, so `zh.md` stays aligned.
 - **Stacked boxes split into lines.** A caption made of two or more
   `<span>`/`<div>`/`<p>` children is one line each, which un-glues "Terminal-Bench
   4.0" from "Accuracy vs Cost".
-- **Said once.** A line that repeats the label is dropped, unless it carries
-  a link or an id something may point at; dropping those would lose the link
-  or break the link to it. ADR 0039's caption, said once when it repeats the
-  label, follows the same rule.
+- **Said once.** A line that repeats the label is dropped, unless a link or
+  a target inside it would go with it. ADR 0039's caption, said once when it
+  repeats the label, follows the same rule.
 - **What Readability would hide stays hidden.** A line is rebuilt from its
   children, so its own attributes never reach Readability. A line it would
-  remove (`hidden`, `aria-hidden`, a hiding class) is left out here instead.
+  remove (`hidden`, `aria-hidden`, a hiding class) is left out here instead,
+  its id with it, as Readability would have removed it.
+- **No other target is lost.** The id of a caption set as lines of its
+  children, and of a line said once or with no words, is kept on an empty
+  element at the head of the caption, so a link to it lands on this block.
+  If no words are left at all, the target goes to the paragraph itself;
+  `scriptFiguresIn` does that for any caption it drops.
 
 **The label.** The host's own `aria-label` or `title`. Else the charts' own
 names, each `<svg>`'s `aria-label` or `<title>`, joined. These ride across
