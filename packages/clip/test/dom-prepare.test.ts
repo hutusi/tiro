@@ -3802,6 +3802,61 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
       ).toBe(true);
     });
 
+    test("a linked drawing's label is its words, not its stylesheet", () => {
+      // Built node by node: happy-dom's HTML parser drops everything after a
+      // <style> inside an <svg>, which a browser does not.
+      const window = new Window({ url: PAGE });
+      const doc = window.document as unknown as Document;
+      doc.body.innerHTML = `<article><h1>Report</h1>${filler}<figure>${plot('aria-label="Sales"')}<figcaption>By region. <a href="/source"></a></figcaption></figure>${filler}</article>`;
+      const SVG = "http://www.w3.org/2000/svg";
+      const drawing = doc.createElementNS(SVG, "svg");
+      const style = doc.createElementNS(SVG, "style");
+      style.textContent = ".data-label { fill: red; }";
+      const label = doc.createElementNS(SVG, "text");
+      label.setAttribute("class", "data-label");
+      label.textContent = "Source data";
+      drawing.append(style, label);
+      doc.querySelector('a[href="/source"]')?.appendChild(drawing);
+      const markdown = clipPage(doc, PAGE).markdown;
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): Sales  \nBy region. [Source data](https://charts.example/source)`,
+      );
+      expect(markdown).not.toContain("fill: red");
+    });
+
+    test("a line holding only a stylesheet is empty, and leaves no gap", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<figcaption><span><style>.x { color: red; }</style></span><span>By region.</span></figcaption></figure>`,
+      );
+      expect(
+        isOneBlock(markdown, `[Interactive figure](${U}): Sales  \nBy region.`),
+      ).toBe(true);
+    });
+
+    test("a target inside an empty line survives", () => {
+      for (const target of ['<a id="cap"></a>', '<a name="cap"></a>']) {
+        const markdown = clip(
+          `<p>See <a href="#cap">the caption</a>.</p><figure>${plot('aria-label="Sales"')}<figcaption><span>${target}</span><span>By region.</span></figcaption></figure>`,
+        );
+        expect(markdown).toContain('<span id="cap"></span>');
+      }
+    });
+
+    test("a target on the chart's chrome survives the chrome", () => {
+      const markdown = clip(
+        `<p>See <a href="#legend">the legend</a>.</p><figure>${plot('aria-label="Sales"')}<ul id="legend"><li>North</li><li>South</li></ul><figcaption>By region.</figcaption></figure>`,
+      );
+      expect(markdown).toContain('<span id="legend"></span>');
+      expect(markdown).not.toContain("North");
+    });
+
+    test("a target the page hid is not kept, as Readability would not keep it", () => {
+      const markdown = clip(
+        `<p>See <a href="#gone">it</a>.</p><figure>${plot('aria-label="Sales"')}<div hidden><span id="gone">x</span></div><figcaption>By region.</figcaption></figure>`,
+      );
+      expect(markdown).not.toContain('<span id="gone">');
+    });
+
     test("a caption's target survives a hidden first line", () => {
       const markdown = clip(
         `<p>See <a href="#cap">the caption</a>.</p><figure>${plot('aria-label="Sales"')}<figcaption id="cap"><span hidden>Hidden</span><span>Visible</span></figcaption></figure>`,

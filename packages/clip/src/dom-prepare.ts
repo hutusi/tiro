@@ -2104,8 +2104,10 @@ function carriesMoreThanText(element: Element): boolean {
  * hold. A line is rebuilt from its children, out of Readability's sight, so
  * this does what reading it in place would have:
  *
+ * - **What Readability strips before reading goes first**: scripts, styles
+ *   and `<noscript>`, whose text is code and markup rather than words.
  * - **What Readability would remove goes** — hidden, or named or cast as
- *   furniture — at any depth, and first.
+ *   furniture — at any depth.
  * - **An icon goes**, as everywhere else in a chart's host.
  * - **A drawing inside a link is that link's label** — `<a><svg><text>Source
  *   data</text></svg></a>` — and becomes the words Turndown would have read
@@ -2116,6 +2118,11 @@ function carriesMoreThanText(element: Element): boolean {
  * False when the line holds a chart, which is no caption.
  */
 function settleLine(line: Element): boolean {
+  for (const code of Array.from(
+    line.querySelectorAll("script, style, noscript"),
+  )) {
+    code.remove();
+  }
   for (const element of Array.from(line.querySelectorAll("*"))) {
     if (line.contains(element) && readabilityRemoves(element)) element.remove();
   }
@@ -2291,9 +2298,9 @@ interface ChartFigure {
   label: string;
   /** The elements the caption's lines are taken from, in reading order. */
   lines: Element[];
-  /** Ids no line carries — a caption piece's own, or a line's said once —
-   * which a link may still point at. Kept empty at the head of the caption,
-   * so such a link lands on the block that stands for them. */
+  /** Ids and anchor names no kept line carries, which a link may still point
+   * at (`hostTargets`). Kept empty at the head of the caption, so such a link
+   * lands on the block that stands for them. */
   targets: string[];
 }
 
@@ -2424,20 +2431,11 @@ function chartFigure(host: Element): ChartFigure | null {
   const inCell = host.closest("td, th") !== null;
   const lines: Element[] = [];
   const settled: Element[] = [];
-  const targets: string[] = [];
-  const keepTarget = (element: Element): void => {
-    const id = element.getAttribute("id");
-    if (id !== null) targets.push(id);
-  };
   for (const piece of pieces) {
-    const sources = captionLines(piece);
-    // A piece set as lines of its children is no line itself; its id is not
-    // to be lost with it.
-    if (!sources.includes(piece)) keepTarget(piece);
-    for (const source of sources) {
+    for (const source of captionLines(piece)) {
       // A line is rebuilt from its children, so its own attributes are not
-      // there for Readability to read: one it would remove goes here, id and
-      // all, as Readability would have removed it.
+      // there for Readability to read: one it would remove goes here, as
+      // Readability would have removed it.
       if (readabilityRemoves(source)) continue;
       // Judged as it will be published, not as it stands: a line that is
       // only an icon is empty once the icon goes.
@@ -2447,9 +2445,9 @@ function chartFigure(host: Element): ChartFigure | null {
       const text = collapsed(line.textContent);
       // Empty, it would put two breaks together and end the block. Said once,
       // it only repeats what the link already says — unless a link or a
-      // target inside it would go with it. Either way, its id stays.
+      // target inside it would go with it. Either way, a target in it stays
+      // (`hostTargets`).
       if (text === "" || (said.has(text) && !carriesMoreThanText(line))) {
-        keepTarget(source);
         continue;
       }
       lines.push(source);
@@ -2464,7 +2462,71 @@ function chartFigure(host: Element): ChartFigure | null {
     composed.appendChild(line);
   }
   if (!isFoldableContent(composed) || !breaksAreSafe(composed)) return null;
-  return { label, lines, targets };
+  return { label, lines, targets: hostTargets(host, lines) };
+}
+
+/**
+ * Tags Readability deletes whatever they hold — before reading
+ * (`_prepDocument`, `_removeScripts`) or after (`_prepArticle`'s `_clean`). A
+ * target inside one is gone from the article as main clips it too.
+ */
+const READABILITY_DELETES: ReadonlySet<string> = new Set([
+  "SCRIPT",
+  "NOSCRIPT",
+  "STYLE",
+  "OBJECT",
+  "EMBED",
+  "FOOTER",
+  "LINK",
+  "ASIDE",
+  "IFRAME",
+  "INPUT",
+  "TEXTAREA",
+  "SELECT",
+  "BUTTON",
+]);
+
+/**
+ * Every id and anchor name in a chart's host that describing it would
+ * otherwise take with it: what a link elsewhere in the article may point at.
+ *
+ * One rule for every element the chart pass drops — a caption piece set as
+ * lines of its children, a line said once or left empty, a legend, a title —
+ * rather than a rule for each, since each was found missing one at a time.
+ * Left out: a target inside a kept line, which moves with it; one Readability
+ * would have removed with what holds it, which main does not keep either; and
+ * one inside a drawing, which the clip has never kept. A drawing's own id is
+ * kept: a link to the chart now lands on what stands for it.
+ */
+function hostTargets(host: Element, lines: Element[]): string[] {
+  const targets: string[] = [];
+  for (const element of Array.from(host.querySelectorAll("[id], a[name]"))) {
+    if (lines.some((line) => line.contains(element))) continue;
+    let gone = false;
+    for (
+      let node: Element | null = element;
+      node !== null && node !== host;
+      node = node.parentElement
+    ) {
+      const tag = node.tagName.toUpperCase();
+      if (
+        readabilityRemoves(node) ||
+        READABILITY_DELETES.has(tag) ||
+        (tag === "SVG" && node !== element)
+      ) {
+        gone = true;
+        break;
+      }
+    }
+    if (gone) continue;
+    for (const name of ["id", "name"]) {
+      const value = element.getAttribute(name);
+      if (value !== null && value !== "" && !targets.includes(value)) {
+        targets.push(value);
+      }
+    }
+  }
+  return targets;
 }
 
 /** What stands between two caption lines: a break, or a space in a table

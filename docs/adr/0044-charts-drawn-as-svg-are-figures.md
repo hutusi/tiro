@@ -123,6 +123,9 @@ block, so `zh.md` stays aligned.
   - A line Readability would remove (`hidden`, `aria-hidden`, a hiding class)
     is left out, its id with it.
   - So is anything inside one, at any depth.
+  - Scripts, styles and `<noscript>` go first, as Readability strips them
+    before reading. Otherwise a linked drawing's `<style>` would become part
+    of its label.
   - Only then is a drawing inside a link turned into the words that are its
     label, so a label the page hid stays hidden.
   - Breaks at either end of a line go.
@@ -131,11 +134,19 @@ block, so `zh.md` stays aligned.
   once the icon goes. The caption is then checked as `chartCaption` will build
   it, all lines and separators together, since lines that each hold together
   can still put two breaks side by side and end the block.
-- **No other target is lost.** The id of a caption set as lines of its
-  children, and of a line said once or with no words, is kept on an empty
+- **No other target is lost.** One rule covers every element the pass
+  drops: a caption piece set as lines, a line said once or left empty, a
+  legend, a title. Every id and anchor name in the host is kept on an empty
   element at the head of the caption, so a link to it lands on this block.
-  If no words are left at all, the target goes to the paragraph itself;
-  `scriptFiguresIn` does that for any caption it drops.
+  Three are left out:
+  - one inside a kept line, which moves with it;
+  - one Readability would have removed with what holds it (hidden, furniture,
+    or a tag it deletes), which main does not keep either;
+  - one inside a drawing.
+
+  If no words are left at all, the targets go to the paragraph itself;
+  `scriptFiguresIn` does that for any caption it drops. The rule replaced one
+  per element, each of which was found missing a case.
 
 **The label.** The host's own `aria-label` or `title`. Else the charts' own
 names, each `<svg>`'s `aria-label` or `<title>`, joined. These ride across
