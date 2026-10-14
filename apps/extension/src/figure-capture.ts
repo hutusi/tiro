@@ -278,10 +278,14 @@ export async function captureFigures(
       options.onProgress?.(position + 1, figures.length);
       let taken: { id: string; bytes: Uint8Array } | null = null;
       try {
-        // One retry, for a page that reflowed while the picture was taken.
+        // One retry, for a page that moved the figure while it was framed or
+        // while the picture was taken.
         for (let attempt = 0; attempt < 2 && taken === null; attempt++) {
           const framed = await effects.frame(index);
-          if (!framed.ok) break;
+          if (!framed.ok) {
+            if (framed.reason === "moved") continue;
+            break;
+          }
           const wait = lastCapture + CAPTURE_SPACING_MS - effects.now();
           if (wait > 0) await effects.sleep(wait);
           const dataUrl = await effects.captureTab();

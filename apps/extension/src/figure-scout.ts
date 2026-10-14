@@ -25,13 +25,17 @@ export type FrameResult =
        * scrollbar included, which is what scales the rect into its pixels. */
       innerWidth: number;
     }
-  | { ok: false; reason: "gone" | "empty" | "too-big" | "covered" };
+  | {
+      ok: false;
+      reason: "gone" | "empty" | "too-big" | "moved" | "covered";
+    };
 
 /** What the clipper leaves in the isolated world, and the scout keeps there
  * between its calls. */
 export interface FigureScope {
-  /** The page's `<figure>`s as the last clip found them, in document order:
-   * the list a payload's `scriptFigures` indexes. Set by `clipper.js`. */
+  /** The page's figures, and the boxes its orphan charts are drawn in
+   * (`figureHosts`), as the last clip found them, in document order: the list
+   * a payload's `scriptFigures` indexes. Set by `clipper.js`. */
   __tiroFigures?: Element[];
   /** Read and cleared by the next `clipper.js` run (`setSnapshotRequest`). */
   __tiroSnapshotRequest?: SnapshotRequest;
@@ -132,10 +136,38 @@ export async function frameFigure(
   // row of controls beside it, which does nothing in a picture and can make a
   // figure too tall to fit the screen. A figure drawn some other way is taken
   // whole, less its caption.
+  //
+  // A chart drawn into a box of its own, with no <figure> round it (ADR 0044),
+  // sets its title and legend beside the plot rather than over it, and a
+  // chart without its legend cannot be read. So the box is taken whole, less
+  // what is not on screen — a tooltip waiting for a hover sits at the box's
+  // corner, invisible, and would stretch the picture — and less a paragraph
+  // of words alone, which the article carries as text. A paragraph holding
+  // swatches is the legend, which the article drops, so the picture keeps it.
+  const orphan = figure.tagName.toUpperCase() !== "FIGURE";
   const parts = () => {
     const children = Array.from(figure.children).filter(
       (child) => child.tagName.toUpperCase() !== "FIGCAPTION",
     );
+    if (orphan) {
+      return children.filter((child) => {
+        const role = child.getAttribute("role");
+        if (role === "status" || role === "tooltip") return false;
+        if (child.getAttribute("aria-hidden") === "true") return false;
+        if (
+          child.tagName.toUpperCase() === "P" &&
+          child.querySelector("svg") === null
+        ) {
+          return false;
+        }
+        const style = getComputedStyle(child);
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0"
+        );
+      });
+    }
     const drawing = children.filter(
       (child) => isMedia(child) || child.querySelector(MEDIA) !== null,
     );
@@ -182,7 +214,13 @@ export async function frameFigure(
   const width = document.documentElement.clientWidth;
   const height = document.documentElement.clientHeight;
   if (left < -1 || top < -1 || right > width + 1 || bottom > height + 1) {
-    return { ok: false, reason: "too-big" };
+    // One that would fit is not where it was scrolled to: the page moved it
+    // while it settled. A scroll library does this — Anthropic's pages put
+    // their own position back within a frame of the first scroll — and so does
+    // a reflow above it. Worth framing again, which one that will never fit
+    // is not.
+    const fits = right - left <= width + 2 && bottom - top <= height + 2;
+    return { ok: false, reason: fits ? "moved" : "too-big" };
   }
   const inset = 6;
   const points: [number, number][] = [

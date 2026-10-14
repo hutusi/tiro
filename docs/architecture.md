@@ -42,8 +42,8 @@ flowchart LR
    (Readability), converts it to Markdown (Turndown), assembles frontmatter,
    and commits a single `index.md` into the vault via the GitHub Contents API.
    Images stay hotlinked (absolute URLs) at this stage. The one exception is a
-   figure the page draws with script, captured on the reader's request (ADR
-   0039): its picture is taken in the popup and committed beside `index.md`,
+   figure the page draws with script, or a chart it draws as `<svg>`, captured
+   on the reader's request (ADR 0039, ADR 0044): its picture is taken in the popup and committed beside `index.md`,
    as `assets/<12 hex>.webp`, in one Git Data API commit — named the way the
    processor names its downloads, so processing keeps and prunes it like one.
 
@@ -171,11 +171,20 @@ flowchart LR
    caption. It crosses Readability with its label in a marked `<span>`, and
    after it becomes one block: `[Interactive figure](page#id): label`, with the
    caption on the next line, translated as prose. Its overlays are chrome and
-   are dropped. Which figures qualify is an allow-list, so images, svg charts,
-   quotes, code and third-party embeds (a `<script src>` in the figure) convert
-   as they always did. On request the popup replaces each link with a picture
-   of the figure (ADR 0039): it scrolls the tab to the figure, takes the visible
-   tab, crops it, and re-clips with the pictures in.
+   are dropped. Which figures qualify is an allow-list, so images, quotes,
+   code and third-party embeds (a `<script src>` in the figure) convert as they
+   always did. On request the popup replaces each link with a picture of the
+   figure (ADR 0039): it scrolls the tab to the figure, takes the visible tab,
+   crops it, and re-clips with the pictures in.
+
+   A chart drawn as `<svg>` — four or more painted labels — becomes the same
+   block (ADR 0044) rather than being deleted with nothing left in its place.
+   Its host is its `<figure>`, or, with none, the outermost `<div>` holding
+   it and nothing but a chart's chrome (GitHub's blog mounts its charts that
+   way). Inside it, captions, paragraphs and sentences are kept as the
+   caption, and titles, legends, controls and the tooltip a hover fills in are
+   dropped. A chart nothing can be said for is still deleted, so its labels
+   never arrive as one run of glyphs.
 
    A video becomes its still, linked to where it plays: a `<video>` its
    poster and file, and an embedded player Readability keeps (YouTube, Vimeo…)
@@ -452,7 +461,9 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 
 - **A captured figure is checked only live** (ADR 0039). The sweep and the
   tests cover the placeholder and the DOM transform; scrolling, the screenshot
-  and the crop need a real browser, which is the manual pass. A re-clip
+  and the crop need a real browser, which is the manual pass. A chart a script
+  mounts into an empty box — GitHub's blog — exists only live too: the sweep
+  sees the empty box and cannot report on it (ADR 0044). A re-clip
   without a capture goes back to links, and the processor prunes the pictures.
 
 - **A saved link reads less than a browser clip** (ADR 0034). The processor's

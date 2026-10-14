@@ -16,6 +16,14 @@ versions follow the `0.x` line while Tiro is a personal system.
   other. Only when asked, since it moves the page for about two seconds a
   figure; a figure too tall for the screen, or with something on top of it,
   stays a link. The data disclosure names it, still at version 7 (ADR 0039).
+- **Charts are described, and can be captured.** A chart drawn as `<svg>` used
+  to be deleted without a trace while its title, legend and hover tooltip were
+  published as stray paragraphs — GitHub's blog charts left behind
+  `P25 / Fetches1 / Pushes2`, and Anthropic's titles ran together as
+  "Terminal-Bench 4.0Accuracy vs Cost". It now clips as a link to the chart
+  with its name and caption, the sentences around it kept and its chrome
+  dropped, and "Capture N figures" offers it too: a picture with its title
+  and legend in place of the link (ADR 0044).
 - **Hacker News threads clip.** An item page used to be clipped as a stack of
   usernames and timestamps, with the post and every comment lost. It is now
   read from HN's own markup: the story link, the Ask/Show/Tell HN text, a

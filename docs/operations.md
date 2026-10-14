@@ -1020,8 +1020,10 @@ Two decisions worth not relitigating:
 
 A figure a page draws with its own script — a canvas filled once it scrolls
 into view — clips as one line, `[Interactive figure](page): description`, with
-its caption beneath (ADR 0039). On such a page the popup also offers "Capture N
-figures". Pressing it:
+its caption beneath (ADR 0039). So does a chart drawn as `<svg>`, in a
+`<figure>` or in a box of its own, with its title, legend and tooltip left out
+and the sentences around it kept as its caption (ADR 0044). On such a page the
+popup also offers "Capture N figures". Pressing it:
 
 - scrolls the tab to each figure and waits about two seconds for it to draw
   and settle — keep the popup open, since closing it ends the capture (a
@@ -1288,7 +1290,10 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    browser fixes this properly, and that is a different tool. A figure the
    page draws with script is the exception that agrees: the empty shell seen
    here and the drawn canvas the extension sees become the same
-   `[Interactive figure](…)` block, so a diff there is real.
+   `[Interactive figure](…)` block, so a diff there is real. A chart a script
+   mounts into an empty box is not: GitHub's blog charts are an empty `<div>`
+   here and a described chart in the tab, so the sweep never reports them
+   (ADR 0044).
 2. **`--baseline` resolves dependencies from the working tree.** The worktree
    holds source, not `node_modules`, so both sides import today's Readability
    and Turndown. That is what you want when judging your own change and exactly
@@ -1586,6 +1591,7 @@ permanent extension ID, unrelated to the unpacked one.
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
 | The popup says some figures "stay as links to the page" | a figure with nothing drawn in it yet, one taller or wider than the window, one with something laid over it, one that moved while it was taken, or the 20 MB budget (ADR 0039) | by design; enlarge the window, dismiss the banner or scroll the header away, and capture again |
+| A chart's title, legend or tooltip rows (`P25 / Fetches1 / …`) appear as stray paragraphs | the clip found no host for the chart: no `<figure>`, and its box holds a heading, a link, a list or more text than a chart's chrome (ADR 0044) | the chart itself was deleted, as before; tighten or extend the host rule in `orphanChartHost` with a test of the page's shape |
 | "The pictures could not be put in the article" after a capture | the tab navigated, reloaded or rewrote its address during the capture, so the clip that would show the pictures was of another page and was refused | clip as it is — the figures are links — or reload, wait, and capture again |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
