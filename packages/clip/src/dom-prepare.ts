@@ -2000,12 +2000,41 @@ const LABEL_MAX = 80;
  * is not enough — "Sales rose in every region this quarter." is shorter than
  * the limit and is the article's — while no label measured ends in a full
  * stop: "Accuracy vs Cost", "Fetches", "1,200 items · ECE 0.031".
+ *
+ * A Latin full stop needs a space before it as well, so that "approx." or
+ * "Fig." stays a label. Chinese and Japanese write no spaces at all, and
+ * their full-width stops end only sentences: "所有地区的销售额均有所增长。" is
+ * prose without one.
  */
 function readsAsProse(text: string): boolean {
   return (
     text.length > LABEL_MAX ||
-    (/\s/.test(text) && /[.!?。！？][”’"')\]]*$/.test(text))
+    /[。！？][”’"')\]）」』]*$/.test(text) ||
+    (/\s/.test(text) && /[.!?][”’"')\]]*$/.test(text))
   );
+}
+
+/** True when any run of text in `element`, outside its drawings, reads as
+ * prose (`readsAsProse`). */
+function holdsProse(element: Element): boolean {
+  for (const child of Array.from(element.childNodes)) {
+    if (child.nodeType === child.TEXT_NODE) {
+      if (readsAsProse(collapsed(child.textContent))) return true;
+    } else if (
+      child.nodeType === child.ELEMENT_NODE &&
+      (child as Element).tagName.toUpperCase() !== "SVG" &&
+      holdsProse(child as Element)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True when `element` carries more than words: a link, or an id something
+ * may point at. Saying such a line once would lose what it carries. */
+function carriesMoreThanText(element: Element): boolean {
+  return element.querySelector(`a[href], [id], [${ANCHOR_ATTR}]`) !== null;
 }
 
 /** What draws or works a chart rather than describing it: controls, the
@@ -2242,9 +2271,12 @@ function chartFigure(host: Element): ChartFigure | null {
         pieces.push(node);
         continue;
       }
-      // A paragraph of swatches is a legend: its words are series names.
+      // A paragraph of swatches is a legend: its words are series names. One
+      // whose words are a sentence is a caption with an icon in it.
       if (tag === "P") {
-        if (node.querySelector("svg") === null) pieces.push(node);
+        if (node.querySelector("svg") === null || holdsProse(node)) {
+          pieces.push(node);
+        }
         continue;
       }
       if (!CHART_LAYOUT.has(tag) && !tag.includes("-")) return false;
@@ -2265,13 +2297,27 @@ function chartFigure(host: Element): ChartFigure | null {
     figureLabel(host) ||
     joinedLabels([...new Set(shown.map(svgLabel).filter((l) => l !== ""))]);
   const said = new Set([label, ...shown.map(svgLabel)]);
-  const lines = pieces.flatMap(captionLines).filter(({ source }) => {
+  const lines = pieces.flatMap(captionLines).filter(({ source, id }) => {
+    // A line is rebuilt from its children, so its own attributes are not
+    // there for Readability to read: one it would remove goes here.
+    if (readabilityRemoves(source)) return false;
     const text = collapsed(source.textContent);
-    // Said once: a line that only repeats what the link already says.
-    return text !== "" && !said.has(text);
+    // Empty, it would put two breaks together, and end the block.
+    if (text === "") return false;
+    // Said once: a line that only repeats what the link already says — unless
+    // it carries a link, or an id something may point at.
+    if (id !== null || carriesMoreThanText(source)) return true;
+    return !said.has(text);
   });
   for (const { source } of lines) {
-    if (!isFoldableContent(source) || !breaksAreSafe(source)) return null;
+    // An icon in a line is chrome, as it is everywhere else in the host, and
+    // `chartCaption` drops it; a chart in one is not a caption.
+    const line = source.cloneNode(true) as Element;
+    for (const svg of Array.from(line.querySelectorAll("svg"))) {
+      if (isChartSvg(svg)) return null;
+      svg.remove();
+    }
+    if (!isFoldableContent(line) || !breaksAreSafe(line)) return null;
   }
   return { label, lines };
 }
@@ -2398,6 +2444,7 @@ function chartCaption(
     const line = doc.createElement("span");
     if (id !== null) line.setAttribute("id", id);
     while (source.firstChild !== null) line.appendChild(source.firstChild);
+    for (const icon of Array.from(line.querySelectorAll("svg"))) icon.remove();
     caption.appendChild(line);
   }
   return caption;
@@ -2604,9 +2651,14 @@ export function scriptFiguresIn(
       }
     } else if (label !== "") {
       paragraph.appendChild(scratch.createTextNode(`: ${label}`));
-      // A caption that only repeats the label is said once.
-      if (captionText === label) captionUsed = true;
-      else if (source !== null) {
+      // A caption that only repeats the label is said once — unless it
+      // carries a link or a target, which saying it once would lose.
+      if (
+        captionText === label &&
+        (caption === null || !carriesMoreThanText(caption))
+      ) {
+        captionUsed = true;
+      } else if (source !== null) {
         paragraph.appendChild(separator());
         while (source.firstChild !== null) {
           paragraph.appendChild(source.firstChild);

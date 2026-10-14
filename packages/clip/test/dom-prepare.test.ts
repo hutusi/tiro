@@ -3188,6 +3188,21 @@ describe("a figure the page draws with script is described, not lost", () => {
     expect(markdown.split(LABEL)).toHaveLength(2);
   });
 
+  test("a caption repeating the label as a link keeps the link", () => {
+    // Said once, the caption's text survives in the label and its link does
+    // not.
+    expect(
+      clip(
+        shell(
+          'aria-label="Lathe"',
+          '<figcaption><a href="https://models.example/lathe">Lathe</a></figcaption>',
+        ),
+      ),
+    ).toContain(
+      `[Interactive figure](${U}): Lathe  \n[Lathe](https://models.example/lathe)`,
+    );
+  });
+
   test("with no label, the caption describes it, and an id is the link's target", () => {
     // Red Blob Games' shape: a bare canvas, an id, a caption, no aria-label.
     expect(
@@ -3659,6 +3674,81 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
     expect(markdown).toContain(
       `[Interactive figure](${U}): Sales  \nSource: [the sales ledger](https://data.example/sales), which counts returns as negative sales.`,
     );
+  });
+
+  describe("review: what the caption must not lose or reveal", () => {
+    test("a caption line the page hid stays hidden", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<figcaption><span hidden>Hidden text</span><span>Visible text</span></figcaption></figure>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): Sales  \nVisible text`,
+      );
+      expect(markdown).not.toContain("Hidden text");
+    });
+
+    test("an icon does not make a sentence a legend", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<p><svg viewBox="0 0 8 8"><circle r="4"></circle></svg>Sales exclude returns and cancelled orders.</p></figure>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): Sales  \nSales exclude returns and cancelled orders.`,
+      );
+    });
+
+    test("a paragraph of swatches and series names is still a legend", () => {
+      const swatch =
+        '<svg viewBox="0 0 8 8"><rect width="8" height="8"></rect></svg>';
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<p class="key"><span>${swatch}North</span><span>${swatch}South</span></p><figcaption>Sales by region.</figcaption></figure>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): Sales  \nSales by region.`,
+      );
+      expect(markdown).not.toContain("North");
+    });
+
+    test("a short Chinese sentence loose beside a chart leaves it as it converts today", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="销售额"')}所有地区的销售额均有所增长。</figure>`,
+      );
+      expect(markdown).toContain("所有地区的销售额均有所增长。");
+      expect(markdown).not.toContain("Interactive figure");
+    });
+
+    test("an icon in a caption line is dropped with the other chrome", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<p><svg viewBox="0 0 8 8"><title>Info</title><circle r="4"></circle></svg>Sales exclude returns.</p></figure>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): Sales  \nSales exclude returns.`,
+      );
+      expect(markdown).not.toContain("Info");
+    });
+
+    test("a short Chinese sentence is prose, not a label", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="销售额"')}<div>所有地区的销售额均有所增长。</div></figure>`,
+      );
+      expect(markdown).toContain(
+        `[Interactive figure](${U}): 销售额  \n所有地区的销售额均有所增长。`,
+      );
+    });
+
+    test("a caption repeating the label keeps its link", () => {
+      expect(
+        clip(
+          `<figure>${plot('aria-label="Sales"')}<figcaption><a href="https://data.example/sales">Sales</a></figcaption></figure>`,
+        ),
+      ).toContain("[Sales](https://data.example/sales)");
+    });
+
+    test("a caption line repeating the label keeps the target a link points at", () => {
+      const markdown = clip(
+        `<p>See <a href="#cap">the caption</a>.</p><figure>${plot('aria-label="Sales"')}<figcaption id="cap"><span>Sales</span><span>By region.</span></figcaption></figure>`,
+      );
+      expect(markdown).toContain('<span id="cap"></span>');
+    });
   });
 
   test("a short sentence in a box of its own is a caption line, not a label", () => {
