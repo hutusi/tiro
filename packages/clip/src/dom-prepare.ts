@@ -1090,16 +1090,25 @@ export const pullQuoteTurndownRule: TurndownService.Rule = {
  */
 const SOUP_LABELS = 4;
 
+/**
+ * True when `svg` paints a chart's worth of labels. The one definition both
+ * passes that act on a chart read, so they cannot disagree about what one is:
+ * `keepScriptFiguresThroughReadability` describes each chart it finds a host
+ * for (ADR 0044), and `dropChartSvgs` deletes whatever is left.
+ */
+function isChartSvg(svg: Element): boolean {
+  // An `<a>`'s SVG text is the link's only label. Deleting it leaves `[](…)`,
+  // a link with no text — strictly worse than the soup this pass removes.
+  if (svg.closest("a") !== null) return false;
+  const labels = Array.from(svg.querySelectorAll("text")).filter(
+    (node) => (node.textContent ?? "").trim() !== "",
+  ).length;
+  return labels >= SOUP_LABELS;
+}
+
 function dropChartSvgs(doc: Document): void {
   for (const svg of Array.from(doc.querySelectorAll("svg"))) {
-    // An `<a>`'s SVG text is the link's only label. Deleting it leaves `[](…)`,
-    // a link with no text — strictly worse than the soup this pass removes.
-    if (svg.closest("a") !== null) continue;
-    const labels = Array.from(svg.querySelectorAll("text")).filter(
-      (node) => (node.textContent ?? "").trim() !== "",
-    ).length;
-    if (labels < SOUP_LABELS) continue;
-    svg.remove();
+    if (isChartSvg(svg)) svg.remove();
   }
 }
 
