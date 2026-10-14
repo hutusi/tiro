@@ -145,7 +145,9 @@ colours nothing names cannot be read. So it is taken whole, less two things:
 
 - what is not on screen. GitHub's tooltip is invisible and parked at the box's
   corner, and would stretch the crop.
-- its paragraphs, which the article carries as text.
+- a paragraph of words alone, which the article carries as text. A paragraph
+  holding swatches is the legend: the article drops it, so the picture keeps
+  it.
 
 ## Rejected
 

@@ -141,8 +141,9 @@ export async function frameFigure(
   // sets its title and legend beside the plot rather than over it, and a
   // chart without its legend cannot be read. So the box is taken whole, less
   // what is not on screen — a tooltip waiting for a hover sits at the box's
-  // corner, invisible, and would stretch the picture — and less a paragraph,
-  // which the article carries as text.
+  // corner, invisible, and would stretch the picture — and less a paragraph
+  // of words alone, which the article carries as text. A paragraph holding
+  // swatches is the legend, which the article drops, so the picture keeps it.
   const orphan = figure.tagName.toUpperCase() !== "FIGURE";
   const parts = () => {
     const children = Array.from(figure.children).filter(
@@ -153,7 +154,12 @@ export async function frameFigure(
         const role = child.getAttribute("role");
         if (role === "status" || role === "tooltip") return false;
         if (child.getAttribute("aria-hidden") === "true") return false;
-        if (child.tagName.toUpperCase() === "P") return false;
+        if (
+          child.tagName.toUpperCase() === "P" &&
+          child.querySelector("svg") === null
+        ) {
+          return false;
+        }
         const style = getComputedStyle(child);
         return (
           style.display !== "none" &&
