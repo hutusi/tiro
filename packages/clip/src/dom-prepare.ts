@@ -1055,14 +1055,15 @@ export const pullQuoteTurndownRule: TurndownService.Rule = {
  * paragraph and the processor sends it to the translator, which dutifully
  * translates it.
  *
- * Deleting is the whole fix available here, and it is a real improvement
- * rather than a concession: the chart is *already* lost — markdown has no
- * element for it — so the only question is whether its labels are published as
- * prose. Capturing the picture instead is not the alternative it looks like.
- * The chart that prompted this fills its marks from `var(--chart-*)` tokens
- * defined on an ancestor, so an `<svg>` lifted out of the page renders blank;
- * making it an asset would mean inlining computed styles, which is a different
- * change with its own ADR.
+ * Deleting is the last resort, not the first. Markdown has no element for a
+ * chart, but a chart in a figure, or in a box holding nothing but it and its
+ * chrome, is described before this runs — a link to it, its label and its
+ * caption, and a picture of it when the reader captures one (ADR 0044). What
+ * reaches this pass is a chart nothing could be said for, and the only
+ * question left is whether its labels are published as prose. Lifting the
+ * `<svg>` out as an asset is not the alternative it looks like: the chart that
+ * prompted this fills its marks from `var(--chart-*)` tokens defined on an
+ * ancestor, so it renders blank without its computed styles inlined.
  *
  * Three things keep this off text that is not debris. It reads `<text>`, the
  * only SVG element that paints glyphs, so `<title>` and `<desc>` — which are
@@ -1104,6 +1105,28 @@ function isChartSvg(svg: Element): boolean {
     (node) => (node.textContent ?? "").trim() !== "",
   ).length;
   return labels >= SOUP_LABELS;
+}
+
+/** The charts in `root`, each once: an `<svg>` drawn inside another is part of
+ * that one's drawing, not a chart of its own. */
+function chartSvgsIn(root: Element): Element[] {
+  return Array.from(root.querySelectorAll("svg")).filter(
+    (svg) => !svg.parentElement?.closest("svg") && isChartSvg(svg),
+  );
+}
+
+/** What a chart says it shows: its `aria-label`, else its own `<title>` — the
+ * name an `<svg>` gives itself. */
+function svgLabel(svg: Element): string {
+  const title = Array.from(svg.children).find(
+    (child) => child.tagName.toLowerCase() === "title",
+  );
+  return (
+    (svg.getAttribute("aria-label") ?? "").trim() ||
+    (title?.textContent ?? "")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function dropChartSvgs(doc: Document): void {
@@ -1391,6 +1414,14 @@ const FIGURE_ATTR = "data-tiro-figure";
  * `<id>.webp` does.
  */
 const SNAPSHOT_ATTR = "data-tiro-snapshot";
+
+/**
+ * A described chart's label, on the text that keeps it through Readability
+ * (ADR 0044). A chart's name is on its `<svg>`, which is gone by the time
+ * `scriptFiguresIn` looks, and it cannot ride on the `<figure>`: Readability
+ * reads every attribute there for an image address (`_fixLazyImages`).
+ */
+const FIGURE_LABEL_ATTR = "data-tiro-label";
 
 /** A video address a reader can follow: http(s), resolved against the page.
  * `blob:` is what a streaming player hands its `<video>`, and it means nothing
@@ -1955,6 +1986,324 @@ function isScriptDrawnFigure(figure: Element): boolean {
 }
 
 /**
+ * How long a run of text a chart's chrome may hold: a title, a tick, a legend
+ * entry, a panel's heading, a tooltip's row. Measured on the vault's charts,
+ * where the longest label is 39 characters ("8 generated families · 20–30
+ * items each").
+ */
+const LABEL_MAX = 80;
+
+/**
+ * True when `text` reads as something somebody wrote rather than a label:
+ * longer than any label, or words ending the way a sentence ends. Length alone
+ * is not enough — "Sales rose in every region this quarter." is shorter than
+ * the limit and is the article's — while no label measured ends in a full
+ * stop: "Accuracy vs Cost", "Fetches", "1,200 items · ECE 0.031".
+ */
+function readsAsProse(text: string): boolean {
+  return (
+    text.length > LABEL_MAX ||
+    (/\s/.test(text) && /[.!?。！？][”’"')\]]*$/.test(text))
+  );
+}
+
+/** What draws or works a chart rather than describing it: controls, the
+ * furniture Readability deletes anyway, and what a page runs. */
+const CHART_CHROME: ReadonlySet<string> = new Set([
+  "BUTTON",
+  "INPUT",
+  "SELECT",
+  "TEXTAREA",
+  "LABEL",
+  "OPTION",
+  "OPTGROUP",
+  "DATALIST",
+  "OUTPUT",
+  "METER",
+  "PROGRESS",
+  "NAV",
+  "FORM",
+  "FIELDSET",
+  "FOOTER",
+  "ASIDE",
+  "SCRIPT",
+  "STYLE",
+  "TEMPLATE",
+]);
+
+/** Roles that make an element a control or a live readout — a tab bar, a
+ * toolbar of presets, the tooltip a hover fills in — whatever its tag. */
+const CHART_CHROME_ROLES: ReadonlySet<string> = new Set([
+  "button",
+  "tab",
+  "tablist",
+  "toolbar",
+  "group",
+  "radiogroup",
+  "slider",
+  "switch",
+  "menu",
+  "menubar",
+  "status",
+  "tooltip",
+  "alert",
+  "log",
+  "timer",
+  "marquee",
+  "navigation",
+  "complementary",
+  "dialog",
+  "alertdialog",
+]);
+
+/**
+ * What a chart's layout is built from: the boxes, the lists a legend is written
+ * as, and the inline elements a label is set in. A custom element — a chart
+ * library's own tag — is one too.
+ *
+ * An allow-list, so a chart beside anything nobody has considered — a table, a
+ * heading, a picture, a quotation — keeps converting exactly as it does today.
+ */
+const CHART_LAYOUT: ReadonlySet<string> = new Set([
+  "DIV",
+  "SPAN",
+  "UL",
+  "OL",
+  "LI",
+  "DL",
+  "DT",
+  "DD",
+  "B",
+  "STRONG",
+  "I",
+  "EM",
+  "SMALL",
+  "SUB",
+  "SUP",
+  "ABBR",
+  "TIME",
+  "MARK",
+  "BDI",
+  "BDO",
+  "BR",
+  "WBR",
+]);
+
+/** Readability's `UNLIKELY_ROLES` (`Readability.js:177`): a region it removes
+ * before scoring, whatever it holds. */
+const UNLIKELY_ROLES: ReadonlySet<string> = new Set([
+  "menu",
+  "menubar",
+  "complementary",
+  "navigation",
+  "alert",
+  "alertdialog",
+  "dialog",
+]);
+
+/** Text with its whitespace collapsed, as a reader sees it. */
+function collapsed(text: string | null): string {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * True when Readability would remove `element` before reading it: hidden, or
+ * named or cast as furniture. The pass below replaces a chart's whole inside,
+ * so whatever it keeps from there is no longer Readability's to judge — and a
+ * caption it has already ruled out must not be published on its behalf.
+ */
+function readabilityRemoves(element: Element): boolean {
+  if (pageHides(element)) return true;
+  const names = `${element.getAttribute("class") ?? ""} ${element.getAttribute("id") ?? ""}`;
+  if (UNLIKELY_CANDIDATES.test(names) && !MAYBE_A_CANDIDATE.test(names)) {
+    return true;
+  }
+  return UNLIKELY_ROLES.has(element.getAttribute("role") ?? "");
+}
+
+/** What a chart host comes to: what it shows, by the page's own words, and
+ * the elements its caption's lines are taken from, in reading order. */
+interface ChartFigure {
+  label: string;
+  lines: { source: Element; id: string | null }[];
+}
+
+/**
+ * The lines one caption piece is set as. A title and its subtitle are often
+ * two boxes the stylesheet stacks — Anthropic's `Terminal-Bench 4.0` over
+ * `Accuracy vs Cost` — and run together as one line they read as one word.
+ */
+function captionLines(piece: Element): ChartFigure["lines"] {
+  const children = meaningfulChildren(piece);
+  const [only] = children;
+  // A caption marked up as one paragraph, the shape `captionSource` unwraps.
+  if (children.length === 1 && only?.nodeName === "P") {
+    const paragraph = only as Element;
+    return [
+      {
+        source: paragraph,
+        id: paragraph.getAttribute("id") ?? piece.getAttribute("id"),
+      },
+    ];
+  }
+  const stacked =
+    children.length >= 2 &&
+    children.every((node) => ["SPAN", "DIV", "P"].includes(node.nodeName));
+  if (!stacked) return [{ source: piece, id: piece.getAttribute("id") }];
+  // The piece's own id goes with its first line, where a link to it lands.
+  return (children as Element[]).map((child, index) => ({
+    source: child,
+    id:
+      child.getAttribute("id") ??
+      (index === 0 ? piece.getAttribute("id") : null),
+  }));
+}
+
+/**
+ * Join chart labels into one description. An author who writes each panel's
+ * label as a sentence has punctuated it already.
+ */
+function joinedLabels(labels: string[]): string {
+  return labels.reduce(
+    (joined, label) =>
+      joined === ""
+        ? label
+        : `${joined}${/[.!?。]$/.test(joined) ? " " : "; "}${label}`,
+    "",
+  );
+}
+
+/**
+ * What `host` comes to if the chart it holds is described rather than
+ * deleted, or `null` to leave it converting exactly as it does today.
+ * Changes nothing.
+ *
+ * Markdown cannot carry a chart, and the clip has always deleted one
+ * (`dropChartSvgs`) rather than publish its labels as one run of glyphs — but
+ * the chart's own words outside the `<svg>` were not deleted with it, so the
+ * reader got its title, its legend and the tooltip a hover fills in, frozen on
+ * whatever it last showed (`P25 / Fetches1 / Pushes2`), as paragraphs about a
+ * picture that was not there (ADR 0044). So the inside of a chart host is read
+ * as two kinds of thing:
+ *
+ * - **Prose is kept**, as the caption: every `<figcaption>`, every `<p>`, and a
+ *   box of inline text longer than a label. A footnote under a chart saying
+ *   what it measures is the article's.
+ * - **Chrome is dropped**: controls, live readouts, anything Readability would
+ *   have removed, swatches, and every run of text no longer than a label.
+ *
+ * Anything else — a picture, a table, a heading, a quotation, code, math, a
+ * link outside the caption, an element nobody has considered — means the host
+ * is not just a chart, and it is left alone.
+ */
+function chartFigure(host: Element): ChartFigure | null {
+  const charts = chartSvgsIn(host);
+  if (charts.length === 0) return null;
+  if (insideLink(host) || looksLikeLazyImage(host)) return null;
+  const shown: Element[] = [];
+  const pieces: Element[] = [];
+  const read = (element: Element): boolean => {
+    for (const child of Array.from(element.childNodes)) {
+      if (child.nodeType === child.TEXT_NODE) {
+        // A sentence loose beside a chart is the author's, and has no
+        // paragraph to be carried in: leave the host as it is.
+        if (readsAsProse(collapsed(child.textContent))) return false;
+        continue;
+      }
+      if (child.nodeType !== child.ELEMENT_NODE) continue;
+      const node = child as Element;
+      const tag = node.tagName.toUpperCase();
+      // Hidden or furniture: Readability would have removed it, chart and all.
+      if (readabilityRemoves(node)) continue;
+      if (charts.includes(node)) {
+        shown.push(node);
+        continue;
+      }
+      // A swatch, an icon, a play button's glyph.
+      if (tag === "SVG") continue;
+      // A script that loads from elsewhere fills a slot of its own: an embed.
+      if (tag === "SCRIPT" && node.hasAttribute("src")) return false;
+      if (CHART_CHROME.has(tag)) continue;
+      if (
+        CHART_CHROME_ROLES.has(node.getAttribute("role") ?? "") ||
+        node.hasAttribute("aria-live")
+      ) {
+        continue;
+      }
+      if (
+        node.hasAttribute(MATH_ATTR) ||
+        node.hasAttribute(CODE_LANG_ATTR) ||
+        looksLikeLazyImage(node)
+      ) {
+        return false;
+      }
+      if (tag === "FIGCAPTION") {
+        pieces.push(node);
+        continue;
+      }
+      // A paragraph of swatches is a legend: its words are series names.
+      if (tag === "P") {
+        if (node.querySelector("svg") === null) pieces.push(node);
+        continue;
+      }
+      if (!CHART_LAYOUT.has(tag) && !tag.includes("-")) return false;
+      if (
+        (tag === "DIV" || tag === "SPAN") &&
+        readsAsProse(collapsed(node.textContent)) &&
+        isFoldableContent(node)
+      ) {
+        pieces.push(node);
+        continue;
+      }
+      if (!read(node)) return false;
+    }
+    return true;
+  };
+  if (!read(host) || shown.length === 0) return null;
+  const label =
+    figureLabel(host) ||
+    joinedLabels([...new Set(shown.map(svgLabel).filter((l) => l !== ""))]);
+  const said = new Set([label, ...shown.map(svgLabel)]);
+  const lines = pieces.flatMap(captionLines).filter(({ source }) => {
+    const text = collapsed(source.textContent);
+    // Said once: a line that only repeats what the link already says.
+    return text !== "" && !said.has(text);
+  });
+  for (const { source } of lines) {
+    if (!isFoldableContent(source) || !breaksAreSafe(source)) return null;
+  }
+  return { label, lines };
+}
+
+/**
+ * The caption a described chart carries across Readability: one
+ * `<figcaption>` of its lines, each moved rather than copied so a link, an id
+ * and the marks inside it come along. One block, which is what keeps `zh.md`
+ * aligned (ADR 0003): lines are separated by a break, or by a space in a table
+ * cell, where a break would end the row.
+ */
+function chartCaption(
+  doc: Document,
+  lines: ChartFigure["lines"],
+  inCell: boolean,
+): Element | null {
+  if (lines.length === 0) return null;
+  const caption = doc.createElement("figcaption");
+  for (const [index, { source, id }] of lines.entries()) {
+    if (index > 0) {
+      caption.appendChild(
+        inCell ? doc.createTextNode(" ") : doc.createElement("br"),
+      );
+    }
+    const line = doc.createElement("span");
+    if (id !== null) line.setAttribute("id", id);
+    while (source.firstChild !== null) line.appendChild(source.firstChild);
+    caption.appendChild(line);
+  }
+  return caption;
+}
+
+/**
  * Give every figure a page draws with script text of its own, so Readability
  * keeps it until `scriptFiguresIn` can say what it was.
  *
@@ -1968,6 +2317,11 @@ function isScriptDrawnFigure(figure: Element): boolean {
  * Only children change. The figure keeps every attribute, so Readability's
  * hidden, furniture and byline verdicts on it still stand — the hazard ADR 0011
  * recorded for any pass that runs before extraction.
+ *
+ * A figure holding a chart drawn as `<svg>` is kept the same way (ADR 0044),
+ * its caption built from the prose around the chart (`chartFigure`): a figure
+ * the page draws on a canvas is still read as ADR 0039 reads it, and a chart
+ * this cannot describe is left for `dropChartSvgs`.
  */
 function keepScriptFiguresThroughReadability(
   doc: Document,
@@ -1977,7 +2331,7 @@ function keepScriptFiguresThroughReadability(
   // Page-authored markers go first, as in every marker pass in this file. A
   // page that wrote its own snapshot id could otherwise point the article at
   // any file in its assets.
-  for (const attr of [FIGURE_ATTR, SNAPSHOT_ATTR]) {
+  for (const attr of [FIGURE_ATTR, SNAPSHOT_ATTR, FIGURE_LABEL_ATTR]) {
     for (const stale of Array.from(doc.querySelectorAll(`[${attr}]`))) {
       stale.removeAttribute(attr);
     }
@@ -1992,17 +2346,39 @@ function keepScriptFiguresThroughReadability(
       snapshot !== undefined &&
       SNAPSHOT_ID.test(snapshot) &&
       !insideLink(figure);
-    if (!captured && !isScriptDrawnFigure(figure)) continue;
-    const caption = directCaption(figure);
+    const drawn = isScriptDrawnFigure(figure);
+    const chart = drawn ? null : chartFigure(figure);
+    if (!captured && !drawn && chart === null) continue;
+    const caption =
+      chart === null
+        ? directCaption(figure)
+        : chartCaption(doc, chart.lines, figure.closest("td, th") !== null);
     for (const child of Array.from(figure.childNodes)) {
       if (child !== caption) figure.removeChild(child);
     }
+    const label = chart?.label ?? figureLabel(figure);
     const keep = doc.createElement("span");
-    keep.textContent = `${KEEP_MARK}${figureLabel(figure) || FIGURE_LABEL}${KEEP_MARK}`;
-    figure.insertBefore(keep, caption);
+    keep.textContent = `${KEEP_MARK}${label || FIGURE_LABEL}${KEEP_MARK}`;
+    if (chart !== null && label !== "") {
+      keep.setAttribute(FIGURE_LABEL_ATTR, label);
+    }
+    figure.insertBefore(keep, caption?.parentNode === figure ? caption : null);
+    if (caption !== null && caption.parentNode !== figure) {
+      figure.appendChild(caption);
+    }
     figure.setAttribute(FIGURE_ATTR, index === undefined ? "" : String(index));
     if (captured) figure.setAttribute(SNAPSHOT_ATTR, snapshot);
   }
+}
+
+/** The label `keepScriptFiguresThroughReadability` carried for a described
+ * chart, or `null` when the figure's own attributes say what it is. */
+function keptLabel(figure: Element): string | null {
+  return (
+    figure
+      .querySelector(`[${FIGURE_LABEL_ATTR}]`)
+      ?.getAttribute(FIGURE_LABEL_ATTR) ?? null
+  );
 }
 
 /**
@@ -2070,7 +2446,7 @@ export function scriptFiguresIn(
     }
     const snapshot = figure.getAttribute(SNAPSHOT_ATTR) ?? "";
     const captured = SNAPSHOT_ID.test(snapshot);
-    const label = figureLabel(figure);
+    const label = keptLabel(figure) ?? figureLabel(figure);
     const caption = directCaption(figure);
     const captionText = (caption?.textContent ?? "")
       .replace(/\s+/g, " ")

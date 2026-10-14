@@ -1326,14 +1326,16 @@ describe("chart svgs", () => {
     return htmlToMarkdown(foldFiguresIn(prepared, doc)).markdown.trim();
   }
 
-  test("drops an svg that paints text", () => {
+  test("drops an svg that paints text, where nothing can be said for it", () => {
     // Turndown has no rule for <svg>, so it emits every text node in document
-    // order with no separators — a chart arrives as one run of glyphs.
+    // order with no separators — a chart arrives as one run of glyphs. One in
+    // a figure is described instead (ADR 0044); one loose in a section has no
+    // host to describe it by, and is deleted as it always was.
     const md = markdownForPrepared(
-      "<p>Before.</p><figure><svg><text>0</text><text>1</text>" +
+      "<p>Before.</p><section><svg><text>0</text><text>1</text>" +
         "<text>2</text><text>3</text><text>Original implementation</text>" +
         "<text>Speedup on an NVIDIA H100</text></svg>" +
-        "<figcaption>Inference speedup.</figcaption></figure><p>After.</p>",
+        "<p>Inference speedup.</p></section><p>After.</p>",
     );
     expect(md).not.toContain("Speedup on an NVIDIA H100");
     expect(md).toContain("Inference speedup.");
@@ -3520,6 +3522,264 @@ describe("a figure the page draws with script is described, not lost", () => {
       expect(markdown).toContain(
         `[![${LABEL}](./assets/${ID}.webp)](${U}#fig)  \n<span id="fig"></span>Slow.`,
       );
+    });
+  });
+});
+
+describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
+  const PAGE = "https://charts.example/report/";
+  /** Where the description links: the page as the article records it. */
+  const U = "https://charts.example/report";
+  const filler = `<p>${"Body sentence with enough words to score. ".repeat(20)}</p>`;
+
+  /** The whole clip, as the extension runs it. */
+  function clip(markup: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<article><h1>Report</h1>${filler}${markup}${filler}</article>`;
+    return clipPage(window.document as unknown as Document, PAGE).markdown;
+  }
+
+  /** The whole payload, as the extension's re-clip runs it. */
+  function capture(markup: string, snapshots: [number, string][]) {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<article><h1>Report</h1>${filler}${markup}${filler}</article>`;
+    return clipPage(window.document as unknown as Document, PAGE, {
+      snapshots: new Map(snapshots),
+    });
+  }
+
+  /** The block of `markdown` holding `text`, which must be a whole block. */
+  function isOneBlock(markdown: string, text: string): boolean {
+    return splitBlocks(markdown).some((block) => block.text === text);
+  }
+
+  /** A plot painting `labels` axis ticks — a chart's worth from four. */
+  const plot = (attrs: string, labels = 6, inner = "") =>
+    `<svg viewBox="0 0 100 60" ${attrs}>${inner}${Array.from(
+      { length: labels },
+      (_, i) => `<text x="${i * 10}" y="55">Tick${i}</text>`,
+    ).join("")}<path d="M0 50L90 5"></path></svg>`;
+
+  /** Anthropic's launch-post shape, invented: a title and subtitle stacked in
+   * a nested caption, a legend of buttons, the plot, a tooltip, and a
+   * footnote saying what the benchmark measures. */
+  const FOOTNOTE =
+    "Widget Bench 2.0 measures how well a model assembles widgets from parts.";
+  const benchmark = (attrs = "") =>
+    `<figure class="chart__frame" ${attrs}><div class="chart__panel">` +
+    '<figcaption class="chart__caption"><span class="chart__title">Widget Bench 2.0</span><span class="chart__subtitle">Accuracy vs Cost</span></figcaption>' +
+    '<ul class="chart__legend" aria-label="Series">' +
+    '<li><button type="button" aria-pressed="true"><svg viewBox="0 0 8 8"><circle r="4"></circle></svg><span><strong>Model A</strong></span></button></li>' +
+    '<li><button type="button" aria-pressed="true"><svg viewBox="0 0 8 8"><circle r="4"></circle></svg><span><strong>Model B</strong></span></button></li></ul>' +
+    `<div class="chart__plot">${plot('role="img" aria-label="Widget Bench 2.0"')}</div>` +
+    '<div class="chart__tooltip" role="status"><div>Q1</div><div><span>Model A</span><span>41%</span></div></div>' +
+    `</div><div class="chart__footnote"><p>${FOOTNOTE}</p></div></figure>`;
+  const BENCHMARK = `[Interactive figure](${U}): Widget Bench 2.0  \nAccuracy vs Cost  \n${FOOTNOTE}`;
+
+  test("a chart in a figure becomes a link to it, with its words, as one block", () => {
+    // Today the plot is deleted, the title and subtitle run together as one
+    // word, and the legend's and tooltip's words are left as prose.
+    const markdown = clip(benchmark());
+    expect(markdown).toContain(BENCHMARK);
+    expect(isOneBlock(markdown, BENCHMARK)).toBe(true);
+    for (const chrome of ["Tick0", "Model A", "Model B", "41%", "Q1"]) {
+      expect(markdown).not.toContain(chrome);
+    }
+  });
+
+  test("a caption that repeats the chart's name is said once", () => {
+    // The title line equals the plot's label, so only the subtitle is left.
+    expect(clip(benchmark()).split("Widget Bench 2.0  \n")).toHaveLength(2);
+  });
+
+  test("two charts in one figure are one link, their labels joined", () => {
+    const panel = (title: string, note: string, label: string) =>
+      `<div class="panel"><div class="panel-title">${title}<span>${note}</span></div>${plot(`role="img" aria-label="${label}"`)}</div>`;
+    const markdown = clip(
+      '<figure class="calibration"><div class="panels">' +
+        panel(
+          "Long input",
+          "1,200 items · error 0.03",
+          "Long input: latency rises with length.",
+        ) +
+        panel(
+          "Many queries",
+          "8 families · 20–30 items each",
+          "Many queries: latency rises with count.",
+        ) +
+        '</div><figcaption><strong>Figure 2.</strong> Latency against load. <a href="/data.json">Data ↗</a></figcaption></figure>',
+    );
+    const expected =
+      `[Interactive figure](${U}): Long input: latency rises with length. Many queries: latency rises with count.  \n` +
+      "**Figure 2.** Latency against load. [Data ↗](https://charts.example/data.json)";
+    expect(markdown).toContain(expected);
+    expect(isOneBlock(markdown, expected)).toBe(true);
+    // The panel headings were chrome: today they arrive glued together.
+    expect(markdown).not.toContain("1,200 items");
+    expect(markdown).not.toContain("8 families");
+  });
+
+  test("an svg names itself by its <title>, inside a chart library's own element", () => {
+    const markdown = clip(
+      '<figure id="study"><study-scene><div class="stage">' +
+        plot(
+          'role="img"',
+          8,
+          "<title>Shared state and parallel questions</title>",
+        ) +
+        '<nav class="timeline" aria-label="Playback"><button type="button" aria-label="Play">Play</button>' +
+        '<button type="button"><span class="tip">Encode shared state</span></button></nav>' +
+        "</div></study-scene><figcaption><strong>Figure 1.</strong> The proposed computation.</figcaption></figure>",
+    );
+    expect(markdown).toContain(
+      `[Interactive figure](${U}#study): Shared state and parallel questions  \n**Figure 1.** The proposed computation.`,
+    );
+    expect(markdown).not.toContain("Encode shared state");
+  });
+
+  test("a chart with nothing said about it is still marked", () => {
+    expect(clip(`<figure id="sales">${plot("")}</figure>`)).toContain(
+      `[Interactive figure](${U}#sales)\n`,
+    );
+  });
+
+  test("a figure's own label describes the whole of it", () => {
+    expect(
+      clip(
+        `<figure aria-label="Sales by region">${plot('aria-label="North"')}</figure>`,
+      ),
+    ).toContain(`[Interactive figure](${U}): Sales by region`);
+  });
+
+  test("a footnote under a chart is the article's, link and all", () => {
+    const markdown = clip(
+      `<figure>${plot('aria-label="Sales"')}<div class="note"><p>Source: <a href="https://data.example/sales">the sales ledger</a>, which counts returns as negative sales.</p></div></figure>`,
+    );
+    expect(markdown).toContain(
+      `[Interactive figure](${U}): Sales  \nSource: [the sales ledger](https://data.example/sales), which counts returns as negative sales.`,
+    );
+  });
+
+  test("a short sentence in a box of its own is a caption line, not a label", () => {
+    expect(
+      clip(
+        `<figure>${plot('aria-label="Sales"')}<div class="source">Source: company filings.</div></figure>`,
+      ),
+    ).toContain(
+      `[Interactive figure](${U}): Sales  \nSource: company filings.`,
+    );
+  });
+
+  describe("what stays as it converts today", () => {
+    test.each([
+      [
+        "a figure inside a link",
+        `<a href="/x"><figure>${plot('aria-label="L"')}</figure></a>`,
+      ],
+      [
+        "a plot of three labels",
+        `<figure>${plot('aria-label="L"', 3)}<figcaption>Small.</figcaption></figure>`,
+      ],
+      [
+        "a plot beside a table",
+        `<figure>${plot('aria-label="L"')}<table><tr><td>1</td><td>2</td></tr></table></figure>`,
+      ],
+      [
+        "a plot under a heading",
+        `<figure><h3>Results</h3>${plot('aria-label="L"')}</figure>`,
+      ],
+      [
+        "a plot beside a picture",
+        `<figure><img src="/a.png" alt="A">${plot('aria-label="L"')}</figure>`,
+      ],
+      [
+        "a plot beside a quotation",
+        `<figure>${plot('aria-label="L"')}<blockquote>Sales are up.</blockquote></figure>`,
+      ],
+      [
+        "a plot beside loose text that is a sentence",
+        `<figure>${plot('aria-label="L"')}Sales rose in every region this quarter, led by the north and the coast.</figure>`,
+      ],
+      [
+        "a plot beside an element nobody has considered",
+        `<figure>${plot('aria-label="L"')}<details><summary>Data</summary>1, 2</details></figure>`,
+      ],
+    ])("%s", (_name, markup) => {
+      expect(clip(markup)).not.toContain("Interactive figure");
+    });
+
+    test("a figure the page hid stays hidden", () => {
+      for (const markup of [
+        benchmark("hidden"),
+        `<div role="tabpanel" hidden>${benchmark()}</div>`,
+        `<div style="display: none">${benchmark()}</div>`,
+      ]) {
+        const markdown = clip(markup);
+        expect(markdown).not.toContain("Interactive figure");
+        expect(markdown).not.toContain(FOOTNOTE);
+      }
+    });
+
+    test("a chart the page hid inside its figure is not described, and still deleted", () => {
+      const markdown = clip(
+        `<figure><div aria-hidden="true">${plot('aria-label="L"')}</div><figcaption>Sales.</figcaption></figure>`,
+      );
+      expect(markdown).not.toContain("Interactive figure");
+      expect(markdown).not.toContain("Tick0");
+      expect(markdown).toContain("Sales.");
+    });
+
+    test("a caption Readability would have removed is not published for it", () => {
+      const markdown = clip(
+        `<figure>${plot('aria-label="Sales"')}<p class="social-share">Share this chart with your colleagues and followers on every network.</p></figure>`,
+      );
+      expect(markdown).toContain(`[Interactive figure](${U}): Sales`);
+      expect(markdown).not.toContain("Share this chart");
+    });
+  });
+
+  test("a label the page wrote itself means nothing", () => {
+    // Read back after Readability with no record of who wrote it, a page's own
+    // marker could rename any figure.
+    const markdown = clip(
+      `<figure aria-label="Sales">${plot("")}<figcaption><span data-tiro-label="Forged">By region.</span></figcaption></figure>`,
+    );
+    expect(markdown).toContain(
+      `[Interactive figure](${U}): Sales  \nBy region.`,
+    );
+    expect(markdown).not.toContain("Forged");
+  });
+
+  test("in a table cell, the lines join with spaces and the row holds", () => {
+    const markdown = clip(
+      `<table><tr><th>Chart</th><th>Note</th></tr><tr><td>${benchmark()}</td><td>x</td></tr></table>`,
+    );
+    expect(markdown).toContain(
+      `| [Interactive figure](${U}): Widget Bench 2.0 Accuracy vs Cost ${FOOTNOTE} | x`,
+    );
+  });
+
+  describe("captured", () => {
+    const ID = "3f9a0c1b2d4e";
+
+    test("a captured chart is shown by its snapshot, its words beneath", () => {
+      const result = capture(
+        `<figure><img src="/a.jpg" alt="A"><figcaption>A.</figcaption></figure>${benchmark()}`,
+        [[1, ID]],
+      );
+      const expected = `[![Widget Bench 2.0](./assets/${ID}.webp)](${U})  \nAccuracy vs Cost  \n${FOOTNOTE}`;
+      expect(result.markdown).toContain(expected);
+      expect(isOneBlock(result.markdown, expected)).toBe(true);
+      expect(result.scriptFigures).toEqual([1]);
+      expect(result.snapshots).toEqual([ID]);
+    });
+
+    test("a chart is offered for capture beside a figure the page draws", () => {
+      const result = capture(
+        `${benchmark()}<figure id="frontier"><canvas></canvas></figure>`,
+        [],
+      );
+      expect(result.scriptFigures).toEqual([0, 1]);
     });
   });
 });
