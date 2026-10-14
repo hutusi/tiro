@@ -969,6 +969,65 @@ function markPullQuotes(doc: Document): void {
   }
 }
 
+/**
+ * Marks an `<aside>` across Readability, for `dropAppendedAsides`. Found by
+ * this marker and never by tag, because the one that matters comes back
+ * renamed `<div>`.
+ */
+export const ASIDE_ATTR = "data-tiro-aside";
+
+/**
+ * Mark every `<aside>` left once pull quotes are taken out (`markPullQuotes`
+ * makes those `<div>`s first), so the one Readability lets through can be
+ * told apart after it.
+ *
+ * Readability deletes every `<aside>` from the article it returns — furniture
+ * by its own reckoning (`_clean(articleContent, "aside")`). But a sibling of
+ * the article that scores well enough is appended to it, and renamed `<div>`
+ * first (`ALTER_TO_DIV_EXCEPTIONS`), and that rename is how an aside slips
+ * past the rule. GitHub's blog follows each post with an `<aside>` of
+ * promotional cards, "Explore more from GitHub", which scores 24 against a
+ * threshold of 19.9 and was published at the foot of the article.
+ *
+ * Only an attribute is added, so every verdict Readability reaches is its own.
+ */
+function markAsides(doc: Document): void {
+  // A page's own attributes are untrusted input, read back after Readability
+  // with no record of who wrote them (see `markCodeLanguages`).
+  for (const stale of Array.from(doc.querySelectorAll(`[${ASIDE_ATTR}]`))) {
+    stale.removeAttribute(ASIDE_ATTR);
+  }
+  for (const aside of Array.from(doc.querySelectorAll("aside"))) {
+    aside.setAttribute(ASIDE_ATTR, "");
+  }
+}
+
+/**
+ * Drop what Readability kept of an `<aside>`, from the article HTML it
+ * returned: finishing its own rule for the one aside its sibling pass renamed
+ * out of reach (`markAsides`). Any marked element still here was renamed,
+ * since Readability deletes every aside that was not.
+ *
+ * Not the article itself. Readability renames the element it chose as the
+ * article as it does a sibling, so an article written inside an `<aside>`
+ * comes back marked too; it is told apart by holding most of the words.
+ *
+ * Runs after Readability, on its output; takes a `Document` only to borrow its
+ * implementation for a scratch document.
+ */
+export function dropAppendedAsides(html: string, doc: Document): string {
+  const scratch = doc.implementation.createHTMLDocument("");
+  scratch.body.innerHTML = html;
+  const total = collapsed(scratch.body.textContent).length;
+  for (const kept of Array.from(scratch.querySelectorAll(`[${ASIDE_ATTR}]`))) {
+    // Inside one already dropped.
+    if (!kept.isConnected) continue;
+    if (collapsed(kept.textContent).length * 2 >= total) continue;
+    kept.remove();
+  }
+  return scratch.body.innerHTML;
+}
+
 /** Readability's `DIV_TO_P_ELEMS`: a `<div>` holding none of these, at any
  * depth, is one it turns into a paragraph itself. */
 const READABILITY_BLOCKS = "blockquote, dl, div, img, ol, p, pre, table, ul";
@@ -3621,6 +3680,8 @@ export function prepareForClipping(
   // an aside: a pull quote marked first would leave a split body in halves
   // that it joins today.
   markPullQuotes(doc);
+  // After the pull quotes, which leave the asides they keep as <div>s.
+  markAsides(doc);
   normalizeLinkTitles(doc);
   unwrapEquationTables(doc);
   normalizeMath(doc);

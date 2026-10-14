@@ -4160,6 +4160,64 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
   });
 });
 
+describe("an aside Readability appends beside the article", () => {
+  const PAGE = "https://blog.example/post/";
+  const sentence =
+    "The platform keeps growing, and the work behind it has to grow with it, quietly and reliably. ";
+  const article = Array.from(
+    { length: 8 },
+    (_, i) => `<p>${sentence.repeat(3)}Paragraph ${i}.</p>`,
+  ).join("");
+  /** GitHub's blog shape, invented: the post in a container of its own, and
+   * a promotional aside of cards beside it, scoring enough to be appended. */
+  const promo = (attrs = "") =>
+    `<aside class="container" ${attrs}><h2>Explore more from the blog</h2>${Array.from(
+      { length: 3 },
+      (_, i) =>
+        `<p>Card ${i}: everything you need to master the platform, in one place, with guides, references, and tutorials for every team.</p>`,
+    ).join("")}</aside>`;
+  const post = (body: string) =>
+    `<main><div class="container"><div class="row"><section class="post">${body}</section></div></div>${promo()}</main>`;
+
+  function clip(body: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = body;
+    return clipPage(window.document as unknown as Document, PAGE).markdown;
+  }
+
+  test("is dropped, as Readability drops every aside inside the article", () => {
+    // Appended, Readability renames it <div> first, which is how it escapes
+    // its own rule that an aside is furniture.
+    const markdown = clip(post(article));
+    expect(markdown).toContain("Paragraph 7.");
+    expect(markdown).not.toContain("Explore more");
+    expect(markdown).not.toContain("Card 0");
+  });
+
+  test("an article that is itself an aside is kept", () => {
+    const markdown = clip(
+      `<main><aside class="container">${article}</aside></main>`,
+    );
+    expect(markdown).toContain("Paragraph 0.");
+    expect(markdown).toContain("Paragraph 7.");
+  });
+
+  test("a pull quote set as an aside is still kept (ADR 0041)", () => {
+    const LINE = "The work behind the platform has to grow with it.";
+    expect(
+      clip(post(`${article}<aside class="pullquote"><p>${LINE}</p></aside>`)),
+    ).toContain(LINE);
+  });
+
+  test("a marker the page wrote itself means nothing", () => {
+    const LINE =
+      "An ordinary closing paragraph the author wrote, with a comma, and a full stop.";
+    expect(
+      clip(post(`${article}<div data-tiro-aside=""><p>${LINE}</p></div>`)),
+    ).toContain(LINE);
+  });
+});
+
 describe("LaTeXML's placeholder alt text", () => {
   const graphic = (alt: string) =>
     `<img src="f.png" class="ltx_graphics ltx_centering" alt="${alt}">`;

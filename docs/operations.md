@@ -1294,6 +1294,17 @@ incomplete. A sweep that is quietly unsound is worse than no sweep.
    mounts into an empty box is not: GitHub's blog charts are an empty `<div>`
    here and a described chart in the tab, so the sweep never reports them
    (ADR 0044).
+
+   The parser is not a browser's, either. happy-dom gets wrong two shapes
+   that Chrome repairs:
+   - A stray `<!DOCTYPE>`, `<html>` or `<body>` inside the body, which
+     GitHub's blog posts carry: it closes the page early, and the rest
+     arrives flattened or lost.
+   - Anything after a `<style>` inside an `<svg>`, which is dropped.
+
+   On such a page the sweep reports on a document no reader saw. GitHub's
+   footer leak was hidden that way: a clean result here, a leak in every
+   browser clip.
 2. **`--baseline` resolves dependencies from the working tree.** The worktree
    holds source, not `node_modules`, so both sides import today's Readability
    and Turndown. That is what you want when judging your own change and exactly

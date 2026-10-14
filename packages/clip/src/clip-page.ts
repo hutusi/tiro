@@ -2,6 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
   type ClipOptions,
+  dropAppendedAsides,
   excerptWithoutPlaceholders,
   foldFiguresIn,
   hasLatexmlFullText,
@@ -102,8 +103,12 @@ export function clipPage(
 
   const readabilityFailed = article?.content == null || article.content === "";
   // Readability resolves relative URLs to absolute ones; the raw-body
-  // fallback does not, which is one reason the failure is flagged.
-  const extracted = readabilityFailed ? preparedBody : (article?.content ?? "");
+  // fallback does not, which is one reason the failure is flagged. An aside
+  // Readability appended beside the article is dropped from what it returned,
+  // as it drops every other aside (`markAsides`).
+  const extracted = readabilityFailed
+    ? preparedBody
+    : dropAppendedAsides(article?.content ?? "", doc);
   // Figures fold only now: doing it before Readability replaces the elements
   // carrying the attributes it selects on, which republished hidden images
   // (ADR 0011, foldFiguresIn). Fence languages are restored here for the
