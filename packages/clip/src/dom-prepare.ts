@@ -2450,6 +2450,11 @@ function keepScriptFiguresThroughReadability(
       SNAPSHOT_ID.test(snapshot) &&
       !insideLink(figure);
     const orphan = figure.tagName.toUpperCase() !== "FIGURE";
+    // A box is renamed only if Readability's verdict on it cannot change with
+    // its tag. A class that hides it — Tailwind's `hidden` — reaches
+    // Readability only as weight, which it weighs on a <div> and never on a
+    // <figure>, so a renamed hidden box would be published.
+    if (orphan && pageHides(figure)) continue;
     const drawn = !orphan && isScriptDrawnFigure(figure);
     const chart = drawn ? null : chartFigure(figure);
     // An orphan chart's box is a figure only while it can be described.

@@ -76,6 +76,11 @@ An orphan's box is renamed `<figure>`, every attribute kept. Left a `<div>`
 holding one `<span>`, Readability would replace it with a paragraph of its
 own, and the marker with it.
 
+A box the page hides is never renamed. A class that hides it (Tailwind's
+`hidden`) reaches Readability only as weight, which Readability weighs on a
+`<div>` and never on a `<figure>`, so a renamed box would publish a chart the
+page hid. That chart is deleted, as before.
+
 ### 3. Prose is kept, chrome is dropped
 
 Inside the host:

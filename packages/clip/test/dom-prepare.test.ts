@@ -3855,6 +3855,10 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
       for (const markup of [
         ghchart("hidden"),
         `<div style="display: none">${ghchart()}</div>`,
+        // Renamed a <figure>, a class Readability reads only as a <div>'s
+        // weight would no longer hide it.
+        `<div class="hidden">${ghchart()}</div>`,
+        `<div class="md:hidden">${ghchart()}</div>`,
       ]) {
         const markdown = clip(markup);
         expect(markdown).not.toContain("Interactive figure");
