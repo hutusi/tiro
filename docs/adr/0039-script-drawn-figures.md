@@ -2,7 +2,9 @@
 
 Status: accepted (2026-10). Narrows ADR 0002's `assets/` ("images downloaded
 by the processor"): the extension may now write there too. Touches neither
-identity nor the document format, so `tiro.schema` is unchanged.
+identity nor the document format, so `tiro.schema` is unchanged. Extended by
+ADR 0044, which describes and captures charts drawn as `<svg>` the same way,
+in a `<figure>` or in a box of their own.
 
 ## Context
 
