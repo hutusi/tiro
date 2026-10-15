@@ -4,7 +4,8 @@ Status: accepted (2026-10). Narrows ADR 0002's `assets/` ("images downloaded
 by the processor"): the extension may now write there too. Touches neither
 identity nor the document format, so `tiro.schema` is unchanged. Extended by
 ADR 0044, which describes and captures charts drawn as `<svg>` the same way,
-in a `<figure>` or in a box of their own.
+in a `<figure>` or in a box of their own. Amended by ADR 0045: the picture is
+taken by Clip itself, unless the reader unticks it, rather than on request.
 
 ## Context
 
@@ -85,6 +86,9 @@ which sees only the empty shell.
 
 ### 2. A picture of it, when the reader asks
 
+*(Amended by ADR 0045: Clip takes the pictures before it commits, unless the
+reader unticks "Save figures as pictures". The steps below are unchanged.)*
+
 For a tab body with such figures, the popup offers "Capture N figures":
 
 1. Scroll the tab to each figure, centred, with `behavior: "instant"`.
@@ -97,6 +101,8 @@ For a tab body with such figures, the popup offers "Capture N figures":
 6. Put the reader's scroll back.
 
 **Never automatic.** It moves the page for about two seconds a figure.
+*(Amended by ADR 0045: still never when the popup opens; on the Clip click,
+which names the pictures and the time.)*
 
 **Refused rather than taken badly**, leaving the figure a link:
 
@@ -126,7 +132,8 @@ handle it with no change.
 The file is `<id>.webp`, where `id` is the first 12 hex digits of SHA-256 of
 the bytes. That is the processor's own asset name, on purpose: `reconcileAssets`
 considers only that shape. So a snapshot is kept while `index.md` names it, and
-pruned once a re-clip without a capture no longer does.
+pruned once a re-clip without a capture no longer does. *(Since ADR 0045 a
+re-clip captures by default, so that takes an unticked box.)*
 
 `index.md` and its snapshots land in one Git Data API commit. Blobs are
 uploaded first, once, outside the commit's retry cycle. A body naming a file
@@ -166,11 +173,13 @@ received them, and the payload lists the indices of the drawn figures
 - **`data:` URIs in the markdown.** The site's sanitizer drops them, the
   processor skips them, and the translator would be handed the base64.
 - **Capturing on every clip.** It scrolls the page for tens of seconds.
+  *(Reversed by ADR 0045, on the Clip click only, with a remembered opt-out.)*
 - **`canvas.toDataURL`.** It loses the HTML overlays, and is blank for WebGL
   without `preserveDrawingBuffer`.
 - **The service worker owning the loop.** The popup already holds the
   activeTab grant and a DOM for the crop; the worker has neither need nor
-  business seeing page pixels.
+  business seeing page pixels. *(ADR 0045 restates this deferral, now with a
+  reason to revisit it: a popup closed mid-capture costs the clip.)*
 - **One Contents API PUT per file.** N commits, N processing runs, N deploys.
 - **An index-only map between runs, or stamping the live page.** The first
   puts the wrong picture over a caption when mount state shifts the count; the
@@ -181,7 +190,8 @@ received them, and the payload lists the indices of the drawn figures
 - A captured figure costs 13–41 KB measured, and the commit grows by about
   100 KB a figure at most.
 - **A re-clip without capture goes back to links**, and the processor prunes
-  the old snapshots. To keep pictures, capture again.
+  the old snapshots. To keep pictures, capture again. *(Since ADR 0045 a
+  re-clip captures by default, and an unticked one says it replaces them.)*
 - **A snapshot is one frame** of an animation, at the reader's window size and
   device pixel ratio.
 - **Capture is checked only live.** The sweep and the unit tests cover the

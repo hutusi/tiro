@@ -1,3 +1,4 @@
+import type { PictureRefusal } from "./figure-capture.ts";
 import { loadLanguage } from "./storage.ts";
 
 export type Locale = "en" | "zh";
@@ -44,34 +45,87 @@ const en = {
   uploadingFigures: (done: number, total: number) =>
     `Uploading figures ${done} of ${total}…`,
 
-  // Capturing interactive figures (ADR 0039)
-  captureButton: (count: number) =>
-    count === 1 ? "Capture 1 figure" : `Capture ${count} figures`,
-  captureHint: (seconds: number) =>
-    `This page draws its figures with script, so they clip as links. Capturing scrolls to each one — about ${seconds} s — and keeps a picture of it. Keep this popup open.`,
-  captureStop: "Stop",
+  // Pictures of a page's drawn figures, taken by Clip (ADR 0039, ADR 0045).
+  // The box's label is quoted by the disclosure, so it carries no count.
+  savePictures: "Save figures as pictures",
+  picturesHint: (count: number, seconds: number) =>
+    count === 1
+      ? `This page draws a figure with script. Clip scrolls to it and keeps a picture — about ${seconds} s. Keep this popup open until it is saved.`
+      : `This page draws ${count} figures with script. Clip scrolls to each and keeps a picture — about ${seconds} s. Keep this popup open until it is saved.`,
+  picturesOff: (count: number) =>
+    count === 1
+      ? "Its drawn figure clips as a link to the page."
+      : `Its ${count} drawn figures clip as links to the page.`,
+  picturesOffReclip: (count: number) =>
+    count === 1
+      ? "Its drawn figure clips as a link to the page, replacing any picture an earlier clip saved."
+      : `Its ${count} drawn figures clip as links to the page, replacing any pictures an earlier clip saved.`,
+  clipWithPictures: (count: number, reclip: boolean) =>
+    `${reclip ? "Re-clip to vault" : "Clip to vault"} with ${count === 1 ? "1 picture" : `${count} pictures`}`,
+  captureStop: "Stop and clip",
   labelCapturing: "Capturing…",
   capturingFigure: (at: number, total: number) =>
-    `Capturing figure ${at} of ${total}…`,
+    `Taking picture ${at} of ${total} — keep this popup open…`,
+  captureStopping: "Finishing this picture, then clipping…",
   capturePlacing: "Putting the pictures in the article…",
-  // The pictures live in this popup until Clip commits them: one closed in
-  // between — a click on the page it just scrolled — drops them unsaid, and
-  // the clip that follows links to the figures instead.
-  captureResult: (captured: number, total: number) => {
-    const save =
-      captured === 1
-        ? " Clip now to save it — closing this popup discards the picture."
-        : " Clip now to save them — closing this popup discards the pictures.";
-    return captured === total
-      ? total === 1
-        ? `The figure is captured.${save}`
-        : `All ${total} figures captured.${save}`
-      : captured === 0
-        ? "No figure could be captured; they stay as links to the page."
-        : `${captured} of ${total} figures captured; the rest stay as links to the page.${save}`;
+  /** What each refusal is, said after a count ("2 …") or on its own, and what
+   * the reader can do about it, where anything can be done. */
+  pictureRefusals: {
+    "too-big": {
+      what: "taller or wider than the window",
+      remedy: "Enlarge the window and clip again.",
+    },
+    covered: {
+      what: "covered by a banner or a sticky header",
+      remedy: "Close the banner or scroll the header away, and clip again.",
+    },
+    blank: {
+      what: "not drawn yet",
+      remedy: "Let the page finish, scroll through it once, and clip again.",
+    },
+    moving: {
+      what: "kept moving",
+      remedy: "Clip again once the page has settled.",
+    },
+    changed: {
+      what: "lost when the page changed",
+      remedy: "Reload, scroll through it once, and clip again.",
+    },
+    stopped: { what: "not reached before Stop", remedy: null },
+    "too-heavy": { what: "too large to keep", remedy: null },
+    error: { what: "could not be made", remedy: null },
+  } satisfies Record<PictureRefusal, { what: string; remedy: string | null }>,
+  picturesOutcome: (
+    shown: number,
+    total: number,
+    reasons: { count: number; what: string }[],
+    remedy: string | null,
+  ) => {
+    if (shown === total) {
+      return total === 1
+        ? "The figure was saved as a picture."
+        : `All ${total} figures were saved as pictures.`;
+    }
+    const links = total - shown;
+    const lead =
+      shown === 0
+        ? total === 1
+          ? "The figure stayed a link"
+          : `All ${total} figures stayed links`
+        : `${shown} of ${total} figures were saved as pictures; ${links} ${links === 1 ? "stayed a link" : "stayed links"}`;
+    const why =
+      reasons.length === 1
+        ? (reasons[0]?.what ?? "")
+        : reasons.map((r) => `${r.count} ${r.what}`).join(", ");
+    return `${lead} — ${why}.${remedy === null ? "" : ` ${remedy}`}`;
   },
-  captureLost:
-    "The pictures could not be put in the article — it clips with links to the figures instead.",
+  picturesKept: (count: number) =>
+    count === 1
+      ? "The picture is kept: clip again to save it without taking it again."
+      : `The ${count} pictures are kept: clip again to save them without taking them again.`,
+  picturesListLabel: "Pictures saved with this clip",
+  picturesMore: (count: number) => `+${count} more`,
+  pictureAlt: (at: number) => `Figure ${at}`,
   openInTiro: "Open in Tiro →",
   openHint:
     "Appears on the site once processing finishes — usually a few minutes.",
@@ -141,7 +195,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. “Capture figures”, offered on a page whose figures its own script draws, scrolls the page to each one and keeps a picture of that part of the tab; the pictures are committed with the clip, to the same repository. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Once a clip is saved, the popup reads your collections from the same repository and offers them under it, kept and committed the same way. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a page whose figures its own script draws, “Clip to vault” first scrolls the page to each figure and keeps a picture of that part of the tab — unless you untick “Save figures as pictures” — and the pictures are committed with the clip, to the same repository. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Once a clip is saved, the popup reads your collections from the same repository and offers them under it, kept and committed the same way. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -224,6 +278,11 @@ const en = {
   linkNoDisclosure:
     "Open Tiro from the toolbar once first — it says what it sends where.",
   linkFailed: (error: string) => `Could not save the link: ${error}`,
+  // A popup closed mid-clip (ADR 0045), the tooltip beside the badge "!".
+  clipLostCapturing:
+    "Tiro's popup closed while taking pictures, so this page was not clipped. Open Tiro and clip again.",
+  clipLostCommitting:
+    "Tiro's popup closed while saving the clip, so it may not have been saved. Clip again to be sure — it replaces the same article.",
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `The token expires today (${date}) — make a new one now.`
@@ -350,25 +409,70 @@ const zh: Messages = {
   uploadingFigures: (done: number, total: number) =>
     `正在上传图示 ${done} / ${total}…`,
 
-  captureButton: (count: number) => `截取 ${count} 张图示`,
-  captureHint: (seconds: number) =>
-    `本页的图示由脚本绘制，剪藏后只保留链接。截取会逐个滚动到每张图示（约 ${seconds} 秒）并保存截图，请保持弹窗打开。`,
-  captureStop: "停止",
+  savePictures: "将图示保存为截图",
+  picturesHint: (count: number, seconds: number) =>
+    `本页有 ${count} 张由脚本绘制的图示。剪藏时会逐个滚动到图示并截图，约 ${seconds} 秒，请在保存完成前保持弹窗打开。`,
+  picturesOff: (count: number) => `本页的 ${count} 张图示将以链接指向原页面。`,
+  picturesOffReclip: (count: number) =>
+    `本页的 ${count} 张图示将以链接指向原页面，并替换之前剪藏保存的截图。`,
+  clipWithPictures: (count: number, reclip: boolean) =>
+    `${reclip ? "再次剪藏" : "剪藏到仓库"}（含 ${count} 张截图）`,
+  captureStop: "停止并剪藏",
   labelCapturing: "截取中…",
   capturingFigure: (at: number, total: number) =>
-    `正在截取第 ${at} / ${total} 张图示…`,
+    `正在截取第 ${at} / ${total} 张图示，请保持弹窗打开…`,
+  captureStopping: "正在完成这张截图，随后剪藏…",
   capturePlacing: "正在把截图放入文章…",
-  captureResult: (captured: number, total: number) => {
-    const save = `请现在剪藏以保存截图，关闭弹窗会丢弃${captured === 1 ? "它" : "它们"}。`;
-    return captured === total
-      ? total === 1
-        ? `图示已截取。${save}`
-        : `全部 ${total} 张图示已截取。${save}`
-      : captured === 0
-        ? "没有截取到图示，它们仍以链接指向原页面。"
-        : `已截取 ${captured} / ${total} 张图示，其余仍以链接指向原页面。${save}`;
+  pictureRefusals: {
+    "too-big": {
+      what: "比窗口更高或更宽",
+      remedy: "放大窗口后再剪藏一次。",
+    },
+    covered: {
+      what: "被横幅或吸顶栏遮挡",
+      remedy: "关掉横幅或把吸顶栏滚开后，再剪藏一次。",
+    },
+    blank: {
+      what: "尚未绘制出内容",
+      remedy: "等页面加载完、先整体滚动一遍，再剪藏一次。",
+    },
+    moving: { what: "一直在移动", remedy: "等页面稳定后再剪藏一次。" },
+    changed: {
+      what: "因页面变化而丢失",
+      remedy: "刷新页面并整体滚动一遍后，再剪藏一次。",
+    },
+    stopped: { what: "停止前未截取到", remedy: null },
+    "too-heavy": { what: "截图过大", remedy: null },
+    error: { what: "截图未能生成", remedy: null },
   },
-  captureLost: "截图未能放入文章，剪藏时将以链接指向这些图示。",
+  picturesOutcome: (
+    shown: number,
+    total: number,
+    reasons: { count: number; what: string }[],
+    remedy: string | null,
+  ) => {
+    if (shown === total) {
+      return total === 1
+        ? "图示已保存为截图。"
+        : `全部 ${total} 张图示已保存为截图。`;
+    }
+    const lead =
+      shown === 0
+        ? total === 1
+          ? "图示仍以链接保存"
+          : `${total} 张图示均仍以链接保存`
+        : `已将 ${shown} / ${total} 张图示保存为截图，${total - shown} 张仍以链接保存`;
+    const why =
+      reasons.length === 1
+        ? (reasons[0]?.what ?? "")
+        : reasons.map((r) => `${r.count} 张${r.what}`).join("，");
+    return `${lead}：${why}。${remedy ?? ""}`;
+  },
+  picturesKept: (count: number) =>
+    `已保留 ${count} 张截图，再次剪藏时无需重新截取。`,
+  picturesListLabel: "本次剪藏保存的截图",
+  picturesMore: (count: number) => `另有 ${count} 张`,
+  pictureAlt: (at: number) => `图示 ${at}`,
   openInTiro: "在 Tiro 打开 →",
   openHint: "处理完成后会出现在站点上，通常需要几分钟。",
 
@@ -406,7 +510,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。对图示由页面脚本绘制的文章，弹窗会提供「截取图示」：它逐个滚动到每张图示，截下标签页中该部分的画面，并随剪藏一起提交到同一个仓库。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。剪藏保存后，弹窗会从同一个仓库读取你的合集并在下方列出，勾选的改动同样保留并提交。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。对图示由页面脚本绘制的文章，点击「剪藏到仓库」时会先逐个滚动到每张图示，截下标签页中该部分的画面，并随剪藏一起提交到同一个仓库；取消勾选「将图示保存为截图」则不截取。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。剪藏保存后，弹窗会从同一个仓库读取你的合集并在下方列出，勾选的改动同样保留并提交。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -475,6 +579,10 @@ const zh: Messages = {
   linkUnconfigured: "请先在 Tiro 的设置中填写仓库和令牌。",
   linkNoDisclosure: "请先从工具栏打开一次 Tiro，它会说明会把什么发送到哪里。",
   linkFailed: (error: string) => `无法保存链接：${error}`,
+  clipLostCapturing:
+    "截图时 Tiro 弹窗被关闭，本页没有剪藏。请打开 Tiro 再剪藏一次。",
+  clipLostCommitting:
+    "保存剪藏时 Tiro 弹窗被关闭，剪藏可能没有保存。再剪藏一次即可确认，它会覆盖同一篇文章。",
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `令牌今天（${date}）到期，请立即更换。`

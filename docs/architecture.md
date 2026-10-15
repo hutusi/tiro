@@ -42,10 +42,12 @@ flowchart LR
    (Readability), converts it to Markdown (Turndown), assembles frontmatter,
    and commits a single `index.md` into the vault via the GitHub Contents API.
    Images stay hotlinked (absolute URLs) at this stage. The one exception is a
-   figure the page draws with script, or a chart it draws as `<svg>`, captured
-   on the reader's request (ADR 0039, ADR 0044): its picture is taken in the popup and committed beside `index.md`,
-   as `assets/<12 hex>.webp`, in one Git Data API commit — named the way the
-   processor names its downloads, so processing keeps and prunes it like one.
+   figure the page draws with script, or a chart it draws as `<svg>` (ADR 0039,
+   ADR 0044). Clip takes its picture before it commits, unless the reader
+   unticks "Save figures as pictures" (ADR 0045). The picture is taken in the
+   popup and committed beside `index.md`, as `assets/<12 hex>.webp`, in one Git
+   Data API commit. It is named the way the processor names its downloads, so
+   processing keeps and prunes it like one.
 
    Two kinds of page are not read from the tab at all, for one reason: their
    publisher's URL forms are a single identity (ADR 0013), so a clip does not
@@ -173,9 +175,10 @@ flowchart LR
    caption on the next line, translated as prose. Its overlays are chrome and
    are dropped. Which figures qualify is an allow-list, so images, quotes,
    code and third-party embeds (a `<script src>` in the figure) convert as they
-   always did. On request the popup replaces each link with a picture of the
-   figure (ADR 0039): it scrolls the tab to the figure, takes the visible tab,
-   crops it, and re-clips with the pictures in.
+   always did. Clip replaces each link with a picture of the figure before it
+   commits (ADR 0039, ADR 0045): it scrolls the tab to the figure, takes the
+   visible tab, crops it, and re-clips with the pictures in. A figure it cannot
+   picture stays a link, and the popup says why and what to do.
 
    A chart drawn as `<svg>` — four or more painted labels — becomes the same
    block (ADR 0044) rather than being deleted with nothing left in its place.
@@ -482,7 +485,16 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   and the crop need a real browser, which is the manual pass. A chart a script
   mounts into an empty box — GitHub's blog — exists only live too: the sweep
   sees the empty box and cannot report on it (ADR 0044). A re-clip
-  without a capture goes back to links, and the processor prunes the pictures.
+  with the pictures box unticked goes back to links, and the processor prunes
+  the pictures; the popup says so before it happens (ADR 0045).
+
+- **A popup closed while Clip takes pictures saves nothing** (ADR 0045). Clip
+  takes about two seconds a figure before it commits, and the popup holds the
+  pictures until then; a click on the page closes it. The vault keeps what it
+  had and the page's watchdog restores the scroll. The worker hears the
+  popup go mid-clip and puts a "!" on that tab's toolbar button, which says
+  why in its tooltip — the one notice; it cannot keep the clip. The cure is a
+  capture loop owned by the service worker, which is deferred.
 
 - **A saved link reads less than a browser clip** (ADR 0034). The processor's
   fetch carries no cookies and runs no script, so a paywall answers as to a

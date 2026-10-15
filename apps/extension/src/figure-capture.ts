@@ -10,7 +10,9 @@
  * scroll always goes back, the capture rate and the byte budget hold — are
  * tested without a browser.
  */
+import { hasNothingToClip } from "./clip-candidate.ts";
 import type { FrameResult, ScoutRect } from "./figure-scout.ts";
+import type { ClipPayload } from "./messages.ts";
 
 /** Widest a snapshot is stored. A figure is read in a column, and twice the
  * column's width is sharp on any screen the site is read on. */
@@ -110,18 +112,59 @@ export async function snapshotId(bytes: Uint8Array): Promise<string> {
 }
 
 /**
+ * Why a figure stayed a link rather than becoming a picture — what the reader
+ * is told, with what to do about it where anything can be done.
+ *
+ * - `too-big`: taller or wider than the window.
+ * - `covered`: something else on the page was on top of it.
+ * - `blank`: nothing was drawn in it yet.
+ * - `moving`: the page kept moving it while it was taken.
+ * - `changed`: the page changed under the capture — the figure was gone, the
+ *   tab navigated, or the clip after could not find the figure again.
+ * - `stopped`: the reader stopped before it was reached.
+ * - `too-heavy`: its picture, or the clip's pictures together, too large.
+ * - `error`: the picture could not be made.
+ */
+export type PictureRefusal =
+  | "too-big"
+  | "covered"
+  | "blank"
+  | "moving"
+  | "changed"
+  | "stopped"
+  | "too-heavy"
+  | "error";
+
+/** A crop encoded, or why it could not be. */
+export type EncodeResult =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; refusal: "blank" | "too-heavy" | "error" };
+
+/** What a figure the scout could not frame comes to. */
+const FRAME_REFUSALS: Record<
+  Extract<FrameResult, { ok: false }>["reason"],
+  PictureRefusal
+> = {
+  gone: "changed",
+  empty: "blank",
+  "too-big": "too-big",
+  moved: "moving",
+  covered: "covered",
+};
+
+/**
  * Crop the visible tab's image to a figure and encode it as WebP — at a lower
  * quality if the first try is too large, and not at all if that is too.
  */
 export async function cropAndEncode(
   dataUrl: string,
   framed: { rect: ScoutRect; innerWidth: number },
-): Promise<Uint8Array | null> {
+): Promise<EncodeResult> {
   const source = await (await fetch(dataUrl)).blob();
   const whole = await createImageBitmap(source);
   const box = cropBox(framed.rect, framed.innerWidth, whole);
   whole.close();
-  if (box === null) return null;
+  if (box === null) return { ok: false, refusal: "error" };
   const size = outputSize(box.sw, box.sh);
   const bitmap = await createImageBitmap(
     source,
@@ -137,7 +180,7 @@ export async function cropAndEncode(
   );
   const canvas = new OffscreenCanvas(size.width, size.height);
   const context = canvas.getContext("2d");
-  if (context === null) return null;
+  if (context === null) return { ok: false, refusal: "error" };
   context.drawImage(bitmap, 0, 0);
   bitmap.close();
   // A canvas that has mounted but not painted is laid out, so the scout takes
@@ -146,18 +189,18 @@ export async function cropAndEncode(
   // of thin lines was refused as blank. The scan stops at the first pixel that
   // differs, so a real figure costs a few rows; only a blank one is read whole.
   if (looksBlank(context.getImageData(0, 0, size.width, size.height).data)) {
-    return null;
+    return { ok: false, refusal: "blank" };
   }
   for (const quality of [0.85, 0.7]) {
     const blob = await canvas.convertToBlob({ type: "image/webp", quality });
     // A browser that cannot encode WebP answers with PNG instead, which the
     // `.webp` name would then misdescribe.
-    if (blob.type !== "image/webp") return null;
+    if (blob.type !== "image/webp") return { ok: false, refusal: "error" };
     if (blob.size <= SNAPSHOT_MAX_BYTES) {
-      return new Uint8Array(await blob.arrayBuffer());
+      return { ok: true, bytes: new Uint8Array(await blob.arrayBuffer()) };
     }
   }
-  return null;
+  return { ok: false, refusal: "too-heavy" };
 }
 
 /** Where a body was read from: the page's address, and the document's id. */
@@ -185,23 +228,24 @@ export function isSameBody(onScreen: BodyOrigin, arrived: BodyOrigin): boolean {
 }
 
 /**
- * How many captured figures the re-clipped article shows by their picture —
- * the count the reader is told.
+ * The body a capture's clip gives the Clip under way, or null to commit the
+ * one on screen, with its links.
  *
- * Counted by figure, not by file: two figures whose pictures came out
- * identical share one file, and counting files said "1 of 2 captured; the
- * rest stay as links" when both were in. A figure the re-clip could not find
- * again (its page re-rendered it) has its picture shown by nothing, and is
- * not counted.
+ * Only one read from the same body (`isSameBody`), and never an empty one.
+ * The Clip click checked the body on screen for emptiness; this one takes
+ * its place after that check, read again from a page the capture has just
+ * scrolled through. A page that emptied its article meanwhile — torn down by
+ * a script, swapped for a skeleton while it re-renders — keeps its address
+ * and its document, and would otherwise overwrite the article in the vault
+ * with nothing (ADR 0045).
  */
-export function figuresShown(
-  taken: Iterable<{ id: string }>,
-  shown: readonly string[] | undefined,
-): number {
-  const files = new Set(shown ?? []);
-  let count = 0;
-  for (const { id } of taken) if (files.has(id)) count += 1;
-  return count;
+export function placedBody(
+  onScreen: BodyOrigin,
+  arrived: { payload: ClipPayload; documentId?: string | undefined },
+): ClipPayload | null {
+  const from = { url: arrived.payload.url, documentId: arrived.documentId };
+  if (!isSameBody(onScreen, from)) return null;
+  return hasNothingToClip(arrived.payload) ? null : arrived.payload;
 }
 
 /** What the capture loop needs from the world. */
@@ -218,7 +262,7 @@ export interface CaptureEffects {
   encode(
     dataUrl: string,
     framed: { rect: ScoutRect; innerWidth: number },
-  ): Promise<Uint8Array | null>;
+  ): Promise<EncodeResult>;
   sleep(ms: number): Promise<void>;
   now(): number;
 }
@@ -226,8 +270,9 @@ export interface CaptureEffects {
 export interface CaptureOutcome {
   /** Figure index to its snapshot. */
   snapshots: Map<number, { id: string; bytes: Uint8Array }>;
-  /** Figures tried and not captured, for the note after. */
-  skipped: number;
+  /** Figure index to why it stayed a link: every figure not in `snapshots`,
+   * so the two together account for every figure asked for. */
+  refused: Map<number, PictureRefusal>;
   /** The reader stopped it, or the tab changed under it. */
   stopped: boolean;
 }
@@ -247,7 +292,8 @@ function moved(a: ScoutRect, b: ScoutRect): boolean {
 
 /**
  * Capture each figure in turn. A figure that cannot be framed, pictured or
- * encoded is skipped and stays a link; the scroll goes back whatever happens.
+ * encoded stays a link, with the reason recorded; the scroll goes back
+ * whatever happens.
  */
 export async function captureFigures(
   figures: readonly number[],
@@ -259,11 +305,18 @@ export async function captureFigures(
 ): Promise<CaptureOutcome> {
   const outcome: CaptureOutcome = {
     snapshots: new Map(),
-    skipped: 0,
+    refused: new Map(),
     stopped: false,
   };
+  /** Every figure from `position` on stays a link, for one reason. */
+  const refuseFrom = (position: number, refusal: PictureRefusal): void => {
+    for (const index of figures.slice(position)) {
+      outcome.refused.set(index, refusal);
+    }
+  };
+  // No clip has run in the tab, or it has gone: there is nothing to frame.
   if (!(await effects.begin())) {
-    outcome.skipped = figures.length;
+    refuseFrom(0, "changed");
     return outcome;
   }
   let lastCapture = Number.NEGATIVE_INFINITY;
@@ -272,17 +325,22 @@ export async function captureFigures(
     for (const [position, index] of figures.entries()) {
       if (options.stopped?.() === true) {
         outcome.stopped = true;
-        outcome.skipped += figures.length - position;
+        refuseFrom(position, "stopped");
         break;
       }
       options.onProgress?.(position + 1, figures.length);
       let taken: { id: string; bytes: Uint8Array } | null = null;
+      // What the last try said; a figure that never got as far as one
+      // could not be made.
+      let refusal: PictureRefusal = "error";
+      let tabChanged = false;
       try {
         // One retry, for a page that moved the figure while it was framed or
         // while the picture was taken.
         for (let attempt = 0; attempt < 2 && taken === null; attempt++) {
           const framed = await effects.frame(index);
           if (!framed.ok) {
+            refusal = FRAME_REFUSALS[framed.reason];
             if (framed.reason === "moved") continue;
             break;
           }
@@ -291,32 +349,46 @@ export async function captureFigures(
           const dataUrl = await effects.captureTab();
           lastCapture = effects.now();
           if (dataUrl === null) {
-            outcome.stopped = true;
+            tabChanged = true;
             break;
           }
           const after = await effects.measure(index);
-          if (!after.ok || moved(framed.rect, after.rect)) continue;
-          const bytes = await effects.encode(dataUrl, framed);
-          if (bytes === null) break;
-          taken = { id: await snapshotId(bytes), bytes };
+          if (!after.ok) {
+            refusal = FRAME_REFUSALS[after.reason];
+            continue;
+          }
+          if (moved(framed.rect, after.rect)) {
+            refusal = "moving";
+            continue;
+          }
+          const encoded = await effects.encode(dataUrl, framed);
+          if (!encoded.ok) {
+            refusal = encoded.refusal;
+            break;
+          }
+          taken = { id: await snapshotId(encoded.bytes), bytes: encoded.bytes };
         }
       } catch (error) {
         // An image the browser could not decode or encode costs this figure
         // its picture, not the capture its other figures.
         console.error("capturing a figure failed:", error);
         taken = null;
+        refusal = "error";
       }
-      if (outcome.stopped) {
-        outcome.skipped += figures.length - position;
+      // The tab is no longer the one the popup opened on: whatever is in it
+      // now is not this article.
+      if (tabChanged) {
+        outcome.stopped = true;
+        refuseFrom(position, "changed");
         break;
       }
       if (taken === null) {
-        outcome.skipped += 1;
+        outcome.refused.set(index, refusal);
         continue;
       }
       if (total + taken.bytes.length > SNAPSHOTS_MAX_TOTAL_BYTES) {
         // The budget is spent; the rest stay links.
-        outcome.skipped += figures.length - position;
+        refuseFrom(position, "too-heavy");
         break;
       }
       total += taken.bytes.length;
@@ -326,4 +398,81 @@ export async function captureFigures(
     await effects.end();
   }
   return outcome;
+}
+
+/** What a clip's pictures came to, for the reader: the figures shown by
+ * their picture, why the rest stayed links, and the files to show them by. */
+export interface PictureReport {
+  total: number;
+  /** Figures the article shows by their picture. */
+  shown: number;
+  /** How many figures stayed links, by why. */
+  refused: Partial<Record<PictureRefusal, number>>;
+  /** The files the article shows, each once, in the order of their figures,
+   * with what each shows. */
+  pictures: { id: string; label: string }[];
+}
+
+/**
+ * Account for every figure a clip asked to picture: shown, or refused and why.
+ *
+ * `placed` is the clip that carried the pictures, or null when there was none
+ * to carry them. A figure taken but not in it — the clip could not find the
+ * figure again, its page having re-rendered it, or there was no clip at all —
+ * counts as `changed`, since its picture is shown by nothing.
+ *
+ * Counted by figure, not by file: two figures whose pictures came out
+ * identical share one file, and counting files said "1 of 2" when both were
+ * shown.
+ */
+export function pictureReport(
+  figures: readonly number[],
+  outcome: CaptureOutcome,
+  placed: { snapshots?: readonly string[]; markdown: string } | null,
+): PictureReport {
+  const files = new Set(placed?.snapshots ?? []);
+  const labels = pictureLabels(placed?.markdown ?? "", [...files]);
+  const report: PictureReport = {
+    total: figures.length,
+    shown: 0,
+    refused: {},
+    pictures: [],
+  };
+  const listed = new Set<string>();
+  for (const index of figures) {
+    const taken = outcome.snapshots.get(index);
+    if (taken !== undefined && files.has(taken.id)) {
+      report.shown += 1;
+      // Two figures can show one picture; the file is listed once.
+      if (!listed.has(taken.id)) {
+        listed.add(taken.id);
+        report.pictures.push({
+          id: taken.id,
+          label: labels.get(taken.id) ?? "",
+        });
+      }
+      continue;
+    }
+    const refusal =
+      taken !== undefined ? "changed" : (outcome.refused.get(index) ?? "error");
+    report.refused[refusal] = (report.refused[refusal] ?? 0) + 1;
+  }
+  return report;
+}
+
+/** Each snapshot's alt text in a clip's markdown — the figure's own label, as
+ * the clip wrote it — by snapshot id. */
+export function pictureLabels(
+  markdown: string,
+  ids: readonly string[],
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const id of ids) {
+    // Ids are hex (`SNAPSHOT_ID`), so one is safe inside a pattern as it is.
+    const found = new RegExp(`!\\[(.*?)\\]\\(\\./assets/${id}\\.webp\\)`).exec(
+      markdown,
+    );
+    if (found?.[1] !== undefined) labels.set(id, found[1]);
+  }
+  return labels;
 }

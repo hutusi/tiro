@@ -9,7 +9,8 @@ Amends four of its lines:
 - "only children change", for the box an orphan chart is drawn in.
 
 Changes what a clip contains, not the document's shape, so `tiro.schema` is
-unchanged.
+unchanged. Its capture, offered by the popup here, is taken by Clip itself
+since ADR 0045.
 
 ## Context
 

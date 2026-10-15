@@ -58,8 +58,8 @@ const updated = "2026-09-29";
       </li>
       <li>
         如果你在设置页勾选了「在我的设备间同步设置」，上述内容（含个人访问令牌）以及你的
-        语言选择会同时写入 <code>chrome.storage.sync</code>。这意味着它们会经由
-        Google 的服务器同步到你登录同一 Chrome
+        语言选择和截图选择会同时写入 <code>chrome.storage.sync</code
+        >。这意味着它们会经由 Google 的服务器同步到你登录同一 Chrome
         账户的每一台设备上。与此同时，每台设备的
         <code>chrome.storage.local</code> 中也会保留一份副本，因此关闭同步后，每台设备仍会保有它见过的最近一份设置。但那未必是最新的一份：若某台设备在设置最后一次变更时处于关闭或离线状态，它保留的就是较旧的副本；而自你开启同步以来从未打开过
         Tiro 的设备则没有任何副本，只会显示空白表单。该选项默认关闭，只有你亲自开启才会生效；取消勾选会从同步存储中清除
@@ -71,6 +71,10 @@ const updated = "2026-09-29";
       </li>
       <li>
         你的界面语言选择（自动 / English / 中文）。它同样受上述同步选项影响。
+      </li>
+      <li>
+        剪藏时是否将页面脚本绘制的图示保存为截图——即弹窗中的「将图示保存为截图」。
+        它同样受上述同步选项影响。
       </li>
       <li>
         还有一份本机的剪藏记录：每次成功剪藏后，记下该页面地址对应的标识
@@ -98,6 +102,12 @@ const updated = "2026-09-29";
       <li>
         读取结果只留在浏览器里。若你不点「剪藏」就关闭弹窗，结果随即丢弃，
         不会发送、也不会保存。
+      </li>
+      <li>
+        对图示由页面脚本绘制的文章，点击「剪藏到仓库」时会先逐个滚动到每张图示，
+        截下标签页中该部分的画面，并随剪藏一起提交到你的仓库——除非你取消勾选
+        「将图示保存为截图」。页面会为每张图示移动约两秒，结束后回到你原来的位置。
+        点击剪藏之前不会截图；若在此之前关闭弹窗，截图随即丢弃。
       </li>
       <li>
         在 Tiro 站点上——即任何带有 Tiro
@@ -235,16 +245,18 @@ const updated = "2026-09-29";
       </li>
       <li>
         If you tick <em>Sync settings across my devices</em> on the options page,
-        those values — the access token included — and your language choice are also
-        written to <code>chrome.storage.sync</code>. That means they travel
-        through Google's servers to every device signed into the same Chrome
-        profile. A copy also stays in <code>chrome.storage.local</code> on each machine,
-        so switching sync off leaves every machine holding the most recent settings
-        it has seen. That is not always the newest ones: a machine that was closed
-        or offline when the settings last changed keeps the older copy it has, and
-        a machine that has not opened Tiro since you turned sync on has no copy at
-        all and shows an empty form. The option is off unless you turn it on yourself;
-        unticking it clears the settings from sync storage, keeping the local copy.
+        those values — the access token included — your language choice and your pictures
+        choice are also written to <code>chrome.storage.sync</code>. That means
+        they travel through Google's servers to every device signed into the
+        same Chrome profile. A copy also stays in <code
+          >chrome.storage.local</code
+        > on each machine, so switching sync off leaves every machine holding the
+        most recent settings it has seen. That is not always the newest ones: a machine
+        that was closed or offline when the settings last changed keeps the older
+        copy it has, and a machine that has not opened Tiro since you turned sync
+        on has no copy at all and shows an empty form. The option is off unless you
+        turn it on yourself; unticking it clears the settings from sync storage, keeping
+        the local copy.
       </li>
       <li>
         A record of when you accepted the first-run disclosure. This one stays
@@ -253,6 +265,11 @@ const updated = "2026-09-29";
       <li>
         Your UI language choice (auto / English / 中文). This is covered by the
         sync option above.
+      </li>
+      <li>
+        Whether Clip saves a page's drawn figures as pictures — the popup's
+        "Save figures as pictures" box. This is covered by the sync option above
+        too.
       </li>
       <li>
         A local record of your clips: after each successful clip, the identifier
@@ -286,6 +303,14 @@ const updated = "2026-09-29";
       <li>
         The result stays in the browser. Close the popup without clipping and it
         is discarded — not sent, not stored.
+      </li>
+      <li>
+        On a page whose figures its own script draws, clicking Clip first
+        scrolls the page to each figure and takes a picture of that part of the
+        tab, then commits the pictures with the clip, to your repository —
+        unless you untick "Save figures as pictures". The page moves for about
+        two seconds a figure and goes back to where you were. No picture is
+        taken before you click Clip, and closing the popup first discards them.
       </li>
       <li>
         On a Tiro site — any page carrying Tiro's marker, on any domain; the

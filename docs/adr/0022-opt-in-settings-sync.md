@@ -190,7 +190,9 @@ than detecting it.
 own. A save issued in one options tab at the same instant as a sync toggle in
 another can still finish with the newer config local and the older config in
 sync, whereupon the next read restores the older one. This is accepted rather
-than fixed: the options page is the only writer of these keys, and
+than fixed: the options page is the only writer of these keys (ADR 0045 adds
+the popup as the writer of one boolean, the pictures box, whose worst race is
+a stale tick on another machine), and
 `chrome.runtime.openOptionsPage` focuses an open options page instead of
 opening a second, so two of them at once takes deliberate effort. The fix, if
 the trade ever stops being worth it, is to make the worker the single authority

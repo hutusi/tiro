@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type ClipResultMessage,
   isClipResult,
+  isClipWatchMessage,
   isCollectionMessage,
 } from "../src/messages.ts";
 
@@ -154,6 +155,31 @@ describe("isCollectionMessage", () => {
       { ...toggle, op: null },
     ]) {
       expect(isCollectionMessage(bad)).toBe(false);
+    }
+  });
+});
+
+describe("isClipWatchMessage", () => {
+  test("accepts a stage and done", () => {
+    for (const stage of ["capturing", "committing"]) {
+      expect(
+        isClipWatchMessage({ type: "tiro-clip-stage", tabId: 3, stage }),
+      ).toBe(true);
+    }
+    expect(isClipWatchMessage({ type: "tiro-clip-done" })).toBe(true);
+  });
+
+  // The tab it names gets the badge, so it is checked, not just the tag.
+  test("refuses anything malformed", () => {
+    for (const bad of [
+      null,
+      "tiro-clip-done",
+      { type: "tiro-clip-stage", stage: "capturing" },
+      { type: "tiro-clip-stage", tabId: 1.5, stage: "capturing" },
+      { type: "tiro-clip-stage", tabId: "3", stage: "capturing" },
+      { type: "tiro-clip-stage", tabId: 3, stage: "saved" },
+    ]) {
+      expect(isClipWatchMessage(bad)).toBe(false);
     }
   });
 });

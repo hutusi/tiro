@@ -1,3 +1,4 @@
+import type { PictureRefusal, PictureReport } from "../figure-capture.ts";
 import type { FetchSourceKind, Messages } from "../i18n.ts";
 import {
   type RemovalState,
@@ -38,20 +39,17 @@ export interface PreviewFacts {
 }
 
 /**
- * Capturing the figures a page draws with script (ADR 0039): how many the body
- * on screen has, and how far taking their pictures has got.
+ * A Clip taking pictures of the page's drawn figures before it commits them
+ * (ADR 0039, ADR 0045): which step, and how far.
  */
-export interface CaptureState {
-  /** Figures the body on screen can be captured for. */
-  offered: number;
-  step: "offered" | "capturing" | "placing" | "done";
+export interface CaptureRun {
+  step: "capturing" | "placing";
   /** Capturing: the figure being taken, from 1. */
   at: number;
-  /** Done: how many pictures the article shows now. */
-  captured: number;
-  /** Done, but the clip carrying the pictures never came back, so the body on
-   * screen is still the one with links. */
-  lost: boolean;
+  total: number;
+  /** The reader pressed Stop: the picture under way finishes, then the clip
+   * commits what has been taken. */
+  stopping: boolean;
 }
 
 export interface PopupLinks {
@@ -105,8 +103,14 @@ export interface PopupState {
   /** Remove from Tiro (ADR 0036). Absent, or null, when there is nothing to
    * offer it for — a page this machine never clipped. */
   removal?: RemovalState | null;
-  /** Absent, or null, when the body on screen has no figure to capture. */
-  capture?: CaptureState | null;
+  /** The body's drawn figures, and whether Clip is to take their pictures.
+   * Absent, or null, when there is no figure to take — or once this popup has
+   * taken them, and the body on screen is the one with the pictures in. */
+  figures?: { count: number; wanted: boolean } | null;
+  /** Clipping: the pictures being taken first. */
+  capture?: CaptureRun | null;
+  /** What this popup's pictures came to, once it has taken them. */
+  captured?: PictureReport | null;
   /** Clipping: snapshots uploaded so far, before the commit that names them. */
   uploading?: { done: number; total: number } | null;
 }
@@ -140,10 +144,23 @@ export interface PopupView {
    * is then the likelier intent, and Re-clip steps back to an outline. */
   clip: { visible: boolean; enabled: boolean; primary: boolean; label: string };
   links: (PopupLinks & { hint: boolean }) | null;
-  /** Capture the page's drawn figures, and the sentence saying what that does. */
-  capture: { visible: boolean; label: string; hint: string | null };
-  /** Stop a capture under way, keeping what it has taken. */
+  /** Whether Clip saves the drawn figures as pictures, and what that means. */
+  savePictures: {
+    visible: boolean;
+    checked: boolean;
+    label: string;
+    hint: string | null;
+  };
+  /** Stop taking pictures and clip with the ones taken. */
   captureStop: { visible: boolean; label: string };
+  /** What the pictures came to, once saved: a sentence, and the pictures. */
+  captured: {
+    note: string;
+    tone: "ok" | "warn";
+    thumbnails: { id: string; alt: string }[];
+    /** Said for the pictures saved beyond the ones shown, if any. */
+    more: string | null;
+  } | null;
   remove: RemovalView;
 }
 
@@ -158,10 +175,6 @@ const FETCH_OVERRIDES: ReadonlySet<Phase> = new Set(["ready", "blocked"]);
  */
 function removalOfferable(s: PopupState): boolean {
   if (!s.configured || s.fetching) return false;
-  // A capture moves the page and is about to change what Clip commits.
-  if (s.capture?.step === "capturing" || s.capture?.step === "placing") {
-    return false;
-  }
   switch (s.phase) {
     case "saved":
       return true;
@@ -196,8 +209,9 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     progress: null,
     sourceFetch: { ...view.sourceFetch, visible: false },
     clip: { ...view.clip, visible: false, enabled: false },
-    capture: { ...view.capture, visible: false, hint: null },
+    savePictures: { ...view.savePictures, visible: false },
     captureStop: { ...view.captureStop, visible: false },
+    captured: null,
     links: null,
     remove,
   };
@@ -208,6 +222,71 @@ export function popupView(s: PopupState, m: Messages): PopupView {
  * span the reader can plan around, not a promise. */
 export function captureSeconds(figures: number): number {
   return Math.max(5, Math.round((figures * 2) / 5) * 5);
+}
+
+/**
+ * Cells the saved pictures fill: two rows of three in the popup. More
+ * pictures than cells, and the last cell says how many more instead.
+ */
+export const THUMBNAIL_CELLS = 6;
+
+/** The order refusals are told in when they are equally many. */
+const REFUSAL_ORDER: readonly PictureRefusal[] = [
+  "too-big",
+  "covered",
+  "blank",
+  "moving",
+  "changed",
+  "stopped",
+  "too-heavy",
+  "error",
+];
+
+/**
+ * What a clip's pictures came to, for the saved state: one sentence, and the
+ * pictures. The reasons figures stayed links come most common first, and only
+ * the first that has a remedy gives one — a list of instructions would be read
+ * as none.
+ */
+function capturedView(
+  report: PictureReport | null | undefined,
+  m: Messages,
+): PopupView["captured"] {
+  if (report == null) return null;
+  const reasons = (Object.entries(report.refused) as [PictureRefusal, number][])
+    .filter(([, count]) => count > 0)
+    .sort(
+      ([a, countA], [b, countB]) =>
+        countB - countA || REFUSAL_ORDER.indexOf(a) - REFUSAL_ORDER.indexOf(b),
+    );
+  const remedy =
+    reasons
+      .map(([refusal]) => m.pictureRefusals[refusal].remedy)
+      .find((said) => said !== null) ?? null;
+  const shown =
+    report.pictures.length > THUMBNAIL_CELLS
+      ? report.pictures.slice(0, THUMBNAIL_CELLS - 1)
+      : report.pictures;
+  return {
+    note: m.picturesOutcome(
+      report.shown,
+      report.total,
+      reasons.map(([refusal, count]) => ({
+        count,
+        what: m.pictureRefusals[refusal].what,
+      })),
+      remedy,
+    ),
+    tone: report.shown === report.total ? "ok" : "warn",
+    thumbnails: shown.map((picture, at) => ({
+      id: picture.id,
+      alt: picture.label || m.pictureAlt(at + 1),
+    })),
+    more:
+      report.pictures.length > shown.length
+        ? m.picturesMore(report.pictures.length - shown.length)
+        : null,
+  };
 }
 
 function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
@@ -259,6 +338,29 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
       : s.phase;
   const reclip = s.clippedOn !== null;
   const clipLabel = reclip ? m.reclipButton : m.clipButton;
+  // The box, where there are figures to take and a clip could follow.
+  const figures =
+    s.figures != null && s.figures.count > 0 && s.configured && !s.gated
+      ? s.figures
+      : null;
+  const savePictures: PopupView["savePictures"] =
+    figures === null
+      ? { visible: false, checked: false, label: m.savePictures, hint: null }
+      : {
+          visible: true,
+          checked: figures.wanted,
+          label: m.savePictures,
+          hint: figures.wanted
+            ? m.picturesHint(figures.count, captureSeconds(figures.count))
+            : reclip
+              ? m.picturesOffReclip(figures.count)
+              : m.picturesOff(figures.count),
+        };
+  // A clip that takes pictures says so, and how many.
+  const clipLabelNow =
+    figures?.wanted === true
+      ? m.clipWithPictures(figures.count, reclip)
+      : clipLabel;
   const clipDisabled = {
     visible: true,
     enabled: false,
@@ -284,8 +386,9 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
     },
     clip: clipDisabled,
     links: null,
-    capture: { visible: false, label: "", hint: null },
+    savePictures: { ...savePictures, visible: false },
     captureStop: { visible: false, label: m.captureStop },
+    captured: null,
   };
 
   switch (phase) {
@@ -322,47 +425,9 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
     }
     case "ready": {
       const clippedOn = s.clippedOn;
-      const capture = s.capture ?? null;
-      // A capture under way is what the popup is doing: Clip waits for the
-      // body it will produce, which is the one with the pictures in.
-      if (capture?.step === "capturing" || capture?.step === "placing") {
-        return {
-          ...base,
-          label: m.labelCapturing,
-          progress:
-            capture.step === "capturing"
-              ? m.capturingFigure(capture.at, capture.offered)
-              : m.capturePlacing,
-          captureStop: {
-            visible: capture.step === "capturing",
-            label: m.captureStop,
-          },
-        };
-      }
-      const offerCapture =
-        capture?.step === "offered" &&
-        capture.offered > 0 &&
-        s.configured &&
-        !s.gated;
-      const captureNote =
-        capture?.step !== "done"
-          ? null
-          : capture.lost
-            ? m.captureLost
-            : m.captureResult(capture.captured, capture.offered);
       return {
         ...base,
-        preview:
-          base.preview === null
-            ? null
-            : { ...base.preview, note: base.preview.note ?? captureNote },
-        capture: offerCapture
-          ? {
-              visible: true,
-              label: m.captureButton(capture.offered),
-              hint: m.captureHint(captureSeconds(capture.offered)),
-            }
-          : base.capture,
+        savePictures,
         label: s.gated
           ? ""
           : clippedOn === null
@@ -379,7 +444,7 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
           visible: true,
           enabled: s.configured && !s.gated,
           primary: !reclip,
-          label: clipLabel,
+          label: clipLabelNow,
         },
         // The local record says the page was clipped, not that the site has
         // published it — a reopen seconds after a clip is the common case — so
@@ -390,7 +455,27 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
             : null,
       };
     }
-    case "clipping":
+    case "clipping": {
+      const capture = s.capture ?? null;
+      // Taking the pictures is what the clip is doing first. Stop is the only
+      // thing to press: it clips at once with what has been taken.
+      if (capture !== null) {
+        return {
+          ...base,
+          label: m.labelCapturing,
+          progress:
+            capture.step === "placing"
+              ? m.capturePlacing
+              : capture.stopping
+                ? m.captureStopping
+                : m.capturingFigure(capture.at, capture.total),
+          clip: { ...clipDisabled, visible: false },
+          captureStop: {
+            visible: capture.step === "capturing" && !capture.stopping,
+            label: m.captureStop,
+          },
+        };
+      }
       return {
         ...base,
         label: m.labelSaving,
@@ -399,6 +484,7 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
             ? m.uploadingFigures(s.uploading.done, s.uploading.total)
             : m.loadingSave,
       };
+    }
     case "saved":
       return {
         ...base,
@@ -412,23 +498,38 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
           primary: !reclip,
           label: clipLabel,
         },
+        captured: capturedView(s.captured, m),
         links: s.links === null ? null : { ...s.links, hint: true },
       };
-    case "failed":
+    case "failed": {
+      // Pictures taken before a commit failed are kept, and the retry commits
+      // them without taking them again; the box goes, since there is nothing
+      // left to choose. With none taken, the choice is still open.
+      const kept = s.captured?.shown ?? 0;
       return {
         ...base,
         label: m.labelFailed,
         labelTone: "error",
         message: s.problem?.text ?? null,
         messageTone: "error",
+        preview:
+          base.preview === null
+            ? null
+            : {
+                ...base.preview,
+                note:
+                  base.preview.note ?? (kept > 0 ? m.picturesKept(kept) : null),
+              },
+        savePictures,
         // The one path where pressing Clip again is the right move.
         clip: {
           visible: true,
           enabled: s.configured && !s.gated,
           primary: !reclip,
-          label: clipLabel,
+          label: kept > 0 ? m.clipWithPictures(kept, reclip) : clipLabelNow,
         },
       };
+    }
   }
 }
 

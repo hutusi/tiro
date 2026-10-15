@@ -1,4 +1,5 @@
 import type { QueuedOp } from "../collection-queue.ts";
+import type { PictureReport } from "../figure-capture.ts";
 import type { Messages } from "../i18n.ts";
 import type { TiroPage } from "../tiro-page.ts";
 import type {
@@ -7,7 +8,7 @@ import type {
   CollectionsState,
 } from "./collections-view.ts";
 import type { RemovalState, RemovalStep } from "./removal-view.ts";
-import type { CaptureState, PopupState } from "./view.ts";
+import type { CaptureRun, PopupState } from "./view.ts";
 
 /**
  * Canned states for eyeballing the popup outside a real clip:
@@ -40,11 +41,42 @@ const figures = {
   fromFetch: false,
 };
 
+/** A Clip taking the 29 pictures, at one step. */
 function capture(
-  step: CaptureState["step"],
-  extra: Partial<CaptureState> = {},
-): CaptureState {
-  return { offered: 29, step, at: 0, captured: 0, lost: false, ...extra };
+  step: CaptureRun["step"],
+  extra: Partial<CaptureRun> = {},
+): CaptureRun {
+  return { step, at: 0, total: 29, stopping: false, ...extra };
+}
+
+/** Stand-in pictures for the saved state: the real ones are blobs the popup
+ * made from the tab, which a fixture has no tab to make. */
+function pictures(count: number): PictureReport["pictures"] {
+  return Array.from({ length: count }, (_, at) => ({
+    id: (at + 1).toString(16).padStart(12, "0"),
+    label: at === 0 ? "A lathe cutting a thread" : "",
+  }));
+}
+
+/** Stand-in pictures for the saved state's thumbnails, by the ids
+ * `pictures` gives: small drawings of a figure, since the real ones are
+ * blobs made from a tab. */
+export function standInPictures(): [string, string][] {
+  return Array.from({ length: 29 }, (_, at) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#f4f1ea"/><path d="M12 84 L52 ${60 - at} L92 ${40 + at} L148 16" stroke="#8a5a2b" stroke-width="3" fill="none"/><text x="12" y="20" font-size="12" fill="#555">Figure ${at + 1}</text></svg>`;
+    return [
+      (at + 1).toString(16).padStart(12, "0"),
+      `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    ];
+  });
+}
+
+/** What 29 figures came to, shown and refused. */
+function report(
+  shown: number,
+  refused: PictureReport["refused"] = {},
+): PictureReport {
+  return { total: 29, shown, refused, pictures: pictures(shown) };
 }
 
 const links = {
@@ -110,42 +142,90 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       removal: removal("offered"),
     },
     clipping: { ...base, phase: "clipping" },
-    // Capturing interactive figures (ADR 0039), on the article that prompted it.
-    "capture-offered": {
+    // Pictures of drawn figures, taken by Clip (ADR 0039, ADR 0045), on the
+    // article that prompted them.
+    "clip-pictures": {
       ...base,
       preview: figures,
-      capture: capture("offered"),
+      figures: { count: 29, wanted: true },
+    },
+    "clip-pictures-off": {
+      ...base,
+      preview: figures,
+      figures: { count: 29, wanted: false },
+    },
+    "reclip-pictures-off": {
+      ...base,
+      preview: figures,
+      clippedOn: "Oct 8, 2026",
+      links,
+      figures: { count: 29, wanted: false },
     },
     capturing: {
       ...base,
+      phase: "clipping",
       preview: figures,
       capture: capture("capturing", { at: 7 }),
     },
+    "capture-stopping": {
+      ...base,
+      phase: "clipping",
+      preview: figures,
+      capture: capture("capturing", { at: 7, stopping: true }),
+    },
     "capture-placing": {
       ...base,
+      phase: "clipping",
       preview: figures,
       capture: capture("placing"),
-    },
-    "capture-done": {
-      ...base,
-      preview: figures,
-      capture: capture("done", { captured: 29 }),
-    },
-    "capture-partial": {
-      ...base,
-      preview: figures,
-      capture: capture("done", { captured: 27 }),
-    },
-    "capture-lost": {
-      ...base,
-      preview: figures,
-      capture: capture("done", { lost: true }),
     },
     "uploading-figures": {
       ...base,
       phase: "clipping",
       preview: figures,
       uploading: { done: 12, total: 27 },
+    },
+    "saved-pictures": {
+      ...base,
+      phase: "saved",
+      preview: figures,
+      links,
+      captured: report(29),
+    },
+    "saved-pictures-partial": {
+      ...base,
+      phase: "saved",
+      preview: figures,
+      links,
+      captured: report(27, { "too-big": 2 }),
+    },
+    "saved-pictures-mixed": {
+      ...base,
+      phase: "saved",
+      preview: figures,
+      links,
+      captured: report(24, { "too-big": 3, covered: 1, blank: 1 }),
+    },
+    "saved-pictures-lost": {
+      ...base,
+      phase: "saved",
+      preview: figures,
+      links,
+      captured: report(0, { changed: 29 }),
+    },
+    "saved-pictures-stopped": {
+      ...base,
+      phase: "saved",
+      preview: figures,
+      links,
+      captured: report(7, { stopped: 22 }),
+    },
+    "failed-pictures": {
+      ...base,
+      phase: "failed",
+      preview: figures,
+      problem: { text: m.errHttp(502), error: true },
+      captured: report(27, { "too-big": 2 }),
     },
     saved: { ...base, phase: "saved", links, removal: removal("offered") },
     updated: {

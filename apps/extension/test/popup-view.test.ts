@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import type { PictureReport } from "../src/figure-capture.ts";
 import { messages } from "../src/i18n.ts";
 import {
   articleUrl,
+  type CaptureRun,
   captureSeconds,
   type PopupState,
   popupView,
+  THUMBNAIL_CELLS,
   vaultFileUrl,
 } from "../src/popup/view.ts";
 
@@ -584,97 +587,128 @@ describe("popupView, Remove from Tiro (ADR 0036)", () => {
   });
 });
 
-describe("capturing figures (ADR 0039)", () => {
-  const offered = {
-    offered: 29,
+describe("clipping with pictures (ADR 0045)", () => {
+  const figures = { count: 3, wanted: true };
+  const run = (extra: Partial<CaptureRun> = {}): CaptureRun => ({
+    step: "capturing",
+    at: 1,
+    total: 3,
+    stopping: false,
+    ...extra,
+  });
+  const report = (
+    shown: number,
+    refused: PictureReport["refused"] = {},
+    total = 3,
+  ): PictureReport => ({
+    total,
+    shown,
+    refused,
+    pictures: Array.from({ length: shown }, (_, at) => ({
+      id: `${at}`.padStart(12, "0"),
+      label: at === 0 ? "Sales by region" : "",
+    })),
+  });
+  const removal = {
     step: "offered" as const,
-    at: 0,
-    captured: 0,
-    lost: false,
+    vault: "o/r",
+    title: null,
+    problem: null,
   };
 
-  test("a body with drawn figures offers to capture them, beside Clip", () => {
-    const v = popupView(state({ capture: offered }), m);
-    expect(v.capture.visible).toBe(true);
-    expect(v.capture.label).toBe(m.captureButton(29));
-    expect(v.capture.hint).toBe(m.captureHint(captureSeconds(29)));
-    // Clip stays on offer: capturing is a choice, never a toll.
+  test("a body with drawn figures takes their pictures on Clip, ticked by default", () => {
+    const v = popupView(state({ figures }), m);
+    expect(v.savePictures).toEqual({
+      visible: true,
+      checked: true,
+      label: m.savePictures,
+      hint: m.picturesHint(3, captureSeconds(3)),
+    });
+    expect(v.clip.label).toBe(m.clipWithPictures(3, false));
+    expect(v.clip.label).toBe("Clip to vault with 3 pictures");
     expect(v.clip.enabled).toBe(true);
     expect(v.captureStop.visible).toBe(false);
   });
 
-  test("no offer without figures, before setup, or while the body is gated", () => {
+  test("unticked, Clip is the plain one, and the hint says the figures clip as links", () => {
+    const v = popupView(state({ figures: { count: 3, wanted: false } }), m);
+    expect(v.savePictures.checked).toBe(false);
+    expect(v.savePictures.hint).toBe(m.picturesOff(3));
+    expect(v.clip.label).toBe(m.clipButton);
+  });
+
+  test("unticked on a re-clip, the hint says it replaces the pictures saved before", () => {
+    // A re-clip without pictures used to downgrade them to links in silence.
+    const v = popupView(
+      state({ figures: { count: 3, wanted: false }, clippedOn: "Oct 8" }),
+      m,
+    );
+    expect(v.savePictures.hint).toBe(m.picturesOffReclip(3));
+    expect(v.clip.label).toBe(m.reclipButton);
+    expect(v.clip.primary).toBe(false);
+  });
+
+  test("ticked on a re-clip, the label says so", () => {
+    expect(
+      popupView(state({ figures, clippedOn: "Oct 8" }), m).clip.label,
+    ).toBe(m.clipWithPictures(3, true));
+  });
+
+  test("no box without figures, before setup, or while the body is gated", () => {
     for (const s of [
       state(),
-      state({ capture: null }),
-      state({ capture: offered, configured: false }),
-      state({ capture: offered, gated: true }),
+      state({ figures: null }),
+      state({ figures: { count: 0, wanted: true } }),
+      state({ figures, configured: false }),
+      state({ figures, gated: true }),
     ]) {
-      expect(popupView(s, m).capture.visible).toBe(false);
+      const v = popupView(s, m);
+      expect(v.savePictures.visible).toBe(false);
+      expect(v.clip.label).not.toBe(m.clipWithPictures(3, false));
     }
   });
 
-  test("while capturing, it says which figure, Clip waits, and Stop is there", () => {
+  test("while taking pictures, it says which and to keep the popup open; Stop is the one button", () => {
     const v = popupView(
-      state({ capture: { ...offered, step: "capturing", at: 7 } }),
+      state({ phase: "clipping", figures, capture: run({ at: 2 }) }),
       m,
     );
     expect(v.label).toBe(m.labelCapturing);
-    expect(v.progress).toBe(m.capturingFigure(7, 29));
-    expect(v.clip.enabled).toBe(false);
-    expect(v.capture.visible).toBe(false);
-    expect(v.captureStop.visible).toBe(true);
+    expect(v.progress).toBe(m.capturingFigure(2, 3));
+    expect(v.clip.visible).toBe(false);
+    expect(v.captureStop).toEqual({ visible: true, label: m.captureStop });
+    expect(v.savePictures.visible).toBe(false);
   });
 
-  test("placing the pictures has no Stop: it is one clip, already running", () => {
-    const v = popupView(state({ capture: { ...offered, step: "placing" } }), m);
-    expect(v.progress).toBe(m.capturePlacing);
-    expect(v.clip.enabled).toBe(false);
+  test("once Stop is pressed, it says the picture under way finishes first", () => {
+    const v = popupView(
+      state({ phase: "clipping", capture: run({ stopping: true }) }),
+      m,
+    );
+    expect(v.progress).toBe(m.captureStopping);
     expect(v.captureStop.visible).toBe(false);
   });
 
-  test("once done, the card says what came out and Clip is back", () => {
-    for (const [captured, lost, note] of [
-      [29, false, m.captureResult(29, 29)],
-      [27, false, m.captureResult(27, 29)],
-      [0, false, m.captureResult(0, 29)],
-      [0, true, m.captureLost],
-    ] as const) {
-      const v = popupView(
-        state({ capture: { ...offered, step: "done", captured, lost } }),
-        m,
-      );
-      expect(v.preview?.note).toBe(note);
-      expect(v.capture.visible).toBe(false);
-      expect(v.clip.enabled).toBe(true);
-    }
+  test("placing the pictures has no Stop: it is one clip, already running", () => {
+    const v = popupView(
+      state({ phase: "clipping", capture: run({ step: "placing" }) }),
+      m,
+    );
+    expect(v.progress).toBe(m.capturePlacing);
+    expect(v.captureStop.visible).toBe(false);
   });
 
-  test("a capture under way is no moment to offer Remove", () => {
-    const removal = {
-      step: "offered" as const,
-      vault: "o/r",
-      title: null,
-      problem: null,
-    };
-    const during = popupView(
+  test("a Clip taking pictures is no moment to offer Remove", () => {
+    const v = popupView(
       state({
+        phase: "clipping",
         clippedOn: "Oct 8",
         removal,
-        capture: { ...offered, step: "capturing", at: 3 },
+        capture: run(),
       }),
       m,
     );
-    expect(during.remove.offer.visible).toBe(false);
-    const after = popupView(
-      state({
-        clippedOn: "Oct 8",
-        removal,
-        capture: { ...offered, step: "done", captured: 29 },
-      }),
-      m,
-    );
-    expect(after.remove.offer.visible).toBe(true);
+    expect(v.remove.offer.visible).toBe(false);
   });
 
   test("while the commit runs, the uploads are counted, then the save", () => {
@@ -688,6 +722,141 @@ describe("capturing figures (ADR 0039)", () => {
       m,
     );
     expect(committing.progress).toBe(m.loadingSave);
+  });
+
+  test("saved with every picture: the note says so, and the pictures show", () => {
+    const v = popupView(
+      state({ phase: "saved", links, captured: report(3) }),
+      m,
+    );
+    expect(v.captured).toEqual({
+      note: "All 3 figures were saved as pictures.",
+      tone: "ok",
+      thumbnails: [
+        { id: "000000000000", alt: "Sales by region" },
+        { id: "000000000001", alt: m.pictureAlt(2) },
+        { id: "000000000002", alt: m.pictureAlt(3) },
+      ],
+      more: null,
+    });
+  });
+
+  test("saved with some links: why, most common first, and the first remedy", () => {
+    const v = popupView(
+      state({
+        phase: "saved",
+        links,
+        captured: report(5, { covered: 1, "too-big": 3, stopped: 1 }, 10),
+      }),
+      m,
+    );
+    expect(v.captured?.tone).toBe("warn");
+    expect(v.captured?.note).toBe(
+      "5 of 10 figures were saved as pictures; 5 stayed links — 3 taller or wider than the window, 1 covered by a banner or a sticky header, 1 not reached before Stop. Enlarge the window and clip again.",
+    );
+  });
+
+  test("one reason is said without a count", () => {
+    expect(
+      popupView(
+        state({
+          phase: "saved",
+          links,
+          captured: report(0, { changed: 1 }, 1),
+        }),
+        m,
+      ).captured?.note,
+    ).toBe(
+      "The figure stayed a link — lost when the page changed. Reload, scroll through it once, and clip again.",
+    );
+  });
+
+  test("the commonest reason with a remedy is the one that gives it", () => {
+    // Stopped is the commonest, and has nothing to do about it.
+    const note = popupView(
+      state({
+        phase: "saved",
+        links,
+        captured: report(1, { stopped: 2, blank: 1 }, 4),
+      }),
+      m,
+    ).captured?.note;
+    expect(note).toEndWith(` ${m.pictureRefusals.blank.remedy}`);
+  });
+
+  test("a Stop alone has no remedy to offer", () => {
+    expect(
+      popupView(
+        state({ phase: "saved", links, captured: report(1, { stopped: 2 }) }),
+        m,
+      ).captured?.note,
+    ).toBe(
+      "1 of 3 figures were saved as pictures; 2 stayed links — not reached before Stop.",
+    );
+  });
+
+  test("the pictures fill six cells, the last saying how many more", () => {
+    const saved = (count: number) =>
+      popupView(
+        state({ phase: "saved", links, captured: report(count, {}, count) }),
+        m,
+      ).captured;
+    expect(saved(THUMBNAIL_CELLS)?.thumbnails).toHaveLength(THUMBNAIL_CELLS);
+    expect(saved(THUMBNAIL_CELLS)?.more).toBeNull();
+    // One more picture than cells: the sixth cell says "+2 more", not
+    // a seventh cell on a row of its own.
+    expect(saved(THUMBNAIL_CELLS + 1)?.thumbnails).toHaveLength(
+      THUMBNAIL_CELLS - 1,
+    );
+    expect(saved(THUMBNAIL_CELLS + 1)?.more).toBe(m.picturesMore(2));
+    expect(saved(9)?.more).toBe(m.picturesMore(4));
+  });
+
+  test("a clip that took no pictures says nothing about them", () => {
+    expect(popupView(state({ phase: "saved", links }), m).captured).toBeNull();
+  });
+
+  test("a commit that failed after the pictures keeps them for the retry", () => {
+    const v = popupView(
+      state({
+        phase: "failed",
+        problem: { text: "GitHub returned 502.", error: true },
+        captured: report(2, { "too-big": 1 }),
+      }),
+      m,
+    );
+    expect(v.clip).toMatchObject({
+      visible: true,
+      enabled: true,
+      label: m.clipWithPictures(2, false),
+    });
+    expect(v.savePictures.visible).toBe(false);
+    expect(v.preview?.note).toBe(m.picturesKept(2));
+  });
+
+  test("a commit that failed before any picture leaves the choice open", () => {
+    const v = popupView(
+      state({
+        phase: "failed",
+        problem: { text: "GitHub returned 502.", error: true },
+        figures: { count: 3, wanted: false },
+      }),
+      m,
+    );
+    expect(v.savePictures.visible).toBe(true);
+    expect(v.clip.label).toBe(m.clipButton);
+  });
+
+  test("a removal under way hides the box", () => {
+    const v = popupView(
+      state({
+        clippedOn: "Oct 8",
+        figures,
+        removal: { ...removal, step: "confirming", title: "T" },
+      }),
+      m,
+    );
+    expect(v.savePictures.visible).toBe(false);
   });
 
   test("the estimate is a span to plan around, never under five seconds", () => {
