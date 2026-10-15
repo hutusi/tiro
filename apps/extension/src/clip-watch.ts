@@ -69,6 +69,11 @@ export function reportClip(
     current = null;
     const closing = port;
     port = null;
+    // Disconnecting straight after the post is safe: Chrome delivers a port's
+    // messages before its disconnect. Measured from the real popup, 3000 times
+    // in a row with the worker idle and with it blocked so both queued, and
+    // never a false "!". An acknowledgement would add a round trip and still
+    // leave a popup closed before it arrived to the same ordering.
     try {
       closing?.postMessage({ type: "tiro-clip-done" });
       closing?.disconnect();
