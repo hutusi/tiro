@@ -10,7 +10,9 @@
  * scroll always goes back, the capture rate and the byte budget hold — are
  * tested without a browser.
  */
+import { hasNothingToClip } from "./clip-candidate.ts";
 import type { FrameResult, ScoutRect } from "./figure-scout.ts";
+import type { ClipPayload } from "./messages.ts";
 
 /** Widest a snapshot is stored. A figure is read in a column, and twice the
  * column's width is sharp on any screen the site is read on. */
@@ -223,6 +225,27 @@ export function isSameBody(onScreen: BodyOrigin, arrived: BodyOrigin): boolean {
     onScreen.documentId === arrived.documentId &&
     onScreen.url === arrived.url
   );
+}
+
+/**
+ * The body a capture's clip gives the Clip under way, or null to commit the
+ * one on screen, with its links.
+ *
+ * Only one read from the same body (`isSameBody`), and never an empty one.
+ * The Clip click checked the body on screen for emptiness; this one takes
+ * its place after that check, read again from a page the capture has just
+ * scrolled through. A page that emptied its article meanwhile — torn down by
+ * a script, swapped for a skeleton while it re-renders — keeps its address
+ * and its document, and would otherwise overwrite the article in the vault
+ * with nothing (ADR 0045).
+ */
+export function placedBody(
+  onScreen: BodyOrigin,
+  arrived: { payload: ClipPayload; documentId?: string | undefined },
+): ClipPayload | null {
+  const from = { url: arrived.payload.url, documentId: arrived.documentId };
+  if (!isSameBody(onScreen, from)) return null;
+  return hasNothingToClip(arrived.payload) ? null : arrived.payload;
 }
 
 /** What the capture loop needs from the world. */

@@ -35,9 +35,9 @@ import {
   captureFigures,
   cropAndEncode,
   FRAME_OPTIONS,
-  isSameBody,
   type PictureReport,
   pictureReport,
+  placedBody,
 } from "../figure-capture.ts";
 import {
   beginCapture,
@@ -1325,7 +1325,8 @@ async function main(): Promise<void> {
   el.clip.addEventListener("click", () => {
     // The empty check again, at the one place a commit starts: the view keeps
     // the button shut over an empty body, and this is what holds if it ever
-    // does not.
+    // does not. The body a capture reads again in its place is checked where
+    // it is taken (`placedBody`).
     if (
       result === null ||
       committing ||
@@ -1529,8 +1530,9 @@ async function main(): Promise<void> {
   }
 
   /** Clip the tab again, with the pictures in place of the links. Null when
-   * the clip never comes back, or comes back from another page than the body
-   * on screen — the original body then stands, with its links. */
+   * the clip never comes back, or `placedBody` refuses it — from another page
+   * than the body on screen, or empty — and the original body then stands,
+   * with its links. */
   async function reclipWithSnapshots(
     onScreen: BodyOrigin,
     figures: [number, string][],
@@ -1564,12 +1566,7 @@ async function main(): Promise<void> {
     }
     const message = await arrived;
     pendingCapture = null;
-    if (message === null) return null;
-    const from = {
-      url: message.payload.url,
-      documentId: message.documentId,
-    };
-    return isSameBody(onScreen, from) ? message.payload : null;
+    return message === null ? null : placedBody(onScreen, message);
   }
 
   /**

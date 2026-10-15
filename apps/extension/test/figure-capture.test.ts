@@ -11,11 +11,13 @@ import {
   type PictureRefusal,
   pictureLabels,
   pictureReport,
+  placedBody,
   SNAPSHOT_MAX_WIDTH,
   SNAPSHOTS_MAX_TOTAL_BYTES,
   snapshotId,
 } from "../src/figure-capture.ts";
 import type { FrameResult, ScoutRect } from "../src/figure-scout.ts";
+import type { ClipPayload } from "../src/messages.ts";
 
 describe("cropBox", () => {
   const rect: ScoutRect = { x: 10, y: 20, width: 100, height: 50 };
@@ -529,5 +531,43 @@ describe("isSameBody", () => {
     expect(isSameBody(onScreen, { ...onScreen, documentId: undefined })).toBe(
       false,
     );
+  });
+});
+
+describe("placedBody", () => {
+  const onScreen = { url: "https://a.example/story", documentId: "d1" };
+  const payload: ClipPayload = {
+    url: onScreen.url,
+    title: "A story",
+    excerpt: "",
+    author: "",
+    markdown: "# A story\n\n![A chart](tiro-snapshot:000000000001)",
+    readabilityFailed: false,
+    hasMath: false,
+    pdfViewer: false,
+    latexmlFullText: false,
+    markdownSource: false,
+  };
+
+  test("the same body, with the pictures in, takes the place of the one on screen", () => {
+    expect(placedBody(onScreen, { payload, documentId: "d1" })).toBe(payload);
+  });
+
+  test("one from another page does not", () => {
+    expect(placedBody(onScreen, { payload, documentId: "d2" })).toBeNull();
+  });
+
+  // The Clip click checked the body on screen; this one replaces it after
+  // that check, so it is checked here, or an article the page emptied while
+  // the capture scrolled it overwrites the vault's copy with nothing.
+  test("an empty one does not, though it is the same page", () => {
+    for (const markdown of ["", " \n\n "]) {
+      expect(
+        placedBody(onScreen, {
+          payload: { ...payload, markdown },
+          documentId: "d1",
+        }),
+      ).toBeNull();
+    }
   });
 });

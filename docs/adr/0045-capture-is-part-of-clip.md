@@ -113,7 +113,10 @@ The capture records a refusal for every figure it does not take:
 | `error` | could not be made | none |
 
 `changed` covers a figure the page removed, a tab that navigated, and a
-figure the clip after the capture could not find again.
+figure the clip after the capture could not find again. It also covers an
+article the page emptied while the capture scrolled it: that clip is
+refused, as Clip refuses an empty body, and the body the reader saw is
+committed, with links.
 
 Once saved, the popup says what the pictures came to in one sentence. The
 reasons come most common first, and only the first one that has a remedy gives
