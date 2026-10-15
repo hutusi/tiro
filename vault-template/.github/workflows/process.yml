@@ -67,7 +67,6 @@ jobs:
 
       - name: Run the processor
         id: process
-        working-directory: tiro
         env:
           # Must match llm.api_key_env in config/tiro.yml. If you rename it
           # there, rename this key too — the processor looks up whatever name
@@ -77,17 +76,9 @@ jobs:
           # substitutes ${{ }} into the run block before bash parses it, so an
           # interpolated slug would execute in a job holding contents: write
           # and the LLM key.
-          FORCE: ${{ inputs.force }}
-          SLUG: ${{ inputs.slug }}
-        run: |
-          # Recorded on articles made from saved links: this checkout is the
-          # code that clips their pages (ADR 0034).
-          TIRO_COMMIT="$(git describe --always)"
-          export TIRO_COMMIT
-          args=(--vault "$GITHUB_WORKSPACE/vault")
-          if [ "$FORCE" = "true" ]; then args+=(--force); fi
-          if [ -n "$SLUG" ]; then args+=(--slug "$SLUG"); fi
-          bun run process -- "${args[@]}"
+          TIRO_FORCE: ${{ inputs.force }}
+          TIRO_SLUG: ${{ inputs.slug }}
+        run: bash "$GITHUB_WORKSPACE/tiro/packages/processor/job/process.sh" "$GITHUB_WORKSPACE/vault"
 
       # Pushes made with the default GITHUB_TOKEN do not retrigger workflows,
       # so committing back here cannot loop. What the step does — the
@@ -111,22 +102,15 @@ jobs:
         # committed real work and was then killed by timeout-minutes still has
         # something to publish.
         #
-        # A push or a manual run deploys even when this run committed nothing
-        # (ADR 0032). Such a push is a hand edit — `unlisted`, a deletion, a
-        # repair, a slug migration — and its content is already on main, so
-        # there is nothing to process and everything to publish. The daily
-        # run waits for a commit of its own: with nothing new, there is
-        # nothing to publish.
-        if: >-
-          always() && steps.commit.outcome == 'success' &&
-          (steps.commit.outputs.committed == 'true' ||
-          github.event_name == 'push' ||
-          github.event_name == 'workflow_dispatch')
-        uses: peter-evans/repository-dispatch@v4
-        with:
-          token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
-          repository: hutusi/tiro
-          event-type: vault-updated
+        # Whether this run deploys at all is the script's to decide (ADR
+        # 0032): a push or a manual run deploys even when it committed
+        # nothing, and the daily run only when it committed something.
+        if: always() && steps.commit.outcome == 'success'
+        env:
+          TIRO_TRIGGER: ${{ github.event_name }}
+          TIRO_COMMITTED: ${{ steps.commit.outputs.committed }}
+          TIRO_DISPATCH_TOKEN: ${{ secrets.TIRO_DISPATCH_TOKEN }}
+        run: bash "$GITHUB_WORKSPACE/tiro/packages/processor/job/deploy.sh"
 
       # Last, and only here: by now the run's work is committed and deployed,
       # so failing the job loses nothing (invariant 7) — it only makes GitHub

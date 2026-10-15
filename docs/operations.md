@@ -463,6 +463,12 @@ devDependencies — the action must log "using pre-installed wrangler".
   `collections/` goes through `publish.yml` instead, which only dispatches
   (ADR 0029). A push touching neither — `config/tiro.yml`, say — deploys
   nothing, and needs nothing: the site does not read the config.
+  - Whether a run deploys, and the dispatch itself, is
+    `packages/processor/job/deploy.sh` in tiro: `process.yml` calls it after
+    its commit step, and `publish.yml` through tiro's `deploy` action. A
+    refused dispatch fails the step with `refused the deploy dispatch (HTTP
+    <status>)` — the token in `TIRO_DISPATCH_TOKEN` can no longer write to
+    tiro.
   - The deploy comes when the processing run *ends*, and that run queues behind
     one already in progress, so a hand edit can take as long to appear as the
     run ahead of it. Dispatch a deploy by hand (Actions → Deploy site → Run
