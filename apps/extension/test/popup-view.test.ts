@@ -7,7 +7,7 @@ import {
   captureSeconds,
   type PopupState,
   popupView,
-  THUMBNAILS_SHOWN,
+  THUMBNAIL_CELLS,
   vaultFileUrl,
 } from "../src/popup/view.ts";
 
@@ -737,7 +737,7 @@ describe("clipping with pictures (ADR 0045)", () => {
         { id: "000000000001", alt: m.pictureAlt(2) },
         { id: "000000000002", alt: m.pictureAlt(3) },
       ],
-      more: 0,
+      more: null,
     });
   });
 
@@ -795,13 +795,21 @@ describe("clipping with pictures (ADR 0045)", () => {
     );
   });
 
-  test("the pictures shown stop at six, and say how many more", () => {
-    const v = popupView(
-      state({ phase: "saved", links, captured: report(9, {}, 9) }),
-      m,
+  test("the pictures fill six cells, the last saying how many more", () => {
+    const saved = (count: number) =>
+      popupView(
+        state({ phase: "saved", links, captured: report(count, {}, count) }),
+        m,
+      ).captured;
+    expect(saved(THUMBNAIL_CELLS)?.thumbnails).toHaveLength(THUMBNAIL_CELLS);
+    expect(saved(THUMBNAIL_CELLS)?.more).toBeNull();
+    // One more picture than cells: the sixth cell says "+2 more", not
+    // a seventh cell on a row of its own.
+    expect(saved(THUMBNAIL_CELLS + 1)?.thumbnails).toHaveLength(
+      THUMBNAIL_CELLS - 1,
     );
-    expect(v.captured?.thumbnails).toHaveLength(THUMBNAILS_SHOWN);
-    expect(v.captured?.more).toBe(3);
+    expect(saved(THUMBNAIL_CELLS + 1)?.more).toBe(m.picturesMore(2));
+    expect(saved(9)?.more).toBe(m.picturesMore(4));
   });
 
   test("a clip that took no pictures says nothing about them", () => {

@@ -137,6 +137,7 @@ const el = {
   ) as HTMLParagraphElement,
   captureStop: document.getElementById("capture-stop") as HTMLButtonElement,
   captured: document.getElementById("captured") as HTMLElement,
+  picturesList: document.getElementById("pictures-list") as HTMLUListElement,
   capturedNote: document.getElementById(
     "captured-note",
   ) as HTMLParagraphElement,
@@ -185,6 +186,44 @@ const el = {
   ) as HTMLParagraphElement,
 };
 
+/**
+ * The pictures this popup took, by snapshot id, as object URLs: what the saved
+ * state shows them by. Made from the bytes the clip commits, so what the
+ * reader sees is what was saved. Revoked when the popup goes.
+ */
+const pictureUrls = new Map<string, string>();
+addEventListener("pagehide", () => {
+  for (const url of pictureUrls.values()) URL.revokeObjectURL(url);
+});
+
+/** Paint the saved pictures. Rebuilt only when the set changes: `render`
+ * runs on every upload tick, and an `<img>` rebuilt that often flickers. */
+function applyPictures(captured: PopupView["captured"]): void {
+  const thumbnails = captured?.thumbnails ?? [];
+  const key = `${thumbnails.map(({ id }) => id).join(",")}|${captured?.more ?? ""}`;
+  if (el.picturesList.dataset.key === key) return;
+  el.picturesList.dataset.key = key;
+  const items = thumbnails.flatMap(({ id, alt }) => {
+    const url = pictureUrls.get(id);
+    if (url === undefined) return [];
+    const image = document.createElement("img");
+    image.src = url;
+    image.alt = alt;
+    image.decoding = "async";
+    const item = document.createElement("li");
+    item.append(image);
+    return [item];
+  });
+  if (captured?.more != null && items.length > 0) {
+    const more = document.createElement("li");
+    more.className = "more";
+    more.textContent = captured.more;
+    items.push(more);
+  }
+  el.picturesList.hidden = items.length === 0;
+  el.picturesList.replaceChildren(...items);
+}
+
 /** Paint a view. The only place the DOM is written after startup. */
 function apply(view: PopupView): void {
   el.label.textContent = view.label;
@@ -221,6 +260,7 @@ function apply(view: PopupView): void {
   el.captured.hidden = view.captured === null;
   el.capturedNote.textContent = view.captured?.note ?? "";
   el.capturedNote.dataset.tone = view.captured?.tone ?? "neutral";
+  applyPictures(view.captured);
   el.clip.hidden = !view.clip.visible;
   el.clip.disabled = !view.clip.enabled;
   el.clip.textContent = view.clip.label;
@@ -327,6 +367,7 @@ function localize(locale: Locale, m: Messages): void {
   el.collectionNewTitle.placeholder = m.newCollectionPlaceholder;
   el.collectionNewAdd.textContent = m.newCollectionAdd;
   el.collectionList.setAttribute("aria-label", m.collectionsLabel);
+  el.picturesList.setAttribute("aria-label", m.picturesListLabel);
   el.syncNow.textContent = m.collectionsSyncNow;
 }
 
@@ -379,7 +420,8 @@ async function main(): Promise<void> {
       const locale: Locale = params.get("lang") === "zh" ? "zh" : "en";
       const m = messages(locale);
       localize(locale, m);
-      const { fixtures } = await import("./fixtures.ts");
+      const { fixtures, standInPictures } = await import("./fixtures.ts");
+      for (const [id, url] of standInPictures()) pictureUrls.set(id, url);
       const fixture = fixtures(m)[name];
       if (fixture !== undefined) apply(popupView(fixture, m));
       else el.label.textContent = `no fixture "${name}"`;
@@ -1546,6 +1588,17 @@ async function main(): Promise<void> {
       console.error("capturing the figures failed:", error);
     }
     captured = pictureReport(figures, outcome, placed);
+    // What the saved state shows them by: the very bytes the clip commits.
+    for (const { id } of captured.pictures) {
+      const bytes = snapshotBytes.get(id);
+      if (bytes === undefined || pictureUrls.has(id)) continue;
+      pictureUrls.set(
+        id,
+        URL.createObjectURL(
+          new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "image/webp" }),
+        ),
+      );
+    }
     if (placed === null) return onScreen;
     // In place of the body on screen, not offered against it: the same tab
     // and the same clipper, with the pictures in.

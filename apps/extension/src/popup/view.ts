@@ -158,8 +158,8 @@ export interface PopupView {
     note: string;
     tone: "ok" | "warn";
     thumbnails: { id: string; alt: string }[];
-    /** Pictures saved beyond the ones shown. */
-    more: number;
+    /** Said for the pictures saved beyond the ones shown, if any. */
+    more: string | null;
   } | null;
   remove: RemovalView;
 }
@@ -224,8 +224,11 @@ export function captureSeconds(figures: number): number {
   return Math.max(5, Math.round((figures * 2) / 5) * 5);
 }
 
-/** Pictures shown once a clip is saved: two rows of three in the popup. */
-export const THUMBNAILS_SHOWN = 6;
+/**
+ * Cells the saved pictures fill: two rows of three in the popup. More
+ * pictures than cells, and the last cell says how many more instead.
+ */
+export const THUMBNAIL_CELLS = 6;
 
 /** The order refusals are told in when they are equally many. */
 const REFUSAL_ORDER: readonly PictureRefusal[] = [
@@ -260,7 +263,10 @@ function capturedView(
     reasons
       .map(([refusal]) => m.pictureRefusals[refusal].remedy)
       .find((said) => said !== null) ?? null;
-  const shown = report.pictures.slice(0, THUMBNAILS_SHOWN);
+  const shown =
+    report.pictures.length > THUMBNAIL_CELLS
+      ? report.pictures.slice(0, THUMBNAIL_CELLS - 1)
+      : report.pictures;
   return {
     note: m.picturesOutcome(
       report.shown,
@@ -276,7 +282,10 @@ function capturedView(
       id: picture.id,
       alt: picture.label || m.pictureAlt(at + 1),
     })),
-    more: report.pictures.length - shown.length,
+    more:
+      report.pictures.length > shown.length
+        ? m.picturesMore(report.pictures.length - shown.length)
+        : null,
   };
 }
 

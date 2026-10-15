@@ -58,6 +58,19 @@ function pictures(count: number): PictureReport["pictures"] {
   }));
 }
 
+/** Stand-in pictures for the saved state's thumbnails, by the ids
+ * `pictures` gives: small drawings of a figure, since the real ones are
+ * blobs made from a tab. */
+export function standInPictures(): [string, string][] {
+  return Array.from({ length: 29 }, (_, at) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#f4f1ea"/><path d="M12 84 L52 ${60 - at} L92 ${40 + at} L148 16" stroke="#8a5a2b" stroke-width="3" fill="none"/><text x="12" y="20" font-size="12" fill="#555">Figure ${at + 1}</text></svg>`;
+    return [
+      (at + 1).toString(16).padStart(12, "0"),
+      `data:image/svg+xml,${encodeURIComponent(svg)}`,
+    ];
+  });
+}
+
 /** What 29 figures came to, shown and refused. */
 function report(
   shown: number,
