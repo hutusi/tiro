@@ -15,10 +15,19 @@
 // link: one file into the vault's inbox, which the next processing run turns
 // into an article. The one thing the worker sends without the popup open, and
 // only on that click.
+//
+// And, since capture became part of Clip (ADR 0045), hearing a popup close
+// mid-clip — which takes the clip with it — and saying so on the toolbar.
+import { watchClip } from "./clip-watch.ts";
 import { flushNow, recordToggle } from "./collections-worker.ts";
 import { getLocale, type Messages, messages } from "./i18n.ts";
 import { type LinkSave, saveLink } from "./link-save.ts";
-import { isCollectionMessage, POPUP_PORT } from "./messages.ts";
+import {
+  CLIP_PORT,
+  type ClipStage,
+  isCollectionMessage,
+  POPUP_PORT,
+} from "./messages.ts";
 import {
   loadConfig,
   loadDisclosure,
@@ -79,6 +88,20 @@ async function showLinkSave(
   }, 6000);
 }
 
+/** A clip its popup's closing cost, on the toolbar button of the tab it was
+ * for (ADR 0045). Kept until Tiro is next opened on that tab, unlike a link
+ * save's few seconds: the reader closed the popup by clicking away, so may not
+ * look at the button for a while. */
+async function showClipLost(tabId: number, stage: ClipStage): Promise<void> {
+  const m = messages(await getLocale());
+  await chrome.action.setBadgeBackgroundColor({ tabId, color: "#b3261e" });
+  await chrome.action.setBadgeText({ tabId, text: "!" });
+  await chrome.action.setTitle({
+    tabId,
+    title: stage === "capturing" ? m.clipLostCapturing : m.clipLostCommitting,
+  });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   void createLinkMenu().catch(() => {});
 });
@@ -132,6 +155,19 @@ chrome.runtime.onMessage.addListener(
 );
 
 chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === CLIP_PORT) {
+    // The popup's, as for messages: a content script's port carries its tab.
+    if (
+      port.sender?.id !== chrome.runtime.id ||
+      port.sender.tab !== undefined
+    ) {
+      return;
+    }
+    watchClip(port, (tabId, stage) => {
+      void showClipLost(tabId, stage).catch(() => {});
+    });
+    return;
+  }
   if (port.name !== POPUP_PORT) return;
   // The popup closed. Whatever it queued goes now — a failure is recorded for
   // the next popup to show, and the queue is kept for the next flush.

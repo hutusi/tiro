@@ -77,6 +77,26 @@ loses the clip. The hint and the progress both ask the reader to keep the
 popup open. A loop owned by the service worker would end this, and is
 deferred (Rejected).
 
+What the popup cannot do, gone, the worker does: it says so. From the Clip
+click until the commit settles the popup holds a port (`tiro-clip`) and
+posts what the clip has reached, `capturing` or `committing`, repeating it
+every ten seconds so the worker is not idled out of hearing the port close.
+The port closing before the popup posts `done` puts a red "!" on that tab's
+toolbar button. Its tooltip says the page was not clipped, or, if the popup
+went while committing, that it may not have been: the last write may have
+landed. It stays until Tiro is next opened on that tab — the reader closed
+the popup by clicking away, and may not look at the button for a while.
+
+A saved clip posts `done` at once. A failed one posts it only after the popup
+has outlived the failure by a second. Closing the popup aborts the commit's
+requests, and the clip's failure path runs while the page unloads, before
+the port closes — measured in Chromium, between `beforeunload` and
+`pagehide` — so a `done` posted straight away told the worker the clip had
+settled in the very close it listens for, and a popup closed mid-upload left
+no badge. A closing page runs no timers, so a closed popup never posts it.
+A reader who closes the popup within that second of a real failure sees the
+badge too, and it is true: the clip was not saved.
+
 ### 6. Why each figure stayed a link, and what to do
 
 The capture records a refusal for every figure it does not take:
@@ -141,7 +161,8 @@ request first.
 ## Consequences
 
 - **A Clip on a figure page takes longer**, about two seconds per figure,
-  and closing the popup during that time saves nothing.
+  and closing the popup during that time saves nothing. The toolbar says so
+  afterwards; nothing can save it.
 - **The box's choice follows the reader** to their other machines when
   settings sync is on.
 - **The disclosure stays at version 7.** Its capture sentence is reworded:

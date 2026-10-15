@@ -17,8 +17,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   figure. A box above it, "Save figures as pictures", is the remembered opt-out,
   and "Stop and clip" ends the capture early. Once saved, the popup shows the
   pictures, and for any figure that stayed a link it says why and what to do
-  (taller than the window, covered by a banner, not drawn yet…). Re-clips take
-  the pictures again. The data disclosure names it, still at version 7 (ADR
+  (taller than the window, covered by a banner, not drawn yet…). A popup
+  closed mid-clip saves nothing, and the toolbar button shows a "!" saying so.
+  Re-clips take the pictures again. The data disclosure names it, still at version 7 (ADR
   0039, ADR 0045).
 - **Charts are described, and can be captured.** A chart drawn as `<svg>` used
   to be deleted without a trace while its title, legend and hover tooltip were

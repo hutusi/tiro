@@ -121,6 +121,36 @@ export type CollectionMessage =
  * worker's cue to flush. */
 export const POPUP_PORT = "tiro-popup";
 
+/** The port a popup holds while a clip is under way, from the Clip click until
+ * the commit settles (ADR 0045). It closing before the clip is done — the
+ * popup closed mid-clip, which takes the clip with it — is the worker's cue to
+ * say so on the toolbar, the one place left to say it. */
+export const CLIP_PORT = "tiro-clip";
+
+/** What a clip under way has reached: taking pictures, when nothing is saved
+ * yet, or committing, when it may or may not have been. */
+export type ClipStage = "capturing" | "committing";
+
+/** Sent over `CLIP_PORT`: the stage, again as a heartbeat so the worker is not
+ * idled out of hearing the port close, and `done` once the clip has settled
+ * with the popup still open. */
+export type ClipWatchMessage =
+  | { type: "tiro-clip-stage"; tabId: number; stage: ClipStage }
+  | { type: "tiro-clip-done" };
+
+export function isClipWatchMessage(
+  message: unknown,
+): message is ClipWatchMessage {
+  if (typeof message !== "object" || message === null) return false;
+  const m = message as Record<string, unknown>;
+  if (m.type === "tiro-clip-done") return true;
+  return (
+    m.type === "tiro-clip-stage" &&
+    Number.isInteger(m.tabId) &&
+    (m.stage === "capturing" || m.stage === "committing")
+  );
+}
+
 /** Shape-checked like `isClipResult`: the worker writes what these carry into
  * storage and, on the next flush, into the vault. */
 export function isCollectionMessage(

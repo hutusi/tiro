@@ -22,6 +22,7 @@ import {
   refusesAsEmpty,
 } from "../clip-candidate.ts";
 import { commitClip, type Snapshot } from "../clip-commit.ts";
+import { reportClip } from "../clip-watch.ts";
 import { enqueue, type QueuedOp } from "../collection-queue.ts";
 import { readClipCollections } from "../collections-read.ts";
 import type { FlushReport } from "../collections-worker.ts";
@@ -53,6 +54,7 @@ import {
   messages,
 } from "../i18n.ts";
 import {
+  CLIP_PORT,
   type ClipResultMessage,
   type CollectionMessage,
   isClipResult,
@@ -996,6 +998,15 @@ async function main(): Promise<void> {
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // A "!" that a popup closed mid-clip left on this tab's button (ADR 0045)
+  // has done its job: the reader opened Tiro here.
+  if (tab?.id !== undefined) {
+    const title = chrome.runtime.getManifest().action?.default_title ?? "";
+    void Promise.all([
+      chrome.action.setBadgeText({ tabId: tab.id, text: "" }),
+      chrome.action.setTitle({ tabId: tab.id, title }),
+    ]).catch(() => {});
+  }
   if (
     tab?.id === undefined ||
     tab.url === undefined ||
@@ -1349,22 +1360,37 @@ async function main(): Promise<void> {
     render();
     // Clip is gone from under the reader's focus; Stop is what they can press.
     if (capture !== null) el.captureStop.focus();
+    // Closing the popup from here on costs the clip; the worker hears it go
+    // and says so on the toolbar (ADR 0045).
+    const watch = reportClip(
+      () => chrome.runtime.connect({ name: CLIP_PORT }),
+      tabId,
+    );
+    watch.stage(figures.length === 0 ? "committing" : "capturing");
     void (async () => {
-      const payload =
-        figures.length === 0
-          ? onScreen
-          : await captureForClip(figures, origin, onScreen);
-      capture = null;
-      await commitBody(payload, from, commit);
+      let saved = false;
+      try {
+        const payload =
+          figures.length === 0
+            ? onScreen
+            : await captureForClip(figures, origin, onScreen);
+        capture = null;
+        watch.stage("committing");
+        saved = await commitBody(payload, from, commit);
+      } finally {
+        if (saved) watch.saved();
+        else watch.failed();
+      }
     })();
   });
 
-  /** Commit one body, with every picture it names, and say how it went. */
+  /** Commit one body, with every picture it names, and say how it went —
+   * on screen, and to the caller as whether it is in the vault. */
   async function commitBody(
     payload: ClipResultMessage["payload"],
     from: string | undefined,
     commit: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     render();
     try {
       const nowIso = new Date().toISOString();
@@ -1427,6 +1453,7 @@ async function main(): Promise<void> {
       // rather than refused while GitHub catches up, and the worker knows the
       // article is fresh only from that record.
       void offerClipCollections(file.slug);
+      return true;
     } catch (error) {
       console.error("clip failed:", error);
       uploading = null;
@@ -1434,6 +1461,7 @@ async function main(): Promise<void> {
       phase = "failed";
       problem = { text: describeClipError(error, m), error: true };
       render();
+      return false;
     }
   }
 

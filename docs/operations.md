@@ -1063,7 +1063,10 @@ with its remedy:
 **Keep the popup open until it is saved.** The pictures, and the clip, live
 in the popup until the commit. Closing it mid-capture saves nothing, and a
 click on the page it is scrolling closes it. The page's watchdog puts the
-scroll back within eight seconds, and the next popup clips normally.
+scroll back within eight seconds, and the next popup clips normally. The
+toolbar button of that tab shows a red "!" — its tooltip says the clip was
+lost, or, if the popup went while committing, that it may have been — until
+Tiro is next opened on that tab.
 
 **A failed commit keeps the pictures.** Pressing Clip again commits them
 without scrolling the page a second time.
@@ -1636,7 +1639,8 @@ permanent extension ID, unrelated to the unpacked one.
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
 | A saved clip's note says some figures "stayed links" | the reason it gives: taller or wider than the window, covered by a banner or a sticky header, not drawn yet, kept moving, lost when the page changed (navigated, reloaded, re-rendered), not reached before Stop, too large, or could not be made (ADR 0045) | follow the remedy the note gives, then clip again: enlarge the window; close the banner or scroll the header away; let the page finish and scroll through it once; wait for it to settle; reload and scroll through it once |
-| Pressed Clip on a page with figures, and nothing was saved | the popup closed while Clip was taking the pictures: a click on the page, a window switch, or Esc. Until the commit, the pictures and the clip live in the popup (ADR 0045) | clip again and keep the popup open until it says saved; untick "Save figures as pictures" to clip at once with links |
+| Pressed Clip on a page with figures, and nothing was saved — the toolbar button shows a red "!" | the popup closed while Clip was taking the pictures: a click on the page, a window switch, or Esc. Until the commit, the pictures and the clip live in the popup (ADR 0045) | clip again and keep the popup open until it says saved; untick "Save figures as pictures" to clip at once with links. Opening Tiro on the tab clears the "!" |
+| A red "!" whose tooltip says the clip "may not have been saved" | the popup closed while the clip was committing — uploading its pictures, or the last write. Whether it landed depends on how far the commit got, and reopening Tiro cannot tell: its "Re-clip" label comes from a record written after the commit returns | clip again: a clip that did land is overwritten by the same article, never duplicated |
 | A chart's title, legend or tooltip rows (`P25 / Fetches1 / …`) appear as stray paragraphs | the clip found no host for the chart: no `<figure>`, and its box holds a heading, a link, a list or more text than a chart's chrome (ADR 0044) | the chart itself was deleted, as before; tighten or extend the host rule in `orphanChartHost` with a test of the page's shape |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |

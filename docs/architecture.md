@@ -491,9 +491,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 - **A popup closed while Clip takes pictures saves nothing** (ADR 0045). Clip
   takes about two seconds a figure before it commits, and the popup holds the
   pictures until then; a click on the page closes it. The vault keeps what it
-  had and the page's watchdog restores the scroll, but nothing says the clip
-  was lost. The cure is a capture loop owned by the service worker, which is
-  deferred.
+  had and the page's watchdog restores the scroll. The worker hears the
+  popup go mid-clip and puts a "!" on that tab's toolbar button, which says
+  why in its tooltip — the one notice; it cannot keep the clip. The cure is a
+  capture loop owned by the service worker, which is deferred.
 
 - **A saved link reads less than a browser clip** (ADR 0034). The processor's
   fetch carries no cookies and runs no script, so a paywall answers as to a

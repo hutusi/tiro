@@ -278,6 +278,11 @@ const en = {
   linkNoDisclosure:
     "Open Tiro from the toolbar once first — it says what it sends where.",
   linkFailed: (error: string) => `Could not save the link: ${error}`,
+  // A popup closed mid-clip (ADR 0045), the tooltip beside the badge "!".
+  clipLostCapturing:
+    "Tiro's popup closed while taking pictures, so this page was not clipped. Open Tiro and clip again.",
+  clipLostCommitting:
+    "Tiro's popup closed while saving the clip, so it may not have been saved. Clip again to be sure — it replaces the same article.",
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `The token expires today (${date}) — make a new one now.`
@@ -574,6 +579,10 @@ const zh: Messages = {
   linkUnconfigured: "请先在 Tiro 的设置中填写仓库和令牌。",
   linkNoDisclosure: "请先从工具栏打开一次 Tiro，它会说明会把什么发送到哪里。",
   linkFailed: (error: string) => `无法保存链接：${error}`,
+  clipLostCapturing:
+    "截图时 Tiro 弹窗被关闭，本页没有剪藏。请打开 Tiro 再剪藏一次。",
+  clipLostCommitting:
+    "保存剪藏时 Tiro 弹窗被关闭，剪藏可能没有保存。再剪藏一次即可确认，它会覆盖同一篇文章。",
   connTokenExpiresSoon: (date: string, days: number) =>
     days < 1
       ? `令牌今天（${date}）到期，请立即更换。`
