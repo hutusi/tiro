@@ -442,9 +442,12 @@ async function main(): Promise<void> {
   const [config, locale, picturesOn] = await Promise.all([
     loadConfig(),
     getLocale(),
-    // A box that cannot be read is ticked: its default, not a reason to
-    // keep the popup from opening.
-    loadCapturePictures().catch(() => true),
+    // A box that cannot be read is unticked, not a reason to keep the popup
+    // from opening. Ticked is the default for a reader who never chose, but
+    // a failed read cannot tell that reader from one who unticked it, and
+    // guessing wrong one way costs links under a box shown unticked, the
+    // other way a page scrolled after its reader said not to (ADR 0045).
+    loadCapturePictures().catch(() => false),
   ]);
   const m = messages(locale);
   localize(locale, m);

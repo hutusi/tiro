@@ -56,7 +56,9 @@ reading a preview; pressing Clip is asking to save the article as it reads.
 
 A box above Clip, "Save figures as pictures", is ticked by default. Unticked,
 Clip commits links as before. Its label carries no count, so the disclosure
-can quote it.
+can quote it. A choice that cannot be read counts as unticked: the default
+is for a reader who never chose, and a failed read cannot tell that reader
+from one who said no.
 
 The choice is remembered under its own synced key, `tiroCapturePictures`,
 the way the language is. That makes the popup a second writer of a synced key.
