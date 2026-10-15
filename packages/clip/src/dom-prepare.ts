@@ -994,8 +994,10 @@ export const ASIDE_ATTR = "data-tiro-aside";
 function markAsides(doc: Document): void {
   // A page's own attributes are untrusted input, read back after Readability
   // with no record of who wrote them (see `markCodeLanguages`).
-  for (const stale of Array.from(doc.querySelectorAll(`[${ASIDE_ATTR}]`))) {
-    stale.removeAttribute(ASIDE_ATTR);
+  for (const attr of [ASIDE_ATTR, CHOSEN_ATTR]) {
+    for (const stale of Array.from(doc.querySelectorAll(`[${attr}]`))) {
+      stale.removeAttribute(attr);
+    }
   }
   for (const aside of Array.from(doc.querySelectorAll("aside"))) {
     aside.setAttribute(ASIDE_ATTR, "");
@@ -1009,21 +1011,83 @@ export interface DroppedAsides {
   firstParagraph: string | null;
 }
 
-/** The element Readability scored highest, by the score it leaves on each
- * element it scored, or `null` when none carries one. */
-function highestScored(root: Element): Element | null {
-  let best: Element | null = null;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (const element of Array.from(root.querySelectorAll("*"))) {
-    const score = (
-      element as unknown as { readability?: { contentScore?: unknown } }
-    ).readability?.contentScore;
-    if (typeof score === "number" && score > bestScore) {
-      best = element;
-      bestScore = score;
+/**
+ * Marks the block Readability chose as its article, the moment it has chosen
+ * it (`watchChosenArticle`), so the choice survives what it does afterwards.
+ */
+export const CHOSEN_ATTR = "data-tiro-article";
+
+/** The score Readability left on `element`, or `null` if it scored none. */
+function readabilityScore(element: Element): number | null {
+  const score = (
+    element as unknown as { readability?: { contentScore?: unknown } }
+  ).readability?.contentScore;
+  return typeof score === "number" ? score : null;
+}
+
+/**
+ * Mark the block of Readability's article that it chose, among the ones its
+ * sibling pass appended beside it.
+ *
+ * The chosen block is the element Readability scored highest, or an ancestor
+ * of it: every step it takes from its best candidate goes up — to a common
+ * ancestor of others nearly as good, to a parent scoring higher, out of a
+ * wrapper with one child. So the block holding the highest score is the one.
+ * How much either says has no part in it: the article can be the shorter.
+ *
+ * Read here, as the article is handed to `_prepArticle`, and not later. Its
+ * clean-up replaces a wrapper holding one box with that box — copying the
+ * wrapper's attributes down, which is how this mark survives, but not its
+ * score — and a wrapper a class bonus made the best of all would leave a
+ * sibling the best by the time the article is serialized.
+ *
+ * A tie between two blocks is no choice to read, and marks nothing.
+ */
+function markChosenArticle(article: Element): void {
+  // Readability may try more than once, each time on a fresh copy.
+  for (const stale of Array.from(
+    article.querySelectorAll(`[${CHOSEN_ATTR}]`),
+  )) {
+    stale.removeAttribute(CHOSEN_ATTR);
+  }
+  let best = Number.NEGATIVE_INFINITY;
+  const holders = new Set<Element>();
+  for (const block of Array.from(article.children)) {
+    for (const element of [block, ...Array.from(block.querySelectorAll("*"))]) {
+      const score = readabilityScore(element);
+      if (score === null || score < best) continue;
+      if (score > best) holders.clear();
+      best = score;
+      holders.add(block);
     }
   }
-  return best;
+  const [chosen] = holders;
+  if (holders.size === 1 && chosen !== undefined) {
+    chosen.setAttribute(CHOSEN_ATTR, "");
+  }
+}
+
+/**
+ * Have Readability mark the article it chose (`markChosenArticle`) as soon as
+ * it has chosen it: `_prepArticle` is what it calls on its article right
+ * after the sibling pass, before any of the clean-up that can replace the
+ * chosen element.
+ *
+ * A private method. If a Readability release renames it, nothing is marked
+ * and `dropAppendedAsides` drops nothing — an aside left in, which costs a
+ * footer, rather than a guess, which can cost the article — and the tests that
+ * expect the footer gone fail and say so.
+ */
+export function watchChosenArticle(reader: object): void {
+  const internals = reader as {
+    _prepArticle?: (this: unknown, article: Element) => unknown;
+  };
+  const prepare = internals._prepArticle;
+  if (typeof prepare !== "function") return;
+  internals._prepArticle = function (this: unknown, article: Element) {
+    markChosenArticle(article);
+    return prepare.call(this, article);
+  };
 }
 
 /**
@@ -1031,35 +1095,35 @@ function highestScored(root: Element): Element | null {
  * about to return — finishing its own rule for the one aside its sibling pass
  * renamed out of reach (`markAsides`). Any marked element still here was
  * renamed, since Readability deletes every aside that was not. Called from
- * Readability's `serializer`, the one place its article is handed over with
- * its scores still on it.
+ * Readability's `serializer`, where its article is handed over whole.
  *
  * Not the article itself, which Readability renames as it does a sibling:
  * an article written inside an `<aside>` comes back marked too. It is told
- * apart by Readability's own choice, not by a guess at it. The article is the
- * element Readability scored highest, or an ancestor of it — every step it
- * takes from its best candidate (to a common ancestor, to a parent scoring
- * higher, out of a wrapper with one child) goes up — so a marked element
- * holding that element is the article, and any other was appended beside it.
- * How much either says has no part in it: the article can be the shorter.
- *
- * With no scores to read, nothing is dropped: an aside left in costs a
- * footer, while the wrong one dropped costs the article.
+ * apart by Readability's own choice, marked as it was made
+ * (`watchChosenArticle`). With no choice marked, nothing is dropped: an aside
+ * left in costs a footer, while the wrong one dropped costs the article.
  */
 export function dropAppendedAsides(article: Element): DroppedAsides {
   const dropped: DroppedAsides = { firstParagraph: null };
+  const chosen = article.querySelector(`[${CHOSEN_ATTR}]`);
   const marked = Array.from(article.querySelectorAll(`[${ASIDE_ATTR}]`));
-  if (marked.length === 0) return dropped;
-  const chosen = highestScored(article);
-  if (chosen === null) return dropped;
-  const first = article.querySelector("p");
-  for (const aside of marked) {
-    // Inside one already dropped, or the article itself.
-    if (!article.contains(aside) || aside.contains(chosen)) continue;
-    if (first !== null && aside.contains(first)) {
-      dropped.firstParagraph = (first.textContent ?? "").trim();
+  if (chosen !== null) {
+    const first = article.querySelector("p");
+    for (const aside of marked) {
+      // Inside one already dropped, or the article, or part of it.
+      if (!article.contains(aside)) continue;
+      if (aside.contains(chosen) || chosen.contains(aside)) continue;
+      if (first !== null && aside.contains(first)) {
+        dropped.firstParagraph = (first.textContent ?? "").trim();
+      }
+      aside.remove();
     }
-    aside.remove();
+  }
+  // The marks have done their work; nothing after Readability reads them.
+  for (const attr of [ASIDE_ATTR, CHOSEN_ATTR]) {
+    for (const kept of Array.from(article.querySelectorAll(`[${attr}]`))) {
+      kept.removeAttribute(attr);
+    }
   }
   return dropped;
 }

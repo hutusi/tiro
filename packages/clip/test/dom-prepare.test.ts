@@ -6,6 +6,7 @@ import { clipPage } from "../src/clip-page.ts";
 import {
   ANCHOR_ATTR,
   CODE_LANG_ATTR,
+  dropAppendedAsides,
   figureHosts,
   foldFiguresIn,
   MATH_ATTR,
@@ -4212,6 +4213,45 @@ describe("an aside Readability appends beside the article", () => {
     expect(markdown).toContain("Paragraph 0.");
     expect(markdown).toContain("Paragraph 7.");
     expect(markdown).toContain("Note 0");
+  });
+
+  describe("when Readability unwraps the article's one-child wrapper", () => {
+    // Readability replaces a wrapper holding a single box with that box, after
+    // choosing the article: attributes are copied down, its score is not. A
+    // class bonus can make the wrapper the highest-scored element of all.
+    const short = Array.from(
+      { length: 2 },
+      (_, i) => `<p>${sentence.repeat(3)}Paragraph ${i}.</p>`,
+    ).join("");
+
+    test("an article in an aside around one box is kept", () => {
+      const markdown = clip(
+        `<main><aside class="article"><div>${short}</div></aside><div class="notes">${plain("Note", 5)}</div></main>`,
+      );
+      expect(markdown).toContain("Paragraph 0.");
+      expect(markdown).toContain("Paragraph 1.");
+      expect(markdown).toContain("Note 0");
+    });
+
+    test("a promotional aside beside such an article still goes", () => {
+      const markdown = clip(
+        `<main><div class="article"><div>${short}</div></div><aside>${plain("Promo", 7)}</aside></main>`,
+      );
+      expect(markdown).toContain("Paragraph 1.");
+      expect(markdown).not.toContain("Promo 0");
+    });
+  });
+
+  test("with no choice of Readability's to read, nothing is dropped", () => {
+    // What a Readability release that renamed `_prepArticle` would leave: the
+    // asides marked, the article not.
+    const doc = docFrom(
+      '<div id="article"><div data-tiro-aside=""><p>The article.</p></div><div><p>Beside it.</p></div></div>',
+    );
+    const article = doc.getElementById("article") as Element;
+    dropAppendedAsides(article);
+    expect(article.textContent).toContain("The article.");
+    expect(article.textContent).toContain("Beside it.");
   });
 
   test("an appended aside goes however much it says", () => {

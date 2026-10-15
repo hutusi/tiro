@@ -15,6 +15,7 @@ import {
   scriptFiguresIn,
   VIDEO_EMBEDS,
   videosAsPostersIn,
+  watchChosenArticle,
 } from "./dom-prepare.ts";
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -97,17 +98,19 @@ export function clipPage(
   try {
     // Told which players to keep in the very terms the pass after it converts
     // them by, so the two agree on what an embed is (`VIDEO_EMBEDS`).
-    article = new Readability(doc, {
+    const reader = new Readability(doc, {
       allowedVideoRegex: VIDEO_EMBEDS,
-      // Its article is handed over here with Readability's scores still on
-      // it, which is what tells an aside it appended from one it chose as the
-      // article (`dropAppendedAsides`).
+      // Its article is handed over whole here, the article it chose marked
+      // as it chose it, which is what tells an aside it appended beside the
+      // article from one that is the article (`dropAppendedAsides`).
       serializer: (node) => {
         const element = node as Element;
         dropped = dropAppendedAsides(element);
         return element.innerHTML;
       },
-    }).parse();
+    });
+    watchChosenArticle(reader);
+    article = reader.parse();
   } catch {
     article = null;
   }
