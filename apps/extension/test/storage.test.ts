@@ -7,6 +7,7 @@ import {
   forgetClip,
   isConfigComplete,
   lastClippedAt,
+  loadCapturePictures,
   loadConfig,
   loadDisclosure,
   loadLanguage,
@@ -18,6 +19,7 @@ import {
   reconcileDisabledSync,
   recordClip,
   repairSyncedConfig,
+  saveCapturePictures,
   saveConfig,
   saveLanguage,
   setSyncEnabled,
@@ -180,6 +182,30 @@ describe("language setting", () => {
     expect(await loadLanguage()).toBe("zh");
     await saveLanguage("auto");
     expect(await loadLanguage()).toBe("auto");
+  });
+});
+
+describe("figure pictures setting (ADR 0045)", () => {
+  let chrome: ChromeStorageMock = installChromeStorage();
+  beforeEach(() => {
+    chrome = installChromeStorage();
+  });
+
+  test("is on when nothing is stored", async () => {
+    expect(await loadCapturePictures()).toBe(true);
+  });
+
+  test("round-trips the reader's choice", async () => {
+    await saveCapturePictures(false);
+    expect(await loadCapturePictures()).toBe(false);
+    await saveCapturePictures(true);
+    expect(await loadCapturePictures()).toBe(true);
+  });
+
+  test("anything but an explicit false reads as on", async () => {
+    // Off is a choice the reader made; nothing else may be taken for one.
+    chrome.local.data.tiroCapturePictures = "no";
+    expect(await loadCapturePictures()).toBe(true);
   });
 });
 
@@ -559,15 +585,18 @@ describe("settings sync", () => {
   test("keeps settings out of sync while off", async () => {
     await saveConfig(config);
     await saveLanguage("zh");
+    await saveCapturePictures(false);
     expect(chrome.sync.data).toEqual({});
   });
 
   test("pushes existing local settings up when switched on", async () => {
     await saveConfig(config);
     await saveLanguage("zh");
+    await saveCapturePictures(false);
     await setSyncEnabled(true);
     expect(chrome.sync.data.tiroConfig).toEqual(config);
     expect(chrome.sync.data.tiroLanguage).toBe("zh");
+    expect(chrome.sync.data.tiroCapturePictures).toBe(false);
     expect(await loadSyncEnabled()).toBe(true);
   });
 
@@ -653,6 +682,7 @@ describe("settings sync", () => {
     await setSyncEnabled(true);
     chrome.sync.data.tiroConfig = other;
     chrome.sync.data.tiroLanguage = "zh";
+    chrome.sync.data.tiroCapturePictures = false;
 
     await setSyncEnabled(false);
 
@@ -660,10 +690,12 @@ describe("settings sync", () => {
     // Google's servers rather than just stopping new writes.
     expect(chrome.sync.data.tiroConfig).toBeUndefined();
     expect(chrome.sync.data.tiroLanguage).toBeUndefined();
+    expect(chrome.sync.data.tiroCapturePictures).toBeUndefined();
     expect(chrome.sync.data.tiroSyncEnabled).toBe(false);
     // And nothing is lost doing it.
     expect(await loadConfig()).toEqual(other);
     expect(await loadLanguage()).toBe("zh");
+    expect(await loadCapturePictures()).toBe(false);
   });
 
   test("leaves settings readable when switched off with sync empty", async () => {
@@ -888,6 +920,13 @@ describe("mirroring synced changes as they arrive", () => {
     expect(chrome.local.data.tiroLanguage).toBe("zh");
   });
 
+  test("mirrors the pictures box unticked, a false that is a value", async () => {
+    // Unticked on another machine arrives as false; a mirror that tested for
+    // a value rather than its presence would drop exactly this one.
+    await mirrorSyncedChange({ tiroCapturePictures: { newValue: false } });
+    expect(chrome.local.data.tiroCapturePictures).toBe(false);
+  });
+
   test("copies nothing but the synced keys", async () => {
     // The flag belongs to sync alone, and the clip record and the disclosure
     // never travel at all; a mirror that took everything would put them in
@@ -1026,11 +1065,13 @@ describe("settings sync — a disable elsewhere wins over a late write", () => {
     chrome.sync.data.tiroSyncEnabled = false;
     chrome.sync.data.tiroConfig = config;
     chrome.sync.data.tiroLanguage = "zh";
+    chrome.sync.data.tiroCapturePictures = false;
 
     await reconcileDisabledSync({ tiroSyncEnabled: { newValue: false } });
 
     expect(chrome.sync.data.tiroConfig).toBeUndefined();
     expect(chrome.sync.data.tiroLanguage).toBeUndefined();
+    expect(chrome.sync.data.tiroCapturePictures).toBeUndefined();
   });
 
   test("does not mistake an enable for a disable", async () => {

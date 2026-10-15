@@ -10,6 +10,8 @@ export interface TiroExtensionConfig {
 
 const KEY = "tiroConfig";
 const LANGUAGE_KEY = "tiroLanguage";
+/** Whether Clip saves a page's drawn figures as pictures (ADR 0045). */
+const CAPTURE_PICTURES_KEY = "tiroCapturePictures";
 
 /** Kept in `sync` rather than `local` so the opt-in itself travels: a new
  * machine signed into the same Chrome profile finds the flag already true and
@@ -25,7 +27,7 @@ const SYNC_KEY = "tiroSyncEnabled";
  * a per-device hint anyway (see below). `tiroDisclosure` is excluded by
  * choice: consent to read pages is per install, and syncing it would let a
  * fresh install skip the disclosure before it first reads anything. */
-const SYNCED_KEYS = [KEY, LANGUAGE_KEY];
+const SYNCED_KEYS = [KEY, LANGUAGE_KEY, CAPTURE_PICTURES_KEY];
 
 /** Whether a value arriving from `sync` must not be allowed to replace what
  * `local` already holds.
@@ -90,9 +92,12 @@ async function syncEnabledForRead(): Promise<boolean> {
  * **This chain is per JS realm, not per profile.** Each options tab and the
  * service worker get their own module instance, so two options tabs acting at
  * the same instant are not serialised against each other. That is accepted
- * rather than fixed (ADR 0022): the options page is the only writer of these
- * keys, and `chrome.runtime.openOptionsPage` focuses an open one instead of
- * opening a second, so the arrangement takes deliberate effort to create.
+ * rather than fixed (ADR 0022): the options page is the only writer of the
+ * config and the language, and `chrome.runtime.openOptionsPage` focuses an
+ * open one instead of opening a second, so the arrangement takes deliberate
+ * effort to create. The popup writes one key besides (ADR 0045): the pictures
+ * box, a boolean, whose worst race is a stale tick on another machine — never
+ * a credential.
  * Closing it properly means routing every mutation through the worker, which
  * is a messaging layer and a new way for a save to fail on a path that today
  * cannot.
@@ -451,6 +456,23 @@ export async function loadLanguage(): Promise<LanguageSetting> {
 
 export async function saveLanguage(setting: LanguageSetting): Promise<void> {
   await writeSynced(LANGUAGE_KEY, setting);
+}
+
+/**
+ * Whether Clip saves a page's drawn figures as pictures (ADR 0045): on unless
+ * the reader has unticked it. What a clip is asked for is the article as it
+ * reads, and the box is for the reader who would rather not wait for it.
+ *
+ * Kept under its own key, as the language is, and synced with it: unticking
+ * it is a choice about clipping, not about one machine. Written by the popup
+ * as the box changes, the one synced key the options page does not own.
+ */
+export async function loadCapturePictures(): Promise<boolean> {
+  return (await readSynced(CAPTURE_PICTURES_KEY)) !== false;
+}
+
+export async function saveCapturePictures(on: boolean): Promise<void> {
+  await writeSynced(CAPTURE_PICTURES_KEY, on);
 }
 /** Bump when the disclosure changes what it says about data handling: the Web
  * Store requires re-disclosing practice changes after install, and a bump is
