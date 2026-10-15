@@ -33,7 +33,7 @@ Product decisions that look odd but are deliberate:
 
 ```sh
 bun install                          # workspace install
-bun run lint                         # Biome (ts/js/json) + Prettier (.astro only)
+bun run lint                         # Biome (ts/js/json) + Prettier (.astro only) + shellcheck (the job scripts)
 bun run fix                          # auto-format both
 bun run typecheck                    # tsc per package + astro check — part of the verify gate
 bun test                             # bun test across all packages
@@ -71,7 +71,7 @@ bun run --cwd apps/extension sweep -- --vault <dir> --fill-languages [--write]
 ## Toolchain notes
 
 - **TypeScript is pinned to 6.x** — `astro check` needs the programmatic API the native TS 7 compiler doesn't expose. Don't bump until it does.
-- Biome owns ts/js/json; Prettier owns `.astro` only; the Tailwind 4 stylesheet is excluded from Biome (it can't parse `@plugin`/`@custom-variant`).
+- Biome owns ts/js/json; Prettier owns `.astro` only; shellcheck owns the vault job's scripts (`packages/processor/job/`), skipped with a warning where it is not installed and required in CI — write them for bash 3.2, since that is what macOS runs their tests under; the Tailwind 4 stylesheet is excluded from Biome (it can't parse `@plugin`/`@custom-variant`).
 - `@tiro/shared` ships TypeScript source directly — no build step; every consumer is TS-native (ADR 0001).
 - Use the structural `FetchLike` type for injectable fetch, not `typeof fetch` (Bun's type demands `preconnect`).
 - The extension clipper must stay an **IIFE** (second Vite pass) — `executeScript`-injected files are classic scripts (ADR 0005).
