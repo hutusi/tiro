@@ -474,6 +474,8 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 | Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip, collection and removal commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
 | tiro-vault Actions | `TIRO_LLM_API_KEY` | LLM calls |
 | tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch, from `process.yml` and `publish.yml` |
+| Processing host off Actions (ADR 0046) | files the job user can read: the LLM key (`TIRO_LLM_API_KEY_FILE`) and the dispatch token (`TIRO_DISPATCH_TOKEN_FILE`) | the same, for `run.sh` |
+| Processing host off Actions | a key that can push to tiro-vault (a deploy key with write access) | the run's checkout and commit-back — pushes that, unlike `GITHUB_TOKEN`'s, start runs |
 | tiro Actions | `VAULT_READ_TOKEN` (tiro-vault, Contents R; only if vault is private) | deploy checkout |
 | tiro Actions | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Pages deploy |
 | iPhone Shortcut | fine-grained PAT (tiro-vault, Contents RW) | writing a saved link into `inbox/` — its own token, so a lost phone is one revocation (ADR 0034) |
@@ -554,7 +556,19 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   removes like any other.
 - **Workflow recursion**: pushes made with the default `GITHUB_TOKEN` do not
   retrigger workflows; the processing workflow also uses a concurrency group
-  and rebase-retry pushes.
+  and rebase-retry pushes. Off Actions (ADR 0046) the processor's push does
+  come back as a trigger: `run.sh` treats a push whose head commit is
+  `tiro-processor`'s as scheduled — it deploys only what it commits — and
+  after three of its own commits in a row leaves the rest to the daily run.
+- **Two hosts processing at once** — a manual run on Actions while another
+  host is live: the work both do is paid for twice, and nothing is lost,
+  since processing is idempotent and the commit-back rebases.
+- **Name resolution on the processing host.** The fetch guard resolves a name
+  before fetching it, so a resolver that answers with reserved addresses — a
+  proxy's fake-ip mode, some poisoned answers — refuses a saved link for good
+  and keeps images as hotlinks. Off Actions the host needs clean DNS.
+- **A missed webhook** (off Actions) is not redelivered by GitHub; the daily
+  run picks up the work.
 - **An article deleted while a run processes it.** The run's commit-back
   rebase cannot settle an edit to a file `main` deleted, and used to fail the
   step and lose the whole run's work. It now measures which articles `main`
@@ -569,8 +583,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   per batch and the processor stops on its own budget with time left to commit,
   so successive runs converge instead of each restarting from batch 1
   (ADR 0008). `timeout-minutes` is a backstop above that budget, and the commit
-  step runs `if: always()` so even a kill keeps the run's work. Ordering pending
-  articles cheapest-first stops one such article from starving the rest.
+  step runs `if: always()` so even a kill keeps the run's work. Off Actions
+  `run.sh` keeps both promises itself: `timeout` stops the processor first, the
+  commit runs after it whatever its exit, and a run the host killed outright
+  is committed by the next one to start (ADR 0046). Ordering pending articles
+  cheapest-first stops one such article from starving the rest.
 - **Expiring fine-grained PATs** (four kinds: `TIRO_DISPATCH_TOKEN`,
   `VAULT_READ_TOKEN`, an extension PAT per machine, and the phone's). Give the
   phone's the extension's expiry date, so one reminder covers both. A weekly

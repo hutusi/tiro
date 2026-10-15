@@ -4,24 +4,30 @@
 # Run from inside the vault checkout, after the processor, whatever the
 # processor did: a run that stopped early must still commit what it finished
 # (invariant 8). On Actions that is the "Commit results back" step, which runs
-# `if: always()`.
+# `if: always()`; on any other host it is run.sh, which calls this after the
+# processor whatever its exit (ADR 0046).
 #
 # The rebase-retry absorbs a clip that landed while the run was working, and
 # an article removed while it was working (ADR 0036). Writes `committed=true`
 # or `committed=false` to $GITHUB_OUTPUT when that is set — the deploy reads
 # it — and exits non-zero when the run's work is not in the vault.
 #
+# Commits as `tiro-processor` — run.sh tells the processor's own pushes from
+# everyone else's by that name — with TIRO_COMMIT_EMAIL as the address when
+# set, and otherwise the Actions bot's, as it always has been.
+#
 # Tested for real by packages/processor/test/commit-back.test.ts, which runs
 # the workflow's step — and so this file — against scratch repositories.
 
 # Set here, not by the caller: a step's own `bash -eo pipefail` does not reach
-# a script it runs, and without -e a failed fetch inside the retry loop would
-# carry on rebasing onto nothing.
+# a script it runs, and without -e a fetch that fails inside the retry loop
+# goes unnoticed — the rebase after it fails instead, and the run reports a
+# conflict it never had.
 set -eo pipefail
 
 out="${GITHUB_OUTPUT:-/dev/null}"
 git config user.name "tiro-processor"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+git config user.email "${TIRO_COMMIT_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 git add -A
 if git diff --cached --quiet; then
   echo "No changes to commit"

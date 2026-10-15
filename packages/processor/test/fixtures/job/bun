@@ -1,0 +1,41 @@
+#!/bin/sh
+# A stand-in for bun, for job-run.test.ts: answers `--version` and `install`,
+# and plays the processor for `run` — whatever SHIM_SCENARIO says to do in the
+# vault, then the report the real one writes — recording what it was given in
+# files named after SHIM_LOG.
+case "$1" in
+  --version)
+    echo "$SHIM_BUN_VERSION"
+    exit 0
+    ;;
+  install)
+    [ -z "$SHIM_INSTALL_FAILS" ]
+    exit
+    ;;
+  run) shift ;;
+  *)
+    echo "unexpected: bun $*" >&2
+    exit 99
+    ;;
+esac
+
+printf '%s\n' "$@" >"$SHIM_LOG.args"
+env | grep -c '^TIRO_DISPATCH_TOKEN' >"$SHIM_LOG.dispatch-env"
+echo run >>"$SHIM_LOG.runs"
+
+vault=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --vault ]; then vault="$2"; fi
+  shift
+done
+
+if [ -n "$SHIM_SCENARIO" ]; then
+  # Not on the job's output: a scenario left running after the stand-in is
+  # stopped would otherwise hold the test's pipes open.
+  (cd "$vault" && sh -c "$SHIM_SCENARIO") </dev/null >"$SHIM_LOG.scenario" 2>&1
+fi
+if [ -z "$SHIM_NO_REPORT" ]; then
+  echo "failures=${SHIM_FAILURES:-0}" >>"$GITHUB_OUTPUT"
+  echo "### Tiro processing run (stand-in)" >>"$GITHUB_STEP_SUMMARY"
+fi
+exit "${SHIM_EXIT:-0}"

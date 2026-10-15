@@ -616,6 +616,47 @@ record itself; don't hand-edit it.
   with the content, not who runs it; new scrapers appear, extend the list
   as they do.
 
+## Processing host
+
+The vault job runs on GitHub Actions by default, as `process.yml`. It can run
+on another host instead (ADR 0046): the steps are scripts in
+`packages/processor/job/`, and `run.sh` is the whole job for a host without
+Actions — the same processor, commit-back and deploy, in the same order.
+
+### `run.sh`
+
+```sh
+TIRO_VAULT_DIR=/var/lib/tiro/vault \
+TIRO_VAULT_REMOTE=git@github.com:hutusi/tiro-vault.git \
+TIRO_LLM_API_KEY_FILE=/etc/tiro/llm-api-key \
+TIRO_DISPATCH_TOKEN_FILE=/etc/tiro/dispatch-token \
+TIRO_TRIGGER=schedule \
+  bash packages/processor/job/run.sh
+```
+
+- **Settings** come from the environment, or from a file named by
+  `TIRO_JOB_ENV` that it sources first — the place for a host's paths, secret
+  files and proxy. The header of `run.sh` lists every one.
+- **`TIRO_TRIGGER`** decides the deploy, as on Actions (ADR 0032): `push` and
+  `manual` always deploy, `schedule` only what it committed, `publish` (a
+  collections edit) only deploys. `TIRO_FORCE`/`TIRO_SLUG` are the workflow's
+  `force`/`slug`.
+- **The checkout is its own.** It clones the vault into `TIRO_VAULT_DIR` the
+  first time and keeps it; every run starts from `main` as it is then, and
+  anything left there that no run recorded is discarded. Don't edit it by
+  hand.
+- **bun must be the pinned one** — `packageManager` in tiro's `package.json`,
+  the version the workflow sets up. Any other, and the run processes nothing
+  and says so.
+- **The backstop**: the processor is stopped after `TIRO_PROCESS_TIMEOUT`
+  seconds (an hour by default; empty for none), which must stay above
+  `processing.run_budget_ms`. Whatever kills the job from outside must allow
+  longer still, or it kills runs that would have finished: a run it kills is
+  committed only when the next one starts.
+- **The outcome**: the processor's summary is printed at the end of the log,
+  then one line per thing that needs a look, after the commit and the deploy.
+  Exit 0 is a clean run, 1 needs a look, 2 is misconfigured and did nothing.
+
 ## Vault layout migrations
 
 The vault layout is `articles/<slug>/` (flat, ADR 0007). A layout change is
@@ -1639,6 +1680,11 @@ permanent extension ID, unrelated to the unpacked one.
 
 | Symptom | Cause | Action |
 | --- | --- | --- |
+| A host run fails with `bun is <x> here, but tiro pins <y>` | tiro moved its bun pin, and the host still has the old one | install the pinned bun on the host; the next run processes what this one skipped |
+| A host run starts with `The last run here did not finish` | the host killed the previous run outright — a CI step timeout below the backstop, a cancel, a restart | nothing, the run commits what that one left; if it repeats, raise the host's step timeout above `TIRO_PROCESS_TIMEOUT` |
+| A host run fails with `ran past <n>s and was stopped` | the backstop stopped the processor before its own budget did — `TIRO_PROCESS_TIMEOUT` too close to `processing.run_budget_ms` | keep the backstop well above the budget; what the run finished is committed |
+| A host run warns `has changes no run recorded; discarding them` | someone edited the host's checkout of the vault | nothing to recover — edit the vault through git, not that checkout |
+| A host run fails with `Could not fetch the vault's main` | the host cannot reach GitHub — the proxy, the deploy key, or GitHub itself | `git -C $TIRO_VAULT_DIR fetch origin main` as the job's user shows which |
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
 | A run stops early with `stopped after the provider failed 3 articles in a row` | a provider outage, an expired or revoked `TIRO_LLM_API_KEY`, a model id the key cannot use, or quota exhausted — the three errors before it say which | curl self-test against the provider; fix the key, the model or the quota. Nothing to clean up: the articles it did not attempt are still pending |
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |

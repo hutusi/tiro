@@ -2,6 +2,9 @@
 
 Status: accepted (2026-09). Supersedes, in part, the consequences of ADR 0017
 and ADR 0029 that a hand edit to the vault needs a deploy dispatched by hand.
+Amended by ADR 0046, for a vault job run off Actions: the deploy rule is a
+script both hosts run, the processor's own push counts as scheduled, and the
+daily run, the alert and the token check are the host's.
 
 ## Context
 
@@ -59,6 +62,10 @@ vault as it is now.
 The dispatch still comes at the *end* of the run rather than on the push, so a
 deploy never races the processing it would otherwise publish half of.
 
+*(Amended by ADR 0046: the rule is `packages/processor/job/deploy.sh`, which
+both hosts run; off Actions, a push of the processor's own commit counts as
+scheduled.)*
+
 ### 2. The processor also runs daily
 
 `process.yml` gains a daily schedule (03:17 UTC, off the hour, when GitHub's
@@ -75,6 +82,8 @@ pipeline must never disagree with itself on (invariant 3).
 A scheduled run deploys only when it committed something: with nothing new
 there is nothing to publish.
 
+*(Amended by ADR 0046: off Actions, the daily run is the host's own timer.)*
+
 ### 3. A run reports its failures after it has committed
 
 The processor still exits 0. It writes a Markdown summary of the run to
@@ -84,6 +93,8 @@ exits 1 unless that count is exactly zero. A missing count fails too: it means
 the processor crashed or could not write its output, and a run whose outcome
 nobody recorded should not stay green. GitHub's own failed-run email is the
 notification, so there is no webhook, token or address to configure.
+*(Amended by ADR 0046: off Actions, `run.sh` reports the same way and exits 1
+after its commit and deploy, and the host's own notification is the alert.)*
 
 Invariant 7 forbids failing the workflow *before* its commit step; placing the
 red at the very end keeps to it while making failure visible. Nothing is lost
@@ -144,7 +155,8 @@ refused, or its secret is not set. An unset secret fails rather than passing,
 because a workflow that needs the token breaks on it just as surely; only
 `VAULT_READ_TOKEN`, which a public vault does not need, is allowed to be
 unset. The check is one composite action in tiro, which the vault's workflow
-calls by reference, so it is written once.
+calls by reference, so it is written once. *(Amended by ADR 0046: a copy of a
+token on another host is checked only while Actions can run.)*
 
 The extension's token lives only in a browser, so the extension reports it:
 Test connection reads the same header and says when the token expires, warning
