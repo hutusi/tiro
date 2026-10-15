@@ -75,7 +75,12 @@ variable is the old behaviour.
   process group on its step timeout, on a cancel and on shutdown, and no
   shell trap survives that. So a run records the commit it started from, and
   a run that finds that record commits what the killed one left before
-  anything else — the job-level form of the workflow's `if: always()`.
+  anything else — the job-level form of the workflow's `if: always()`. What
+  it recommits is the killed run's own work, on that work's own parent: once
+  the commit-back has rebased, the parent is a newer `main` than the one the
+  run started from, and measuring from the start would carry `main`'s newer
+  commits along as the run's, for `-X theirs` to put back over anything newer
+  still. A commit already on `main` is not recommitted at all.
 - **The processor never holds the dispatch token.** It parses pages from
   anywhere (ADR 0034); the token that can write to the site stays with the
   script.

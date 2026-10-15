@@ -111,16 +111,41 @@ if [ ! -d "$vault/.git" ]; then
 fi
 git -C "$vault" remote set-url origin "$remote"
 
-# A run killed before it committed left its work here, and the commit it was
-# working from in the marker. Commit that first, as its own run would have.
+# A run killed before it finished left its work here, and the commit it
+# started from in the marker. Commit that first, as its own run would have.
 marker="$vault/.git/tiro-run-base"
 recovered=false
 if [ -f "$marker" ]; then
   base="$(cat "$marker")"
   echo "::warning::The last run here did not finish; committing what it left before this one starts"
   git -C "$vault" rebase --abort >/dev/null 2>&1
-  if git -C "$vault" cat-file -e "$base^{commit}" 2>/dev/null &&
-    git -C "$vault" reset -q --soft "$base"; then
+  head="$(git -C "$vault" rev-parse HEAD)"
+  if ! git -C "$vault" fetch -q origin main; then
+    problem "Could not fetch the vault's main from $remote"
+    finish
+  fi
+  if [ "$head" = "$base" ]; then
+    # Killed before it committed: its work is all in the tree.
+    unpicked=true
+  elif git -C "$vault" merge-base --is-ancestor "$head" origin/main; then
+    # Killed after its push: the work is on main, and only the deploy may
+    # never have been sent.
+    unpicked=false
+    echo "Its commit is on main already"
+    recovered=true
+  elif [ "$(git -C "$vault" log -1 --format=%an HEAD)" = tiro-processor ] &&
+    git -C "$vault" reset -q --soft HEAD^; then
+    # Killed between its commit and its push. Undo the commit onto its own
+    # parent — which a rebase may have moved past the marker — so committing
+    # again carries the run's changes and nothing of main's: measured from the
+    # marker instead, main's newer commits would ride along as the run's own,
+    # and -X theirs would put them back over anything newer still.
+    unpicked=true
+  else
+    unpicked=false
+    problem "The last, unfinished run left a commit that is not its own; what it left is discarded"
+  fi
+  if [ "$unpicked" = true ]; then
     if (cd "$vault" && GITHUB_OUTPUT="$scratch/recovered" bash "$here/commit-back.sh"); then
       if grep -qx 'committed=true' "$scratch/recovered" 2>/dev/null; then
         recovered=true
@@ -128,8 +153,6 @@ if [ -f "$marker" ]; then
     else
       problem "Could not commit what the last, unfinished run left; it is discarded"
     fi
-  else
-    problem "The commit the last, unfinished run started from is gone; what it left is discarded"
   fi
   rm -f "$marker"
 fi

@@ -297,6 +297,67 @@ describe("run.sh", () => {
     expect(existsSync(join(s.vault, ".git", "tiro-run-base"))).toBe(false);
   });
 
+  /** As commit-back.sh commits, so the processor's own rules apply to it. */
+  const commitAsProcessor = (s: ReturnType<typeof sandbox>) => {
+    s.git(s.vault, "add", "-A");
+    s.git(
+      s.vault,
+      "-c",
+      "user.name=tiro-processor",
+      "-c",
+      "user.email=p@example.com",
+      "commit",
+      "-q",
+      "-m",
+      "process: summarize and translate new articles",
+    );
+  };
+
+  // A run killed after its commit-back rebased: its commit sits on a main
+  // newer than the one it started from. Recommitting its changes measured
+  // from that start would carry main's newer commits along as if they were
+  // the run's, and -X theirs would then put them back over anything newer.
+  test("a run killed after its rebase is recommitted on its own parent, and main's newer edits stand", async () => {
+    const s = sandbox({ ...VAULT, "config/tiro.yml": "v: 0\n" });
+    await s.run({ TIRO_TRIGGER: "push" });
+    const base = s.git(s.vault, "rev-parse", "HEAD").trim();
+    s.write(s.vault, { "articles/a/zh.md": "translated\n" });
+    commitAsProcessor(s);
+    s.pushAs("someone", { "config/tiro.yml": "v: 1\n" }, "config: 1");
+    s.git(s.vault, "fetch", "-q", "origin", "main");
+    s.git(
+      s.vault,
+      "-c",
+      "user.name=tiro-processor",
+      "-c",
+      "user.email=p@example.com",
+      "rebase",
+      "-q",
+      "FETCH_HEAD",
+    );
+    writeFileSync(join(s.vault, ".git", "tiro-run-base"), `${base}\n`);
+    s.pushAs("someone", { "config/tiro.yml": "v: 2\n" }, "config: 2");
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(s.remoteFile("config/tiro.yml")).toBe("v: 2\n");
+    expect(s.remoteFile("articles/a/zh.md")).toBe("translated\n");
+  });
+
+  test("a run killed after it pushed is not committed again, and the site is told", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "push" });
+    const base = s.git(s.vault, "rev-parse", "HEAD").trim();
+    s.write(s.vault, { "articles/a/zh.md": "translated\n" });
+    commitAsProcessor(s);
+    s.git(s.vault, "push", "-q", "origin", "HEAD:main");
+    writeFileSync(join(s.vault, ".git", "tiro-run-base"), `${base}\n`);
+    dispatches.length = 0;
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(s.remoteLog()).toEqual([PROCESSED, "someone: seed"]);
+    expect(dispatches.length).toBe(1);
+  });
+
   test("changes no run recorded are discarded, not committed", async () => {
     const s = sandbox();
     await s.run({ TIRO_TRIGGER: "push" });

@@ -662,6 +662,9 @@ TIRO_TRIGGER=schedule \
 - **The outcome**: the processor's summary is printed at the end of the log,
   then one line per thing that needs a look, after the commit and the deploy.
   Exit 0 is a clean run, 1 needs a look, 2 is misconfigured and did nothing.
+- **A killed run** is committed by the next, before anything else: its
+  commit is redone on its own parent, or left alone if its push had already
+  landed.
 
 ### Switching hosts
 
