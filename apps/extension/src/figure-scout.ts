@@ -69,8 +69,11 @@ export function beginCapture(watchdogMs: number): number | null {
   if (figures === undefined) return null;
   const previous = scope.__tiroCapture;
   if (previous !== undefined) clearTimeout(previous.timer);
-  const x = window.scrollX;
-  const y = window.scrollY;
+  // A capture a closed popup abandoned is still pending: its watchdog had yet
+  // to put the reader back. Where it would have put them is where they were
+  // reading; the scroll now is where it left them, at one of its figures.
+  const x = previous?.x ?? window.scrollX;
+  const y = previous?.y ?? window.scrollY;
   const restore = () => {
     window.scrollTo({ left: x, top: y, behavior: "instant" });
     delete scope.__tiroCapture;
@@ -253,7 +256,16 @@ export function endCapture(): void {
   delete scope.__tiroCapture;
 }
 
-/** Leave the next clip the pictures to show; `clipper.js` reads and clears it. */
-export function setSnapshotRequest(request: SnapshotRequest): void {
-  (globalThis as unknown as FigureScope).__tiroSnapshotRequest = request;
+/**
+ * Leave the next clip the pictures to show; `clipper.js` reads and clears it.
+ *
+ * Given `null`, clear one left over. A popup that closed between leaving a
+ * request and running the clip leaves it in the page, and the next popup's own
+ * clip would take it, answer as a capture nobody is waiting for, and be
+ * dropped — that popup then sat on "Reading…" until it gave up.
+ */
+export function setSnapshotRequest(request: SnapshotRequest | null): void {
+  const scope = globalThis as unknown as FigureScope;
+  if (request === null) delete scope.__tiroSnapshotRequest;
+  else scope.__tiroSnapshotRequest = request;
 }

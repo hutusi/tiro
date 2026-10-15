@@ -980,6 +980,18 @@ async function main(): Promise<void> {
       phase = "reading";
       render();
     }
+    // A request a closed popup left in the page would make this clip answer
+    // as that popup's capture (`setSnapshotRequest`). Failing to clear it is
+    // no reason not to clip.
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: setSnapshotRequest,
+        args: [null],
+      });
+    } catch {
+      // The injection below reports what is wrong with the tab, if anything.
+    }
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
