@@ -15,6 +15,7 @@ config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
 .github/workflows/publish.yml     # redeploys the site when a collection changes
 .github/workflows/tokens.yml      # warns before TIRO_DISPATCH_TOKEN expires
+.janus/                           # the same job for a Janus server instead of Actions (optional)
 .gitignore                        # keeps Finder's .DS_Store out of the vault
 ```
 
@@ -76,6 +77,13 @@ members' own pictures (ADR 0030), so most collections never need one.
    file the shortcut writes into `inbox/`; the workflow fetches the page and
    makes it an article.
 
+6. Optional — to process on a server of your own instead of GitHub Actions
+   (a private vault spends Actions minutes, mostly waiting on the LLM): set up
+   the server as the Tiro repo's `docs/operations.md` describes ("Processing
+   host"), point it at this vault, then set this repository's Actions
+   *variable* `TIRO_PROCESSOR` to `external`. The workflows then stand down,
+   except when run by hand.
+
 > Fine-grained PATs expire (max ~1 year). `tokens.yml` checks
 > `TIRO_DISPATCH_TOKEN` weekly and fails 30 days before it expires, so GitHub
 > emails you. Run it once by hand after setup and check the date it prints
@@ -87,6 +95,9 @@ members' own pictures (ADR 0030), so most collections never need one.
 - **Reprocess one article**: Actions → Process articles → Run workflow, with
   the article's slug (and "force" if it was already processed).
 - **Reprocess everything**: run with "force" and no slug.
+- **Processing on your own server** (`TIRO_PROCESSOR` is `external`): a run
+  by hand on Actions still works, and spends minutes; on the server, run
+  `run.sh` with `TIRO_SLUG` and `TIRO_FORCE` instead (see "Processing host").
 - A re-run without "force" is always a safe no-op: articles are selected by
   the missing `tiro.processed_at` frontmatter marker, not by push diffs.
 - **A saved link that became `tiro.fetch_failed`**: its page could not be read
@@ -99,5 +110,5 @@ members' own pictures (ADR 0030), so most collections never need one.
   what it wrote under that article, logs a notice, and commits everything else
   — the deletion wins.
 - **Updating this vault's workflows**: the files under `.github/workflows/`
-  are copies. When the Tiro repo's `vault-template/` changes them, copy the new
-  versions in by hand — nothing propagates them.
+  and `.janus/` are copies. When the Tiro repo's `vault-template/` changes them,
+  copy the new versions in by hand — nothing propagates them.

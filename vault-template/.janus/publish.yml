@@ -1,0 +1,35 @@
+# A collections edit, on a host running Janus instead of GitHub Actions
+# (ADR 0046): what .github/workflows/publish.yml does — tell the site to
+# rebuild, and nothing else (ADR 0029). Pointed at by a second GitHub push
+# webhook, to /webhooks/github?pipeline_path=publish.yml. Its own group, so a
+# favourite never waits behind a processing run.
+name: tiro-publish
+
+on:
+  push:
+    branches: [main]
+    paths: ["collections/**"]
+
+# A burst of edits collapses: the site only has to learn that something
+# changed.
+concurrency:
+  group: tiro-publish
+  cancel-in-progress: true
+
+env:
+  TIRO_JOB_ENV: /etc/tiro/job.env
+  TIRO_TRIGGER: publish
+
+jobs:
+  publish:
+    steps:
+      - shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          . "$TIRO_JOB_ENV"
+          set +a
+          rm -rf tiro
+          git clone -q --depth 1 "${TIRO_SOURCE:-https://github.com/hutusi/tiro.git}" tiro
+      - shell: bash
+        run: bash tiro/packages/processor/job/run.sh

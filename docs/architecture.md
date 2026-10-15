@@ -13,7 +13,7 @@ flowchart LR
         INBOX[inbox/&lt;file&gt;]
         MD[articles/&lt;slug&gt;/index.md]
         ZH[zh.md + assets/]
-        WF[process.yml\nGitHub Actions]
+        WF[vault job\nprocess.yml on Actions,\nor run.sh on another host]
         COL[collections/&lt;id&gt;.md]
         PUB[publish.yml]
     end
@@ -257,8 +257,10 @@ flowchart LR
    when the popup closes — a second push after the clip's own. An add for an
    article clipped minutes ago that the vault does not show yet is kept
    pending rather than refused, since GitHub's reads can trail its writes.
-2. **Process.** A push to `articles/**` or `inbox/**` triggers the vault's
-   workflow, which checks out this repo and runs `tiro-process`:
+2. **Process.** A push to `articles/**` or `inbox/**` triggers the vault job —
+   the vault's workflow on Actions, or the same scripts on another host when
+   the vault's `TIRO_PROCESSOR` variable says so (ADR 0046) — which checks out
+   this repo and runs `tiro-process`:
    - turn each `inbox/` file into a stub article — normalized URL, the domain
      as a placeholder title, `tiro.capture: "link"`, no body — and delete it;
      a URL that already has an article keeps it (ADR 0034),
@@ -297,8 +299,9 @@ flowchart LR
      after every push and manual run, committed or not, so a hand edit to the
      vault publishes itself (ADR 0032),
    - only then, turn the job red if an article failed hard or could not be
-     read, so GitHub's failed-run email is the alert. The processor itself
-     always exits 0 and hands the count to the workflow (ADR 0032).
+     read, so GitHub's failed-run email is the alert — or, off Actions, the
+     host's own. The processor itself always exits 0 and hands the count to
+     the job (ADR 0032).
 
    Pending articles are processed cheapest-first, under a wall-clock budget
    (`processing.run_budget_ms`) the processor enforces itself so it stops in

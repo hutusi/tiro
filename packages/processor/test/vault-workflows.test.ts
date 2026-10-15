@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 const REPO = join(import.meta.dir, "../../..");
 const WORKFLOWS = join(REPO, "vault-template/.github/workflows");
 const ACTIONS = join(REPO, ".github/actions");
+const JANUS = join(REPO, "vault-template/.janus");
 
 interface Step {
   name?: string;
@@ -24,6 +25,7 @@ interface Step {
 }
 
 interface Workflow {
+  on: { push?: { paths?: string[] } };
   jobs: Record<string, { if?: string; steps: Step[] }>;
 }
 
@@ -136,6 +138,21 @@ describe("publish.yml", () => {
   });
 });
 
+// ADR 0046: one variable stands Actions down; a run by hand still runs.
+const GATE =
+  "vars.TIRO_PROCESSOR != 'external' || github.event_name == 'workflow_dispatch'";
+
+describe("the host switch", () => {
+  test("process.yml and publish.yml stand down for another host", () => {
+    expect(workflow("process.yml").jobs.process?.if).toBe(GATE);
+    expect(workflow("publish.yml").jobs.publish?.if).toBe(GATE);
+  });
+
+  test("tokens.yml does not: it checks the token Actions holds", () => {
+    expect(workflow("tokens.yml").jobs.check?.if).toBeUndefined();
+  });
+});
+
 describe("every vault workflow", () => {
   test("no expression reaches a shell", () => {
     for (const [where, run] of runBlocks()) {
@@ -159,5 +176,107 @@ describe("every vault workflow", () => {
         exists: true,
       });
     }
+  });
+});
+
+/**
+ * The Janus pipelines (ADR 0046), held to the part of Janus's grammar they may
+ * use — anything else is a validation error there, found only on the host.
+ * `janus validate` is the full check; this keeps the files honest without it.
+ */
+describe("the Janus pipelines", () => {
+  interface Pipeline {
+    name: string;
+    on: { push?: { branches?: string[]; paths?: string[] } };
+    concurrency?: { group?: string; "cancel-in-progress"?: boolean };
+    env?: Record<string, string>;
+    jobs: Record<string, { steps: Step[] }>;
+  }
+  const pipelines = Object.fromEntries(
+    readdirSync(JANUS).map((file) => [file, read<Pipeline>(join(JANUS, file))]),
+  );
+  const pipeline = (file: string) => {
+    const found = pipelines[file];
+    if (found === undefined) throw new Error(`no .janus/${file}`);
+    return found;
+  };
+
+  test("are process, publish and daily", () => {
+    expect(Object.keys(pipelines).sort()).toEqual([
+      "daily.yml",
+      "process.yml",
+      "publish.yml",
+    ]);
+  });
+
+  test("use only keys and tokens Janus accepts", () => {
+    const tokens =
+      /^(env\.[A-Za-z_][A-Za-z0-9_]*|ref|sha|short_sha|branch|tag|event)$/;
+    for (const [file, p] of Object.entries(pipelines)) {
+      expect({ file, keys: Object.keys(p).sort() }).toEqual({
+        file,
+        keys: ["concurrency", "env", "jobs", "name", "on"],
+      });
+      expect(Object.keys(p.on)).toEqual(["push"]);
+      for (const key of Object.keys(p.on.push ?? {})) {
+        expect(["branches", "paths"]).toContain(key);
+      }
+      for (const key of Object.keys(p.concurrency ?? {})) {
+        expect(["group", "cancel-in-progress"]).toContain(key);
+      }
+      // A group per commit would serialize nothing.
+      expect(p.concurrency?.group).not.toMatch(/sha/);
+      for (const job of Object.values(p.jobs)) {
+        expect(Object.keys(job)).toEqual(["steps"]);
+        for (const s of job.steps) {
+          expect(Object.keys(s).sort()).toEqual(["run", "shell"]);
+          expect(s.shell).toBe("bash");
+        }
+      }
+      const text = readFileSync(join(JANUS, file), "utf8");
+      for (const [, inner] of text.matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)) {
+        expect({ file, token: inner }).toEqual({
+          file,
+          token: tokens.test(inner ?? "") ? inner : "(not a Janus token)",
+        });
+      }
+    }
+  });
+
+  test("each runs run.sh from a fresh tiro, with its own trigger", () => {
+    const triggers = Object.fromEntries(
+      Object.entries(pipelines).map(([file, p]) => [file, p.env?.TIRO_TRIGGER]),
+    );
+    expect(triggers).toEqual({
+      "daily.yml": "schedule",
+      "process.yml": expr("event"),
+      "publish.yml": "publish",
+    });
+    for (const p of Object.values(pipelines)) {
+      const steps = Object.values(p.jobs)[0]?.steps ?? [];
+      expect(steps[0]?.run).toContain("rm -rf tiro");
+      expect(steps.at(-1)?.run?.trim()).toBe(
+        "bash tiro/packages/processor/job/run.sh",
+      );
+    }
+    expect(pipeline("process.yml").env?.TIRO_TRIGGER_SHA).toBe(expr("sha"));
+  });
+
+  test("start on the same pushes the workflows do", () => {
+    expect(pipeline("process.yml").on.push?.paths).toEqual(
+      workflow("process.yml").on.push?.paths,
+    );
+    expect(pipeline("publish.yml").on.push?.paths).toEqual(
+      workflow("publish.yml").on.push?.paths,
+    );
+  });
+
+  test("the daily run queues with processing; a collections edit does not", () => {
+    expect(pipeline("process.yml").concurrency?.group).toBe("tiro-process");
+    expect(pipeline("daily.yml").concurrency?.group).toBe("tiro-process");
+    expect(pipeline("publish.yml").concurrency).toEqual({
+      group: "tiro-publish",
+      "cancel-in-progress": true,
+    });
   });
 });

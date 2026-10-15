@@ -1,0 +1,36 @@
+# The daily run, on a host running Janus instead of GitHub Actions (ADR 0046),
+# as process.yml runs daily on Actions (ADR 0032): it finishes what a run's
+# budget deferred, and retries what failed, without waiting for a clip.
+#
+# Janus has no schedule, so a timer on the host starts this at 03:17 UTC
+# through Janus's trigger API — POST /api/trigger with "pipeline_path":
+# "daily.yml" and the same repo_url the webhook sends. The push trigger is here
+# only because Janus requires one; no webhook names this file.
+name: tiro-daily
+
+on:
+  push:
+    branches: [main]
+
+# process.yml's group: a daily run queues behind a processing run, never
+# beside it.
+concurrency:
+  group: tiro-process
+
+env:
+  TIRO_JOB_ENV: /etc/tiro/job.env
+  TIRO_TRIGGER: schedule
+
+jobs:
+  daily:
+    steps:
+      - shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          . "$TIRO_JOB_ENV"
+          set +a
+          rm -rf tiro
+          git clone -q --depth 1 "${TIRO_SOURCE:-https://github.com/hutusi/tiro.git}" tiro
+      - shell: bash
+        run: bash tiro/packages/processor/job/run.sh

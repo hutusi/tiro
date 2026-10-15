@@ -34,6 +34,11 @@ permissions:
 
 jobs:
   process:
+    # Stood down when another host processes this vault (ADR 0046): the
+    # repository variable TIRO_PROCESSOR set to `external`. A run started by
+    # hand still runs — the fallback, and the way to force one slug — and a
+    # job skipped here gets no runner, so it spends no minutes.
+    if: vars.TIRO_PROCESSOR != 'external' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # Backstop only. The processor stops itself first, at
     # `processing.run_budget_ms` in config/tiro.yml (50 min by default), so it

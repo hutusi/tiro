@@ -1,0 +1,41 @@
+# The vault job on a host running Janus instead of GitHub Actions (ADR 0046):
+# what .github/workflows/process.yml does, through tiro's run.sh. Nothing here
+# runs unless a Janus server is pointed at this vault — a GitHub push webhook
+# to /webhooks/github?pipeline_path=process.yml — and the vault's
+# TIRO_PROCESSOR variable is set to `external`, which stands Actions down.
+name: tiro-process
+
+on:
+  push:
+    branches: [main]
+    # inbox/: a link saved from a phone or the extension (ADR 0034).
+    # collections/ never starts processing (ADR 0029) — that is publish.yml.
+    paths: ["articles/**", "inbox/**"]
+
+# Queued, never cancelled, and shared with daily.yml: one processing run at a
+# time, as on Actions.
+concurrency:
+  group: tiro-process
+
+env:
+  # The host's own settings — the vault checkout and its remote, the secret
+  # files, the proxy — live on the host, never here: this file is committed.
+  TIRO_JOB_ENV: /etc/tiro/job.env
+  TIRO_TRIGGER: ${{ event }}
+  TIRO_TRIGGER_SHA: ${{ sha }}
+
+jobs:
+  process:
+    steps:
+      # A fresh tiro each run, as the workflow checks it out: the job runs
+      # whatever is on tiro's main.
+      - shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          . "$TIRO_JOB_ENV"
+          set +a
+          rm -rf tiro
+          git clone -q --depth 1 "${TIRO_SOURCE:-https://github.com/hutusi/tiro.git}" tiro
+      - shell: bash
+        run: bash tiro/packages/processor/job/run.sh

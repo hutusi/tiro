@@ -9,6 +9,8 @@ Day-2 operations for the running Tiro system.
 | Live site | <https://tiro.ainaive.com/> (Cloudflare Pages project `tiro`, direct upload) |
 | Content vault | <https://github.com/hutusi/tiro-vault> (private) |
 | Processing workflow | tiro-vault → Actions → "Process articles" |
+| Processing host switch | tiro-vault → Settings → Secrets and variables → Actions → Variables → `TIRO_PROCESSOR` (`external`: another host processes; unset: Actions) |
+| Processing off Actions | a Janus server running the vault's `.janus/` pipelines and `run.sh` (ADR 0046) — see "Processing host" |
 | Publish workflow | tiro-vault → Actions → "Publish collections" |
 | Deploy workflow | tiro → Actions → "Deploy site" |
 | LLM config | `config/tiro.yml` in the vault |
@@ -363,6 +365,10 @@ so re-runs are always safe no-ops for finished articles.
   run when the title is the only thing wrong with the article.
 - **Locally**: `TIRO_LLM_API_KEY=… bun run process -- --vault ../tiro-vault`
   (then commit/push the vault yourself).
+- **While another host processes** (`TIRO_PROCESSOR` is `external`): "Run
+  workflow" above still runs on Actions — a run by hand passes the switch —
+  and spends minutes. On the host, the same is `run.sh` with `TIRO_SLUG` and
+  `TIRO_FORCE` (see "Processing host").
 - **Contract check over the whole vault**:
   `bun run packages/processor/src/cli.ts validate --vault ../tiro-vault`.
   Checks frontmatter schema, that each directory name still equals the slug
@@ -656,6 +662,120 @@ TIRO_TRIGGER=schedule \
 - **The outcome**: the processor's summary is printed at the end of the log,
   then one line per thing that needs a look, after the commit and the deploy.
   Exit 0 is a clean run, 1 needs a look, 2 is misconfigured and did nothing.
+
+### Switching hosts
+
+`TIRO_PROCESSOR=external` stands the vault's `process.yml` and `publish.yml`
+down, except for a run by hand; unset, Actions processes as before. The
+variable only works once the vault has the template's current workflows.
+
+To another host:
+
+1. Set the host up (below), and run `run.sh` there once by hand — it catches
+   up whatever is pending.
+2. Copy the template's `.github/workflows/process.yml`, `publish.yml` and
+   `.janus/` into the vault. That push touches neither `articles/` nor
+   `inbox/`, so it starts no processing.
+3. Add the host's webhooks and start its daily timer, then at once
+   `gh variable set TIRO_PROCESSOR --body external -R hutusi/tiro-vault`. In
+   that order a clip landing in between is processed twice — paid for, never
+   lost — rather than by nobody until the next day.
+4. Check: a clip starts a run on the host, which commits and deploys; the
+   Actions run for the same push shows its job skipped; the run started by the
+   processor's own push says so and deploys nothing; a collections edit
+   deploys; and the next day, the vault's Actions usage has not grown.
+
+Back to Actions: `gh variable delete TIRO_PROCESSOR -R hutusi/tiro-vault`,
+then remove the webhooks and stop the timer.
+
+### Janus on a VPS
+
+[Janus](https://github.com/hutusi/janus) runs the vault's `.janus/` pipelines
+as plain processes on the host. Each fetches tiro fresh and runs `run.sh`, so
+the host needs:
+
+- **Tools**: bun at tiro's pinned version on the `janus` user's `PATH`
+  (`/usr/local/bin`), git, curl, GNU `timeout`, and `flock`.
+- **Settings**, `/etc/tiro/job.env`, owned `root:janus`, mode `0640` — `run.sh`
+  sources it, and Janus hands a job none of its own environment:
+
+  ```sh
+  TIRO_VAULT_DIR=/var/lib/tiro/vault        # its parent writable by janus
+  TIRO_VAULT_REMOTE=git@github.com:hutusi/tiro-vault.git
+  TIRO_LLM_API_KEY_FILE=/etc/tiro/llm-api-key
+  TIRO_DISPATCH_TOKEN_FILE=/etc/tiro/dispatch-token
+  # Where GitHub needs a proxy; the LLM endpoint goes direct.
+  HTTPS_PROXY=http://127.0.0.1:7890
+  https_proxy=http://127.0.0.1:7890
+  NO_PROXY=localhost,127.0.0.1,.aliyuncs.com
+  no_proxy=localhost,127.0.0.1,.aliyuncs.com
+  ```
+
+  The two secret files, also `root:janus 0640`, hold the LLM key and the
+  dispatch PAT (the vault's `TIRO_DISPATCH_TOKEN`, or one of the same scope).
+  Never put a secret in a `.janus/` file: it is committed.
+- **Push access to the vault**: a deploy key with write access (tiro-vault →
+  Settings → Deploy keys), its private half in the `janus` user's `~/.ssh`
+  with a pre-seeded `known_hosts`. Where port 22 is unreliable, reach
+  `ssh.github.com` on 443 instead:
+
+  ```
+  Host github.com
+    HostName ssh.github.com
+    Port 443
+    User git
+    IdentityFile ~/.ssh/tiro-vault
+  ```
+
+  Janus clones the vault for each run too, so set `clone_url: "ssh"`, and write
+  `allow_repos` the way the webhook names the repo: its `ssh_url`.
+- **Clean DNS.** The processor checks where a name resolves before fetching
+  it, and refuses reserved addresses. A proxy in fake-ip mode answers every
+  name with one (`198.18.x.x`), and so do some poisoned answers: every saved
+  link would fail for good, and every image stay a hotlink. `getent ahosts
+  cdn.theatlantic.com` as `janus` must show real public addresses.
+- **Janus's own settings** (`janus.yml`):
+  - `github_secret` and `api_token`, by environment (`JANUS_GITHUB_SECRET`,
+    `JANUS_API_TOKEN`);
+  - `workspace_strategy: "mirror"`, so a run fetches only new commits;
+  - `step_timeout: "0"`, or at least `"90m"` — Janus's deployment guide
+    suggests `"30m"`, which kills every run that uses its budget (it would be
+    committed by the next one, an hour late);
+  - `notifications` on `[failed]` to wherever you will see them — off
+    Actions, that is the alert GitHub's email used to be;
+  - optionally `github_api_token` (`repo:status`), to show each run's outcome
+    on the vault commit that started it.
+- **Two webhooks** on tiro-vault, push events only, content type
+  `application/json`, the same secret:
+  `https://<host>/webhooks/github?pipeline_path=process.yml` and
+  `…?pipeline_path=publish.yml`. GitHub must reach the host: in mainland
+  China, serving a domain on 80/443 needs an ICP filing. A delivery that
+  fails is not retried by GitHub; the daily run picks its work up.
+- **The daily run**: Janus has no schedule, so a timer asks for it —
+
+  ```ini
+  # /etc/systemd/system/tiro-daily.service
+  [Service]
+  Type=oneshot
+  EnvironmentFile=/etc/tiro/janus-api.env
+  ExecStart=/usr/bin/curl -fsS -X POST http://127.0.0.1:8080/api/trigger -H "Authorization: Bearer ${JANUS_API_TOKEN}" -d '{"repo_url":"git@github.com:hutusi/tiro-vault.git","ref":"refs/heads/main","branch":"main","pipeline_path":"daily.yml"}'
+
+  # /etc/systemd/system/tiro-daily.timer
+  [Timer]
+  OnCalendar=*-*-* 03:17:00 UTC
+  Persistent=true
+
+  [Install]
+  WantedBy=timers.target
+  ```
+
+  `repo_url` must be exactly the URL the webhook sends, or the daily run
+  neither passes `allow_repos` nor queues with the processing runs.
+- **A run by hand**, for a forced slug or the first catch-up, from a checkout
+  of tiro kept on the host (`git pull` it first):
+  `sudo -u janus -H env TIRO_JOB_ENV=/etc/tiro/job.env TIRO_TRIGGER=manual TIRO_SLUG=<slug> TIRO_FORCE=true bash <tiro>/packages/processor/job/run.sh`.
+- **In mainland China**, bun's registry may be slow: a `~/.bunfig.toml` for
+  `janus` with `[install] registry = "https://registry.npmmirror.com"`.
 
 ## Vault layout migrations
 
@@ -1685,6 +1805,10 @@ permanent extension ID, unrelated to the unpacked one.
 | A host run fails with `ran past <n>s and was stopped` | the backstop stopped the processor before its own budget did — `TIRO_PROCESS_TIMEOUT` too close to `processing.run_budget_ms` | keep the backstop well above the budget; what the run finished is committed |
 | A host run warns `has changes no run recorded; discarding them` | someone edited the host's checkout of the vault | nothing to recover — edit the vault through git, not that checkout |
 | A host run fails with `Could not fetch the vault's main` | the host cannot reach GitHub — the proxy, the deploy key, or GitHub itself | `git -C $TIRO_VAULT_DIR fetch origin main` as the job's user shows which |
+| Every Janus run fails at once with 403 | the vault is not in Janus's `allow_repos`, or is written there differently from the URL the webhook sends | copy `ssh_url` from a delivery into `allow_repos` |
+| Janus runs end at the same length, and the next one starts with `The last run here did not finish` | Janus's `step_timeout` is below the run's budget | `step_timeout: "0"` or at least `"90m"` |
+| Saved links fail with `resolves to a non-public address` on the host | the host's resolver answers with reserved addresses — a proxy's fake-ip mode, or poisoned answers | give the host clean DNS; the refused links need re-saving once it has |
+| "Process articles" on Actions shows its job skipped | `TIRO_PROCESSOR` is `external`: another host processes | expected; run it by hand to use Actions anyway |
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
 | A run stops early with `stopped after the provider failed 3 articles in a row` | a provider outage, an expired or revoked `TIRO_LLM_API_KEY`, a model id the key cannot use, or quota exhausted — the three errors before it say which | curl self-test against the provider; fix the key, the model or the quota. Nothing to clean up: the articles it did not attempt are still pending |
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
