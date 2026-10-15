@@ -85,9 +85,10 @@ variable is the old behaviour.
   how a recovery that was itself killed half-way gets finished.
 - **A deploy that could not be sent is owed.** The runs after it may commit
   nothing — the processor's own push, the daily run — and so would never
-  publish what is already on `main`. Off Actions a run that committed records
-  that a deploy is owed, and only a dispatch that went through clears it; a
-  run killed after its push is treated the same way. On Actions the next run
+  publish what is already on `main`. Off Actions every deploy — of a commit,
+  or of a hand edit with nothing to process — is recorded as owed before it
+  is sent, and only a dispatch that went through clears it; a run killed after
+  its push, or while sending, leaves it owed. On Actions the next run
   starts from a fresh checkout and cannot know; there a failed deploy is a red
   run, re-run by hand.
 - **The processor never holds the dispatch token.** It parses pages from

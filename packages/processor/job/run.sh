@@ -264,8 +264,9 @@ fi
 rm -f "$marker"
 
 # What reached main and has not been published yet — this run's commit, a
-# killed run's, or one whose deploy failed before — counts as committed, so
-# the deploy goes even on a trigger that only publishes its own commits.
+# killed run's, or a deploy an earlier run could not send, hand edit or not —
+# counts as committed, so the deploy goes even on a trigger that only
+# publishes its own commits.
 if [ "$committing" = true ]; then
   committed=false
   if [ -f "$owed" ]; then
@@ -274,6 +275,10 @@ if [ "$committing" = true ]; then
       echo "A deploy an earlier run could not send is still owed; sending it now"
     fi
   fi
+  # Owed until the dispatch is known to have gone — whatever this run is
+  # deploying, and even if it is killed while sending it. A run with nothing
+  # to deploy clears it again at once.
+  touch "$owed"
   if TIRO_TRIGGER="$effective" TIRO_COMMITTED="$committed" bash "$here/deploy.sh"; then
     rm -f "$owed"
   else

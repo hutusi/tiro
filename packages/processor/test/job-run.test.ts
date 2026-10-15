@@ -392,6 +392,19 @@ describe("run.sh", () => {
     expect(dispatches.length).toBe(1);
   });
 
+  test("a hand edit's deploy that could not be sent is owed too", async () => {
+    const s = sandbox();
+    dispatchStatus = 401;
+    const failed = await s.run({ TIRO_TRIGGER: "push" });
+    expect(failed.exitCode).toBe(1);
+    dispatchStatus = 204;
+    dispatches.length = 0;
+    const owed = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(owed.exitCode).toBe(0);
+    expect(owed.log).toContain("still owed");
+    expect(dispatches.length).toBe(1);
+  });
+
   test("a deploy that could not be sent is owed until one is", async () => {
     const s = sandbox();
     dispatchStatus = 401;

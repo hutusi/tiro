@@ -665,9 +665,9 @@ TIRO_TRIGGER=schedule \
 - **A killed run** is committed by the next, before anything else: its
   commit is redone on its own parent, or left alone if its push had already
   landed; a recovery that was itself killed is finished the same way.
-- **A deploy that could not be sent is owed**, and goes with the next run —
-  even one with nothing of its own to publish, which says `A deploy an earlier
-  run could not send is still owed`.
+- **A deploy that could not be sent is owed**, a hand edit's as much as a
+  commit's, and goes with the next run — even one with nothing of its own to
+  publish, which says `A deploy an earlier run could not send is still owed`.
 
 ### Switching hosts
 
