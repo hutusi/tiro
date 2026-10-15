@@ -11,7 +11,9 @@
 #   - a host may kill the whole job anyway — Janus SIGKILLs a step's process
 #     group on its step timeout, a cancel or a shutdown, and nothing in here
 #     survives that — so a run marks where it started, and the next run
-#     commits what a killed one left before it does anything else.
+#     commits what a killed one left before it does anything else;
+#   - a deploy that could not be sent stays owed, and goes with the next run,
+#     which may have nothing of its own to publish.
 #
 # Inputs, as environment:
 #   TIRO_VAULT_DIR      where this host keeps its checkout of the vault
@@ -111,10 +113,13 @@ if [ ! -d "$vault/.git" ]; then
 fi
 git -C "$vault" remote set-url origin "$remote"
 
+# A deploy a run could not send stays owed until one is sent: the runs after
+# it may have nothing of their own to publish, and would never send it.
+owed="$vault/.git/tiro-deploy-owed"
+
 # A run killed before it finished left its work here, and the commit it
 # started from in the marker. Commit that first, as its own run would have.
 marker="$vault/.git/tiro-run-base"
-recovered=false
 if [ -f "$marker" ]; then
   base="$(cat "$marker")"
   echo "::warning::The last run here did not finish; committing what it left before this one starts"
@@ -132,7 +137,7 @@ if [ -f "$marker" ]; then
     # never have been sent.
     unpicked=false
     echo "Its commit is on main already"
-    recovered=true
+    touch "$owed"
   elif [ "$(git -C "$vault" log -1 --format=%an HEAD)" = tiro-processor ] &&
     git -C "$vault" reset -q --soft HEAD^; then
     # Killed between its commit and its push. Undo the commit onto its own
@@ -148,7 +153,7 @@ if [ -f "$marker" ]; then
   if [ "$unpicked" = true ]; then
     if (cd "$vault" && GITHUB_OUTPUT="$scratch/recovered" bash "$here/commit-back.sh"); then
       if grep -qx 'committed=true' "$scratch/recovered" 2>/dev/null; then
-        recovered=true
+        touch "$owed"
       fi
     else
       problem "Could not commit what the last, unfinished run left; it is discarded"
@@ -243,21 +248,32 @@ fi
 # Whatever the processor did. The marker goes once the commit-back has
 # settled either way: a refused commit is reported, and its leftovers are
 # discarded by the next run rather than retried forever.
-committed=$recovered
 committing=false
 if (cd "$vault" && GITHUB_OUTPUT="$scratch/commit" bash "$here/commit-back.sh"); then
   committing=true
   if grep -qx 'committed=true' "$scratch/commit" 2>/dev/null; then
-    committed=true
+    touch "$owed"
   fi
 else
   problem "The commit-back failed, so this run's work is not in the vault (see above)"
 fi
 rm -f "$marker"
 
+# What reached main and has not been published yet — this run's commit, a
+# killed run's, or one whose deploy failed before — counts as committed, so
+# the deploy goes even on a trigger that only publishes its own commits.
 if [ "$committing" = true ]; then
-  if ! TIRO_TRIGGER="$effective" TIRO_COMMITTED="$committed" bash "$here/deploy.sh"; then
-    problem "The site was not told to rebuild"
+  committed=false
+  if [ -f "$owed" ]; then
+    committed=true
+    if ! grep -qx 'committed=true' "$scratch/commit" 2>/dev/null; then
+      echo "A deploy an earlier run could not send is still owed; sending it now"
+    fi
+  fi
+  if TIRO_TRIGGER="$effective" TIRO_COMMITTED="$committed" bash "$here/deploy.sh"; then
+    rm -f "$owed"
+  else
+    problem "The site was not told to rebuild; the next run will try again"
   fi
 fi
 

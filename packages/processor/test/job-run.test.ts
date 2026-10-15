@@ -358,6 +358,28 @@ describe("run.sh", () => {
     expect(dispatches.length).toBe(1);
   });
 
+  test("a deploy that could not be sent is owed until one is", async () => {
+    const s = sandbox();
+    dispatchStatus = 401;
+    const failed = await s.run({
+      TIRO_TRIGGER: "push",
+      SHIM_SCENARIO: TRANSLATES_A,
+    });
+    expect(failed.exitCode).toBe(1);
+    dispatchStatus = 204;
+    dispatches.length = 0;
+    // The processor's own push comes back with nothing new to process, which
+    // would otherwise deploy nothing.
+    const own = s.git(s.remote, "rev-parse", "main").trim();
+    const owed = await s.run({ TIRO_TRIGGER: "push", TIRO_TRIGGER_SHA: own });
+    expect(owed.exitCode).toBe(0);
+    expect(owed.log).toContain("still owed");
+    expect(dispatches.length).toBe(1);
+    dispatches.length = 0;
+    expect((await s.run({ TIRO_TRIGGER: "schedule" })).exitCode).toBe(0);
+    expect(dispatches).toEqual([]);
+  });
+
   test("changes no run recorded are discarded, not committed", async () => {
     const s = sandbox();
     await s.run({ TIRO_TRIGGER: "push" });

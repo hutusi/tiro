@@ -81,6 +81,13 @@ variable is the old behaviour.
   run started from, and measuring from the start would carry `main`'s newer
   commits along as the run's, for `-X theirs` to put back over anything newer
   still. A commit already on `main` is not recommitted at all.
+- **A deploy that could not be sent is owed.** The runs after it may commit
+  nothing — the processor's own push, the daily run — and so would never
+  publish what is already on `main`. Off Actions a run that committed records
+  that a deploy is owed, and only a dispatch that went through clears it; a
+  run killed after its push is treated the same way. On Actions the next run
+  starts from a fresh checkout and cannot know; there a failed deploy is a red
+  run, re-run by hand.
 - **The processor never holds the dispatch token.** It parses pages from
   anywhere (ADR 0034); the token that can write to the site stays with the
   script.

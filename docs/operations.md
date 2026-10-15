@@ -665,6 +665,9 @@ TIRO_TRIGGER=schedule \
 - **A killed run** is committed by the next, before anything else: its
   commit is redone on its own parent, or left alone if its push had already
   landed.
+- **A deploy that could not be sent is owed**, and goes with the next run —
+  even one with nothing of its own to publish, which says `A deploy an earlier
+  run could not send is still owed`.
 
 ### Switching hosts
 
@@ -1807,6 +1810,7 @@ permanent extension ID, unrelated to the unpacked one.
 | A host run starts with `The last run here did not finish` | the host killed the previous run outright — a CI step timeout below the backstop, a cancel, a restart | nothing, the run commits what that one left; if it repeats, raise the host's step timeout above `TIRO_PROCESS_TIMEOUT` |
 | A host run fails with `ran past <n>s and was stopped` | the backstop stopped the processor before its own budget did — `TIRO_PROCESS_TIMEOUT` too close to `processing.run_budget_ms` | keep the backstop well above the budget; what the run finished is committed |
 | A host run warns `has changes no run recorded; discarding them` | someone edited the host's checkout of the vault | nothing to recover — edit the vault through git, not that checkout |
+| A host run fails with `The site was not told to rebuild; the next run will try again` | the dispatch was refused or could not be sent — the dispatch token, or the proxy to GitHub | fix the token or the route; the next run sends it, or dispatch "Deploy site" by hand to publish now |
 | A host run fails with `Could not fetch the vault's main` | the host cannot reach GitHub — the proxy, the deploy key, or GitHub itself | `git -C $TIRO_VAULT_DIR fetch origin main` as the job's user shows which |
 | Every Janus run fails at once with 403 | the vault is not in Janus's `allow_repos`, or is written there differently from the URL the webhook sends | copy `ssh_url` from a delivery into `allow_repos` |
 | Janus runs end at the same length, and the next one starts with `The last run here did not finish` | Janus's `step_timeout` is below the run's budget | `step_timeout: "0"` or at least `"90m"` |
