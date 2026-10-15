@@ -54,14 +54,22 @@ const en = {
   capturingFigure: (at: number, total: number) =>
     `Capturing figure ${at} of ${total}…`,
   capturePlacing: "Putting the pictures in the article…",
-  captureResult: (captured: number, total: number) =>
-    captured === total
+  // The pictures live in this popup until Clip commits them: one closed in
+  // between — a click on the page it just scrolled — drops them unsaid, and
+  // the clip that follows links to the figures instead.
+  captureResult: (captured: number, total: number) => {
+    const save =
+      captured === 1
+        ? " Clip now to save it — closing this popup discards the picture."
+        : " Clip now to save them — closing this popup discards the pictures.";
+    return captured === total
       ? total === 1
-        ? "The figure is captured."
-        : `All ${total} figures captured.`
+        ? `The figure is captured.${save}`
+        : `All ${total} figures captured.${save}`
       : captured === 0
         ? "No figure could be captured; they stay as links to the page."
-        : `${captured} of ${total} figures captured; the rest stay as links to the page.`,
+        : `${captured} of ${total} figures captured; the rest stay as links to the page.${save}`;
+  },
   captureLost:
     "The pictures could not be put in the article — it clips with links to the figures instead.",
   openInTiro: "Open in Tiro →",
@@ -350,14 +358,16 @@ const zh: Messages = {
   capturingFigure: (at: number, total: number) =>
     `正在截取第 ${at} / ${total} 张图示…`,
   capturePlacing: "正在把截图放入文章…",
-  captureResult: (captured: number, total: number) =>
-    captured === total
+  captureResult: (captured: number, total: number) => {
+    const save = `请现在剪藏以保存截图，关闭弹窗会丢弃${captured === 1 ? "它" : "它们"}。`;
+    return captured === total
       ? total === 1
-        ? "图示已截取。"
-        : `全部 ${total} 张图示已截取。`
+        ? `图示已截取。${save}`
+        : `全部 ${total} 张图示已截取。${save}`
       : captured === 0
         ? "没有截取到图示，它们仍以链接指向原页面。"
-        : `已截取 ${captured} / ${total} 张图示，其余仍以链接指向原页面。`,
+        : `已截取 ${captured} / ${total} 张图示，其余仍以链接指向原页面。${save}`;
+  },
   captureLost: "截图未能放入文章，剪藏时将以链接指向这些图示。",
   openInTiro: "在 Tiro 打开 →",
   openHint: "处理完成后会出现在站点上，通常需要几分钟。",

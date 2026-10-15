@@ -1039,6 +1039,11 @@ header, a cookie banner), keeps moving while it is taken, or would push the
 clip past 20 MB. If the page navigates, reloads or rewrites its address during
 the capture, the pictures are dropped and the article clips with its links.
 
+Until Clip, the pictures live only in the popup. Closing it discards them —
+and a click on the page it just scrolled closes it — so the popup that opens
+next offers the capture again, and clipping there commits the links. The note
+after a capture says so; clip from the same popup.
+
 **A plain re-clip drops the pictures**: the body goes back to links and the
 next processing run prunes the files. Capture again to keep them. A larger
 window captures larger figures; a figure too tall for the screen fits once the
@@ -1603,6 +1608,7 @@ permanent extension ID, unrelated to the unpacked one.
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
 | The popup says some figures "stay as links to the page" | a figure with nothing drawn in it yet, one taller or wider than the window, one with something laid over it, one that moved while it was taken, or the 20 MB budget (ADR 0039) | by design; enlarge the window, dismiss the banner or scroll the header away, and capture again |
 | A chart's title, legend or tooltip rows (`P25 / Fetches1 / …`) appear as stray paragraphs | the clip found no host for the chart: no `<figure>`, and its box holds a heading, a link, a list or more text than a chart's chrome (ADR 0044) | the chart itself was deleted, as before; tighten or extend the host rule in `orphanChartHost` with a test of the page's shape |
+| A clip made after "The figure is captured." shows a link where the picture should be, and its vault commit holds `index.md` alone | the popup closed between the capture and Clip — the pictures live only in the popup until Clip commits them, and a click on the page closes it | capture again and press Clip in the same popup; a picture's commit always carries the `.webp` beside `index.md` |
 | "The pictures could not be put in the article" after a capture | the tab navigated, reloaded or rewrote its address during the capture, so the clip that would show the pictures was of another page and was refused | clip as it is — the figures are links — or reload, wait, and capture again |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
