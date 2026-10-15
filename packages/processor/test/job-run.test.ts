@@ -358,6 +358,40 @@ describe("run.sh", () => {
     expect(dispatches.length).toBe(1);
   });
 
+  // Recovery itself can be killed, once it has taken the run's commit apart
+  // and before it has committed again: HEAD is then a commit main already
+  // has, with the run's work staged on it, and the marker still names the
+  // older start.
+  test("a recovery killed half-way is finished by the next run", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "push" });
+    const base = s.git(s.vault, "rev-parse", "HEAD").trim();
+    // The killed run: its commit, rebased onto a newer main…
+    s.write(s.vault, { "articles/a/zh.md": "translated\n" });
+    commitAsProcessor(s);
+    s.pushAs("someone", { "articles/c/index.md": "c\n" }, "clip: c");
+    s.git(s.vault, "fetch", "-q", "origin", "main");
+    s.git(
+      s.vault,
+      "-c",
+      "user.name=tiro-processor",
+      "-c",
+      "user.email=p@example.com",
+      "rebase",
+      "-q",
+      "FETCH_HEAD",
+    );
+    writeFileSync(join(s.vault, ".git", "tiro-run-base"), `${base}\n`);
+    // …then a recovery that took the commit apart, and was killed.
+    s.git(s.vault, "reset", "-q", "--soft", "HEAD^");
+    dispatches.length = 0;
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(s.remoteFile("articles/a/zh.md")).toBe("translated\n");
+    expect(s.remoteFile("articles/c/index.md")).toBe("c\n");
+    expect(dispatches.length).toBe(1);
+  });
+
   test("a deploy that could not be sent is owed until one is", async () => {
     const s = sandbox();
     dispatchStatus = 401;

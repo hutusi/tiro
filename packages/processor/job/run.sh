@@ -129,15 +129,19 @@ if [ -f "$marker" ]; then
     problem "Could not fetch the vault's main from $remote"
     finish
   fi
-  if [ "$head" = "$base" ]; then
-    # Killed before it committed: its work is all in the tree.
+  if git -C "$vault" merge-base --is-ancestor "$head" origin/main; then
+    # Nothing of the run's is committed anywhere but main, so whatever the
+    # tree holds is its work, measured from HEAD: killed before it committed
+    # (HEAD is still the marker), or after its push, or in a recovery like
+    # this one, after taking the run's commit apart (HEAD is a commit main
+    # has, and the marker may be older). Committing it is right in every case
+    # — the commit-back commits nothing from a clean tree.
     unpicked=true
-  elif git -C "$vault" merge-base --is-ancestor "$head" origin/main; then
-    # Killed after its push: the work is on main, and only the deploy may
-    # never have been sent.
-    unpicked=false
-    echo "Its commit is on main already"
-    touch "$owed"
+    if [ "$head" != "$base" ]; then
+      # It got as far as main, so nothing knows whether its deploy went.
+      echo "Its commit is on main already"
+      touch "$owed"
+    fi
   elif [ "$(git -C "$vault" log -1 --format=%an HEAD)" = tiro-processor ] &&
     git -C "$vault" reset -q --soft HEAD^; then
     # Killed between its commit and its push. Undo the commit onto its own

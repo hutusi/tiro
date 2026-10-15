@@ -80,7 +80,9 @@ variable is the old behaviour.
   the commit-back has rebased, the parent is a newer `main` than the one the
   run started from, and measuring from the start would carry `main`'s newer
   commits along as the run's, for `-X theirs` to put back over anything newer
-  still. A commit already on `main` is not recommitted at all.
+  still. A commit already on `main` is not recommitted; whatever the tree
+  holds on top of one is the run's work, and is committed — which is also
+  how a recovery that was itself killed half-way gets finished.
 - **A deploy that could not be sent is owed.** The runs after it may commit
   nothing — the processor's own push, the daily run — and so would never
   publish what is already on `main`. Off Actions a run that committed records

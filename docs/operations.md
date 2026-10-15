@@ -664,7 +664,7 @@ TIRO_TRIGGER=schedule \
   Exit 0 is a clean run, 1 needs a look, 2 is misconfigured and did nothing.
 - **A killed run** is committed by the next, before anything else: its
   commit is redone on its own parent, or left alone if its push had already
-  landed.
+  landed; a recovery that was itself killed is finished the same way.
 - **A deploy that could not be sent is owed**, and goes with the next run —
   even one with nothing of its own to publish, which says `A deploy an earlier
   run could not send is still owed`.
