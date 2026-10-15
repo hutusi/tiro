@@ -1369,7 +1369,7 @@ async function main(): Promise<void> {
     );
     watch.stage(figures.length === 0 ? "committing" : "capturing");
     void (async () => {
-      let saved = false;
+      let inVault = false;
       try {
         const payload =
           figures.length === 0
@@ -1377,21 +1377,26 @@ async function main(): Promise<void> {
             : await captureForClip(figures, origin, onScreen);
         capture = null;
         watch.stage("committing");
-        saved = await commitBody(payload, from, commit);
+        await commitBody(payload, from, commit, () => {
+          inVault = true;
+          watch.saved();
+        });
       } finally {
-        if (saved) watch.saved();
-        else watch.failed();
+        if (!inVault) watch.failed();
       }
     })();
   });
 
-  /** Commit one body, with every picture it names, and say how it went —
-   * on screen, and to the caller as whether it is in the vault. */
+  /** Commit one body, with every picture it names, and say how it went.
+   * `committed` is called the moment GitHub has the commit — before the
+   * screen says so, and before the history record the popup then waits on,
+   * so a reader who closes it on "Saved" is never told the clip was lost. */
   async function commitBody(
     payload: ClipResultMessage["payload"],
     from: string | undefined,
     commit: string,
-  ): Promise<boolean> {
+    committed: () => void,
+  ): Promise<void> {
     render();
     try {
       const nowIso = new Date().toISOString();
@@ -1432,6 +1437,7 @@ async function main(): Promise<void> {
           render();
         },
       });
+      committed();
       uploading = null;
       saved = {
         updated,
@@ -1454,7 +1460,6 @@ async function main(): Promise<void> {
       // rather than refused while GitHub catches up, and the worker knows the
       // article is fresh only from that record.
       void offerClipCollections(file.slug);
-      return true;
     } catch (error) {
       console.error("clip failed:", error);
       uploading = null;
@@ -1462,7 +1467,6 @@ async function main(): Promise<void> {
       phase = "failed";
       problem = { text: describeClipError(error, m), error: true };
       render();
-      return false;
     }
   }
 
