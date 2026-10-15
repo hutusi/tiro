@@ -818,9 +818,12 @@ That saves `example.com` for real; delete the article it makes, or leave it.
   `reading`, `ready-zh`, `ready-raw`, and Remove's `remove-checking`,
   `remove-confirm`, `remove-confirm-untitled`, `removing`, `removed`,
   `remove-gone`, `remove-failed`, `remove-failed-collection`,
-  `remove-not-yet`, and capturing figures' `capture-offered`, `capturing`,
-  `capture-placing`, `capture-done`, `capture-partial`, `capture-lost`,
-  `uploading-figures`; add `&lang=zh` for the Chinese table. The list lives in
+  `remove-not-yet`, and Clip taking pictures (ADR 0045): `clip-pictures`,
+  `clip-pictures-off`, `reclip-pictures-off`, `capturing`, `capture-stopping`,
+  `capture-placing`, `uploading-figures`, `saved-pictures`,
+  `saved-pictures-partial`, `saved-pictures-mixed`, `saved-pictures-lost`,
+  `saved-pictures-stopped`, `failed-pictures`; add `&lang=zh` for the Chinese
+  table. The list lives in
   `src/popup/fixtures.ts`. Production builds strip the branch. Rebuild with
   `build` before packaging. The collections panel has its own set at
   `popup.html?collections=<name>` — `article`, `no-favorites-yet`, `pending`,
@@ -959,8 +962,10 @@ Two decisions worth not relitigating:
   shipped, a change like that is a bump — which is what **7** is: collections
   offered under a clip (ADR 0037) put collection writes on ordinary pages,
   where 6, already released, said they happen only on a Tiro site. 7 also names
-  "Capture figures" (ADR 0039), which takes pictures of parts of the page: it
-  joined 7 because 7 had not been released, the reasoning that put Remove in 6.
+  the pictures of parts of the page that Clip takes (ADR 0039, reworded for ADR
+  0045 to "Clip to vault" first scrolls…, unless the reader unticks "Save
+  figures as pictures"): it joined 7 because 7 had not been released, the
+  reasoning that put Remove in 6.
   Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
@@ -996,8 +1001,9 @@ Two decisions worth not relitigating:
   revocable in seconds. That trade is disclosed on the privacy page rather than
   hidden.
 - **Settings sync is opt-in and off by default** (ADR 0022). Switching it on in
-  the options page moves `tiroConfig` and `tiroLanguage` into
-  `chrome.storage.sync`, so a machine signed into the same Chrome profile
+  the options page moves `tiroConfig`, `tiroLanguage` and
+  `tiroCapturePictures` (the popup's "Save figures as pictures" box, ADR 0045,
+  the one synced key the popup writes) into `chrome.storage.sync`, so a machine signed into the same Chrome profile
   configures itself — the `tiroSyncEnabled` flag lives in the synced area too,
   which is what makes the second machine zero-setup rather than one checkbox.
   `local` is mirrored three ways — writes go to both areas, a read records what
@@ -1022,38 +1028,61 @@ A figure a page draws with its own script — a canvas filled once it scrolls
 into view — clips as one line, `[Interactive figure](page): description`, with
 its caption beneath (ADR 0039). So does a chart drawn as `<svg>`, in a
 `<figure>` or in a box of its own, with its title, legend and tooltip left out
-and the sentences around it kept as its caption (ADR 0044). On such a page the
-popup also offers "Capture N figures". Pressing it:
+and the sentences around it kept as its caption (ADR 0044).
 
-- scrolls the tab to each figure and waits about two seconds for it to draw
-  and settle — keep the popup open, since closing it ends the capture (a
-  watchdog in the page puts the scroll back within eight seconds);
-- takes the visible tab and crops it to the figure; with what it took, re-clips
-  the page, so the preview now carries pictures;
-- puts the scroll back, and says how many it took. Stop keeps what is done.
+**On such a page, Clip takes the pictures before it commits** (ADR 0045):
 
-Clip then commits `index.md` and the pictures (`assets/<12 hex>.webp`) as one
-commit. A figure is left as its link when nothing is drawn in it yet, when it
-is taller or wider than the window, has something on top of it (a sticky
-header, a cookie banner), keeps moving while it is taken, or would push the
-clip past 20 MB. If the page navigates, reloads or rewrites its address during
-the capture, the pictures are dropped and the article clips with its links.
+- The button says how many: "Clip to vault with 3 pictures".
+- A ticked box above it, "Save figures as pictures", is the opt-out.
+  Unticked, Clip commits links. The choice is remembered, and it follows the
+  reader across machines when settings sync is on.
 
-Until Clip, the pictures live only in the popup. Closing it discards them —
-and a click on the page it just scrolled closes it — so the popup that opens
-next offers the capture again, and clipping there commits the links. The note
-after a capture says so; clip from the same popup.
+Pressing Clip:
 
-**A plain re-clip drops the pictures**: the body goes back to links and the
-next processing run prunes the files. Capture again to keep them. A larger
-window captures larger figures; a figure too tall for the screen fits once the
-window is taller.
+1. Scrolls the tab to each figure and waits about two seconds for it to draw
+   and settle. The popup says "Taking picture 2 of 3 — keep this popup open…".
+2. Takes the visible tab, crops it to the figure, and re-clips the page with
+   the pictures in.
+3. Puts the scroll back.
+4. Commits `index.md` and the pictures (`assets/<12 hex>.webp`) as one commit.
+
+Once saved, the popup shows the pictures and one sentence on what came of the
+figures. "Stop and clip" ends the capture after the picture under way, and
+commits what was taken.
+
+**A figure stays a link** for one of these reasons, which the saved note gives
+with its remedy:
+
+- it is taller or wider than the window;
+- something is on top of it (a sticky header, a cookie banner);
+- nothing is drawn in it yet;
+- it keeps moving while it is taken;
+- the page changed under the capture (navigated, reloaded, re-rendered it);
+- it would push the clip past 20 MB.
+
+**Keep the popup open until it is saved.** The pictures, and the clip, live
+in the popup until the commit. Closing it mid-capture saves nothing, and a
+click on the page it is scrolling closes it. The page's watchdog puts the
+scroll back within eight seconds, and the next popup clips normally.
+
+**A failed commit keeps the pictures.** Pressing Clip again commits them
+without scrolling the page a second time.
+
+**A re-clip takes the pictures again by default.** An unticked re-clip goes
+back to links, and the popup says so before it does; the next processing run
+prunes the old files. A larger window captures larger figures: a figure too
+tall for the screen fits once the window is taller.
 
 The capture runs only in a browser, so the sweep cannot check it. The manual
-pass after changing it: capture the glinscott article (29 figures, about a
-minute); check the scroll comes back, the vault gets one commit, the processed
-article keeps its `assets/*.webp`, and the site shows them as figures linking
-to the page; then Stop mid-way, and close the popup mid-way.
+pass after changing it:
+
+1. Clip the glinscott article (29 figures, about a minute).
+2. Check that the scroll comes back, the vault gets one commit, the processed
+   article keeps its `assets/*.webp`, and the site shows them as figures
+   linking to the page.
+3. Clip again and press "Stop and clip" mid-way.
+4. Clip again and click the page mid-way. Nothing should be saved, and the
+   next popup should clip normally.
 
 ### Installing on another computer
 
@@ -1606,10 +1635,9 @@ permanent extension ID, unrelated to the unpacked one.
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
-| The popup says some figures "stay as links to the page" | a figure with nothing drawn in it yet, one taller or wider than the window, one with something laid over it, one that moved while it was taken, or the 20 MB budget (ADR 0039) | by design; enlarge the window, dismiss the banner or scroll the header away, and capture again |
+| A saved clip's note says some figures "stayed links" | the reason it gives: taller or wider than the window, covered by a banner or a sticky header, not drawn yet, kept moving, lost when the page changed (navigated, reloaded, re-rendered), not reached before Stop, too large, or could not be made (ADR 0045) | follow the remedy the note gives, then clip again: enlarge the window; close the banner or scroll the header away; let the page finish and scroll through it once; wait for it to settle; reload and scroll through it once |
+| Pressed Clip on a page with figures, and nothing was saved | the popup closed while Clip was taking the pictures: a click on the page, a window switch, or Esc. Until the commit, the pictures and the clip live in the popup (ADR 0045) | clip again and keep the popup open until it says saved; untick "Save figures as pictures" to clip at once with links |
 | A chart's title, legend or tooltip rows (`P25 / Fetches1 / …`) appear as stray paragraphs | the clip found no host for the chart: no `<figure>`, and its box holds a heading, a link, a list or more text than a chart's chrome (ADR 0044) | the chart itself was deleted, as before; tighten or extend the host rule in `orphanChartHost` with a test of the page's shape |
-| A clip made after "The figure is captured." shows a link where the picture should be, and its vault commit holds `index.md` alone | the popup closed between the capture and Clip — the pictures live only in the popup until Clip commits them, and a click on the page closes it | capture again and press Clip in the same popup; a picture's commit always carries the `.webp` beside `index.md` |
-| "The pictures could not be put in the article" after a capture | the tab navigated, reloaded or rewrote its address during the capture, so the clip that would show the pictures was of another page and was refused | clip as it is — the figures are links — or reload, wait, and capture again |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |

@@ -159,32 +159,40 @@ describe("the disclosure and capturing figures (ADR 0039)", () => {
   // Pictures of the tab are a new kind of page data reaching the vault, and
   // consent that never mentioned them would not cover them — in either
   // language.
-  test("both disclosures name the capture, and say where the pictures go", () => {
-    expect(messages("en").disclosureBody2).toContain("“Capture figures”");
-    expect(messages("en").disclosureBody2).toContain("committed with the clip");
-    expect(messages("zh").disclosureBody2).toContain("「截取图示」");
-    expect(messages("zh").disclosureBody2).toContain("随剪藏一起提交");
+  test("both disclosures say Clip takes the pictures, quote the box, and say where they go", () => {
+    const en = messages("en");
+    const zh = messages("zh");
+    expect(en.disclosureBody2).toContain(`“${en.clipButton}” first scrolls`);
+    expect(en.disclosureBody2).toContain(`“${en.savePictures}”`);
+    expect(en.disclosureBody2).toContain("committed with the clip");
+    expect(zh.disclosureBody2).toContain(`「${zh.clipButton}」时会先`);
+    expect(zh.disclosureBody2).toContain(`「${zh.savePictures}」`);
+    expect(zh.disclosureBody2).toContain("随剪藏一起提交");
   });
 
-  // The pictures live in the popup until Clip commits them. A popup closed in
-  // between drops them without a word, and the clip after it links to the
-  // figures; "The figure is captured." alone read as if they were saved.
-  test("a capture's result says to clip before the popup closes, in both languages", () => {
-    for (const [locale, warning] of [
-      ["en", "closing this popup discards"],
-      ["zh", "关闭弹窗会丢弃"],
+  // The pictures live in the popup until the clip commits them: one closed
+  // while they are being taken saves nothing, so the reader is asked, while
+  // it happens and before it starts, to keep it open.
+  test("taking pictures asks to keep the popup open, in both languages", () => {
+    for (const [locale, keep] of [
+      ["en", "keep this popup open"],
+      ["zh", "请保持弹窗打开"],
     ] as const) {
-      const m = messages(locale);
-      for (const [captured, total] of [
-        [1, 1],
-        [3, 3],
-        [1, 3],
-        [2, 3],
-      ] as const) {
-        expect(m.captureResult(captured, total)).toContain(warning);
+      expect(messages(locale).capturingFigure(2, 3)).toContain(keep);
+    }
+    expect(messages("en").picturesHint(3, 10)).toContain(
+      "Keep this popup open",
+    );
+    expect(messages("zh").picturesHint(3, 10)).toContain("保持弹窗打开");
+  });
+
+  test("every refusal the reader can act on says how, in both languages", () => {
+    for (const locale of ["en", "zh"] as const) {
+      const refusals = messages(locale).pictureRefusals;
+      for (const [refusal, { remedy }] of Object.entries(refusals)) {
+        const actionable = !["stopped", "too-heavy", "error"].includes(refusal);
+        expect(remedy !== null).toBe(actionable);
       }
-      // Nothing captured, nothing to lose.
-      expect(m.captureResult(0, 3)).not.toContain(warning);
     }
   });
 });

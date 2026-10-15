@@ -102,6 +102,37 @@ body {
 #open-hint {
   margin-top: 8px;
 }
+
+/* ------------------------------------------- pictures of figures (ADR 0045) */
+
+#pictures-row {
+  margin-top: 14px;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+/* tokens.css sizes every `input` as a full-width text field; a checkbox
+   wants none of that. */
+.check input {
+  flex: none;
+  width: auto;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.check span {
+  font-size: 13px;
+  font-weight: 500;
+}
+#pictures-hint {
+  margin-top: 6px;
+}
+#captured {
+  margin-top: 10px;
+}
 .foot {
   display: flex;
   justify-content: flex-end;

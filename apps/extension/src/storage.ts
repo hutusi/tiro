@@ -521,7 +521,8 @@ export async function saveCapturePictures(on: boolean): Promise<void> {
  * and takes pictures of parts of the tab, committed with the clip. A new kind
  * of page data, so it is disclosed; folded into 7 rather than bumped to 8
  * because 7 has not been released (0.16.0 asks for 6), the same reasoning that
- * folded Remove into 6. */
+ * folded Remove into 6. Reworded, still as 7, by ADR 0045 before any release:
+ * Clip itself takes the pictures, unless the reader unticks the box. */
 export const DISCLOSURE_VERSION = 7;
 
 export interface DisclosureState {

@@ -30,11 +30,13 @@ import { type FetchableSource, fetchableSource } from "../fetch-source.ts";
 import {
   type BodyOrigin,
   type CaptureEffects,
+  type CaptureOutcome,
   captureFigures,
   cropAndEncode,
   FRAME_OPTIONS,
-  figuresShown,
   isSameBody,
+  type PictureReport,
+  pictureReport,
 } from "../figure-capture.ts";
 import {
   beginCapture,
@@ -63,12 +65,14 @@ import {
   forgetClip,
   isConfigComplete,
   lastClippedAt,
+  loadCapturePictures,
   loadCollectionQueue,
   loadConfig,
   loadDisclosure,
   loadFlushStatus,
   needsDisclosure,
   recordClip,
+  saveCapturePictures,
 } from "../storage.ts";
 import { parseTiroPage, readTiroMarker, type TiroPage } from "../tiro-page.ts";
 import { countWords } from "../words.ts";
@@ -86,7 +90,7 @@ import { createToggleChannel, type ToggleOp } from "./recorder.ts";
 import type { RemovalState, RemovalView } from "./removal-view.ts";
 import {
   articleUrl,
-  type CaptureState,
+  type CaptureRun,
   type Phase,
   type PopupLinks,
   type PopupState,
@@ -125,10 +129,17 @@ const el = {
   ) as HTMLParagraphElement,
   message: document.getElementById("message") as HTMLParagraphElement,
   sourceFetch: document.getElementById("source-fetch") as HTMLButtonElement,
-  captureRow: document.getElementById("capture-row") as HTMLDivElement,
-  captureHint: document.getElementById("capture-hint") as HTMLParagraphElement,
-  capture: document.getElementById("capture") as HTMLButtonElement,
+  picturesRow: document.getElementById("pictures-row") as HTMLDivElement,
+  pictures: document.getElementById("pictures") as HTMLInputElement,
+  picturesLabel: document.getElementById("pictures-label") as HTMLSpanElement,
+  picturesHint: document.getElementById(
+    "pictures-hint",
+  ) as HTMLParagraphElement,
   captureStop: document.getElementById("capture-stop") as HTMLButtonElement,
+  captured: document.getElementById("captured") as HTMLElement,
+  capturedNote: document.getElementById(
+    "captured-note",
+  ) as HTMLParagraphElement,
   clip: document.getElementById("clip") as HTMLButtonElement,
   saved: document.getElementById("saved") as HTMLDivElement,
   view: document.getElementById("view") as HTMLAnchorElement,
@@ -200,13 +211,16 @@ function apply(view: PopupView): void {
   }
   el.sourceFetch.hidden = !view.sourceFetch.visible;
   el.sourceFetch.textContent = view.sourceFetch.label;
-  el.captureRow.hidden = !view.capture.visible && !view.captureStop.visible;
-  el.capture.hidden = !view.capture.visible;
-  el.capture.textContent = view.capture.label;
-  el.captureHint.hidden = view.capture.hint === null;
-  el.captureHint.textContent = view.capture.hint ?? "";
+  el.picturesRow.hidden = !view.savePictures.visible;
+  el.pictures.checked = view.savePictures.checked;
+  el.picturesLabel.textContent = view.savePictures.label;
+  el.picturesHint.hidden = view.savePictures.hint === null;
+  el.picturesHint.textContent = view.savePictures.hint ?? "";
   el.captureStop.hidden = !view.captureStop.visible;
   el.captureStop.textContent = view.captureStop.label;
+  el.captured.hidden = view.captured === null;
+  el.capturedNote.textContent = view.captured?.note ?? "";
+  el.capturedNote.dataset.tone = view.captured?.tone ?? "neutral";
   el.clip.hidden = !view.clip.visible;
   el.clip.disabled = !view.clip.enabled;
   el.clip.textContent = view.clip.label;
@@ -381,7 +395,13 @@ async function main(): Promise<void> {
     }
   }
 
-  const [config, locale] = await Promise.all([loadConfig(), getLocale()]);
+  const [config, locale, picturesOn] = await Promise.all([
+    loadConfig(),
+    getLocale(),
+    // A box that cannot be read is ticked: its default, not a reason to
+    // keep the popup from opening.
+    loadCapturePictures().catch(() => true),
+  ]);
   const m = messages(locale);
   localize(locale, m);
 
@@ -708,11 +728,21 @@ async function main(): Promise<void> {
   /** Local record: where a previous clip of this page landed. */
   let previousLinks: PopupLinks | null = null;
 
-  /* ------------------------------------- capturing figures (ADR 0039) */
+  /* ------------------------- pictures of drawn figures (ADR 0039, 0045) */
 
-  /** Set once a capture starts: how far it has got. Before that the offer is
-   * derived from the body on screen, in `captureOffer`. */
-  let capture: CaptureState | null = null;
+  /** The box: whether Clip takes the pictures. Remembered across clips. */
+  let wantPictures = picturesOn;
+  /** Set while a Clip is taking pictures, before it commits. */
+  let capture: CaptureRun | null = null;
+  /**
+   * What this popup's pictures came to, once it has taken them.
+   *
+   * Also what pins the body: from here the body on screen is the one with the
+   * pictures in, and no later arrival may replace it (`offer`) — so a commit
+   * that fails is retried with the same pictures, not with links or a second
+   * round of scrolling.
+   */
+  let captured: PictureReport | null = null;
   /** The pictures taken, by id — the name the payload gives them. */
   const snapshotBytes = new Map<string, Uint8Array>();
   /** The reader pressed Stop. */
@@ -725,20 +755,19 @@ async function main(): Promise<void> {
   /** Snapshot uploads, while a commit carrying them runs. */
   let uploading: { done: number; total: number } | null = null;
 
-  /** The capture on offer for the body on screen, if any. Only a tab body
-   * from an ordinary page: a publisher's copy is not what the tab shows, and
-   * a PDF has no figures to frame. */
-  function captureOffer(): CaptureState | null {
-    if (capture !== null) return capture;
+  /** The body's drawn figures, for Clip to take pictures of, and whether it
+   * is to. Only for a tab body from an ordinary page: a publisher's copy is
+   * not what the tab shows, and a PDF has no figures to frame. None once this
+   * popup has taken them. */
+  function figuresOffer(): { count: number; wanted: boolean } | null {
+    if (captured !== null) return null;
     if (result === null || result.pdfViewer || source !== null) return null;
     if (best?.fromFetch === true) return null;
     // Without the document's id, no capture's clip could be shown to come
     // from this page, so none would ever be taken.
     if (bodyDocument === undefined) return null;
-    const offered = result.scriptFigures?.length ?? 0;
-    return offered === 0
-      ? null
-      : { offered, step: "offered", at: 0, captured: 0, lost: false };
+    const count = result.scriptFigures?.length ?? 0;
+    return count === 0 ? null : { count, wanted: wantPictures };
   }
 
   function fetchPolicy(): FetchPolicy {
@@ -833,7 +862,9 @@ async function main(): Promise<void> {
           : null),
       links: saved?.links ?? previousLinks,
       removal,
-      capture: captureOffer(),
+      figures: figuresOffer(),
+      capture,
+      captured,
       uploading,
     };
     apply(popupView(state, m));
@@ -861,7 +892,9 @@ async function main(): Promise<void> {
     commit: string,
     documentId?: string,
   ): void {
-    if (committing) return;
+    // A Clip under way, or pictures taken: the body on screen is the one
+    // being committed, or the one carrying them.
+    if (committing || captured !== null) return;
     const candidate = { isSource: isSourceBody(payload), fromFetch };
     if (!prefersCandidate(best, candidate)) {
       // Still re-render: the losing arrival may have resolved the last source
@@ -886,7 +919,7 @@ async function main(): Promise<void> {
    * error and offered Clip again over an article that had not been saved.
    */
   function showPayload(payload: ClipResultMessage["payload"]): void {
-    if (committing) return;
+    if (committing || captured !== null) return;
     result = payload;
     // A PDF still has nothing to *preview* — its text is behind a plugin the
     // DOM cannot see — but it now has something to commit: a stub the
@@ -1240,91 +1273,127 @@ async function main(): Promise<void> {
     // The empty check again, at the one place a commit starts: the view keeps
     // the button shut over an empty body, and this is what holds if it ever
     // does not.
-    if (result === null || removalHolds() || hasNothingToClip(result)) return;
-    // Clip waits for the body a capture is about to hand it.
-    if (capture?.step === "capturing" || capture?.step === "placing") return;
-    // All three captured at the click, for one reason: `sourceUrl` and
-    // `bodyCommit` describe the body being committed, and reading them from
-    // the closure later would let a body that arrived mid-upload retag the one
-    // already on its way.
-    void (async (payload, from, commit) => {
-      committing = true;
-      phase = "clipping";
+    if (
+      result === null ||
+      committing ||
+      removalHolds() ||
+      hasNothingToClip(result)
+    ) {
+      return;
+    }
+    // Taken at the click, for one reason: `sourceUrl`, `bodyCommit` and
+    // `bodyDocument` describe the body this Clip is for, and reading them later
+    // would let a body that arrived mid-way retag the one already on its way.
+    const onScreen = result;
+    const from = sourceUrl;
+    const commit = bodyCommit;
+    const origin: BodyOrigin = { url: onScreen.url, documentId: bodyDocument };
+    const offer = figuresOffer();
+    const figures =
+      offer?.wanted === true ? (onScreen.scriptFigures ?? []) : [];
+    // From here a late body changes nothing (`offer`): the screen describes
+    // what this Clip commits, through the pictures it takes first.
+    committing = true;
+    phase = "clipping";
+    if (figures.length > 0) {
+      stopCapture = false;
+      capture = {
+        step: "capturing",
+        at: 1,
+        total: figures.length,
+        stopping: false,
+      };
+    }
+    render();
+    // Clip is gone from under the reader's focus; Stop is what they can press.
+    if (capture !== null) el.captureStop.focus();
+    void (async () => {
+      const payload =
+        figures.length === 0
+          ? onScreen
+          : await captureForClip(figures, origin, onScreen);
+      capture = null;
+      await commitBody(payload, from, commit);
+    })();
+  });
+
+  /** Commit one body, with every picture it names, and say how it went. */
+  async function commitBody(
+    payload: ClipResultMessage["payload"],
+    from: string | undefined,
+    commit: string,
+  ): Promise<void> {
+    render();
+    try {
+      const nowIso = new Date().toISOString();
+      // A PDF tab commits a stub. The viewer's shell holds no body worth
+      // keeping, and the flags that describe one would be
+      // claims about text nothing here has seen: `readability_failed` warns
+      // about a raw body whose URLs were never absolutized, and `has_math`
+      // promises an escaping pass that never ran (the reasoning ADR 0023
+      // clause 10 sets out). The excerpt and author go for the same reason.
+      const stub = payload.pdfViewer;
+      const clip = {
+        url: payload.url,
+        sourceUrl: from,
+        title: payload.title,
+        markdown: stub ? "" : payload.markdown,
+        excerpt: stub ? undefined : payload.excerpt,
+        author: stub ? undefined : payload.author,
+        readabilityFailed: stub ? undefined : payload.readabilityFailed,
+        hasMath: stub ? undefined : payload.hasMath,
+        ...(stub ? { sourceMedia: "pdf" as const } : {}),
+        clippedAt: nowIso,
+        clipperVersion: chrome.runtime.getManifest().version,
+        clipperCommit: commit,
+      };
+      // Every picture the body names, or no commit: a body naming a file
+      // that was never written would publish a broken image.
+      const snapshots: Snapshot[] = (payload.snapshots ?? []).map((id) => {
+        const bytes = snapshotBytes.get(id);
+        if (bytes === undefined) {
+          throw new Error(`the picture ${id} the article shows was lost`);
+        }
+        return { id, bytes };
+      });
+      const { file, updated } = await commitClip(config, clip, {
+        snapshots,
+        onUpload: (done, total) => {
+          uploading = { done, total };
+          render();
+        },
+      });
+      uploading = null;
+      saved = {
+        updated,
+        links: {
+          site: articleUrl(homepage ?? "https://tiro.ainaive.com/", file.slug),
+          vault: vaultFileUrl(config, file.path),
+        },
+      };
+      phase = "saved";
+      clippedSlug = file.slug;
+      offerRemoval(file.slug);
       render();
       try {
-        const nowIso = new Date().toISOString();
-        // A PDF tab commits a stub. The viewer's shell holds no body worth
-        // keeping, and the flags that describe one would be
-        // claims about text nothing here has seen: `readability_failed` warns
-        // about a raw body whose URLs were never absolutized, and `has_math`
-        // promises an escaping pass that never ran (the reasoning ADR 0023
-        // clause 10 sets out). The excerpt and author go for the same reason.
-        const stub = payload.pdfViewer;
-        const clip = {
-          url: payload.url,
-          sourceUrl: from,
-          title: payload.title,
-          markdown: stub ? "" : payload.markdown,
-          excerpt: stub ? undefined : payload.excerpt,
-          author: stub ? undefined : payload.author,
-          readabilityFailed: stub ? undefined : payload.readabilityFailed,
-          hasMath: stub ? undefined : payload.hasMath,
-          ...(stub ? { sourceMedia: "pdf" as const } : {}),
-          clippedAt: nowIso,
-          clipperVersion: chrome.runtime.getManifest().version,
-          clipperCommit: commit,
-        };
-        // Every picture the body names, or no commit: a body naming a file
-        // that was never written would publish a broken image.
-        const snapshots: Snapshot[] = (payload.snapshots ?? []).map((id) => {
-          const bytes = snapshotBytes.get(id);
-          if (bytes === undefined) {
-            throw new Error(`the picture ${id} the article shows was lost`);
-          }
-          return { id, bytes };
-        });
-        const { file, updated } = await commitClip(config, clip, {
-          snapshots,
-          onUpload: (done, total) => {
-            uploading = { done, total };
-            render();
-          },
-        });
-        uploading = null;
-        saved = {
-          updated,
-          links: {
-            site: articleUrl(
-              homepage ?? "https://tiro.ainaive.com/",
-              file.slug,
-            ),
-            vault: vaultFileUrl(config, file.path),
-          },
-        };
-        phase = "saved";
-        clippedSlug = file.slug;
-        offerRemoval(file.slug);
-        render();
-        try {
-          await recordClip(config, file.slug, nowIso);
-        } catch {
-          // The commit already succeeded; losing the hint record must not
-          // relabel the clip as failed.
-        }
-        // After the record, not beside it: a tick on this article is deferred
-        // rather than refused while GitHub catches up, and the worker knows the
-        // article is fresh only from that record.
-        void offerClipCollections(file.slug);
-      } catch (error) {
-        console.error("clip failed:", error);
-        uploading = null;
-        committing = false;
-        phase = "failed";
-        problem = { text: describeClipError(error, m), error: true };
-        render();
+        await recordClip(config, file.slug, nowIso);
+      } catch {
+        // The commit already succeeded; losing the hint record must not
+        // relabel the clip as failed.
       }
-    })(result, sourceUrl, bodyCommit);
-  });
+      // After the record, not beside it: a tick on this article is deferred
+      // rather than refused while GitHub catches up, and the worker knows the
+      // article is fresh only from that record.
+      void offerClipCollections(file.slug);
+    } catch (error) {
+      console.error("clip failed:", error);
+      uploading = null;
+      committing = false;
+      phase = "failed";
+      problem = { text: describeClipError(error, m), error: true };
+      render();
+    }
+  }
 
   /** The tab, as the capture loop needs it. Each call into the page is its
    * own injection; one that fails — the tab navigated, closed — answers as a
@@ -1433,82 +1502,72 @@ async function main(): Promise<void> {
     return isSameBody(onScreen, from) ? message.payload : null;
   }
 
-  el.capture.addEventListener("click", () => {
-    const offer = captureOffer();
-    const figures = result?.scriptFigures ?? [];
-    if (
-      offer?.step !== "offered" ||
-      figures.length === 0 ||
-      committing ||
-      removalHolds()
-    ) {
-      return;
-    }
-    // Taken at the click, with the figures: the body the capture is for.
-    const onScreen: BodyOrigin = {
-      url: result?.url ?? "",
-      documentId: bodyDocument,
-    };
-    void (async () => {
-      stopCapture = false;
-      capture = { ...offer, step: "capturing", at: 1 };
-      render();
-      try {
-        await runCapture(offer, figures, onScreen);
-      } catch (error) {
-        // Never left saying "Capturing…": the body on screen still clips,
-        // with links where the pictures would have gone.
-        console.error("capture failed:", error);
-        capture = { ...offer, step: "done", lost: true };
-        render();
-      }
-    })();
-  });
-
-  async function runCapture(
-    offer: CaptureState,
+  /**
+   * Take the pictures of the body's drawn figures, and clip the tab again
+   * with them in, for the Clip under way (ADR 0045). Returns the body to
+   * commit: the one with the pictures in, or the one on screen — with links —
+   * when none could be put in.
+   *
+   * Never throws: a capture that fails costs the pictures, not the clip. Ends
+   * with `captured` set, which says what came of every figure and pins the
+   * body for a retry.
+   */
+  async function captureForClip(
     figures: number[],
-    onScreen: BodyOrigin,
-  ): Promise<void> {
-    const outcome = await captureFigures(figures, captureEffects(), {
-      onProgress: (at) => {
-        if (capture !== null) capture = { ...capture, at };
-        render();
-      },
-      stopped: () => stopCapture,
-    });
-    if (outcome.snapshots.size === 0) {
-      capture = { ...offer, step: "done", captured: 0 };
-      render();
-      return;
-    }
-    capture = { ...offer, step: "placing" };
-    render();
-    for (const { id, bytes } of outcome.snapshots.values()) {
-      snapshotBytes.set(id, bytes);
-    }
-    const payload = await reclipWithSnapshots(
-      onScreen,
-      [...outcome.snapshots].map(([index, { id }]) => [index, id]),
-    );
-    if (payload === null || committing) {
-      capture = { ...offer, step: "done", lost: payload === null };
-      render();
-      return;
-    }
-    // In place of the body on screen, not offered against it: the same tab
-    // and the same clipper, with the pictures the reader asked for.
-    result = payload;
-    capture = {
-      ...offer,
-      step: "done",
-      captured: figuresShown(outcome.snapshots.values(), payload.snapshots),
+    origin: BodyOrigin,
+    onScreen: ClipResultMessage["payload"],
+  ): Promise<ClipResultMessage["payload"]> {
+    let outcome: CaptureOutcome = {
+      snapshots: new Map(),
+      refused: new Map(figures.map((index) => [index, "error"])),
+      stopped: false,
     };
-    render();
+    let placed: ClipResultMessage["payload"] | null = null;
+    try {
+      outcome = await captureFigures(figures, captureEffects(), {
+        onProgress: (at) => {
+          if (capture !== null) capture = { ...capture, at };
+          render();
+        },
+        stopped: () => stopCapture,
+      });
+      if (outcome.snapshots.size > 0) {
+        if (capture !== null) capture = { ...capture, step: "placing" };
+        render();
+        for (const { id, bytes } of outcome.snapshots.values()) {
+          snapshotBytes.set(id, bytes);
+        }
+        placed = await reclipWithSnapshots(
+          origin,
+          [...outcome.snapshots].map(([index, { id }]) => [index, id]),
+        );
+      }
+    } catch (error) {
+      console.error("capturing the figures failed:", error);
+    }
+    captured = pictureReport(figures, outcome, placed);
+    if (placed === null) return onScreen;
+    // In place of the body on screen, not offered against it: the same tab
+    // and the same clipper, with the pictures in.
+    result = placed;
+    return placed;
   }
 
   el.captureStop.addEventListener("click", () => {
+    if (capture?.step !== "capturing" || capture.stopping) return;
     stopCapture = true;
+    capture = { ...capture, stopping: true };
+    render();
+  });
+
+  el.pictures.addEventListener("change", () => {
+    wantPictures = el.pictures.checked;
+    render();
+    // Remembered for the next clip, here and on the reader's other machines.
+    // A write that fails still leaves this clip as the box says.
+    saveCapturePictures(wantPictures).catch((error: unknown) => {
+      console.error("could not remember the pictures box:", error);
+    });
   });
 
   /**
