@@ -43,7 +43,7 @@ never needs updating for a fix to it.
 
 | Secret | Lives in | Scope | Purpose |
 | --- | --- | --- | --- |
-| `TIRO_LLM_API_KEY` | tiro-vault | Bailian API key | LLM calls |
+| `TIRO_LLM_API_KEY` | tiro-vault | Bailian API key | LLM calls. Off Actions, `TIRO_LLM_API_KEY_FILE` may name a file holding it instead — any `llm.api_key_env` name works the same way |
 | `TIRO_DISPATCH_TOKEN` | tiro-vault | PAT: `tiro`, Contents RW | fire `repository_dispatch` after processing, and on a collections push |
 | `VAULT_READ_TOKEN` | tiro | PAT: `tiro-vault`, Contents R | deploy checks out the private vault |
 | `CLOUDFLARE_API_TOKEN` | tiro | Account → Cloudflare Pages: Edit | `wrangler pages deploy` |

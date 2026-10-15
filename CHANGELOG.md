@@ -9,6 +9,9 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **The processor reads its LLM key from a file too.** When the variable
+  `llm.api_key_env` names is unset, `<name>_FILE` may name a file holding the
+  key, for a host that hands a job files rather than environment.
 - **Clip saves a page's drawn figures as pictures.** On a page whose figures
   its own script draws, Clip first scrolls to each one, takes a picture of it,
   and puts the pictures in the article in place of the links. They are
