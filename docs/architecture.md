@@ -559,8 +559,10 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   rebase cannot settle an edit to a file `main` deleted, and used to fail the
   step and lose the whole run's work. It now measures which articles `main`
   deleted since the run's checkout and drops the run's changes to each before
-  rebasing, so the deletion wins and the rest commits (ADR 0036). A test runs
-  the step's real shell against scratch repositories. Not covered: a single
+  rebasing, so the deletion wins and the rest commits (ADR 0036). The
+  commit-back is `packages/processor/job/commit-back.sh`, which the step
+  calls; a test runs the step's real shell, and so the script, against
+  scratch repositories. Not covered: a single
   file deleted by hand inside an article the run changed, which aborts the
   rebase and is redone next run.
 - **An article too long to process in one run**: translation is checkpointed
