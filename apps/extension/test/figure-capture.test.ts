@@ -2,12 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   CAPTURE_SPACING_MS,
   type CaptureEffects,
+  type CaptureOutcome,
   captureFigures,
   cropBox,
   figuresShown,
   isSameBody,
   looksBlank,
   outputSize,
+  type PictureRefusal,
+  pictureLabels,
+  pictureReport,
   SNAPSHOT_MAX_WIDTH,
   SNAPSHOTS_MAX_TOTAL_BYTES,
   snapshotId,
@@ -83,7 +87,8 @@ function fakeTab(
     frame?: (index: number, call: number) => FrameResult;
     measure?: (index: number, call: number) => FrameResult;
     capture?: (call: number) => string | null;
-    encode?: (index: number) => Uint8Array | null;
+    /** The bytes a figure encodes to, or why it could not be. */
+    encode?: (index: number) => Uint8Array | "blank" | "too-heavy" | "error";
     begin?: boolean;
     /** How long framing a figure takes on the fake clock. */
     frameMs?: number;
@@ -129,10 +134,13 @@ function fakeTab(
     },
     encode: async (dataUrl) => {
       const index = Number(dataUrl.split(",")[1]);
-      // Null is an answer here — "could not encode" — so not `??`.
-      return options.encode === undefined
-        ? new Uint8Array([index, 1, 2, 3])
-        : options.encode(index);
+      const encoded =
+        options.encode === undefined
+          ? new Uint8Array([index, 1, 2, 3])
+          : options.encode(index);
+      return typeof encoded === "string"
+        ? { ok: false, refusal: encoded }
+        : { ok: true, bytes: encoded };
     },
     sleep: async (ms) => {
       clock += ms;
@@ -150,7 +158,7 @@ describe("captureFigures", () => {
       onProgress: (at, total) => progress.push(`${at}/${total}`),
     });
     expect([...outcome.snapshots.keys()]).toEqual([2, 5, 9]);
-    expect(outcome.skipped).toBe(0);
+    expect(outcome.refused.size).toBe(0);
     expect(outcome.stopped).toBe(false);
     expect(progress).toEqual(["1/3", "2/3", "3/3"]);
     expect(log.ended).toBe(1);
@@ -159,7 +167,7 @@ describe("captureFigures", () => {
     expect(lathe?.id).toBe(await snapshotId(new Uint8Array([2, 1, 2, 3])));
   });
 
-  test("a figure that cannot be framed or encoded is skipped, and the rest go on", async () => {
+  test("a figure that cannot be framed or encoded stays a link, says why, and the rest go on", async () => {
     const { effects } = fakeTab({
       frame: (index) =>
         index === 5
@@ -169,11 +177,47 @@ describe("captureFigures", () => {
               rect: { x: 0, y: 0, width: 10, height: 10 },
               innerWidth: 1280,
             },
-      encode: (index) => (index === 9 ? null : new Uint8Array([index])),
+      encode: (index) => (index === 9 ? "blank" : new Uint8Array([index])),
     });
     const outcome = await captureFigures([2, 5, 9, 11], effects);
     expect([...outcome.snapshots.keys()]).toEqual([2, 11]);
-    expect(outcome.skipped).toBe(2);
+    expect(Object.fromEntries(outcome.refused)).toEqual({
+      5: "too-big",
+      9: "blank",
+    });
+  });
+
+  test("each way the scout refuses a frame has its reason", async () => {
+    const reasons = {
+      1: "gone",
+      2: "empty",
+      3: "too-big",
+      4: "covered",
+    } as const;
+    const { effects } = fakeTab({
+      frame: (index) => ({
+        ok: false,
+        reason: reasons[index as keyof typeof reasons],
+      }),
+    });
+    const outcome = await captureFigures([1, 2, 3, 4], effects);
+    expect(Object.fromEntries(outcome.refused)).toEqual({
+      1: "changed",
+      2: "blank",
+      3: "too-big",
+      4: "covered",
+    });
+  });
+
+  test("an encoding too large, or one that failed, says so", async () => {
+    const { effects } = fakeTab({
+      encode: (index) => (index === 1 ? "too-heavy" : "error"),
+    });
+    const outcome = await captureFigures([1, 2], effects);
+    expect(Object.fromEntries(outcome.refused)).toEqual({
+      1: "too-heavy",
+      2: "error",
+    });
   });
 
   test("one figure's thrown error costs that figure alone", async () => {
@@ -185,7 +229,7 @@ describe("captureFigures", () => {
     });
     const outcome = await captureFigures([2, 5, 9], effects);
     expect([...outcome.snapshots.keys()]).toEqual([2, 9]);
-    expect(outcome.skipped).toBe(1);
+    expect(Object.fromEntries(outcome.refused)).toEqual({ 5: "error" });
     expect(log.ended).toBe(1);
   });
 
@@ -203,7 +247,15 @@ describe("captureFigures", () => {
     const never = fakeTab({ measure: () => moved(1) });
     const outcome = await captureFigures([4], never.effects);
     expect(outcome.snapshots.size).toBe(0);
-    expect(outcome.skipped).toBe(1);
+    expect(Object.fromEntries(outcome.refused)).toEqual({ 4: "moving" });
+  });
+
+  test("a figure gone by the time it is measured counts as the page changing", async () => {
+    const { effects } = fakeTab({
+      measure: () => ({ ok: false, reason: "gone" }),
+    });
+    const outcome = await captureFigures([4], effects);
+    expect(Object.fromEntries(outcome.refused)).toEqual({ 4: "changed" });
   });
 
   test("a figure the page moved while it was framed is framed once more, then left", async () => {
@@ -224,7 +276,7 @@ describe("captureFigures", () => {
     const never = fakeTab({ frame: () => ({ ok: false, reason: "moved" }) });
     const outcome = await captureFigures([4], never.effects);
     expect(outcome.snapshots.size).toBe(0);
-    expect(outcome.skipped).toBe(1);
+    expect(Object.fromEntries(outcome.refused)).toEqual({ 4: "moving" });
   });
 
   test("a figure that will never fit is not framed twice", async () => {
@@ -236,7 +288,7 @@ describe("captureFigures", () => {
       },
     });
     const outcome = await captureFigures([4], effects);
-    expect(outcome.skipped).toBe(1);
+    expect(Object.fromEntries(outcome.refused)).toEqual({ 4: "too-big" });
     expect(frames).toBe(1);
   });
 
@@ -251,7 +303,7 @@ describe("captureFigures", () => {
     expect(gaps.every((gap) => gap >= CAPTURE_SPACING_MS)).toBe(true);
   });
 
-  test("Stop keeps what is taken and skips the rest", async () => {
+  test("Stop keeps what is taken and leaves the rest, stopped", async () => {
     let stop = false;
     const { effects, log } = fakeTab();
     const outcome = await captureFigures([1, 2, 3, 4], effects, {
@@ -262,7 +314,7 @@ describe("captureFigures", () => {
     });
     expect([...outcome.snapshots.keys()]).toEqual([1, 2, 3]);
     expect(outcome.stopped).toBe(true);
-    expect(outcome.skipped).toBe(1);
+    expect(Object.fromEntries(outcome.refused)).toEqual({ 4: "stopped" });
     expect(log.ended).toBe(1);
   });
 
@@ -273,7 +325,10 @@ describe("captureFigures", () => {
     const outcome = await captureFigures([1, 2, 3], effects);
     expect(outcome.snapshots.size).toBe(1);
     expect(outcome.stopped).toBe(true);
-    expect(outcome.skipped).toBe(2);
+    expect(Object.fromEntries(outcome.refused)).toEqual({
+      2: "changed",
+      3: "changed",
+    });
     expect(log.ended).toBe(1);
   });
 
@@ -288,15 +343,135 @@ describe("captureFigures", () => {
     });
     const outcome = await captureFigures([1, 2, 3], effects);
     expect([...outcome.snapshots.keys()]).toEqual([1]);
-    expect(outcome.skipped).toBe(2);
+    expect(Object.fromEntries(outcome.refused)).toEqual({
+      2: "too-heavy",
+      3: "too-heavy",
+    });
   });
 
   test("a tab no clip has run in captures nothing", async () => {
     const { effects, log } = fakeTab({ begin: false });
     const outcome = await captureFigures([1, 2], effects);
     expect(outcome.snapshots.size).toBe(0);
-    expect(outcome.skipped).toBe(2);
+    expect(Object.fromEntries(outcome.refused)).toEqual({
+      1: "changed",
+      2: "changed",
+    });
     expect(log.captures).toEqual([]);
+  });
+
+  test("every figure asked for is either taken or refused", async () => {
+    const { effects } = fakeTab({
+      frame: (index) =>
+        index % 2 === 0
+          ? { ok: false, reason: "covered" }
+          : {
+              ok: true,
+              rect: { x: 0, y: 0, width: 10, height: 10 },
+              innerWidth: 1280,
+            },
+    });
+    const figures = [1, 2, 3, 4, 5];
+    const outcome = await captureFigures(figures, effects);
+    expect(outcome.snapshots.size + outcome.refused.size).toBe(figures.length);
+  });
+});
+
+describe("pictureReport", () => {
+  const outcome = (
+    taken: [number, string][],
+    refused: [number, PictureRefusal][],
+  ): CaptureOutcome => ({
+    snapshots: new Map(
+      taken.map(([index, id]) => [index, { id, bytes: new Uint8Array() }]),
+    ),
+    refused: new Map(refused),
+    stopped: false,
+  });
+  const markdown =
+    "[![Git events per repository line chart](./assets/aaaaaaaaaaaa.webp)](https://x/#a)\n\n" +
+    "[![Interactive figure](./assets/bbbbbbbbbbbb.webp)](https://x/#b)";
+
+  test("accounts for every figure: shown, or why not", () => {
+    const report = pictureReport(
+      [1, 2, 3, 4],
+      outcome(
+        [
+          [1, "aaaaaaaaaaaa"],
+          [2, "bbbbbbbbbbbb"],
+        ],
+        [
+          [3, "too-big"],
+          [4, "covered"],
+        ],
+      ),
+      { snapshots: ["aaaaaaaaaaaa", "bbbbbbbbbbbb"], markdown },
+    );
+    expect(report).toEqual({
+      total: 4,
+      shown: 2,
+      refused: { "too-big": 1, covered: 1 },
+      pictures: [
+        { id: "aaaaaaaaaaaa", label: "Git events per repository line chart" },
+        { id: "bbbbbbbbbbbb", label: "Interactive figure" },
+      ],
+    });
+  });
+
+  test("a figure taken but not placed counts as the page changing", () => {
+    // The clip after could not find the figure again: its page re-rendered it.
+    const report = pictureReport(
+      [1, 2],
+      outcome(
+        [
+          [1, "aaaaaaaaaaaa"],
+          [2, "bbbbbbbbbbbb"],
+        ],
+        [],
+      ),
+      { snapshots: ["aaaaaaaaaaaa"], markdown },
+    );
+    expect(report.shown).toBe(1);
+    expect(report.refused).toEqual({ changed: 1 });
+  });
+
+  test("with no clip to carry them, every picture taken is shown by nothing", () => {
+    const report = pictureReport(
+      [1, 2],
+      outcome([[1, "aaaaaaaaaaaa"]], [[2, "blank"]]),
+      null,
+    );
+    expect(report.shown).toBe(0);
+    expect(report.refused).toEqual({ changed: 1, blank: 1 });
+    expect(report.pictures).toEqual([]);
+  });
+
+  test("two figures with one picture list the file once", () => {
+    const report = pictureReport(
+      [1, 2],
+      outcome(
+        [
+          [1, "aaaaaaaaaaaa"],
+          [2, "aaaaaaaaaaaa"],
+        ],
+        [],
+      ),
+      { snapshots: ["aaaaaaaaaaaa"], markdown },
+    );
+    expect(report.shown).toBe(2);
+    expect(report.pictures).toHaveLength(1);
+  });
+});
+
+describe("pictureLabels", () => {
+  test("reads each picture's alt text, the figure's label", () => {
+    const labels = pictureLabels(
+      "Before. [![Sales by region](./assets/abcdef012345.webp)](https://x/) After.",
+      ["abcdef012345", "000000000000"],
+    );
+    expect(Object.fromEntries(labels)).toEqual({
+      abcdef012345: "Sales by region",
+    });
   });
 });
 
