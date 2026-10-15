@@ -1002,30 +1002,77 @@ function markAsides(doc: Document): void {
   }
 }
 
+/** What `dropAppendedAsides` took out that Readability had already read. */
+export interface DroppedAsides {
+  /** The text of the article's first paragraph, when it was in a dropped
+   * aside: what Readability falls back on for an excerpt, read before. */
+  firstParagraph: string | null;
+}
+
+/** The element Readability scored highest, by the score it leaves on each
+ * element it scored, or `null` when none carries one. */
+function highestScored(root: Element): Element | null {
+  let best: Element | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const score = (
+      element as unknown as { readability?: { contentScore?: unknown } }
+    ).readability?.contentScore;
+    if (typeof score === "number" && score > bestScore) {
+      best = element;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 /**
- * Drop what Readability kept of an `<aside>`, from the article HTML it
- * returned: finishing its own rule for the one aside its sibling pass renamed
- * out of reach (`markAsides`). Any marked element still here was renamed,
- * since Readability deletes every aside that was not.
+ * Drop what Readability kept of an `<aside>`, from the article element it is
+ * about to return — finishing its own rule for the one aside its sibling pass
+ * renamed out of reach (`markAsides`). Any marked element still here was
+ * renamed, since Readability deletes every aside that was not. Called from
+ * Readability's `serializer`, the one place its article is handed over with
+ * its scores still on it.
  *
- * Not the article itself. Readability renames the element it chose as the
- * article as it does a sibling, so an article written inside an `<aside>`
- * comes back marked too; it is told apart by holding most of the words.
+ * Not the article itself, which Readability renames as it does a sibling:
+ * an article written inside an `<aside>` comes back marked too. It is told
+ * apart by Readability's own choice, not by a guess at it. The article is the
+ * element Readability scored highest, or an ancestor of it — every step it
+ * takes from its best candidate (to a common ancestor, to a parent scoring
+ * higher, out of a wrapper with one child) goes up — so a marked element
+ * holding that element is the article, and any other was appended beside it.
+ * How much either says has no part in it: the article can be the shorter.
  *
- * Runs after Readability, on its output; takes a `Document` only to borrow its
- * implementation for a scratch document.
+ * With no scores to read, nothing is dropped: an aside left in costs a
+ * footer, while the wrong one dropped costs the article.
  */
-export function dropAppendedAsides(html: string, doc: Document): string {
+export function dropAppendedAsides(article: Element): DroppedAsides {
+  const dropped: DroppedAsides = { firstParagraph: null };
+  const marked = Array.from(article.querySelectorAll(`[${ASIDE_ATTR}]`));
+  if (marked.length === 0) return dropped;
+  const chosen = highestScored(article);
+  if (chosen === null) return dropped;
+  const first = article.querySelector("p");
+  for (const aside of marked) {
+    // Inside one already dropped, or the article itself.
+    if (!article.contains(aside) || aside.contains(chosen)) continue;
+    if (first !== null && aside.contains(first)) {
+      dropped.firstParagraph = (first.textContent ?? "").trim();
+    }
+    aside.remove();
+  }
+  return dropped;
+}
+
+/** The text of the first paragraph in `html` that says something. */
+export function firstParagraphText(html: string, doc: Document): string {
   const scratch = doc.implementation.createHTMLDocument("");
   scratch.body.innerHTML = html;
-  const total = collapsed(scratch.body.textContent).length;
-  for (const kept of Array.from(scratch.querySelectorAll(`[${ASIDE_ATTR}]`))) {
-    // Inside one already dropped.
-    if (!kept.isConnected) continue;
-    if (collapsed(kept.textContent).length * 2 >= total) continue;
-    kept.remove();
+  for (const paragraph of Array.from(scratch.querySelectorAll("p"))) {
+    const text = (paragraph.textContent ?? "").trim();
+    if (text !== "") return text;
   }
-  return scratch.body.innerHTML;
+  return "";
 }
 
 /** Readability's `DIV_TO_P_ELEMS`: a `<div>` holding none of these, at any

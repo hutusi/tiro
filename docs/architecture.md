@@ -208,7 +208,11 @@ flowchart LR
    rule: GitHub's blog follows each post with an aside of promotional cards,
    "Explore more from GitHub", that came out at the foot of the article. Each
    aside is marked before Readability, and one that comes back renamed is
-   dropped, unless it holds most of the words and so is the article itself.
+   dropped in Readability's serializer, the one place its scores are still on
+   the article. The exception is the aside holding the element it scored
+   highest, which is the article it chose. Every step Readability takes from
+   its best candidate goes up, so the article always holds that element.
+   Length tells nothing here: the article can be the shorter.
 
    The title is the headline the page shows (ADR 0042). Readability reads
    JSON-LD first, and a publisher may put a headline written for search there.

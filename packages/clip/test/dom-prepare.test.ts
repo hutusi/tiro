@@ -4194,6 +4194,44 @@ describe("an aside Readability appends beside the article", () => {
     expect(markdown).not.toContain("Card 0");
   });
 
+  /** Long paragraphs with no commas: much text, little score — Readability
+   * caps what length can earn a paragraph, and counts commas. */
+  const plain = (label: string, n: number) =>
+    Array.from(
+      { length: n },
+      (_, i) =>
+        `<p>${label} ${i} ${"words that run on without a pause and without a break of any kind ".repeat(22)}end.</p>`,
+    ).join("");
+
+  test("the article is the aside Readability chose, however long its sibling", () => {
+    // The aside scores higher on fewer words; the sibling it brings along is
+    // longer. Telling them apart by length deleted the article.
+    const markdown = clip(
+      `<main><aside>${article}</aside><div class="notes">${plain("Note", 3)}</div></main>`,
+    );
+    expect(markdown).toContain("Paragraph 0.");
+    expect(markdown).toContain("Paragraph 7.");
+    expect(markdown).toContain("Note 0");
+  });
+
+  test("an appended aside goes however much it says", () => {
+    const markdown = clip(
+      `<main><div class="container"><div class="row"><section class="post">${article}</section></div></div><aside class="container">${plain("Promo", 4)}</aside></main>`,
+    );
+    expect(markdown).toContain("Paragraph 7.");
+    expect(markdown).not.toContain("Promo 0");
+  });
+
+  test("the excerpt is not taken from an aside that is dropped", () => {
+    // With no description in the page's metadata, Readability takes its first
+    // paragraph, and reads it before the aside ahead of the article is gone.
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<main><aside class="container">${plain("Promo", 3)}</aside><div class="container"><div class="row"><section class="post">${article}</section></div></div></main>`;
+    const result = clipPage(window.document as unknown as Document, PAGE);
+    expect(result.markdown).not.toContain("Promo 0");
+    expect(result.excerpt).toStartWith("The platform keeps growing");
+  });
+
   test("an article that is itself an aside is kept", () => {
     const markdown = clip(
       `<main><aside class="container">${article}</aside></main>`,
