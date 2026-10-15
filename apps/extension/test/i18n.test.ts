@@ -165,4 +165,26 @@ describe("the disclosure and capturing figures (ADR 0039)", () => {
     expect(messages("zh").disclosureBody2).toContain("「截取图示」");
     expect(messages("zh").disclosureBody2).toContain("随剪藏一起提交");
   });
+
+  // The pictures live in the popup until Clip commits them. A popup closed in
+  // between drops them without a word, and the clip after it links to the
+  // figures; "The figure is captured." alone read as if they were saved.
+  test("a capture's result says to clip before the popup closes, in both languages", () => {
+    for (const [locale, warning] of [
+      ["en", "closing this popup discards"],
+      ["zh", "关闭弹窗会丢弃"],
+    ] as const) {
+      const m = messages(locale);
+      for (const [captured, total] of [
+        [1, 1],
+        [3, 3],
+        [1, 3],
+        [2, 3],
+      ] as const) {
+        expect(m.captureResult(captured, total)).toContain(warning);
+      }
+      // Nothing captured, nothing to lose.
+      expect(m.captureResult(0, 3)).not.toContain(warning);
+    }
+  });
 });

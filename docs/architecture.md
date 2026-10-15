@@ -202,6 +202,24 @@ flowchart LR
    `<!-- pull quote -->`: one block, translated like any other, that the site
    can tell from a quotation.
 
+   Every other `<aside>` stays out, including the one Readability lets through
+   itself. It appends a sibling of the article that scores well enough, and
+   renames it `<div>` first, which takes an aside out of reach of its own
+   rule: GitHub's blog follows each post with an aside of promotional cards,
+   "Explore more from GitHub", that came out at the foot of the article. Each
+   aside is marked before Readability, and one that comes back renamed is
+   dropped in Readability's serializer.
+   - **The exception is the article Readability chose.** Readability's choice
+     is read the moment it is made, as the article reaches `_prepArticle`:
+     the block holding the element it scored highest is the article, since
+     every step it takes from its best candidate goes up.
+   - **Read then, not later.** Its clean-up afterwards replaces a one-child
+     wrapper with its child, copying the wrapper's attributes (the mark goes
+     with them) but not its score.
+   - **Length tells nothing here:** the article can be the shorter.
+   - **The hook is a private method.** If it is renamed, nothing is dropped,
+     and the tests say so.
+
    The title is the headline the page shows (ADR 0042). Readability reads
    JSON-LD first, and a publisher may put a headline written for search there.
    The Atlantic does so on about half its articles. So the page's `<h1>` wins

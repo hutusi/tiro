@@ -6,6 +6,7 @@ import { clipPage } from "../src/clip-page.ts";
 import {
   ANCHOR_ATTR,
   CODE_LANG_ATTR,
+  dropAppendedAsides,
   figureHosts,
   foldFiguresIn,
   MATH_ATTR,
@@ -4157,6 +4158,141 @@ describe("a chart drawn as svg is described, not lost (ADR 0044)", () => {
       );
       expect(result.scriptFigures).toEqual([0, 1]);
     });
+  });
+});
+
+describe("an aside Readability appends beside the article", () => {
+  const PAGE = "https://blog.example/post/";
+  const sentence =
+    "The platform keeps growing, and the work behind it has to grow with it, quietly and reliably. ";
+  const article = Array.from(
+    { length: 8 },
+    (_, i) => `<p>${sentence.repeat(3)}Paragraph ${i}.</p>`,
+  ).join("");
+  /** GitHub's blog shape, invented: the post in a container of its own, and
+   * a promotional aside of cards beside it, scoring enough to be appended. */
+  const promo = (attrs = "") =>
+    `<aside class="container" ${attrs}><h2>Explore more from the blog</h2>${Array.from(
+      { length: 3 },
+      (_, i) =>
+        `<p>Card ${i}: everything you need to master the platform, in one place, with guides, references, and tutorials for every team.</p>`,
+    ).join("")}</aside>`;
+  const post = (body: string) =>
+    `<main><div class="container"><div class="row"><section class="post">${body}</section></div></div>${promo()}</main>`;
+
+  function clip(body: string): string {
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = body;
+    return clipPage(window.document as unknown as Document, PAGE).markdown;
+  }
+
+  test("is dropped, as Readability drops every aside inside the article", () => {
+    // Appended, Readability renames it <div> first, which is how it escapes
+    // its own rule that an aside is furniture.
+    const markdown = clip(post(article));
+    expect(markdown).toContain("Paragraph 7.");
+    expect(markdown).not.toContain("Explore more");
+    expect(markdown).not.toContain("Card 0");
+  });
+
+  /** Long paragraphs with no commas: much text, little score — Readability
+   * caps what length can earn a paragraph, and counts commas. */
+  const plain = (label: string, n: number) =>
+    Array.from(
+      { length: n },
+      (_, i) =>
+        `<p>${label} ${i} ${"words that run on without a pause and without a break of any kind ".repeat(22)}end.</p>`,
+    ).join("");
+
+  test("the article is the aside Readability chose, however long its sibling", () => {
+    // The aside scores higher on fewer words; the sibling it brings along is
+    // longer. Telling them apart by length deleted the article.
+    const markdown = clip(
+      `<main><aside>${article}</aside><div class="notes">${plain("Note", 3)}</div></main>`,
+    );
+    expect(markdown).toContain("Paragraph 0.");
+    expect(markdown).toContain("Paragraph 7.");
+    expect(markdown).toContain("Note 0");
+  });
+
+  describe("when Readability unwraps the article's one-child wrapper", () => {
+    // Readability replaces a wrapper holding a single box with that box, after
+    // choosing the article: attributes are copied down, its score is not. A
+    // class bonus can make the wrapper the highest-scored element of all.
+    const short = Array.from(
+      { length: 2 },
+      (_, i) => `<p>${sentence.repeat(3)}Paragraph ${i}.</p>`,
+    ).join("");
+
+    test("an article in an aside around one box is kept", () => {
+      const markdown = clip(
+        `<main><aside class="article"><div>${short}</div></aside><div class="notes">${plain("Note", 5)}</div></main>`,
+      );
+      expect(markdown).toContain("Paragraph 0.");
+      expect(markdown).toContain("Paragraph 1.");
+      expect(markdown).toContain("Note 0");
+    });
+
+    test("a promotional aside beside such an article still goes", () => {
+      const markdown = clip(
+        `<main><div class="article"><div>${short}</div></div><aside>${plain("Promo", 7)}</aside></main>`,
+      );
+      expect(markdown).toContain("Paragraph 1.");
+      expect(markdown).not.toContain("Promo 0");
+    });
+  });
+
+  test("with no choice of Readability's to read, nothing is dropped", () => {
+    // What a Readability release that renamed `_prepArticle` would leave: the
+    // asides marked, the article not.
+    const doc = docFrom(
+      '<div id="article"><div data-tiro-aside=""><p>The article.</p></div><div><p>Beside it.</p></div></div>',
+    );
+    const article = doc.getElementById("article") as Element;
+    dropAppendedAsides(article);
+    expect(article.textContent).toContain("The article.");
+    expect(article.textContent).toContain("Beside it.");
+  });
+
+  test("an appended aside goes however much it says", () => {
+    const markdown = clip(
+      `<main><div class="container"><div class="row"><section class="post">${article}</section></div></div><aside class="container">${plain("Promo", 4)}</aside></main>`,
+    );
+    expect(markdown).toContain("Paragraph 7.");
+    expect(markdown).not.toContain("Promo 0");
+  });
+
+  test("the excerpt is not taken from an aside that is dropped", () => {
+    // With no description in the page's metadata, Readability takes its first
+    // paragraph, and reads it before the aside ahead of the article is gone.
+    const window = new Window({ url: PAGE });
+    window.document.body.innerHTML = `<main><aside class="container">${plain("Promo", 3)}</aside><div class="container"><div class="row"><section class="post">${article}</section></div></div></main>`;
+    const result = clipPage(window.document as unknown as Document, PAGE);
+    expect(result.markdown).not.toContain("Promo 0");
+    expect(result.excerpt).toStartWith("The platform keeps growing");
+  });
+
+  test("an article that is itself an aside is kept", () => {
+    const markdown = clip(
+      `<main><aside class="container">${article}</aside></main>`,
+    );
+    expect(markdown).toContain("Paragraph 0.");
+    expect(markdown).toContain("Paragraph 7.");
+  });
+
+  test("a pull quote set as an aside is still kept (ADR 0041)", () => {
+    const LINE = "The work behind the platform has to grow with it.";
+    expect(
+      clip(post(`${article}<aside class="pullquote"><p>${LINE}</p></aside>`)),
+    ).toContain(LINE);
+  });
+
+  test("a marker the page wrote itself means nothing", () => {
+    const LINE =
+      "An ordinary closing paragraph the author wrote, with a comma, and a full stop.";
+    expect(
+      clip(post(`${article}<div data-tiro-aside=""><p>${LINE}</p></div>`)),
+    ).toContain(LINE);
   });
 });
 

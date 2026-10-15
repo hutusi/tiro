@@ -2,7 +2,10 @@ import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
 import {
   type ClipOptions,
+  type DroppedAsides,
+  dropAppendedAsides,
   excerptWithoutPlaceholders,
+  firstParagraphText,
   foldFiguresIn,
   hasLatexmlFullText,
   placeAnchorsIn,
@@ -12,6 +15,7 @@ import {
   scriptFiguresIn,
   VIDEO_EMBEDS,
   videosAsPostersIn,
+  watchChosenArticle,
 } from "./dom-prepare.ts";
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -89,13 +93,24 @@ export function clipPage(
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
   const preparedBody = doc.body?.innerHTML ?? "";
-  let article: ReturnType<Readability["parse"]> = null;
+  let article: ReturnType<Readability<string>["parse"]> = null;
+  let dropped: DroppedAsides = { firstParagraph: null };
   try {
     // Told which players to keep in the very terms the pass after it converts
     // them by, so the two agree on what an embed is (`VIDEO_EMBEDS`).
-    article = new Readability(doc, {
+    const reader = new Readability(doc, {
       allowedVideoRegex: VIDEO_EMBEDS,
-    }).parse();
+      // Its article is handed over whole here, the article it chose marked
+      // as it chose it, which is what tells an aside it appended beside the
+      // article from one that is the article (`dropAppendedAsides`).
+      serializer: (node) => {
+        const element = node as Element;
+        dropped = dropAppendedAsides(element);
+        return element.innerHTML;
+      },
+    });
+    watchChosenArticle(reader);
+    article = reader.parse();
   } catch {
     article = null;
   }
@@ -146,7 +161,12 @@ export function clipPage(
     excerpt:
       latexml?.excerpt ??
       excerptWithoutPlaceholders(
-        article?.excerpt ?? "",
+        readExcerpt(
+          article?.excerpt ?? "",
+          article?.content ?? "",
+          dropped,
+          doc,
+        ),
         article?.content ?? "",
         doc,
       ).trim(),
@@ -331,4 +351,23 @@ export function fileStem(url: string): string {
     // A malformed escape is not worth losing the title over.
   }
   return decoded.replace(/\.[^.]*$/, "");
+}
+
+/**
+ * Readability's excerpt, unless it was read out of an aside that has since
+ * been dropped (`dropAppendedAsides`): with no description in the page's
+ * metadata it takes the article's first paragraph, before the serializer runs.
+ * Then it is the first paragraph that is left, the one it would have taken.
+ * Compared only when the dropped aside held that paragraph, so an authored
+ * description that happens to read the same is the one risk, and a remote one.
+ */
+function readExcerpt(
+  excerpt: string,
+  content: string,
+  dropped: DroppedAsides,
+  doc: Document,
+): string {
+  if (dropped.firstParagraph === null) return excerpt;
+  if (excerpt.trim() !== dropped.firstParagraph) return excerpt;
+  return firstParagraphText(content, doc);
 }

@@ -43,6 +43,10 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A post's promotional sidebar no longer ends the article.** GitHub's blog
+  clips ended with "Explore more from GitHub" and its cards. Readability
+  drops every `<aside>` except one it appends beside the article, which it
+  renames first; that one is now dropped too, unless it is the article itself.
 - **An article is titled with the headline its page shows.** Many Atlantic
   articles were filed under a headline written for search engines, which the
   page never displays: "I'm 53 years old. I'm 36 in my head." for "The Puzzling
