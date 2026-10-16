@@ -1,0 +1,36 @@
+name: Deploy the site
+description: >-
+  Tell the site to rebuild — a vault-updated repository_dispatch — when a run
+  should publish (ADR 0032). The rule and the request are
+  packages/processor/job/deploy.sh, the script every host's vault job runs;
+  this action is how a vault workflow with no checkout of tiro reaches it.
+
+inputs:
+  token:
+    description: A token that may write to the site's repository.
+    required: true
+  trigger:
+    description: >-
+      What started the run: push, workflow_dispatch, manual, schedule or
+      publish.
+    required: true
+  committed:
+    description: '"true" when the run committed something.'
+    default: "false"
+  repository:
+    description: The site's repository.
+    default: hutusi/tiro
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      # Inputs reach the script as environment, never as source: `${{ }}` is
+      # substituted into a run block before bash parses it.
+      env:
+        TIRO_DISPATCH_TOKEN: ${{ inputs.token }}
+        TIRO_TRIGGER: ${{ inputs.trigger }}
+        TIRO_COMMITTED: ${{ inputs.committed }}
+        TIRO_SITE_REPO: ${{ inputs.repository }}
+      # A repository action is fetched whole, so the script sits beside it.
+      run: bash "$GITHUB_ACTION_PATH/../../../packages/processor/job/deploy.sh"

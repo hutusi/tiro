@@ -13,6 +13,7 @@ import {
 import { repairVault } from "./repair.ts";
 import { retagVault } from "./retag.ts";
 import { publishRunReport } from "./run-report.ts";
+import { readSecret } from "./secret.ts";
 import { readTaggedArticles, type TagCount, tagReport } from "./tag-report.ts";
 import { validateVault } from "./validate.ts";
 
@@ -76,16 +77,14 @@ if (command === "validate") {
  * Returns null when the key is absent, having already said so.
  */
 function chatClientFor(config: TiroConfig, deadline: Deadline): ChatFn | null {
-  const apiKey = process.env[config.llm.api_key_env];
-  if (apiKey === undefined || apiKey === "") {
-    console.error(
-      `missing API key: set the ${config.llm.api_key_env} environment variable`,
-    );
+  const apiKey = readSecret(config.llm.api_key_env);
+  if (!apiKey.ok) {
+    console.error(`missing API key: ${apiKey.why}`);
     return null;
   }
   return createChatClient({
     baseUrl: config.llm.base_url,
-    apiKey,
+    apiKey: apiKey.value,
     timeoutMs: config.llm.timeout_ms,
     maxRetries: config.llm.max_retries,
     deadline,

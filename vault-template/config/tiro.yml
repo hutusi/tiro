@@ -2,7 +2,9 @@
 #
 # llm: any OpenAI-compatible chat-completions endpoint works here.
 #   api_key_env names the environment variable carrying the key — set it as a
-#   GitHub Actions secret with the same name (see README.md).
+#   GitHub Actions secret with the same name (see README.md). A host that hands
+#   the job files rather than environment can set <name>_FILE to a file holding
+#   the key instead.
 llm:
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   model: qwen-plus

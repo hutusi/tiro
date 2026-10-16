@@ -23,12 +23,14 @@ permissions: {}
 
 jobs:
   publish:
+    # Stood down with process.yml when another host serves this vault (ADR
+    # 0046), which then sends this deploy itself.
+    if: vars.TIRO_PROCESSOR != 'external' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Trigger site deploy
-        uses: peter-evans/repository-dispatch@v4
+        uses: hutusi/tiro/.github/actions/deploy@main
         with:
           token: ${{ secrets.TIRO_DISPATCH_TOKEN }}
-          repository: hutusi/tiro
-          event-type: vault-updated
+          trigger: publish

@@ -1,6 +1,7 @@
 # ADR 0004: Provider-configurable LLM via OpenAI-compatible endpoint
 
-Status: accepted (2026-08)
+Status: accepted (2026-08). Amended by ADR 0046: the key may also come from
+a file, named by `<api_key_env>_FILE`.
 
 ## Context
 
@@ -13,7 +14,8 @@ any single vendor.
 - The processor speaks only the OpenAI-compatible chat-completions protocol.
   `config/tiro.yml` sets `base_url`, `model` (optional `summary_model` /
   `translation_model` overrides), and `api_key_env` — the name of the env var
-  (a GitHub Actions secret) carrying the key.
+  (a GitHub Actions secret) carrying the key. *(Amended by ADR 0046: or, when
+  it is unset, `<api_key_env>_FILE`, naming a file that holds it.)*
 - Template default: Aliyun Bailian compatible mode
   (`https://dashscope.aliyuncs.com/compatible-mode/v1`) with `qwen-plus`.
 - The client is a small hand-rolled `fetch` wrapper (timeout, 3 retries with

@@ -9,6 +9,17 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Added
 
+- **The vault job can run off GitHub Actions** (ADR 0046). The job's steps
+  are scripts in `packages/processor/job/`, and `run.sh` is the whole job for
+  another host — process, commit whatever the processor did, deploy, report —
+  committing a run its host killed at the next start. The vault's
+  `TIRO_PROCESSOR` variable, set to `external`, stands its workflows down
+  (a run by hand still runs), and `vault-template/.janus/` holds the same job
+  for a Janus server, with a daily run started by a host timer. The deploy
+  dispatch is now a direct API call rather than a third-party action.
+- **The processor reads its LLM key from a file too.** When the variable
+  `llm.api_key_env` names is unset, `<name>_FILE` may name a file holding the
+  key, for a host that hands a job files rather than environment.
 - **Clip saves a page's drawn figures as pictures.** On a page whose figures
   its own script draws, Clip first scrolls to each one, takes a picture of it,
   and puts the pictures in the article in place of the links. They are

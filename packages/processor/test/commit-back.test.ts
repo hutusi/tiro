@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,18 +15,19 @@ import { dirname, join } from "node:path";
  * The vault's "Commit results back" step, run for real.
  *
  * Not a copy of its shell: the block is read out of the template's
- * `process.yml` and run the way GitHub runs it, against real repositories — a
- * bare remote standing in for the vault, a shallow clone standing in for the
- * run's checkout, and a second clone for whoever else pushes meanwhile. What
+ * `process.yml` and run the way GitHub runs it, in a workspace laid out the
+ * way the job lays it out — this repo as its `tiro/`, whose
+ * `packages/processor/job/commit-back.sh` the block calls — against real
+ * repositories: a bare remote standing in for the vault, a shallow clone
+ * standing in for the run's checkout, and a second clone for whoever else
+ * pushes meanwhile. What
  * it has to get right is what a run cannot afford to get wrong: every article
  * the run finished reaches `main` (invariant 8), and an article `main` deleted
  * while the run worked on it stays deleted (ADR 0036).
  */
 
-const WORKFLOW = join(
-  import.meta.dir,
-  "../../../vault-template/.github/workflows/process.yml",
-);
+const REPO = join(import.meta.dir, "../../..");
+const WORKFLOW = join(REPO, "vault-template/.github/workflows/process.yml");
 
 interface Step {
   id?: string;
@@ -76,6 +78,8 @@ afterEach(() => {
 function sandbox(initial: Record<string, string>) {
   const root = mkdtempSync(join(tmpdir(), "tiro-commit-back-"));
   sandboxes.push(root);
+  // The job's workspace: the vault checkout beside a checkout of tiro.
+  symlinkSync(REPO, join(root, "tiro"));
   const remote = join(root, "remote.git");
   const run = join(root, "vault");
   const other = join(root, "other");
@@ -184,7 +188,12 @@ function sandbox(initial: Record<string, string>) {
       writeFileSync(script, step.run ?? "");
       const r = Bun.spawnSync(shellCommand(step.shell, script), {
         cwd: run,
-        env: { ...env, GITHUB_OUTPUT: output, OTHER: other },
+        env: {
+          ...env,
+          GITHUB_WORKSPACE: root,
+          GITHUB_OUTPUT: output,
+          OTHER: other,
+        },
       });
       const outputs: Record<string, string> = {};
       for (const line of readFileSync(output, "utf8").split("\n")) {
@@ -227,6 +236,14 @@ describe("the commit-back step", () => {
     expect(step.if).toBe("always()");
     expect(step["working-directory"]).toBe("vault");
     expect(step.run).not.toContain("${{");
+  });
+
+  test("runs the commit-back script in tiro, and nothing besides", () => {
+    const step = commitStep();
+    expect(step.shell).toBe("bash");
+    expect(step.run?.trim()).toBe(
+      'bash "$GITHUB_WORKSPACE/tiro/packages/processor/job/commit-back.sh"',
+    );
   });
 
   test("pushes the run's work when nothing else committed", () => {
@@ -352,6 +369,28 @@ describe("the commit-back step", () => {
     expect(underA(files)).toEqual([]);
     expect(files.get("articles/c/index.md")).toBe("c\n");
     expect(files.get("articles/b/zh.md")).toBe("b, translated\n");
+  });
+
+  // A step's `bash -eo pipefail` does not reach the script it runs, so the
+  // script sets its own. Without -e a fetch that fails inside the retry loop
+  // goes unnoticed: the rebase after it fails instead, and the run reports a
+  // conflict it never had.
+  test("stops at the first failed command, and blames the right one", () => {
+    const s = sandbox(VAULT);
+    s.write(s.run, PROCESSED_B);
+    // The remote goes away during the first push, which is refused, so the
+    // fetch that follows fails.
+    s.hook(
+      join(s.run, ".git"),
+      "pre-push",
+      `mv "${s.remote}" "${s.remote}.gone"\nexit 1`,
+    );
+    const r = s.runStep();
+    expect(r.exitCode).not.toBe(0);
+    expect(r.outputs.committed).toBeUndefined();
+    expect(r.log).toContain("push rejected (attempt 1)");
+    expect(r.log).toContain("does not appear to be a git repository");
+    expect(r.log).not.toContain("conflict");
   });
 
   test("gives up after four refused pushes, without claiming a commit", () => {

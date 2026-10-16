@@ -7,8 +7,9 @@
     "apps/*"
   ],
   "scripts": {
-    "lint": "biome ci . && bun run lint:astro",
+    "lint": "biome ci . && bun run lint:astro && bun run lint:sh",
     "lint:astro": "prettier --check --no-error-on-unmatched-pattern \"**/*.astro\"",
+    "lint:sh": "if command -v shellcheck >/dev/null 2>&1; then shellcheck packages/processor/job/*.sh packages/processor/test/fixtures/job/bun; elif [ -n \"$CI\" ]; then echo 'shellcheck not found' >&2; exit 1; else echo 'shellcheck not found: the job scripts were not checked' >&2; fi",
     "fix": "biome check --write . && prettier --write --no-error-on-unmatched-pattern \"**/*.astro\"",
     "process": "bun run packages/processor/src/cli.ts run",
     "typecheck": "tsc --noEmit -p packages/shared && tsc --noEmit -p packages/clip && tsc --noEmit -p packages/processor && tsc --noEmit -p apps/extension && tsc --noEmit -p apps/shortcut && tsc --noEmit -p apps/site && bun run --cwd apps/site check",
