@@ -570,8 +570,9 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   before fetching it, so a resolver that answers with reserved addresses — a
   proxy's fake-ip mode, some poisoned answers — refuses a saved link for good
   and keeps images as hotlinks. Off Actions the host needs clean DNS.
-- **A missed webhook** (off Actions) is not redelivered by GitHub; the daily
-  run picks up the work.
+- **A missed webhook** (off Actions) is not redelivered by GitHub. The daily
+  run picks up its processing; a hand edit's deploy waits for the next one,
+  or for a redelivery by hand.
 - **An article deleted while a run processes it.** The run's commit-back
   rebase cannot settle an edit to a file `main` deleted, and used to fail the
   step and lose the whole run's work. It now measures which articles `main`

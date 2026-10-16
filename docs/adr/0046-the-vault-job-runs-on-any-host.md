@@ -85,10 +85,16 @@ variable is the old behaviour.
   how a recovery that was itself killed half-way gets finished.
 - **A deploy that could not be sent is owed.** The runs after it may commit
   nothing — the processor's own push, the daily run — and so would never
-  publish what is already on `main`. Off Actions every deploy — of a commit,
-  or of a hand edit with nothing to process — is recorded as owed before it
-  is sent, and only a dispatch that went through clears it; a run killed after
-  its push, or while sending, leaves it owed. On Actions the next run
+  publish what is already on `main`. Off Actions a deploy is recorded as owed
+  as soon as a run knows it owes one — when a push, a manual run or a
+  collections edit starts, before a lock, a clone or a fetch can fail, and
+  when a run commits — so neither a failed dispatch nor a run killed on the
+  way loses it. Each debt is its own file, recorded once its content is on
+  `main`, and a dispatch that went through pays exactly the debts that
+  existed before it was sent: a collections edit runs beside processing, and
+  must not clear a debt recorded while its own dispatch was in flight. The
+  records sit beside the vault's checkout rather than in it, since a
+  collections edit needs no checkout to owe a deploy. On Actions the next run
   starts from a fresh checkout and cannot know; there a failed deploy is a red
   run, re-run by hand.
 - **The processor never holds the dispatch token.** It parses pages from
@@ -172,8 +178,9 @@ a concurrency group, so they queue as the workflow's runs do.
   reserved addresses — a proxy's fake-ip mode, some poisoned answers — refuses
   a saved link for good (`fetch_failed`) and keeps images as hotlinks, so the
   host needs clean DNS. A guard that defers to a proxy is deferred.
-- A webhook GitHub failed to deliver is not delivered again; the daily run
-  picks up its work.
+- A webhook GitHub failed to deliver is not delivered again. The daily run
+  picks up its processing, but a hand edit's deploy waits for the next
+  deploy — or for a redelivery from the webhook's Recent Deliveries.
 - Work the budget deferred continues up to twice at once, through the
   processor's own pushes, rather than waiting for the next clip.
 - The workflows now run tiro's scripts as checked out from `main`, as they

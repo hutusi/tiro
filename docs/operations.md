@@ -665,9 +665,12 @@ TIRO_TRIGGER=schedule \
 - **A killed run** is committed by the next, before anything else: its
   commit is redone on its own parent, or left alone if its push had already
   landed; a recovery that was itself killed is finished the same way.
-- **A deploy that could not be sent is owed**, a hand edit's as much as a
-  commit's, and goes with the next run — even one with nothing of its own to
-  publish, which says `A deploy an earlier run could not send is still owed`.
+- **A deploy that could not be sent is owed** — a commit's, a hand edit's or a
+  collections edit's, and one a killed run never got to — and goes with the
+  next run, even one with nothing of its own to publish, which says `A deploy
+  an earlier run could not send is still owed`. Each debt is a file in
+  `$TIRO_VAULT_DIR.deploys-owed/`, beside the checkout; leave them alone. A
+  collections edit can only owe a deploy when `TIRO_VAULT_DIR` is set.
 
 ### Switching hosts
 
@@ -756,7 +759,9 @@ the host needs:
   `https://<host>/webhooks/github?pipeline_path=process.yml` and
   `…?pipeline_path=publish.yml`. GitHub must reach the host: in mainland
   China, serving a domain on 80/443 needs an ICP filing. A delivery that
-  fails is not retried by GitHub; the daily run picks its work up.
+  fails is not retried by GitHub: the daily run picks up its processing, but
+  a hand edit it carried is published only by the next deploy — redeliver it
+  from the webhook's Recent Deliveries to publish it now.
 - **The daily run**: Janus has no schedule, so a timer asks for it —
 
   ```ini

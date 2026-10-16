@@ -12,8 +12,9 @@
 #     group on its step timeout, a cancel or a shutdown, and nothing in here
 #     survives that — so a run marks where it started, and the next run
 #     commits what a killed one left before it does anything else;
-#   - a deploy that could not be sent stays owed, and goes with the next run,
-#     which may have nothing of its own to publish.
+#   - a deploy is recorded as owed as soon as a run knows it owes one, and
+#     stays owed until a dispatch goes through: the next run sends it, even
+#     with nothing of its own to publish.
 #
 # Inputs, as environment:
 #   TIRO_VAULT_DIR      where this host keeps its checkout of the vault
@@ -54,9 +55,7 @@ fi
 
 trigger="${TIRO_TRIGGER:-manual}"
 case "$trigger" in
-  push | manual | schedule) ;;
-  # A collections edit has nothing to process (ADR 0029): only the deploy.
-  publish) exec bash "$here/deploy.sh" ;;
+  push | manual | schedule | publish) ;;
   *)
     echo "::error::run.sh does not know the trigger '$trigger'"
     exit 2
@@ -64,12 +63,52 @@ case "$trigger" in
 esac
 
 vault="${TIRO_VAULT_DIR:-}"
+vault="${vault%/}"
+
+# A deploy that is due stays owed until a dispatch goes through: the runs
+# after a failed or interrupted one may have nothing of their own to publish,
+# and would never send it. Each debt is a file, recorded as soon as a run
+# knows it owes one — before anything can fail or be killed — once its
+# content is on main; so a dispatch that went through pays every debt that
+# existed before it was sent, and none recorded while it was in flight, which
+# may be a concurrent run's. Beside the checkout, not in it: a collections
+# edit needs no checkout to owe a deploy.
+debts=""
+if [ -n "$vault" ]; then
+  debts="$vault.deploys-owed"
+  mkdir -p "$debts"
+fi
+owe() { [ -z "$debts" ] || mktemp "$debts/owed.XXXXXX"; }
+owing() { [ -n "$debts" ] && [ -n "$(ls -A "$debts" 2>/dev/null)" ]; }
+dispatch() {
+  local before=""
+  [ -z "$debts" ] || before="$(ls "$debts" 2>/dev/null)"
+  if TIRO_TRIGGER="$1" TIRO_COMMITTED="$2" bash "$here/deploy.sh"; then
+    for debt in $before; do rm -f "$debts/$debt"; done
+    return 0
+  fi
+  return 1
+}
+
+# A collections edit has nothing to process (ADR 0029): only the deploy.
+if [ "$trigger" = publish ]; then
+  owe >/dev/null
+  if dispatch publish false; then
+    exit 0
+  fi
+  if [ -n "$debts" ]; then
+    echo "::error::The site was not told to rebuild; the next run will try again"
+  else
+    echo "::error::The site was not told to rebuild, and without TIRO_VAULT_DIR no run will try again"
+  fi
+  exit 1
+fi
+
 remote="${TIRO_VAULT_REMOTE:-}"
 if [ -z "$vault" ] || [ -z "$remote" ]; then
   echo "::error::Set TIRO_VAULT_DIR and TIRO_VAULT_REMOTE (in TIRO_JOB_ENV, say)"
   exit 2
 fi
-vault="${vault%/}"
 
 problems=""
 problem() {
@@ -91,7 +130,17 @@ finish() {
   exit 0
 }
 
-mkdir -p "$(dirname "$vault")"
+# Owed from before this run — a failed deploy, a killed run's — or by it from
+# its first moment: a push or a manual run deploys even with nothing to
+# commit, and a lock, a clone or a fetch may fail or be killed long before
+# the deploy comes round.
+inherited=false
+if owing; then inherited=true; fi
+mine=""
+if [ "$trigger" = push ] || [ "$trigger" = manual ]; then
+  mine="$(owe)"
+fi
+
 # One run at a time on this checkout. Janus already queues runs that share a
 # concurrency group; this holds for a run started by hand too.
 if command -v flock >/dev/null 2>&1; then
@@ -112,10 +161,6 @@ if [ ! -d "$vault/.git" ]; then
   fi
 fi
 git -C "$vault" remote set-url origin "$remote"
-
-# A deploy a run could not send stays owed until one is sent: the runs after
-# it may have nothing of their own to publish, and would never send it.
-owed="$vault/.git/tiro-deploy-owed"
 
 # A run killed before it finished left its work here, and the commit it
 # started from in the marker. Commit that first, as its own run would have.
@@ -140,7 +185,8 @@ if [ -f "$marker" ]; then
     if [ "$head" != "$base" ]; then
       # It got as far as main, so nothing knows whether its deploy went.
       echo "Its commit is on main already"
-      touch "$owed"
+      owe >/dev/null
+      inherited=true
     fi
   elif [ "$(git -C "$vault" log -1 --format=%an HEAD)" = tiro-processor ] &&
     git -C "$vault" reset -q --soft HEAD^; then
@@ -157,7 +203,8 @@ if [ -f "$marker" ]; then
   if [ "$unpicked" = true ]; then
     if (cd "$vault" && GITHUB_OUTPUT="$scratch/recovered" bash "$here/commit-back.sh"); then
       if grep -qx 'committed=true' "$scratch/recovered" 2>/dev/null; then
-        touch "$owed"
+        owe >/dev/null
+        inherited=true
       fi
     else
       problem "Could not commit what the last, unfinished run left; it is discarded"
@@ -193,6 +240,8 @@ if [ "$trigger" = push ] && [ -n "${TIRO_TRIGGER_SHA:-}" ]; then
   author="$(git -C "$vault" log -1 --format=%an "$TIRO_TRIGGER_SHA" 2>/dev/null)"
   if [ "$author" = tiro-processor ]; then
     effective=schedule
+    # It owes no deploy until it commits something.
+    [ -z "$mine" ] || rm -f "$mine"
     echo "This push is the processor's own commit: processing what is still pending, and deploying only what this run commits"
     # A run whose work never settles would otherwise push, trigger itself and
     # push again, for as long as the provider bills it. Three of its own
@@ -256,7 +305,7 @@ committing=false
 if (cd "$vault" && GITHUB_OUTPUT="$scratch/commit" bash "$here/commit-back.sh"); then
   committing=true
   if grep -qx 'committed=true' "$scratch/commit" 2>/dev/null; then
-    touch "$owed"
+    owe >/dev/null
   fi
 else
   problem "The commit-back failed, so this run's work is not in the vault (see above)"
@@ -269,19 +318,13 @@ rm -f "$marker"
 # publishes its own commits.
 if [ "$committing" = true ]; then
   committed=false
-  if [ -f "$owed" ]; then
+  if grep -qx 'committed=true' "$scratch/commit" 2>/dev/null || owing; then
     committed=true
-    if ! grep -qx 'committed=true' "$scratch/commit" 2>/dev/null; then
-      echo "A deploy an earlier run could not send is still owed; sending it now"
-    fi
   fi
-  # Owed until the dispatch is known to have gone — whatever this run is
-  # deploying, and even if it is killed while sending it. A run with nothing
-  # to deploy clears it again at once.
-  touch "$owed"
-  if TIRO_TRIGGER="$effective" TIRO_COMMITTED="$committed" bash "$here/deploy.sh"; then
-    rm -f "$owed"
-  else
+  if [ "$inherited" = true ]; then
+    echo "A deploy an earlier run could not send is still owed; sending it now"
+  fi
+  if ! dispatch "$effective" "$committed"; then
     problem "The site was not told to rebuild; the next run will try again"
   fi
 fi

@@ -13,6 +13,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -40,10 +41,13 @@ const PINNED = (
 
 const dispatches: string[] = [];
 let dispatchStatus = 204;
+/** Something else happening while a dispatch is in flight. */
+let duringDispatch: (() => void) | undefined;
 const github = Bun.serve({
   port: 0,
   fetch(request) {
     dispatches.push(new URL(request.url).pathname);
+    duringDispatch?.();
     return new Response(null, { status: dispatchStatus });
   },
 });
@@ -51,6 +55,7 @@ afterAll(() => github.stop(true));
 beforeEach(() => {
   dispatches.length = 0;
   dispatchStatus = 204;
+  duringDispatch = undefined;
 });
 
 const sandboxes: string[] = [];
@@ -67,6 +72,22 @@ const VAULT = {
 
 /** The processor writing one article's translation. */
 const TRANSLATES_A = "echo translated > articles/a/zh.md";
+
+/** This test runner's process group, which a scenario must never kill. */
+const OWN_GROUP = Bun.spawnSync([
+  "ps",
+  "-o",
+  "pgid=",
+  "-p",
+  String(process.pid),
+])
+  .stdout.toString()
+  .trim();
+
+/** The host killing the job outright, as Janus does on its step timeout, a
+ * cancel or a shutdown: SIGKILL to the job's whole process group, which no
+ * trap survives. run.sh runs in a group of its own for this. */
+const KILLS_THE_JOB = `group=$(ps -o pgid= -p $$ | tr -d ' '); [ "$group" != "${OWN_GROUP}" ] && kill -s KILL -- "-$group"`;
 
 /**
  * A vault on a bare remote, this host's (not yet made) checkout of it, and
@@ -159,22 +180,27 @@ function sandbox(initial: Record<string, string> = VAULT) {
     write,
     pushAs,
     async run(env: Record<string, string> = {}) {
-      const run = Bun.spawn(["bash", RUN], {
-        env: {
-          ...base,
-          PATH: `${bin}:${base.PATH}`,
-          TIRO_VAULT_DIR: vault,
-          TIRO_VAULT_REMOTE: `file://${remote}`,
-          TIRO_GITHUB_API: `http://127.0.0.1:${github.port}`,
-          TIRO_DISPATCH_TOKEN: "t0ken",
-          TIRO_PROCESS_TIMEOUT: "",
-          SHIM_BUN_VERSION: PINNED,
-          SHIM_LOG: shimLog,
-          ...env,
+      // In a process group of its own, as a CI host runs a step, so killing
+      // the job's group leaves this runner alone.
+      const run = Bun.spawn(
+        ["perl", "-e", "setpgrp(0, 0); exec @ARGV", "bash", RUN],
+        {
+          env: {
+            ...base,
+            PATH: `${bin}:${base.PATH}`,
+            TIRO_VAULT_DIR: vault,
+            TIRO_VAULT_REMOTE: `file://${remote}`,
+            TIRO_GITHUB_API: `http://127.0.0.1:${github.port}`,
+            TIRO_DISPATCH_TOKEN: "t0ken",
+            TIRO_PROCESS_TIMEOUT: "",
+            SHIM_BUN_VERSION: PINNED,
+            SHIM_LOG: shimLog,
+            ...env,
+          },
+          stdout: "pipe",
+          stderr: "pipe",
         },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      );
       const [out, err] = await Promise.all([
         new Response(run.stdout).text(),
         new Response(run.stderr).text(),
@@ -403,6 +429,85 @@ describe("run.sh", () => {
     expect(owed.exitCode).toBe(0);
     expect(owed.log).toContain("still owed");
     expect(dispatches.length).toBe(1);
+  });
+
+  test("a run killed outright: the next commits what it wrote, and deploys", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "schedule" });
+    await s.run({
+      TIRO_TRIGGER: "push",
+      SHIM_SCENARIO: `${TRANSLATES_A} && ${KILLS_THE_JOB}`,
+    });
+    expect(s.remoteFile("articles/a/zh.md")).toBeUndefined();
+    expect(dispatches).toEqual([]);
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(r.log).toContain("The last run here did not finish");
+    expect(s.remoteFile("articles/a/zh.md")).toBe("translated\n");
+    expect(dispatches.length).toBe(1);
+  });
+
+  // A hand edit — `unlisted`, a deletion — has nothing to process and owes a
+  // deploy from the moment its push arrives.
+  test("a hand edit's run killed before its deploy still gets one", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "schedule" });
+    s.pushAs("someone", { "articles/a/index.md": "a, unlisted\n" }, "edit: a");
+    await s.run({ TIRO_TRIGGER: "push", SHIM_SCENARIO: KILLS_THE_JOB });
+    expect(dispatches).toEqual([]);
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(dispatches.length).toBe(1);
+  });
+
+  test("a hand edit's run that cannot reach the vault still owes its deploy", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "schedule" });
+    s.pushAs("someone", { "articles/a/index.md": "a, unlisted\n" }, "edit: a");
+    renameSync(s.remote, `${s.remote}.away`);
+    const failed = await s.run({ TIRO_TRIGGER: "push" });
+    renameSync(`${s.remote}.away`, s.remote);
+    expect(failed.exitCode).toBe(1);
+    expect(failed.log).toContain("Could not fetch");
+    expect(dispatches).toEqual([]);
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(dispatches.length).toBe(1);
+  });
+
+  // A collections edit runs beside processing, not behind it. Whatever a
+  // dispatch publishes, main already held when the debts it pays were
+  // recorded — but not one recorded while it was in flight.
+  test("a deploy pays only what was owed before it was sent", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "schedule" });
+    const debts = `${s.vault}.deploys-owed`;
+    duringDispatch = () => {
+      writeFileSync(join(debts, "owed.concurrent"), "");
+      duringDispatch = undefined;
+    };
+    expect((await s.run({ TIRO_TRIGGER: "publish" })).exitCode).toBe(0);
+    expect(existsSync(join(debts, "owed.concurrent"))).toBe(true);
+    dispatches.length = 0;
+    await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(dispatches.length).toBe(1);
+    expect(existsSync(join(debts, "owed.concurrent"))).toBe(false);
+  });
+
+  test("a collections edit's deploy that could not be sent is owed", async () => {
+    const s = sandbox();
+    dispatchStatus = 401;
+    const failed = await s.run({ TIRO_TRIGGER: "publish" });
+    expect(failed.exitCode).toBe(1);
+    dispatchStatus = 204;
+    dispatches.length = 0;
+    const owed = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(owed.exitCode).toBe(0);
+    expect(owed.log).toContain("still owed");
+    expect(dispatches.length).toBe(1);
+    dispatches.length = 0;
+    expect((await s.run({ TIRO_TRIGGER: "schedule" })).exitCode).toBe(0);
+    expect(dispatches).toEqual([]);
   });
 
   test("a deploy that could not be sent is owed until one is", async () => {
