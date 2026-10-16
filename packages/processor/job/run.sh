@@ -80,10 +80,17 @@ if [ -n "$vault" ]; then
 fi
 owe() { [ -z "$debts" ] || mktemp "$debts/owed.XXXXXX"; }
 owing() { [ -n "$debts" ] && [ -n "$(ls -A "$debts" 2>/dev/null)" ]; }
+# Deploy for a run started by $1, which committed if $2 is "true". One look at
+# the debts decides both whether to deploy and what a dispatch pays: any debt
+# makes the deploy due, so a debt is only ever paid by a dispatch that was
+# sent, and one recorded after the look — a concurrent run's — is left for
+# the next. Looking twice would let a debt recorded in between be paid by a
+# run that had already decided to send nothing.
 dispatch() {
-  local before=""
+  local before="" committed="$2"
   [ -z "$debts" ] || before="$(ls "$debts" 2>/dev/null)"
-  if TIRO_TRIGGER="$1" TIRO_COMMITTED="$2" bash "$here/deploy.sh"; then
+  [ -z "$before" ] || committed=true
+  if TIRO_TRIGGER="$1" TIRO_COMMITTED="$committed" bash "$here/deploy.sh"; then
     for debt in $before; do rm -f "$debts/$debt"; done
     return 0
   fi
@@ -314,11 +321,11 @@ rm -f "$marker"
 
 # What reached main and has not been published yet — this run's commit, a
 # killed run's, or a deploy an earlier run could not send, hand edit or not —
-# counts as committed, so the deploy goes even on a trigger that only
-# publishes its own commits.
+# is owed, and dispatch counts anything owed as committed, so the deploy goes
+# even on a trigger that only publishes its own commits.
 if [ "$committing" = true ]; then
   committed=false
-  if grep -qx 'committed=true' "$scratch/commit" 2>/dev/null || owing; then
+  if grep -qx 'committed=true' "$scratch/commit" 2>/dev/null; then
     committed=true
   fi
   if [ "$inherited" = true ]; then

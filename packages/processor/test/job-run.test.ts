@@ -494,6 +494,44 @@ describe("run.sh", () => {
     expect(existsSync(join(debts, "owed.concurrent"))).toBe(false);
   });
 
+  // A collections edit's run records its debt beside a run that has just
+  // looked and found nothing owed. A debt must never be paid without a
+  // dispatch that could have published it. The stand-in ls records the
+  // racing debt the first time the run lists its debts without -A — the
+  // listing it pays from — just before answering.
+  test("a debt recorded while a run decides is never paid without a dispatch", async () => {
+    const s = sandbox();
+    await s.run({ TIRO_TRIGGER: "schedule" });
+    dispatches.length = 0;
+    const debts = `${s.vault}.deploys-owed`;
+    const racing = join(debts, "owed.racing");
+    const bin = join(s.root, "bin");
+    const realLs = Bun.which("ls") ?? "/bin/ls";
+    writeFileSync(
+      join(bin, "ls"),
+      [
+        "#!/bin/sh",
+        `if [ "$1" != -A ] && [ ! -e "${s.root}/raced" ]; then`,
+        `  touch "${s.root}/raced" "${racing}"`,
+        "fi",
+        `exec "${realLs}" "$@"`,
+      ].join("\n"),
+    );
+    chmodSync(join(bin, "ls"), 0o755);
+    const r = await s.run({ TIRO_TRIGGER: "schedule" });
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(join(s.root, "raced"))).toBe(true);
+    // Paid only by a dispatch, or still owed.
+    expect({
+      dispatched: dispatches.length,
+      owed: existsSync(racing),
+    }).toEqual(
+      existsSync(racing)
+        ? { dispatched: 0, owed: true }
+        : { dispatched: 1, owed: false },
+    );
+  });
+
   test("a collections edit's deploy that could not be sent is owed", async () => {
     const s = sandbox();
     dispatchStatus = 401;

@@ -93,6 +93,9 @@ variable is the old behaviour.
   `main`, and a dispatch that went through pays exactly the debts that
   existed before it was sent: a collections edit runs beside processing, and
   must not clear a debt recorded while its own dispatch was in flight. The
+  same single look at the debts decides whether to deploy at all — any debt
+  makes it due — so a debt is never paid by a run that sent nothing, as it
+  could be when one look decided and a later one paid. The
   records sit beside the vault's checkout rather than in it, since a
   collections edit needs no checkout to owe a deploy. On Actions the next run
   starts from a fresh checkout and cannot know; there a failed deploy is a red
