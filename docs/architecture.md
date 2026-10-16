@@ -568,8 +568,9 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   since processing is idempotent and the commit-back rebases.
 - **Name resolution on the processing host.** The fetch guard resolves a name
   before fetching it, so a resolver that answers with reserved addresses — a
-  proxy's fake-ip mode, some poisoned answers — refuses a saved link for good
-  and keeps images as hotlinks. Off Actions the host needs clean DNS.
+  proxy's fake-ip mode, some poisoned answers — refuses a saved link and a web
+  PDF for good and keeps images as hotlinks. Off Actions, or in a run by hand
+  on a machine behind such a proxy, the host needs clean DNS.
 - **A missed webhook** (off Actions) is not redelivered by GitHub. The daily
   run picks up its processing; a hand edit's deploy waits for the next one,
   or for a redelivery by hand.

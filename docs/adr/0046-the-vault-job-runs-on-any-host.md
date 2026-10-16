@@ -179,8 +179,8 @@ a concurrency group, so they queue as the workflow's runs do.
   cannot; a Janus version of the check is deferred.
 - The fetch guard resolves names on the host. A resolver that answers with
   reserved addresses — a proxy's fake-ip mode, some poisoned answers — refuses
-  a saved link for good (`fetch_failed`) and keeps images as hotlinks, so the
-  host needs clean DNS. A guard that defers to a proxy is deferred.
+  a saved link and a web PDF for good (`fetch_failed`, the PDF never
+  processed) and keeps images as hotlinks, so the host needs clean DNS. A guard that defers to a proxy is deferred.
 - A webhook GitHub failed to deliver is not delivered again. The daily run
   picks up its processing, but a hand edit's deploy waits for the next
   deploy — or for a redelivery from the webhook's Recent Deliveries.
