@@ -31,7 +31,7 @@ Requires [Bun](https://bun.sh) (version pinned in `package.json`).
 
 ```sh
 bun install
-bun run lint       # Biome + Prettier (.astro only)
+bun run lint       # Biome + Prettier (.astro only) + shellcheck (job scripts)
 bun run typecheck  # tsc across all packages
 bun test           # bun test across all packages
 ```
