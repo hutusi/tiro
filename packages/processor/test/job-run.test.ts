@@ -4,6 +4,7 @@ import {
   beforeEach,
   describe,
   expect,
+  setDefaultTimeout,
   test,
 } from "bun:test";
 import {
@@ -19,6 +20,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+// Each case runs the whole job for real, up to three times: clones, a fetch,
+// a commit and push, a dispatch. About a second a run on a quiet machine, and
+// ten times that on a busy one: on 2026-10-17, at a load average of 40 to 50,
+// a dozen cases passed bun's default 5s, and a three-run case took 31s.
+setDefaultTimeout(60_000);
 
 /**
  * packages/processor/job/run.sh — the whole vault job on a host without
@@ -758,7 +765,6 @@ describe("run.sh", () => {
       expect(s.remoteFile("articles/a/zh.md")).toBe("translated\n");
       expect(dispatches.length).toBe(1);
     },
-    15_000,
   );
 
   test.skipIf(Bun.which("flock") === null)(

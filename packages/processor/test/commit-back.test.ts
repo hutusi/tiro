@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   chmodSync,
   mkdirSync,
@@ -10,6 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+
+// Real git, up to five pushes a case: well inside bun's default 5s on a quiet
+// machine, and past it on a busy one (2026-10-17, at a load average of 40).
+setDefaultTimeout(30_000);
 
 /**
  * The vault's "Commit results back" step, run for real.
