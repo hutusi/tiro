@@ -5,6 +5,7 @@ import {
   ChatHttpError,
   createChatClient,
   type FetchLike,
+  isModerationRefusal,
   isProviderFailure,
 } from "../src/llm/client.ts";
 import { droppedReply } from "./helpers.ts";
@@ -631,6 +632,39 @@ describe("isProviderFailure", () => {
   for (const [what, error, expected] of cases) {
     test(`${what}: ${expected ? "outage" : "not an outage"}`, () => {
       expect(isProviderFailure(error)).toBe(expected);
+    });
+  }
+});
+
+describe("isModerationRefusal", () => {
+  const cases: [string, unknown, boolean][] = [
+    [
+      "DashScope refusing the input",
+      new ChatHttpError(
+        400,
+        '{"error":{"message":"Input data may contain inappropriate content.","type":"data_inspection_failed","code":"data_inspection_failed"}}',
+      ),
+      true,
+    ],
+    [
+      "DashScope refusing the output",
+      new ChatHttpError(
+        400,
+        '{"error":{"message":"Output data may contain inappropriate content.","code":"data_inspection_failed"}}',
+      ),
+      true,
+    ],
+    ["a malformed request", new ChatHttpError(400, "InvalidParameter"), false],
+    [
+      "the code under another status",
+      new ChatHttpError(500, "data_inspection_failed"),
+      false,
+    ],
+    ["a plain error", new Error("data_inspection_failed"), false],
+  ];
+  for (const [what, error, expected] of cases) {
+    test(`${what}: ${expected ? "refused" : "not a refusal"}`, () => {
+      expect(isModerationRefusal(error)).toBe(expected);
     });
   }
 });

@@ -15,7 +15,7 @@ import {
   unboundedDeadline,
 } from "../deadline.ts";
 import type { TranslationCache } from "./cache.ts";
-import type { ChatFn } from "./client.ts";
+import { type ChatFn, isModerationRefusal } from "./client.ts";
 
 export interface TranslateOptions {
   chat: ChatFn;
@@ -213,15 +213,31 @@ export async function translateBlocks(
     }
   }
 
+  // A block the provider's moderation refuses is refused on every run and on
+  // every host, so it keeps its original text, the way a block too large to
+  // send does, rather than failing the article for good. A batch holding it
+  // was refused too, and fell back to here. Not checkpointed: the checkpoint
+  // holds real translations, and a `--force` run, perhaps under another
+  // model, asks again.
+  let refused = 0;
+  const translateOne = async (item: Todo): Promise<void> => {
+    deadline.check(callBudgetMs, `block ${item.index}`);
+    let text: string;
+    try {
+      text = await translateSingle(chat, model, targetLang, item.masked);
+    } catch (error) {
+      if (!isModerationRefusal(error)) throw error;
+      refused += 1;
+      return;
+    }
+    record(item, text);
+  };
+
   try {
     if (collision) {
       log("sentinel collision in source; translating block-by-block");
       for (const item of todo) {
-        deadline.check(callBudgetMs, `block ${item.index}`);
-        record(
-          item,
-          await translateSingle(chat, model, targetLang, item.masked),
-        );
+        await translateOne(item);
         await cache?.flush();
       }
     } else {
@@ -263,11 +279,7 @@ export async function translateBlocks(
           }
           // The per-block fallback is the slowest path in the pipeline, so
           // checkpoint each one rather than risk repeating them.
-          deadline.check(callBudgetMs, `block ${item.index}`);
-          record(
-            item,
-            await translateSingle(chat, model, targetLang, item.masked),
-          );
+          await translateOne(item);
           await cache?.flush();
         }
         await cache?.flush();
@@ -278,6 +290,11 @@ export async function translateBlocks(
     // and a deadline that expired inside a call — so the resumable-or-not
     // question is answered once, in one place.
     throw asHardFailureIfUnsaved(error);
+  }
+  if (refused > 0) {
+    log(
+      `${refused} block(s) kept untranslated: the provider's content moderation refused them`,
+    );
   }
 
   // Check each translation on its own before joining, and keep the original

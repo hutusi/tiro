@@ -59,6 +59,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **An article the provider's moderation partly refuses is still translated.**
+  DashScope refuses some paragraphs outright, on every run and from every
+  host, and one refused paragraph used to fail the whole article, which then
+  stayed pending for good: an Atlantic piece on Taiwan failed four runs in a
+  row. A refused paragraph now stays in English and the rest is translated.
 - **Summaries no longer break off at a quotation mark.** Asking the model for
   “ ” instead of a straight quote, which closes the string in the JSON reply,
   still left about one reply in four cut short on articles that quote terms,

@@ -8,7 +8,7 @@ import {
   loadTranslationCache,
   TRANSLATION_CACHE_FILE,
 } from "../src/llm/cache.ts";
-import type { ChatFn } from "../src/llm/client.ts";
+import { type ChatFn, ChatHttpError } from "../src/llm/client.ts";
 import { translateBlocks } from "../src/llm/translate.ts";
 import { makeFakeChat } from "./helpers.ts";
 
@@ -563,6 +563,62 @@ describe("translateBlocks fidelity", () => {
     expect(batchAttempts).toBeGreaterThan(0);
     expect(zh).not.toBeNull();
     expect(splitBlocks(zh ?? "")[1]?.text).toBe("中文：First paragraph.");
+  });
+
+  test("a block the provider's moderation refuses keeps its original", async () => {
+    // DashScope refused one paragraph of an Atlantic piece on Taiwan on every
+    // run: the batch fell back to per-block, the refused block threw, and the
+    // article failed for good, on any host the same provider serves.
+    const refusal = () =>
+      new ChatHttpError(
+        400,
+        '{"error":{"message":"Input data may contain inappropriate content.","code":"data_inspection_failed"}}',
+      );
+    const fallback = makeFakeChat();
+    const chat: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      if (user.includes("Last paragraph.")) throw refusal();
+      return fallback(request);
+    };
+    const lines: string[] = [];
+    const cache = await loadTranslationCache(cachePath(), header);
+    const zh = await translateBlocks({
+      chat,
+      model: "m",
+      targetLang: "zh",
+      blocks,
+      cache,
+      log: (line) => lines.push(line),
+    });
+
+    expect(zh).not.toBeNull();
+    const out = splitBlocks(zh ?? "");
+    expect(out).toHaveLength(blocks.length);
+    expect(out[1]?.text).toBe("中文：First paragraph.");
+    expect(out.at(-1)?.text).toBe("Last paragraph.");
+    // Only real translations are checkpointed, so a forced run asks again.
+    expect(cache.get("First paragraph.")).toBe("中文：First paragraph.");
+    expect(cache.get("Last paragraph.")).toBeUndefined();
+    expect(lines).toContain(
+      "1 block(s) kept untranslated: the provider's content moderation refused them",
+    );
+  });
+
+  test("any other 400 on a block still fails the article", async () => {
+    // A malformed request is refused for every block alike; keeping each one's
+    // original would publish an untranslated article as translated.
+    const fallback = makeFakeChat();
+    const chat: ChatFn = async (request) => {
+      const user =
+        request.messages.find((m) => m.role === "user")?.content ?? "";
+      if (user.includes("Last paragraph."))
+        throw new ChatHttpError(400, "InvalidParameter");
+      return fallback(request);
+    };
+    await expect(
+      translateBlocks({ chat, model: "m", targetLang: "zh", blocks }),
+    ).rejects.toThrow(ChatHttpError);
   });
 
   test("budget exhaustion is not retried block by block", async () => {

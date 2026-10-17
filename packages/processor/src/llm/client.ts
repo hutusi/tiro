@@ -126,7 +126,7 @@ const TIMEOUT_ATTEMPT_LIMIT = 2;
 export class ChatHttpError extends Error {
   constructor(
     readonly status: number,
-    body: string,
+    readonly body: string,
   ) {
     super(
       `chat completions request failed with ${status}: ${body.slice(0, 300)}`,
@@ -187,6 +187,24 @@ export function isProviderFailure(error: unknown): boolean {
     status === 404 ||
     status === 429 ||
     status >= 500
+  );
+}
+
+/**
+ * Whether the provider's content moderation refused this request — DashScope
+ * answers 400 with `data_inspection_failed`, for what was sent ("Input data may
+ * contain inappropriate content") or for what the model wrote back ("Output
+ * data…"). Asking again sends the same text and gets the same answer, on this
+ * host or any other, so a stage that can do without this one request should.
+ *
+ * Matched by the code and not by the status alone: a 400 is also what a
+ * malformed request gets, and a misconfigured one would refuse every request.
+ */
+export function isModerationRefusal(error: unknown): boolean {
+  return (
+    error instanceof ChatHttpError &&
+    error.status === 400 &&
+    error.body.includes("data_inspection_failed")
   );
 }
 

@@ -138,6 +138,15 @@ endpoint works.
   `falling back to per-block translation`. Slower, but a single slow batch no
   longer ends the article, which mattered once checkpoints made the next run
   resume at exactly that batch.
+- **A block the provider's moderation refuses stays in the original.**
+  DashScope answers some text with 400 `data_inspection_failed` ("Input data
+  may contain inappropriate content", or "Output data…" for what the model
+  wrote), and answers the same way on every run and from every host. The batch
+  holding it falls back to per-block, the refused block keeps its source text,
+  and the rest of the article is translated — look for
+  `block(s) kept untranslated: the provider's content moderation refused them`.
+  Nothing is checkpointed for it, so `--force` with the slug asks again, under
+  another model if `tiro.yml` names one. Any other 400 still fails the article.
 - **Run budget and long articles** (ADR 0008). `processing.run_budget_ms`
   (default 50 min) is a wall-clock budget the processor enforces itself, sitting
   under the job's `timeout-minutes: 60`. Pending articles are processed
@@ -1838,6 +1847,7 @@ permanent extension ID, unrelated to the unpacked one.
 | A chart's title, legend or tooltip rows (`P25 / Fetches1 / …`) appear as stray paragraphs | the clip found no host for the chart: no `<figure>`, and its box holds a heading, a link, a list or more text than a chart's chrome (ADR 0044) | the chart itself was deleted, as before; tighten or extend the host rule in `orphanChartHost` with a test of the page's shape |
 | `image kept as hotlink (…)` in processing logs | per-image guard (non-public host, size cap, non-image response, fetch error) | by design; article still processes |
 | Article on site but raw (no summary/translation) | it's still pending after a failed run | see Reprocessing |
+| An article's side-by-side view has a few paragraphs in English on the translated side | the provider's moderation refused those blocks (`kept untranslated: the provider's content moderation refused them` in the run log) | expected on DashScope for some political subjects; `--force` with the slug under another model translates them |
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |
 | Several articles pending while only one is ever attempted | pre-ADR-0008 alphabetical ordering starved the rest | fixed: articles now run cheapest-first under a budget |
 | Site build logs `shiki: no grammar for "x"` | a fence whose language is outside the curated grammar list in `apps/site/src/lib/highlight.ts` | harmless — the block renders as plain text. Add the grammar there if the language is worth supporting |
