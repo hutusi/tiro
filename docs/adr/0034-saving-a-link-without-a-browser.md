@@ -1,6 +1,8 @@
 # ADR 0034: Saving a link without a browser
 
-Status: accepted (2026-09).
+Status: accepted (2026-09). Amended by ADR 0047: a host that resolves to a
+fake-ip proxy's address (198.18.0.0/15) is refused but not settled, since the
+answer is the machine's resolver, not the host.
 
 ## Context
 

@@ -567,10 +567,11 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   host is live: the work both do is paid for twice, and nothing is lost,
   since processing is idempotent and the commit-back rebases.
 - **Name resolution on the processing host.** The fetch guard resolves a name
-  before fetching it, so a resolver that answers with reserved addresses — a
-  proxy's fake-ip mode, some poisoned answers — refuses a saved link and a web
-  PDF for good and keeps images as hotlinks. Off Actions, or in a run by hand
-  on a machine behind such a proxy, the host needs clean DNS.
+  before fetching it, so a resolver that answers with reserved addresses keeps
+  images as hotlinks and refuses saved links and web PDFs. A proxy's fake-ip
+  answer leaves them pending, with a red run naming it (ADR 0047). Any other
+  reserved answer, such as some poisoned ones, settles them for good. Off
+  Actions, or in a run by hand behind such a proxy, the host needs clean DNS.
 - **A missed webhook** (off Actions) is not redelivered by GitHub. The daily
   run picks up its processing; a hand edit's deploy waits for the next one,
   or for a redelivery by hand.

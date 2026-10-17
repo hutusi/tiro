@@ -65,6 +65,12 @@ versions follow the `0.x` line while Tiro is a personal system.
   and two articles kept their first paragraph as the summary. The model is now
   asked for 「 」 in Chinese, which has no ASCII twin, and the processor
   writes them back as “ ”: none of 50 replays was cut.
+- **A fake-ip proxy no longer loses saved links and web PDFs.** Processing
+  on a machine whose DNS answers for a proxy in fake-ip mode (`198.18.x.x`)
+  marked every saved link and web PDF `fetch_failed`, for good, and a PDF
+  never got its summary or translation. They are still not fetched there, but
+  now stay pending, and the run says why, until a machine with real DNS
+  processes them (ADR 0047).
 - **A saved link behind a login is no longer saved as the sign-in form.** A
   link the processor fetched was redirected, without cookies, to the site's
   sign-in page, which clipped as an article: github.com/settings/profile became

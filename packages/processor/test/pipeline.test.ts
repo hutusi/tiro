@@ -740,6 +740,28 @@ describe("saved links", () => {
     expect(body).toBe("");
   });
 
+  // ADR 0047. Settling it would lose the article to whichever machine ran
+  // the processor, as a run behind a fake-ip proxy did to a web PDF.
+  test("a link this machine's DNS fakes stays pending, and the run says why", async () => {
+    const vault = withInbox(SAVED);
+    const config = await loadVaultConfig(vault);
+    const hits: string[] = [];
+    const report = await runPipeline({ vaultDir: vault }, config, {
+      ...deps,
+      resolveHost: async () => ["198.18.0.7"],
+      fetchImpl: serving({ [SAVED]: page }, hits),
+    });
+    const { slug, read } = await savedArticle(vault);
+    const { frontmatter } = read();
+    expect(hits).toEqual([]);
+    expect(needsProcessing(frontmatter)).toBe(true);
+    expect(frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(report.fetchFailed).toEqual([]);
+    expect(report.errored.find((e) => e.slug === slug)?.error).toContain(
+      "fake-ip",
+    );
+  });
+
   test("a link that is a PDF becomes a PDF article", async () => {
     const vault = withInbox(SAVED);
     const config = await loadVaultConfig(vault);
@@ -2402,6 +2424,25 @@ describe("runPipeline with a PDF stub", () => {
       readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
     );
     expect(article.frontmatter.tiro.fetch_failed).toContain("not a PDF");
+  });
+
+  test("leaves a web PDF pending when this machine's DNS is fake-ip", async () => {
+    // What happened to a web PDF processed behind a fake-ip proxy: settled
+    // for good, never summarized or translated (ADR 0047).
+    const { dir, slug } = await stubVault();
+    const config = await loadVaultConfig(dir);
+    const report = await runPipeline({ vaultDir: dir }, config, {
+      ...deps,
+      resolveHost: async () => ["198.19.255.1"],
+      fetchImpl: servePdf(makePdf(["Section 1\nNever fetched."])),
+    });
+
+    const article = parseArticle(
+      readFileSync(join(dir, "articles", slug, "index.md"), "utf8"),
+    );
+    expect(needsProcessing(article.frontmatter)).toBe(true);
+    expect(article.frontmatter.tiro.fetch_failed).toBeUndefined();
+    expect(report.errored.map((e) => e.slug)).toContain(slug);
   });
 
   test("leaves the article pending when the server fails for now", async () => {

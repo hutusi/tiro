@@ -743,10 +743,10 @@ the host needs:
   `allow_repos` the way the webhook names the repo: its `ssh_url`.
 - **Clean DNS.** The processor checks where a name resolves before fetching
   it, and refuses reserved addresses. A proxy in fake-ip mode answers every
-  name with one (`198.18.x.x`), and so do some poisoned answers: every saved
-  link and every web PDF would be settled for good as `fetch_failed` — a PDF
-  then never gets its summary or translation — and every image stay a
-  hotlink. `getent ahosts
+  name with one (`198.18.x.x`): every saved link and every web PDF stays
+  pending, each run goes red naming the fake-ip address, and every image
+  stays a hotlink (ADR 0047). Some poisoned answers are worse — any other
+  reserved address settles the article for good as `fetch_failed`. `getent ahosts
   cdn.theatlantic.com` as `janus` must show real public addresses.
 - **Janus's own settings** (`janus.yml`):
   - `github_secret` and `api_token`, by environment (`JANUS_GITHUB_SECRET`,
@@ -1824,7 +1824,8 @@ permanent extension ID, unrelated to the unpacked one.
 | A host run fails with `Could not fetch the vault's main` | the host cannot reach GitHub — the proxy, the deploy key, or GitHub itself | `git -C $TIRO_VAULT_DIR fetch origin main` as the job's user shows which |
 | Every Janus run fails at once with 403 | the vault is not in Janus's `allow_repos`, or is written there differently from the URL the webhook sends | copy `ssh_url` from a delivery into `allow_repos` |
 | Janus runs end at the same length, and the next one starts with `The last run here did not finish` | Janus's `step_timeout` is below the run's budget | `step_timeout: "0"` or at least `"90m"` |
-| Saved links or web PDFs settle with `fetch_failed: … resolves to a non-public address` | the resolver of the machine that ran the processor answers with reserved addresses — a proxy's fake-ip mode, or poisoned answers. A run by hand behind such a proxy does it too | give that machine clean DNS. To retry an article, remove `processed_at` and `fetch_failed` from its frontmatter, or re-save the link. Before committing a run by hand, `git restore` any article it settled this way |
+| A run fails saved links or web PDFs with `… resolves to 198.18.x.x, a fake-ip proxy's address` | the resolver of the machine that ran the processor is a proxy's in fake-ip mode. The articles stay pending (ADR 0047), so nothing is lost | give that machine clean DNS (the proxy's real-IP mode, or a resolver that bypasses it), or run on a machine that has it |
+| Saved links or web PDFs settle with `fetch_failed: … resolves to a non-public address` | the name resolved to a reserved address that is not fake-ip's: its own records point inside a private network, or a poisoned answer | if it is the resolver, give that machine clean DNS. To retry an article, remove `processed_at` and `fetch_failed` from its frontmatter, or re-save the link |
 | "Process articles" on Actions shows its job skipped | `TIRO_PROCESSOR` is `external`: another host processes | expected; run it by hand to use Actions anyway |
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
 | A run stops early with `stopped after the provider failed 3 articles in a row` | a provider outage, an expired or revoked `TIRO_LLM_API_KEY`, a model id the key cannot use, or quota exhausted — the three errors before it say which | curl self-test against the provider; fix the key, the model or the quota. Nothing to clean up: the articles it did not attempt are still pending |

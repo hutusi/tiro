@@ -181,6 +181,9 @@ a concurrency group, so they queue as the workflow's runs do.
   reserved addresses — a proxy's fake-ip mode, some poisoned answers — refuses
   a saved link and a web PDF for good (`fetch_failed`, the PDF never
   processed) and keeps images as hotlinks, so the host needs clean DNS. A guard that defers to a proxy is deferred.
+  *(Amended by ADR 0047: a fake-ip answer, 198.18.0.0/15, is refused but no
+  longer settled. The article stays pending and the run goes red until the
+  host has clean DNS. Other reserved answers still settle.)*
 - A webhook GitHub failed to deliver is not delivered again. The daily run
   picks up its processing, but a hand edit's deploy waits for the next
   deploy — or for a redelivery from the webhook's Recent Deliveries.

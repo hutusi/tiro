@@ -215,12 +215,34 @@ async function assertPublicAddresses(
   } catch (error) {
     throw new Error(`cannot resolve ${hostname}: ${String(error)}`);
   }
-  for (const address of addresses) {
-    if (isForbiddenHost(address)) {
-      // Settled: where a name points does not change by asking again.
-      throw new SettledRefusal(`${hostname} resolves to a non-public address`);
-    }
+  const refused = addresses.filter(isForbiddenHost);
+  if (refused.length === 0) return;
+  // Refused either way; what differs is whose answer it is. A fake-ip one is
+  // this machine's resolver speaking for its proxy, and says nothing about the
+  // name, so the article waits for a host with real DNS (ADR 0047).
+  if (refused.every(isFakeIpAnswer)) {
+    throw new Error(
+      `${hostname} resolves to ${refused[0]}, a fake-ip proxy's address: this machine's DNS answers for its proxy, so nothing can be fetched until it gives real addresses`,
+    );
   }
+  // Settled: where a name points does not change by asking again.
+  throw new SettledRefusal(`${hostname} resolves to a non-public address`);
+}
+
+/**
+ * Is this resolved address what a proxy in fake-ip mode hands out?
+ *
+ * Clash, Surge, sing-box and their kin answer every name they route with an
+ * address from 198.18.0.0/15, the benchmarking range, which no public name
+ * resolves to. An answer from there says the machine's resolver is the
+ * proxy's, not where the name points — so it is no reason to give up on the
+ * article for good. It stays refused: the guard cannot see past the proxy to
+ * the real address. Only as an answer: a URL that names such an address
+ * itself is refused by `isForbiddenHost` before anything is resolved, and
+ * settled like any other.
+ */
+function isFakeIpAnswer(address: string): boolean {
+  return /^198\.1[89]\.\d{1,3}\.\d{1,3}$/.test(address);
 }
 
 const MAX_REDIRECTS = 5;

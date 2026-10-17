@@ -10,7 +10,9 @@ import { PdfRefusal } from "@tiro/shared";
  * again on every run, and with a daily run that is one red run a day, forever,
  * for an article nobody can fix by waiting. Those throw this instead, and the
  * pipeline records them as `tiro.fetch_failed` and stops asking. `--force`
- * with the slug asks again.
+ * with the slug asks again. Not a fake-ip answer, though: that one is the
+ * machine's resolver speaking, not the host, and waiting for a machine with
+ * real DNS does fix it (ADR 0047).
  *
  * No `name` of its own, so it prints as a plain `Error` wherever it is logged.
  */

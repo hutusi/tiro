@@ -84,6 +84,48 @@ describe("fetchLinkPage", () => {
     expect(String(error)).toContain("non-public address");
   });
 
+  test("a fake-ip answer is refused, but not for good", async () => {
+    // The machine's resolver speaking for its proxy, not the host (ADR 0047):
+    // still never fetched, and asked again by a run with real DNS.
+    let fetched = false;
+    const error = await fetchLinkPage({
+      ...base,
+      url: "https://example.net/post",
+      resolveHost: async () => ["198.18.0.42"],
+      fetchImpl: async () => {
+        fetched = true;
+        return html(ARTICLE);
+      },
+    }).catch((e) => e);
+    expect(fetched).toBe(false);
+    expect(error).toBeInstanceOf(Error);
+    expect(isSettled(error)).toBe(false);
+    expect(String(error)).toContain(
+      "example.net resolves to 198.18.0.42, a fake-ip proxy's address",
+    );
+  });
+
+  test("a fake-ip answer beside a private one is still settled", async () => {
+    const error = await fetchLinkPage({
+      ...base,
+      url: "https://example.net/post",
+      resolveHost: async () => ["198.18.0.42", "10.0.0.5"],
+      fetchImpl: async () => html(ARTICLE),
+    }).catch((e) => e);
+    expect(isSettled(error)).toBe(true);
+    expect(String(error)).toContain("non-public address");
+  });
+
+  test("a link that names a fake-ip address itself is settled", async () => {
+    const error = await fetchLinkPage({
+      ...base,
+      url: "http://198.18.0.42/post",
+      fetchImpl: async () => html(ARTICLE),
+    }).catch((e) => e);
+    expect(isSettled(error)).toBe(true);
+    expect(String(error)).toContain("non-public host");
+  });
+
   test("a 404 is settled, a 503 is worth another try", async () => {
     const gone = await fetchLinkPage({
       ...base,
