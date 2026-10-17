@@ -95,12 +95,37 @@ const ResponseSchema = z.object({
 const MAX_ATTEMPTS = 3;
 
 /**
- * The prompt's rule against the cut described at `summaryIsFinished`. Curly
- * quotes in either language: 33 Chinese summaries in the vault had a straight
- * quote correctly escaped, so the model can do it. It just does not always.
+ * The prompt's rule against the cut described at `summaryIsFinished`.
+ *
+ * Asking for “ ” was not enough. The model still wrote a straight `"` where it
+ * meant one, and two articles were cut on all three attempts after that rule
+ * shipped. Replayed against the live model on 2026-10-17, first attempts
+ * only, across five articles that had been cut: that prompt cut 13 of 50
+ * replies, every article at least once, and this one, asking for 「 」 in
+ * Chinese, cut none of 50. A corner bracket has no ASCII twin to slip into,
+ * where “ evidently does.
+ * `simplifiedQuotes` turns them back into the “ ” every earlier summary was
+ * written with. Turning JSON mode off instead was worse: 6 of 10 replies were
+ * not JSON at all.
  */
 const QUOTES =
-  'Inside any value, write quotation marks as “ and ”, never as the straight " character: a straight quote ends the JSON string, and the text after it is lost.';
+  'Inside any value, never write the straight " character. To quote a term in Chinese, use 「 and 」; in English, use “ and ”. A straight " ends the JSON string, and the text after it is lost.';
+
+const CORNER_TO_CURLY: Readonly<Record<string, string>> = {
+  "「": "“",
+  "」": "”",
+  "『": "‘",
+  "』": "’",
+};
+
+/**
+ * Chinese text with its corner brackets written as the curly quotes Simplified
+ * Chinese uses. The brackets are asked for only because they survive JSON
+ * mode (`QUOTES`), not as house style.
+ */
+export function simplifiedQuotes(text: string): string {
+  return text.replace(/[「」『』]/g, (mark) => CORNER_TO_CURLY[mark] ?? mark);
+}
 
 /**
  * Does this summary read as a finished thought rather than a cut one?
@@ -398,9 +423,12 @@ function accept(
 ): Omit<SummaryResult, "failed"> {
   const { title_zh, summary_orig, ...reply } = data;
   // Both routes that keep a reply come through here, so a cut summary's tags
-  // are held to the same policy as a finished one's (ADR 0033).
+  // are held to the same policy as a finished one's (ADR 0033), and its quotes
+  // are turned back too. Only the Chinese values: `summary_orig` is in the
+  // article's own language, which may write 「 」 itself.
   const rest = {
     ...reply,
+    summary: simplifiedQuotes(reply.summary),
     tags: writableTags(reply.tags, context.tagAliases, log, context.known, {
       current: context.currentTags,
     }),
@@ -409,7 +437,10 @@ function accept(
   // for an article that has no source language is discarded in one place and
   // the pipeline's write stays a plain spread.
   if (!context.bilingual) return rest;
-  const titleZh = acceptableTitleZh(title_zh, context.title);
+  const titleZh = acceptableTitleZh(
+    title_zh === undefined ? undefined : simplifiedQuotes(title_zh),
+    context.title,
+  );
   const summaryOrig = acceptableSourceSummary(
     summary_orig,
     rest.summary,

@@ -81,8 +81,9 @@ describe("summarize", () => {
    * The measured cause of the vault's cut summaries (2026-10): a straight
    * quote, meant as a quotation mark, closes the JSON string under JSON mode.
    * A cut at "这可能源于" was "这可能源于“知识负担”" on the retry that worked.
+   * Asking for “ ” still let the model slip into `"`; 「 」 has no ASCII twin.
    */
-  test("asks for curly quotes, in the prompt and in both corrections", async () => {
+  test("asks for corner brackets, in the prompt and in both corrections", async () => {
     const systems: string[] = [];
     const corrections: string[] = [];
     let i = 0;
@@ -100,13 +101,43 @@ describe("summarize", () => {
       );
     };
     await summarize({ ...baseOptions, chat });
-    expect(systems[0]).toContain("“ and ”");
+    expect(systems[0]).toContain("in Chinese, use 「 and 」");
     expect(corrections).toHaveLength(2);
     expect(corrections[0]).toContain("did not match the schema");
     expect(corrections[1]).toContain("stopped mid-sentence");
     for (const correction of corrections) {
-      expect(correction).toContain("a straight quote ends the JSON string");
+      expect(correction).toContain('A straight " ends the JSON string');
     }
+  });
+
+  test("writes the brackets back as the curly quotes Chinese text uses", async () => {
+    // Only in the Chinese values: the source summary is in the article's own
+    // language, which may write 「 」 itself.
+    const { chat } = scripted([
+      JSON.stringify({
+        summary: "作者称之为「知识负担」，即『看不见的』成本。",
+        category: "ai",
+        tags: ["a"],
+        title_zh: "「知识」的代价",
+        summary_orig: "「侘寂」 is the author's word for it.",
+      }),
+    ]);
+    const result = await summarize({ ...baseOptions, chat, bilingual: true });
+    expect(result.summary).toBe("作者称之为“知识负担”，即‘看不见的’成本。");
+    expect(result.titleZh).toBe("“知识”的代价");
+    expect(result.summaryOrig).toBe("「侘寂」 is the author's word for it.");
+  });
+
+  test("a kept cut summary has its brackets written back too", async () => {
+    const cut = JSON.stringify({
+      summary: "作者提出「知识负担」理论，认为",
+      category: "ai",
+      tags: [],
+    });
+    const { chat } = scripted([cut, cut, cut]);
+    const result = await summarize({ ...baseOptions, chat });
+    expect(result.failed).toBe(true);
+    expect(result.summary).toBe("作者提出“知识负担”理论，认为");
   });
 
   /**
