@@ -35,7 +35,8 @@ import { httpFailure, isSettled, SettledRefusal } from "./refusal.ts";
  * What it cannot do is what a tab can: it carries no cookies, so a paywall or
  * a login answers as it would to a stranger, and it runs no script, so a page
  * that builds its text in JavaScript arrives as a shell. The first comes back
- * as the page's own refusal; the second is caught by length — fewer than
+ * as the page's own refusal, or as a redirect to its sign-in page, caught by
+ * where it lands (`signInRedirect`); the second is caught by length — fewer than
  * `minChars` characters is taken to be a shell, the threshold `sweep` uses to
  * flag one. Both are settled: the article is marked, not retried, and a clip
  * from a browser replaces it.
@@ -104,6 +105,61 @@ export function decodePage(
   return new TextDecoder().decode(bytes);
 }
 
+/**
+ * Path segments and leading host labels that name a sign-in page. Matched
+ * whole, never as a substring: a post about logins lives at
+ * `/how-we-built-login-links`, and only the page asking for a password is
+ * `/login` — GitHub's `/login`, GitLab's `/users/sign_in`, Google's
+ * `/v3/signin/…` and `/ServiceLogin`, X's `/i/flow/login`, LinkedIn's
+ * `/authwall`, Microsoft's `login.microsoftonline.com`.
+ */
+const SIGN_IN_SEGMENTS = new Set([
+  "login",
+  "log-in",
+  "signin",
+  "sign-in",
+  "sign_in",
+  "logon",
+  "servicelogin",
+  "authwall",
+]);
+const SIGN_IN_HOST_LABELS = new Set(["login", "signin", "sso"]);
+
+function isSignInRoute(url: URL): boolean {
+  if (SIGN_IN_HOST_LABELS.has(url.hostname.split(".")[0] ?? "")) return true;
+  return url.pathname
+    .split("/")
+    .some((segment) =>
+      SIGN_IN_SEGMENTS.has(
+        segment.toLowerCase().replace(/\.(?:php|html?|aspx?|jsp)$/, ""),
+      ),
+    );
+}
+
+/**
+ * Where a link was sent to sign in, when it was: the landing page is a sign-in
+ * route and the link itself was not one. A fetch carries no cookies, so a
+ * page behind a login redirects there, and the form that answers clips as a
+ * long enough page to pass for the article — github.com/settings/profile was
+ * once saved as "Build software better, together". The link asked for a
+ * sign-in page only if it named one, and then it gets one.
+ */
+export function signInRedirect(
+  requested: string,
+  landed: string,
+): string | undefined {
+  let from: URL;
+  let to: URL;
+  try {
+    from = new URL(requested);
+    to = new URL(landed);
+  } catch {
+    return undefined;
+  }
+  if (!isSignInRoute(to) || isSignInRoute(from)) return undefined;
+  return `${to.host}${to.pathname}`;
+}
+
 export async function fetchLinkPage(
   options: LinkFetchOptions,
 ): Promise<LinkPage> {
@@ -154,6 +210,15 @@ export async function fetchLinkPage(
       resolveHost,
       requestMs,
     );
+    // Before the status: a sign-in page may answer 401 as readily as 200, and
+    // either way what it says about the link is the same.
+    const signIn = signInRedirect(url, finalUrl);
+    if (signIn !== undefined) {
+      await response.body?.cancel();
+      throw new SettledRefusal(
+        `the link redirected to a sign-in page (${signIn}); clip it in a browser where you are signed in`,
+      );
+    }
     const contentType = response.headers.get("content-type");
     const media = mediaType(contentType);
     if (!response.ok) {

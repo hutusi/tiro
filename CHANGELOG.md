@@ -59,6 +59,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A saved link behind a login is no longer saved as the sign-in form.** A
+  link the processor fetched was redirected, without cookies, to the site's
+  sign-in page, which clipped as an article: github.com/settings/profile became
+  "Build software better, together". A link that lands on a sign-in page it
+  did not name is now marked `fetch_failed`, saying where it was sent, for a
+  clip from a browser to replace.
 - **A post's promotional sidebar no longer ends the article.** GitHub's blog
   clips ended with "Explore more from GitHub" and its cards. Readability
   drops every `<aside>` except one it appends beside the article, which it

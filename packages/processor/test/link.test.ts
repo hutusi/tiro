@@ -4,7 +4,7 @@ import {
   DeadlineExceededError,
   unboundedDeadline,
 } from "../src/deadline.ts";
-import { decodePage, fetchLinkPage } from "../src/link.ts";
+import { decodePage, fetchLinkPage, signInRedirect } from "../src/link.ts";
 import type { FetchLike } from "../src/llm/client.ts";
 import { isSettled } from "../src/refusal.ts";
 
@@ -100,6 +100,50 @@ describe("fetchLinkPage", () => {
     }).catch((e) => e);
     expect(busy).toBeInstanceOf(Error);
     expect(isSettled(busy)).toBe(false);
+  });
+
+  test("a redirect to a sign-in page is settled, and says where it went", async () => {
+    // What github.com/settings/profile does to a fetch without cookies; the
+    // form it lands on is long enough to pass for an article.
+    const error = await fetchLinkPage({
+      ...base,
+      url: "https://github.com/settings/profile",
+      fetchImpl: site({
+        "https://github.com/settings/profile": () =>
+          new Response(null, {
+            status: 302,
+            headers: {
+              location:
+                "https://github.com/login?return_to=https%3A%2F%2Fgithub.com%2Fsettings%2Fprofile",
+            },
+          }),
+        "https://github.com/login?return_to=https%3A%2F%2Fgithub.com%2Fsettings%2Fprofile":
+          () => html(ARTICLE),
+      }),
+    }).catch((e) => e);
+    expect(isSettled(error)).toBe(true);
+    expect(String(error)).toContain(
+      "redirected to a sign-in page (github.com/login)",
+    );
+  });
+
+  test("a redirect that only mentions logins is followed as usual", async () => {
+    const page = await fetchLinkPage({
+      ...base,
+      url: "https://short.example/x",
+      fetchImpl: site({
+        "https://short.example/x": () =>
+          new Response(null, {
+            status: 301,
+            headers: {
+              location: "https://example.net/2026/how-we-built-login-links",
+            },
+          }),
+        "https://example.net/2026/how-we-built-login-links": () =>
+          html(ARTICLE),
+      }),
+    });
+    expect(page.kind).toBe("page");
   });
 
   test("names a bot check for what it is", async () => {
@@ -312,6 +356,56 @@ describe("fetchLinkPage", () => {
       },
     }).catch((e) => e);
     expect(error).toBeInstanceOf(DeadlineExceededError);
+  });
+});
+
+describe("signInRedirect", () => {
+  const from = "https://example.net/private/report";
+  // Where the big sites send a fetch that is not signed in.
+  for (const [landed, where] of [
+    ["https://github.com/login?return_to=%2Fx", "github.com/login"],
+    ["https://gitlab.com/users/sign_in", "gitlab.com/users/sign_in"],
+    [
+      "https://accounts.google.com/v3/signin/identifier?continue=x",
+      "accounts.google.com/v3/signin/identifier",
+    ],
+    [
+      "https://accounts.google.com/ServiceLogin?continue=x",
+      "accounts.google.com/ServiceLogin",
+    ],
+    ["https://x.com/i/flow/login?redirect_after_login=x", "x.com/i/flow/login"],
+    ["https://www.linkedin.com/authwall?trk=x", "www.linkedin.com/authwall"],
+    ["https://medium.com/m/signin?redirect=x", "medium.com/m/signin"],
+    ["https://substack.com/sign-in?redirect=x", "substack.com/sign-in"],
+    ["https://www.facebook.com/login.php?next=x", "www.facebook.com/login.php"],
+    [
+      "https://login.microsoftonline.com/common/oauth2/authorize",
+      "login.microsoftonline.com/common/oauth2/authorize",
+    ],
+  ] as const) {
+    test(`${where} is a sign-in page`, () => {
+      expect(signInRedirect(from, landed)).toBe(where);
+    });
+  }
+
+  for (const landed of [
+    "https://example.net/2026/how-we-built-login-links",
+    "https://example.net/blog/signing-in-without-passwords",
+    "https://loginradius.example/blog/post",
+    "https://example.net/private/report",
+  ]) {
+    test(`${landed} is not`, () => {
+      expect(signInRedirect(from, landed)).toBeUndefined();
+    });
+  }
+
+  test("a link that names a sign-in page asked for one", () => {
+    expect(
+      signInRedirect(
+        "https://example.net/login",
+        "https://example.net/sign-in/",
+      ),
+    ).toBeUndefined();
   });
 });
 

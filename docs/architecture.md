@@ -267,9 +267,9 @@ flowchart LR
    - for a stub with `capture: "link"` and no body, fetch the page and clip it
      with `@tiro/clip` — the extension's clipper — in a hardened happy-dom
      document that runs no script and loads nothing. A failure retrying will
-     not change (a 404, a bot check, a page built by scripts) is recorded as
-     `tiro.fetch_failed` and the article left alone; a link that is a PDF goes
-     on to the PDF step,
+     not change (a 404, a bot check, a sign-in redirect, a page built by
+     scripts) is recorded as `tiro.fetch_failed` and the article left alone;
+     a link that is a PDF goes on to the PDF step,
    - for a PDF (`tiro.source_media: "pdf"`), build the body first. A web PDF is
      fetched under the same guards the image stage uses and read structurally:
      where its typography carries a heading hierarchy or a fixed-width face,
