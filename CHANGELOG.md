@@ -59,6 +59,12 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Summaries no longer break off at a quotation mark.** Asking the model for
+  “ ” instead of a straight quote, which closes the string in the JSON reply,
+  still left about one reply in four cut short on articles that quote terms,
+  and two articles kept their first paragraph as the summary. The model is now
+  asked for 「 」 in Chinese, which has no ASCII twin, and the processor
+  writes them back as “ ”: none of 50 replays was cut.
 - **A saved link behind a login is no longer saved as the sign-in form.** A
   link the processor fetched was redirected, without cookies, to the site's
   sign-in page, which clipped as an article: github.com/settings/profile became
