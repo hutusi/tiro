@@ -29,7 +29,7 @@
 #   TIRO_DISPATCH_TOKEN or its _FILE as deploy.sh reads it
 #   TIRO_PROCESS_TIMEOUT  seconds the processor may run (default 3600, set
 #                       empty for none); keep it above processing.run_budget_ms
-#   TIRO_COMMIT_EMAIL   as commit-back.sh takes it
+#   TIRO_COMMIT_EMAIL, TIRO_PUSH_RETRY_DELAYS  as commit-back.sh takes them
 #
 # Exits 0 for a clean run; 1 when something needs a look — always after the
 # commit and the deploy, never instead of them (invariant 7); 2 when it is

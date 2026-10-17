@@ -193,6 +193,8 @@ function sandbox(initial: Record<string, string> = VAULT) {
             TIRO_GITHUB_API: `http://127.0.0.1:${github.port}`,
             TIRO_DISPATCH_TOKEN: "t0ken",
             TIRO_PROCESS_TIMEOUT: "",
+            // As many retries as by default, none of the waits.
+            TIRO_PUSH_RETRY_DELAYS: "0 0 0 0",
             SHIM_BUN_VERSION: PINNED,
             SHIM_LOG: shimLog,
             ...env,

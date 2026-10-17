@@ -12,6 +12,14 @@
 # or `committed=false` to $GITHUB_OUTPUT when that is set — the deploy reads
 # it — and exits non-zero when the run's work is not in the vault.
 #
+# Each retry waits first, for the seconds TIRO_PUSH_RETRY_DELAYS lists: one
+# retry per entry, default "10 30 90 180". A refused push is usually that
+# race, and a few seconds' wait costs it nothing; but GitHub sometimes refuses
+# every push for minutes, and on 2026-10-07 four attempts in as many seconds
+# lost a whole run's work. The default waits add up to about five minutes,
+# which a run that spent its whole budget still has before the workflow's
+# timeout-minutes; a host with no such limit may list longer ones.
+#
 # Commits as `tiro-processor` — run.sh tells the processor's own pushes from
 # everyone else's by that name — with TIRO_COMMIT_EMAIL as the address when
 # set, and otherwise the Actions bot's, as it always has been.
@@ -26,6 +34,16 @@
 set -eo pipefail
 
 out="${GITHUB_OUTPUT:-/dev/null}"
+# Checked before anything is committed: a `sleep` given garbage would end the
+# script mid-retry, with the run's work unpushed.
+delays="${TIRO_PUSH_RETRY_DELAYS:-10 30 90 180}"
+case "$delays" in
+  *[!0-9\ ]*)
+    echo "::warning::TIRO_PUSH_RETRY_DELAYS ($delays) is not a list of whole seconds; using the default"
+    delays="10 30 90 180"
+    ;;
+esac
+read -r -a waits <<< "$delays"
 git config user.name "tiro-processor"
 git config user.email "${TIRO_COMMIT_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 git add -A
@@ -45,11 +63,13 @@ while :; do
     echo "committed=true" >> "$out"
     exit 0
   fi
-  if [ "$attempt" -ge 4 ]; then
+  if [ "$attempt" -gt "${#waits[@]}" ]; then
     echo "::error::main refused this run's push $attempt times; its work is not in the vault"
     exit 1
   fi
-  echo "push rejected (attempt $attempt), rebasing"
+  pause="${waits[$((attempt - 1))]}"
+  echo "push rejected (attempt $attempt), rebasing in ${pause}s"
+  sleep "$pause"
   attempt=$((attempt + 1))
   git fetch -q origin main
   # A deletion wins (ADR 0036). An article whose index.md main

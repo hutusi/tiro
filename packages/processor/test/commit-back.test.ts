@@ -84,11 +84,18 @@ function sandbox(initial: Record<string, string>) {
   const run = join(root, "vault");
   const other = join(root, "other");
   const output = join(root, "github-output");
+  // A `sleep` that only writes down how long it was asked to wait, so the
+  // retry schedule is measured without being sat through.
+  const bin = join(root, "bin");
+  const sleeps = join(root, "sleeps");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "sleep"), `#!/bin/sh\necho "$1" >> "${sleeps}"\n`);
+  chmodSync(join(bin, "sleep"), 0o755);
   const emptyConfig = join(root, "gitconfig");
   writeFileSync(emptyConfig, "");
   writeFileSync(output, "");
   const env: Record<string, string> = {
-    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
     HOME: root,
     LANG: "C",
     GIT_CONFIG_GLOBAL: emptyConfig,
@@ -182,7 +189,15 @@ function sandbox(initial: Record<string, string>) {
       writeFileSync(path, `#!/bin/sh\n${body}\n`);
       chmodSync(path, 0o755);
     },
-    runStep(): StepResult {
+    /** The waits the step asked for, in order. */
+    sleeps(): string[] {
+      try {
+        return readFileSync(sleeps, "utf8").split("\n").filter(Boolean);
+      } catch {
+        return [];
+      }
+    },
+    runStep(extra: Record<string, string> = {}): StepResult {
       const step = commitStep();
       const script = join(root, "commit-step.sh");
       writeFileSync(script, step.run ?? "");
@@ -193,6 +208,7 @@ function sandbox(initial: Record<string, string>) {
           GITHUB_WORKSPACE: root,
           GITHUB_OUTPUT: output,
           OTHER: other,
+          ...extra,
         },
       });
       const outputs: Record<string, string> = {};
@@ -393,14 +409,48 @@ describe("the commit-back step", () => {
     expect(r.log).not.toContain("conflict");
   });
 
-  test("gives up after four refused pushes, without claiming a commit", () => {
-    const s = sandbox(VAULT);
-    s.write(s.run, PROCESSED_B);
+  /** Refuses every push the remote is sent, counting them. */
+  function refuseEveryPush(s: ReturnType<typeof sandbox>): () => number {
     const count = join(s.remote, "pushes");
     s.hook(s.remote, "pre-receive", `echo x >> "${count}"\nexit 1`);
+    return () => readFileSync(count, "utf8").split("\n").length - 1;
+  }
+
+  // On 2026-10-07 GitHub refused pushes for about ten minutes, and four
+  // attempts in as many seconds lost a whole run's work.
+  test("waits longer before each retry, then gives up without claiming a commit", () => {
+    const s = sandbox(VAULT);
+    s.write(s.run, PROCESSED_B);
+    const pushes = refuseEveryPush(s);
     const r = s.runStep();
     expect(r.exitCode).not.toBe(0);
     expect(r.outputs.committed).toBeUndefined();
-    expect(readFileSync(count, "utf8").split("\n").length - 1).toBe(4);
+    expect(s.sleeps()).toEqual(["10", "30", "90", "180"]);
+    expect(pushes()).toBe(5);
+    expect(r.log).toContain("main refused this run's push 5 times");
+  });
+
+  test("TIRO_PUSH_RETRY_DELAYS sets the waits, and so how many retries", () => {
+    const s = sandbox(VAULT);
+    s.write(s.run, PROCESSED_B);
+    const pushes = refuseEveryPush(s);
+    const r = s.runStep({ TIRO_PUSH_RETRY_DELAYS: "0 5" });
+    expect(r.exitCode).not.toBe(0);
+    expect(s.sleeps()).toEqual(["0", "5"]);
+    expect(pushes()).toBe(3);
+  });
+
+  test("a schedule that is not whole seconds is not trusted with the run's work", () => {
+    // A `sleep` that fails mid-retry would end the script with the run's
+    // work unpushed, so the default stands in, said before anything happens.
+    const s = sandbox(VAULT);
+    s.write(s.run, PROCESSED_B);
+    const pushes = refuseEveryPush(s);
+    const r = s.runStep({ TIRO_PUSH_RETRY_DELAYS: "10 1m" });
+    expect(r.log).toContain(
+      "::warning::TIRO_PUSH_RETRY_DELAYS (10 1m) is not a list of whole seconds",
+    );
+    expect(s.sleeps()).toEqual(["10", "30", "90", "180"]);
+    expect(pushes()).toBe(5);
   });
 });

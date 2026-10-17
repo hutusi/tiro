@@ -448,7 +448,7 @@ the summary and recorded in the article.
 | PDF article processed + run line `kept as extracted text` | the model's reply failed its content or table checks on some batches, or a request was refused (400) or timed out, so those kept the raw text layer. A provider that was down — 5xx, 401/403/404, 429, no connection — does not land here: the article stays pending and the run turns red (ADR 0032) | **clipped:** reprocess with `force` + slug, which discards the checkpoint and reconverts. **Imported:** re-import the file — `--force` keeps the converted body and would change nothing. Either way an ordinary run resumes those fallbacks as settled; if it repeats, the article is readable but unformatted in places |
 | run log at "Commit results back": `articles/<slug> was deleted on main while this run worked on it` | the article was removed — from the popup or by hand — while this run was processing it (ADR 0036). The run dropped what it wrote there and committed everything else | nothing. If it was the run's only work, the step says `nothing left to commit` and the removal's own run deploys |
 | run fails at "Commit results back" with `hit a conflict a deletion does not explain` | a concurrent commit conflicted in a way neither `-X theirs` nor deletion-wins settles — typically a *single* file (a `zh.md`, say) deleted by hand inside an article this run changed. The rebase is aborted, so nothing half-applied is pushed | re-run the workflow; pending articles retry. (A vault on a `process.yml` older than ADR 0036 fails here with `could not apply` for a whole-article deletion too — copy the template's in) |
-| run fails at "Commit results back" with `main refused this run's push 4 times` | the push is being refused rather than raced: a branch rule on `main`, or a token that lost write access | fix the rule or the token, then re-run; pending articles retry |
+| run fails at "Commit results back" with `main refused this run's push 5 times` | the push was refused through every retry, about five minutes of waits (`TIRO_PUSH_RETRY_DELAYS`), so it is refused rather than raced: a branch rule on `main`, a token that lost write access, or a GitHub outage that outlasted the waits | fix the rule or the token, or wait out the outage, then re-run; pending articles retry |
 
 ## Deploys
 
@@ -718,6 +718,9 @@ the host needs:
   https_proxy=http://127.0.0.1:7890
   NO_PROXY=localhost,127.0.0.1,.aliyuncs.com
   no_proxy=localhost,127.0.0.1,.aliyuncs.com
+  # Optional: waits before each retry of a refused push. The default,
+  # "10 30 90 180", fits inside Actions' timeout-minutes; this host has none.
+  # TIRO_PUSH_RETRY_DELAYS="10 30 90 180 300 600"
   ```
 
   The two secret files, also `root:janus 0640`, hold the LLM key and the
