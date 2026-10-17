@@ -139,6 +139,24 @@ describe("validateVault", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
+  test("exempts a settled refusal with no translation", async () => {
+    // What settleRefusal leaves on a scanned PDF: processed, a reason, and no
+    // body — nothing was ever there to translate.
+    const vault = freshVault();
+    rmSync(join(vault, "articles", EN, "zh.md"));
+    const indexPath = join(vault, "articles", EN, "index.md");
+    writeFileSync(
+      indexPath,
+      readFileSync(indexPath, "utf8").replace(
+        "  processed_at:",
+        '  fetch_failed: "Error: no usable text layer"\n  processed_at:',
+      ),
+    );
+    const report = await validateVault(vault);
+    expect(report.errors).toEqual([]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
   test("exempts a pending article with no translation", async () => {
     const vault = freshVault();
     // The raw clip fixture is pending and has no zh.md — nothing has looked

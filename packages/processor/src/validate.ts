@@ -92,11 +92,14 @@ export async function validateVault(
 
     const zhFile = Bun.file(`${vaultDir}/${translationPath(slug)}`);
     if (!(await zhFile.exists())) {
-      // A finished run leaves exactly one of the two behind, so a processed
-      // article with neither lost its translation somewhere. Pending articles
-      // are exempt: nothing has looked at them yet.
+      // A run that translated, or tried to, leaves exactly one of the two
+      // behind, so a processed article with neither lost its translation
+      // somewhere. Pending articles are exempt: nothing has looked at them yet.
+      // So is a settled refusal (`fetch_failed` — a scanned PDF, a saved link
+      // that answered 404): it was never given a body to translate (ADR 0034).
       if (
         frontmatter.tiro.processed_at !== undefined &&
+        frontmatter.tiro.fetch_failed === undefined &&
         frontmatter.lang !== TRANSLATION_TARGET &&
         frontmatter.tiro.translation_failed !== true
       ) {
