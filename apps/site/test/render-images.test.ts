@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import sharp from "sharp";
 import { renderBlockHtml } from "../src/lib/render.ts";
 
 // A fixture article whose asset is a real 640×400 JPEG.
@@ -41,6 +45,31 @@ describe("article images", () => {
     expect(html).toContain('width="320"');
     expect(html).not.toContain("height=");
     expect(html).toContain('loading="lazy"');
+  });
+
+  // Stored 400×200 and turned a quarter by EXIF, so a browser shows it
+  // 200×400. Sized from the stored header, it would be drawn twice as wide.
+  test("an EXIF-turned photo is sized as it is shown", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-render-images-"));
+    try {
+      mkdirSync(join(dir, "articles/turned/assets"), { recursive: true });
+      writeFileSync(
+        join(dir, "articles/turned/assets/photo.jpg"),
+        await sharp({
+          create: { width: 400, height: 200, channels: 3, background: "#888" },
+        })
+          .jpeg()
+          .withMetadata({ orientation: 6 })
+          .toBuffer(),
+      );
+      process.env.TIRO_VAULT_DIR = dir;
+      const html = renderBlockHtml("![p](./assets/photo.jpg)", "turned");
+      expect(html).toContain('width="200"');
+      expect(html).toContain('height="400"');
+    } finally {
+      delete process.env.TIRO_VAULT_DIR;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("an asset that is missing or unmeasurable just goes unsized", () => {
