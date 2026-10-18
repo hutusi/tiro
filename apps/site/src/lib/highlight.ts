@@ -186,7 +186,18 @@ function codeText(node: Element): string {
  * exists to distrust. Running afterwards, the only input is the code's text and
  * Shiki escapes everything it emits.
  */
-export function rehypeShiki() {
+type CodeToHast = (code: string, lang: string) => Root;
+
+const shikiCodeToHast: CodeToHast = (code, lang) =>
+  highlighter.codeToHast(code, { lang, theme: THEME });
+
+export interface RehypeShikiOptions {
+  /** Replaced only by tests, to make highlighting throw. */
+  codeToHast?: CodeToHast;
+}
+
+export function rehypeShiki(options: RehypeShikiOptions = {}) {
+  const codeToHast = options.codeToHast ?? shikiCodeToHast;
   return (tree: Root): void => {
     visit(tree, "element", (node, index, parent) => {
       if (node.tagName !== "pre" || parent === undefined || index === undefined)
@@ -218,10 +229,22 @@ export function rehypeShiki() {
       // signature is unambiguous and returns null otherwise, which lands on
       // `languageFor`'s plaintext fallback exactly as an absent info string
       // does today.
-      const highlighted = highlighter.codeToHast(text, {
-        lang: languageFor(info ?? detectLanguage(text) ?? undefined),
-        theme: THEME,
-      });
+      const lang = languageFor(info ?? detectLanguage(text) ?? undefined);
+      let highlighted: Root;
+      try {
+        highlighted = codeToHast(text, lang);
+      } catch (error) {
+        // `languageFor` keeps an unknown grammar from throwing, but a known
+        // one can still fail: the JavaScript regex engine throws on a grammar
+        // pattern it cannot translate, and the input here is whatever a web
+        // page held. One block losing its colors is the whole cost. The
+        // sanitized <pre> stays, and it is styled as `.prose pre`, like every
+        // other code block.
+        console.warn(
+          `shiki: highlighting "${lang}" failed; rendering as plain text: ${(error as Error).message}`,
+        );
+        return "skip";
+      }
       const root = highlighted.children[0];
       if (root?.type === "element") {
         // Shiki paints its theme's background and base color inline on the
