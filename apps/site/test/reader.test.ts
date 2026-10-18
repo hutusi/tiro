@@ -86,6 +86,18 @@ describe("renderBlockHtml", () => {
     expect(html).not.toContain("alert(1)");
   });
 
+  // The sanitizer drops a disallowed element but keeps its children, so a
+  // `<style>` the clipper let through used to print its rules on the page.
+  test("strips a clipped <style> together with its rules", () => {
+    const html = renderBlockHtml(
+      "<div><style>.x{color:red}</style>kept text</div>",
+      "s",
+    );
+    expect(html).not.toContain("<style");
+    expect(html).not.toContain("color:red");
+    expect(html).toContain("kept text");
+  });
+
   test("wraps a table in a horizontal scroll box", () => {
     const html = renderBlockHtml("| a | b |\n| --- | --- |\n| 1 | 2 |", "s");
     expect(html).toContain('<div class="table-scroll">');

@@ -28,6 +28,12 @@ import { rehypeShiki } from "./highlight.ts";
 // this step, so clipped markup never needs the permission (ADR 0009, 0011).
 const schema: SanitizeSchema = {
   ...defaultSchema,
+  // An element the schema does not allow is unwrapped, so its children
+  // survive. That is right for a stray `<font>` or `<section>`. But a
+  // `<style>`'s only child is its stylesheet, which would then print on the
+  // page as prose. So `<style>` joins the default `<script>`: both are
+  // removed together with their contents.
+  strip: [...(defaultSchema.strip ?? []), "style"],
   attributes: {
     ...defaultSchema.attributes,
     // remark-math marks its output `language-math math-inline|math-display`,
