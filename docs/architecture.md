@@ -515,6 +515,12 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   default `fixtures/vault` is found by searching upward rather than by counting
   `..` — the reader is bundled for the build, where a fixed depth pointed at
   `apps/fixtures/vault` and only this guard caught it.
+- **One unreadable vault file blocking every deploy** — an article whose
+  frontmatter fails the contract, or a collection file that will not parse.
+  It used to fail the build, so the old site stayed live and every later
+  change, deletions and unlistings included, was held back with nothing
+  announcing it. A deploy now leaves such a file off the site, publishes the
+  rest, and goes red naming it (ADR 0048). CI and local builds stay strict.
 - **A clipped asset that cannot be measured** — a tracking pixel served as a
   dimensionless SVG, say. It used to fail the whole build, because Astro's
   content layer measured every image an article referenced. The site reads the

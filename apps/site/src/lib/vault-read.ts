@@ -1,5 +1,11 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  appendFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import { basename, join, relative } from "node:path";
 import {
   type ArticleFrontmatter,
   isValidCollectionId,
@@ -60,6 +66,53 @@ function vaultSignature(base: string): string {
   return parts.join("\n");
 }
 
+/**
+ * One line saying why an entry could not be read. Zod reports its issues as a
+ * pretty-printed JSON array, which is unreadable in a build log and spans
+ * dozens of lines. Each issue becomes `field: message` instead.
+ */
+function reasonFor(error: unknown): string {
+  const issues = (error as { issues?: unknown }).issues;
+  if (Array.isArray(issues) && issues.length > 0) {
+    return issues
+      .map((issue: { path?: unknown[]; message?: string }) => {
+        const field = (issue.path ?? []).join(".");
+        return `${field === "" ? "frontmatter" : field}: ${issue.message ?? "invalid"}`;
+      })
+      .join("; ");
+  }
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * An entry the site cannot read: fail the build, or leave the entry out (ADR
+ * 0048).
+ *
+ * A production deploy names a report file in `TIRO_SKIP_REPORT`. There, one bad
+ * file must not hold back every other change to the vault, deletions and
+ * unlistings included. The entry is left off the site, which is also the safe
+ * side for an unlisted flag that failed to parse, and it is recorded so the
+ * deploy can publish the rest and then fail loudly, naming it. Without the
+ * variable (tests, dev, CI against the fixture vault) the build throws, naming
+ * the file, as it always has.
+ *
+ * Every page, the sitemap filter and `short-redirects.ts` read through
+ * `readVault`/`readCollections`. So a skipped entry is missing from all of
+ * them alike, in every module graph that reads it. Each graph appends its own
+ * line, and the deploy de-duplicates them.
+ */
+function refuse(base: string, path: string, reason: string): void {
+  const report = process.env.TIRO_SKIP_REPORT;
+  if (report === undefined || report === "") {
+    throw new Error(`${path}: ${reason}`);
+  }
+  const line = `${relative(base, path)}: ${reason}`;
+  console.warn(`skipped, left off the site: ${line}`);
+  appendFileSync(report, `${line}\n`);
+}
+
 /** Absolute paths of the vault's collection files, sorted, or none at all —
  * a vault that has never had a collection simply has no directory. */
 function collectionFiles(base: string): string[] {
@@ -92,8 +145,8 @@ function collectionFiles(base: string): string[] {
  * whole-vault read that helper already performed. Memoized, because both that
  * filter and every page build ask for it.
  *
- * Throws on unparseable frontmatter, naming the file. The build would fail on
- * it a moment later regardless; failing here with the path is the better error.
+ * Throws on unparseable frontmatter, naming the file — or, in a deploy that
+ * asked for it, leaves that article out and reports it (`refuse`).
  */
 export function readVault(): VaultEntry[] {
   const base = vaultDir();
@@ -119,7 +172,8 @@ export function readVault(): VaultEntry[] {
     try {
       parsed = parseArticle(readFileSync(indexPath, "utf8"));
     } catch (error) {
-      throw new Error(`${indexPath}: ${(error as Error).message}`);
+      refuse(base, indexPath, reasonFor(error));
+      continue;
     }
 
     // zh.md is a body and nothing else — the processor never writes frontmatter
@@ -152,8 +206,9 @@ export function readVault(): VaultEntry[] {
  *
  * A vault with no `collections/` has no collections; that is the state every
  * vault starts in, not an error. A collection file that cannot be parsed, or
- * one named something that cannot be a route, does throw — the same call a
- * malformed article gets. Skipping it silently would drop a curated list from
+ * one named something that cannot be a route, gets the call a malformed
+ * article gets (`refuse`): the build fails, or a deploy leaves it out and
+ * reports it. Never skipped *silently*, which would drop a curated list from
  * the site and report success.
  */
 export function readCollections(): ParsedCollection[] {
@@ -172,14 +227,17 @@ export function readCollections(): ParsedCollection[] {
   for (const path of collectionFiles(base)) {
     const id = basename(path, ".md");
     if (!isValidCollectionId(id)) {
-      throw new Error(
-        `${path}: not a usable collection id — expected lowercase ascii words joined by single dashes`,
+      refuse(
+        base,
+        path,
+        "not a usable collection id — expected lowercase ascii words joined by single dashes",
       );
+      continue;
     }
     try {
       entries.push(parseCollection(id, readFileSync(path, "utf8")));
     } catch (error) {
-      throw new Error(`${path}: ${(error as Error).message}`);
+      refuse(base, path, reasonFor(error));
     }
   }
 

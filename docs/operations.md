@@ -475,6 +475,15 @@ cut off after 20 minutes; a healthy one takes about two.
   latest run. A re-run builds the tiro commit its run started from against
   the vault as it is *now*, so re-running an older run would publish older
   site code. Run the workflow afresh instead.
+- **A vault file the site cannot read is left off, not fatal** (ADR 0048).
+  An article whose frontmatter fails the contract (`unlisted: yes`, a
+  date-only `clipped_at`, a numeric tag), or a collection file that will not
+  parse or is not named like an id, is skipped. Everything else is
+  published, and then "Report skipped vault entries" turns the run red and
+  lists each file in the job summary. A skipped article has no page, listing,
+  short link or sitemap row until it is fixed. `validate` names the same
+  files locally. CI and local builds still fail on the first such file:
+  only the deploy sets `TIRO_SKIP_REPORT`.
 - **Empty-vault guard**: the build refuses to publish a site with zero
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something
@@ -584,8 +593,9 @@ cut off after 20 minutes; a healthy one takes about two.
     cannot read the old article at all — frontmatter that will not parse, an
     `unlisted:` value that is not `true`/`false`, or a blob it cannot fetch —
     the clip fails rather than guess. The popup shows
-    the reason; fix the article in the vault and clip again. (The same file
-    would fail the site build, so it needs the fix regardless.)
+    the reason; fix the article in the vault and clip again. (A deploy leaves
+    the same file off the site and goes red until it is fixed (ADR 0048), so
+    it needs the fix regardless.)
   - **Unlisted is not private.** The site is public and the slug is computable
     from the source URL, as are the paths under `/vault-assets/<slug>/`. It
     hides an article from anyone browsing, not from anyone looking. The same
@@ -1850,6 +1860,7 @@ permanent extension ID, unrelated to the unpacked one.
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
 | A run stops early with `stopped after the provider failed 3 articles in a row` | a provider outage, an expired or revoked `TIRO_LLM_API_KEY`, a model id the key cannot use, or quota exhausted — the three errors before it say which | curl self-test against the provider; fix the key, the model or the quota. Nothing to clean up: the articles it did not attempt are still pending |
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
+| Deploy is red at "Report skipped vault entries", every step before it green | the site is published, minus the vault files the job summary lists: frontmatter that fails the contract, or a collection file that will not parse (ADR 0048) | fix each named file in the vault (the reason after the path says which field); its push redeploys. Re-running the deploy changes nothing until then |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
 | A saved clip's note says some figures "stayed links" | the reason it gives: taller or wider than the window, covered by a banner or a sticky header, not drawn yet, kept moving, lost when the page changed (navigated, reloaded, re-rendered), not reached before Stop, too large, or could not be made (ADR 0045) | follow the remedy the note gives, then clip again: enlarge the window; close the banner or scroll the header away; let the page finish and scroll through it once; wait for it to settle; reload and scroll through it once |

@@ -1,8 +1,19 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readVault, resetVaultCache } from "../src/lib/vault-read.ts";
+import {
+  readCollections,
+  readVault,
+  resetVaultCache,
+} from "../src/lib/vault-read.ts";
 
 const FIXTURE_COUNT = 9;
 const PAIRED = "example-com-posts-hello-ai-e8446b12";
@@ -142,6 +153,21 @@ describe("readVault", () => {
     }
   });
 
+  // Zod reports a pretty-printed JSON array; the error names each field on
+  // one line instead, so a build log or deploy summary can be read.
+  test("says which fields are wrong, on one line", () => {
+    const dir = makeVault({
+      broken: { index: VALID.replace("schema: 1", "schema: 1\nunlisted: yes") },
+    });
+    try {
+      expect(() => withVault(dir, () => readVault())).toThrow(
+        /broken.index\.md: unlisted: Invalid input: expected boolean, received string$/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("picks a repair back up", () => {
     const dir = makeVault({ a: { index: "---\nurl: 42\n---\n\nBroken.\n" } });
     try {
@@ -150,6 +176,86 @@ describe("readVault", () => {
         writeFileSync(join(dir, "articles/a/index.md"), VALID);
         expect(readVault()).toHaveLength(1);
       });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a deploy that publishes what it can read (ADR 0048)", () => {
+  const BROKEN = "---\nurl: 42\n---\n\nBroken.\n";
+
+  /** Run with a skip report, returning what the read produced and the report. */
+  function withReport<T>(
+    dir: string,
+    run: () => T,
+  ): { value: T; report: string } {
+    const report = join(dir, "skipped.txt");
+    const previous = process.env.TIRO_SKIP_REPORT;
+    process.env.TIRO_SKIP_REPORT = report;
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const value = withVault(dir, run);
+      return {
+        value,
+        report: existsSync(report) ? readFileSync(report, "utf8") : "",
+      };
+    } finally {
+      warn.mockRestore();
+      if (previous === undefined) delete process.env.TIRO_SKIP_REPORT;
+      else process.env.TIRO_SKIP_REPORT = previous;
+    }
+  }
+
+  test("leaves a malformed article out and reports it, keeping the rest", () => {
+    const dir = makeVault({
+      good: { index: VALID },
+      broken: { index: BROKEN },
+    });
+    try {
+      const { value, report } = withReport(dir, () => readVault());
+      expect(value.map((entry) => entry.slug)).toEqual(["good"]);
+      // Vault-relative, one line per entry, so the deploy summary can list it.
+      expect(report).toStartWith("articles/broken/index.md: url: ");
+      expect(report.trim().split("\n")).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves a broken or misnamed collection out and reports both", () => {
+    const dir = makeVault({ good: { index: VALID } });
+    try {
+      mkdirSync(join(dir, "collections"));
+      writeFileSync(
+        join(dir, "collections", "reading.md"),
+        '---\ntitle: "读"\ncreated_at: "2026-09-22T09:00:00.000Z"\nupdated_at: "2026-09-22T09:00:00.000Z"\nitems: []\ntiro:\n  schema: 1\n---\n',
+      );
+      writeFileSync(join(dir, "collections", "broken.md"), "no frontmatter\n");
+      writeFileSync(
+        join(dir, "collections", "Bad Name.md"),
+        "---\ntitle: x\n---\n",
+      );
+      const { value, report } = withReport(dir, () => readCollections());
+      expect(value.map((collection) => collection.id)).toEqual(["reading"]);
+      expect(report).toContain("collections/broken.md: ");
+      expect(report).toContain(
+        "collections/Bad Name.md: not a usable collection id",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("without a report the build still fails on the first bad entry", () => {
+    const dir = makeVault({
+      good: { index: VALID },
+      broken: { index: BROKEN },
+    });
+    try {
+      expect(() => withVault(dir, () => readVault())).toThrow(
+        /broken.index\.md/,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
