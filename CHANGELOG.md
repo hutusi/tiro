@@ -68,6 +68,9 @@ versions follow the `0.x` line while Tiro is a personal system.
   moment, or pressing it, fetches that page ahead, so the click lands on a
   page already loaded. The stylesheets and fonts are cached for good once
   fetched, and the fonts load ahead of the stylesheet that names them.
+- **The RSS feed carries the latest 100 articles**, about a week's worth, not
+  every article. It had grown to 634 KB, fetched in full on every poll by
+  every subscriber.
 
 ### Fixed
 
