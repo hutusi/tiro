@@ -461,11 +461,20 @@ the summary and recorded in the article.
 
 ## Deploys
 
-Triggered by: push to `main` in tiro, `vault-updated` dispatch from the vault,
-or manually (Actions → Deploy site → Run workflow). Wrangler is pinned in
-devDependencies — the action must log "using pre-installed wrangler".
+Triggered by: a push to `main` in tiro that touches what the site build reads
+(`apps/site/`, `packages/shared/`, the root `package.json`, `bun.lock`,
+`tsconfig.base.json`, or the workflow itself), a `vault-updated` dispatch from
+the vault, or a manual run (Actions → Deploy site → Run workflow). A docs,
+processor or extension commit deploys nothing. If a site change ever fails to
+appear after its push, the path list in `deploy.yml` is the first suspect: run
+the workflow by hand and add the missing path. Wrangler is pinned in
+devDependencies — the action must log "using pre-installed wrangler". A run is
+cut off after 20 minutes; a healthy one takes about two.
 
-- A failed deploy is always safe to **Re-run** from the Actions UI.
+- A failed deploy is safe to **Re-run** from the Actions UI when it is the
+  latest run. A re-run builds the tiro commit its run started from against
+  the vault as it is *now*, so re-running an older run would publish older
+  site code. Run the workflow afresh instead.
 - **Empty-vault guard**: the build refuses to publish a site with zero
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something

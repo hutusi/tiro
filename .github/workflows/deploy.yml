@@ -3,6 +3,18 @@ name: Deploy site
 on:
   push:
     branches: [main]
+    # Only what the site build reads. A docs, processor or extension commit
+    # cannot change a page, and the vault's own changes arrive through the
+    # dispatch below, so neither needs a rebuild here. A path missing from
+    # this list holds a site change back until the next vault dispatch or a
+    # manual run.
+    paths:
+      - apps/site/**
+      - packages/shared/**
+      - package.json
+      - bun.lock
+      - tsconfig.base.json
+      - .github/workflows/deploy.yml
   # Fired by tiro-vault's process.yml after it commits processed articles.
   repository_dispatch:
     types: [vault-updated]
@@ -20,6 +32,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A healthy run takes about two minutes. Without a limit a hung build
+    # holds the deploy concurrency group for GitHub's six-hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
