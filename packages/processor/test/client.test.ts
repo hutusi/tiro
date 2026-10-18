@@ -7,6 +7,7 @@ import {
   type FetchLike,
   isModerationRefusal,
   isProviderFailure,
+  retryAfterMs,
 } from "../src/llm/client.ts";
 import { droppedReply } from "./helpers.ts";
 
@@ -328,6 +329,134 @@ describe("createChatClient", () => {
     );
     // The first backoff is 500ms, but only 100ms of budget remained.
     expect(slept).toEqual([100]);
+  });
+});
+
+describe("a provider that says when to come back", () => {
+  function rateLimited(retryAfter: string): Response {
+    return new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": retryAfter },
+    });
+  }
+
+  test("waits as long as Retry-After asks, not the shorter schedule", async () => {
+    const slept: number[] = [];
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? rateLimited("7") : jsonResponse("ok");
+      },
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+    expect(await chat({ model: "m", messages: [] })).toBe("ok");
+    expect(slept).toEqual([7000]);
+  });
+
+  test("keeps the schedule when Retry-After asks for less", async () => {
+    const slept: number[] = [];
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? rateLimited("0") : jsonResponse("ok");
+      },
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+    expect(await chat({ model: "m", messages: [] })).toBe("ok");
+    expect(slept).toEqual([500]);
+  });
+
+  test("an unreadable Retry-After falls back to the schedule", async () => {
+    const slept: number[] = [];
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return calls === 1 ? rateLimited("soon") : jsonResponse("ok");
+      },
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+    expect(await chat({ model: "m", messages: [] })).toBe("ok");
+    expect(slept).toEqual([500]);
+  });
+
+  test("gives up at once on a wait longer than a minute", async () => {
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return rateLimited("600");
+      },
+      sleep: noSleep,
+    });
+    const error = await chat({ model: "m", messages: [] }).catch((e) => e);
+    // Still the provider's own answer, so the pipeline reads it as an outage
+    // and leaves the article pending.
+    expect(error).toBeInstanceOf(ChatHttpError);
+    expect((error as ChatHttpError).status).toBe(429);
+    expect(isProviderFailure(error)).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  test("defers without sleeping when the wait outlasts the run budget", async () => {
+    const slept: number[] = [];
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      deadline: createDeadline(5000, () => 0),
+      fetchImpl: async () => {
+        calls += 1;
+        return rateLimited("30");
+      },
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+    await expect(chat({ model: "m", messages: [] })).rejects.toThrow(
+      DeadlineExceededError,
+    );
+    expect(slept).toEqual([]);
+    expect(calls).toBe(1);
+  });
+});
+
+describe("retryAfterMs", () => {
+  const now = Date.parse("2026-10-19T08:00:00Z");
+
+  test("reads delta-seconds", () => {
+    expect(retryAfterMs("12", now)).toBe(12_000);
+    expect(retryAfterMs(" 3 ", now)).toBe(3000);
+  });
+
+  test("reads an HTTP-date relative to now", () => {
+    expect(retryAfterMs("Mon, 19 Oct 2026 08:00:20 GMT", now)).toBe(20_000);
+  });
+
+  test("a date already past means now", () => {
+    expect(retryAfterMs("Mon, 19 Oct 2026 07:59:00 GMT", now)).toBe(0);
+  });
+
+  test("is undefined when absent or unreadable", () => {
+    expect(retryAfterMs(null, now)).toBeUndefined();
+    expect(retryAfterMs("soon", now)).toBeUndefined();
+    expect(retryAfterMs("-5", now)).toBeUndefined();
   });
 });
 

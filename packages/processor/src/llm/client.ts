@@ -115,6 +115,30 @@ function unfinishedReply(
 
 const RETRY_DELAYS_MS = [500, 1500, 3000];
 
+/** The longest `Retry-After` this client will wait out. A provider asking for
+ * more is not serving now, and the article is better left for a later run than
+ * held while the rest of the queue waits behind it. */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * A `Retry-After` header in milliseconds from `now`, or undefined when there is
+ * none or it cannot be read. RFC 9110 allows both delta-seconds and an
+ * HTTP-date; a date in the past means "now".
+ */
+export function retryAfterMs(
+  header: string | null,
+  now: number = Date.now(),
+): number | undefined {
+  if (header === null) return undefined;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) return Number(value) * 1000;
+  // Every HTTP-date form names its weekday and month. Without this guard
+  // `Date.parse` reads a bare "-5" as a year.
+  if (!/[a-z]/i.test(value)) return undefined;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+}
+
 /** Attempts a single logical call may spend on timeouts. Unlike a 429 or a
  * connection reset, a timeout has already burned `timeoutMs` of wall clock
  * before it is even observed, so the default `maxRetries` of 3 turns one stuck
@@ -127,6 +151,8 @@ export class ChatHttpError extends Error {
   constructor(
     readonly status: number,
     readonly body: string,
+    /** How long the provider asked us to wait, from its `Retry-After`. */
+    readonly retryAfterMs?: number,
   ) {
     super(
       `chat completions request failed with ${status}: ${body.slice(0, 300)}`,
@@ -267,10 +293,26 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         );
       }
       if (attempt > 0) {
-        const backoff =
+        const scheduled =
           RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ??
           3000;
-        await sleep(Math.min(backoff, beforeSleep));
+        // A rate limit usually says when it lifts. Asking sooner only spends
+        // another attempt on the same 429, and three of those used to read as
+        // a provider outage while the provider was simply throttling.
+        const asked =
+          lastError instanceof ChatHttpError
+            ? lastError.retryAfterMs
+            : undefined;
+        // The provider has said no attempt before then can succeed, so the
+        // budget it would sleep through is better spent committing.
+        if (asked !== undefined && asked > beforeSleep) {
+          throw new DeadlineExceededError(
+            "the wait a chat completions provider asked for",
+            beforeSleep,
+            { cause: lastError },
+          );
+        }
+        await sleep(Math.min(Math.max(scheduled, asked ?? 0), beforeSleep));
       }
       // Outside the try, so an exhausted budget cannot be mistaken for a
       // retryable transport fault and burn the very time it is out of.
@@ -305,7 +347,11 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         if (!res.ok) {
           // The status is the verdict. A body that could not be read loses the
           // provider's explanation, not the classification: a 400 stays a 400.
-          throw new ChatHttpError(res.status, await res.text().catch(() => ""));
+          throw new ChatHttpError(
+            res.status,
+            await res.text().catch(() => ""),
+            retryAfterMs(res.headers.get("retry-after")),
+          );
         }
         // Read, then parsed, rather than `res.json()`, which rejects with the
         // same kind of error for both. Separately, a connection dropped mid-reply
@@ -350,7 +396,9 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         if (
           !retryable(error) ||
           timeouts >= TIMEOUT_ATTEMPT_LIMIT ||
-          attempt === maxRetries
+          attempt === maxRetries ||
+          (error instanceof ChatHttpError &&
+            (error.retryAfterMs ?? 0) > MAX_RETRY_AFTER_MS)
         )
           throw error;
       }
