@@ -55,7 +55,18 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Resized copies of large vault images, keyed by the original's content
+      # hash (ADR 0049). With them restored, a deploy encodes only images it
+      # has not seen; without them it encodes everything, which still works.
+      - name: Restore resized images
+        uses: actions/cache/restore@v6
+        with:
+          path: apps/site/.tiro/derivatives
+          key: site-derivatives-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: site-derivatives-
+
       - name: Build site from the vault
+        id: build
         env:
           TIRO_VAULT_DIR: ${{ github.workspace }}/vault
           # A vault entry the site cannot read is left off and listed here,
@@ -63,6 +74,18 @@ jobs:
           # (ADR 0048). The step after the upload turns the run red over it.
           TIRO_SKIP_REPORT: ${{ runner.temp }}/skipped-vault-entries.txt
         run: bun run --cwd apps/site build
+
+      # Saved straight after the build, not by the cache action's post step,
+      # which saves only when the whole job succeeds: a run that goes red over
+      # a skipped vault entry (ADR 0048) has still encoded its images. Skipped
+      # when nothing new was encoded, so an unchanged cache is not uploaded
+      # again on every deploy.
+      - name: Save resized images
+        if: steps.build.outputs.derivatives_encoded != '0'
+        uses: actions/cache/save@v6
+        with:
+          path: apps/site/.tiro/derivatives
+          key: site-derivatives-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

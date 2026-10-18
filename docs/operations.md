@@ -493,6 +493,16 @@ cut off after 20 minutes; a healthy one takes about two.
   visible at once. Check with `curl -sI` on the live URLs, or locally against
   `wrangler pages dev apps/site/dist`, which applies the file the way Pages
   does.
+- **Resized images are cached between deploys** (ADR 0049). "Restore resized
+  images" brings back `apps/site/.tiro/derivatives` from the newest
+  `site-derivatives-*` cache, the build encodes only images it has not seen
+  (its log says how many: `served resized (N encoded this run)`), and "Save
+  resized images" stores the result when N is not 0. A deploy without the
+  cache — evicted after a week unused, or deleted under Actions → Caches —
+  encodes everything again, about 10 s for the whole vault, and is otherwise
+  identical. To force fresh copies, delete the caches; changing an encoding
+  setting in `copy-assets.ts` already does it, since the cache directory is
+  named for the settings.
 - **Empty-vault guard**: the build refuses to publish a site with zero
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something
