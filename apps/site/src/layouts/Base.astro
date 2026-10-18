@@ -136,8 +136,8 @@ const mainClass = [
       title={STRINGS.siteTitle}
       href="/rss.xml"
     />
-    <!-- Page-specific head tags. Only the `/s/` aliases use this, for their
-      meta refresh, which has to be in <head> to count. -->
+    <!-- Page-specific head tags: the `/s/` aliases' meta refresh, which has to
+      be in <head> to count, and the reader's `#tiro-page` JSON. -->
     <slot name="head" />
     <script define:vars={{ P: PREF_SCRIPT_VARS }}>
       // Runs before first paint: puts every stored preference — paper, reader

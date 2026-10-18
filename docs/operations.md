@@ -622,8 +622,10 @@ record itself; don't hand-edit it.
   is what Cloudflare Pages serves as real 301s at the edge, and the
   `redirects` map in `apps/site/astro.config.mjs` mirrors it so `astro dev`
   redirects too and the static build carries meta-refresh pages as a
-  fallback. Today both map `/tags/` and `/categories/` to `/search/`
-  (ADR 0014); change them together.
+  fallback. Today both map `/tags/` to `/search/` (ADR 0014),
+  `/categories/` to `/` (ADR 0031: the category index has no page), and
+  `/favorites/` to `/collections/favorites/` (ADR 0029); change them
+  together.
 - `robots.txt` welcomes search — traditional engines and AI search or
   user-request agents alike (they cite with links) — and disallows
   AI-training and bulk-scraping crawlers by user agent (the site republishes
