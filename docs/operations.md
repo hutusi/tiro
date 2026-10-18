@@ -484,6 +484,15 @@ cut off after 20 minutes; a healthy one takes about two.
   short link or sitemap row until it is fixed. `validate` names the same
   files locally. CI and local builds still fail on the first such file:
   only the deploy sets `TIRO_SKIP_REPORT`.
+- **Response headers** live in `apps/site/public/_headers`. Vite's
+  fingerprinted `/_astro/*` is cached for a year as immutable.
+  `/vault-assets/*` is cached for a day and then served stale while it
+  revalidates. It is never immutable, because a re-clip can put new bytes
+  under the same name (the name hashes the image's source URL). Pages and
+  `/pagefind/*` keep Pages' default (revalidate every time), so a deploy is
+  visible at once. Check with `curl -sI` on the live URLs, or locally against
+  `wrangler pages dev apps/site/dist`, which applies the file the way Pages
+  does.
 - **Empty-vault guard**: the build refuses to publish a site with zero
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something

@@ -1,0 +1,21 @@
+# Cloudflare Pages response headers. A request matching several rules gets
+# the headers of all of them. Documented in docs/operations.md ("Deploys").
+
+# Vite names these by content hash: a changed file is a new URL, so a copy
+# never goes stale. Without this, Pages' default made browsers revalidate the
+# stylesheets and fonts every four hours.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Named by a hash of the image's source URL, not its bytes
+# (packages/processor/src/images.ts), so a re-clip can replace a file under
+# the same name. A day fresh, then served stale while it revalidates: never
+# immutable.
+/vault-assets/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# Nothing embeds this site, and its pages use no camera, microphone or
+# location.
+/*
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
