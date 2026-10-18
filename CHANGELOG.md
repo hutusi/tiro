@@ -64,6 +64,10 @@ versions follow the `0.x` line while Tiro is a personal system.
   text no longer jumps as pictures arrive. An image still loading from its
   original site no longer tells that site which page showed it, which also
   lets hosts that refuse other sites' links (WeChat, Zhihu) serve it.
+- **Pages open sooner.** Pointing at a link to another page of the site for a
+  moment, or pressing it, fetches that page ahead, so the click lands on a
+  page already loaded. The stylesheets and fonts are cached for good once
+  fetched, and the fonts load ahead of the stylesheet that names them.
 
 ### Fixed
 

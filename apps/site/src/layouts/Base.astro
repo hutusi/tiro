@@ -101,6 +101,26 @@ const isReader = width === "reader";
 // no bytes; it starts them sooner, and Cloudflare Pages sends preloads as
 // 103 Early Hints, before the HTML. Mono is left out: it sets small meta
 // text, where a late swap barely shows.
+// Fetch a page of this site when a reader shows intent to open it: hovering
+// a link for a moment, or pressing it. Then the click lands on a page already
+// in the cache. Only fetched, never rendered ahead, so no page script runs
+// early. A browser without speculation rules ignores the block, and it ships
+// no JavaScript of its own. Left out: the feed, which is not a page, and
+// vault assets, whose originals can be megabytes.
+const speculationRules = JSON.stringify({
+  prefetch: [
+    {
+      where: {
+        and: [
+          { href_matches: "/*" },
+          { not: { href_matches: "/rss.xml" } },
+          { not: { href_matches: "/vault-assets/*" } },
+        ],
+      },
+      eagerness: "moderate",
+    },
+  ],
+});
 const preloadFonts = isReader
   ? [spectral300, spectral400, spectral500, spectral600]
   : [spectral400, spectral500, spectral600];
@@ -285,6 +305,7 @@ const mainClass = [
         },
       };
     </script>
+    <script type="speculationrules" is:inline set:html={speculationRules} />
   </head>
   <body
     class="flex min-h-screen flex-col bg-paper text-ink"
