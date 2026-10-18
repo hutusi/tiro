@@ -72,6 +72,41 @@ describe("article images", () => {
     }
   });
 
+  // The src pattern matches before decoding, so `..%2F` reads as one name.
+  // Decoded, it would size a file outside the article's assets/ and publish
+  // its dimensions.
+  test("a src that decodes out of assets/ is not read", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tiro-render-images-"));
+    try {
+      const png = await sharp({
+        create: { width: 321, height: 123, channels: 3, background: "#888" },
+      })
+        .png()
+        .toBuffer();
+      mkdirSync(join(dir, "articles/a/assets"), { recursive: true });
+      mkdirSync(join(dir, "assets"), { recursive: true });
+      writeFileSync(join(dir, "articles/a/assets/inside.png"), png);
+      writeFileSync(join(dir, "articles/outside.png"), png);
+      writeFileSync(join(dir, "assets/outside.png"), png);
+      process.env.TIRO_VAULT_DIR = dir;
+      for (const src of [
+        "/vault-assets/a/..%2F..%2Foutside.png",
+        "/vault-assets/../outside.png",
+      ]) {
+        const html = renderBlockHtml(`<img src="${src}" alt="">`, "a");
+        expect(html).toContain('loading="lazy"');
+        expect(html).not.toContain('width="321"');
+      }
+      // The same file inside assets/ is still measured.
+      expect(renderBlockHtml("![i](./assets/inside.png)", "a")).toContain(
+        'width="321"',
+      );
+    } finally {
+      delete process.env.TIRO_VAULT_DIR;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("an asset that is missing or unmeasurable just goes unsized", () => {
     for (const block of [
       "![gone](./assets/not-there.png)",

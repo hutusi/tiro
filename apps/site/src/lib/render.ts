@@ -408,6 +408,11 @@ function readHead(path: string, bytes: number): Uint8Array {
   }
 }
 
+/** One path segment that stays where it is put: no separator, not `.` or `..`. */
+function isPlainName(name: string): boolean {
+  return name !== "" && name !== "." && name !== ".." && !/[/\\]/.test(name);
+}
+
 /**
  * A published vault asset's pixel size, read from the original's header, or
  * null when it is not a vault asset or cannot be read or measured. Never
@@ -416,15 +421,16 @@ function readHead(path: string, bytes: number): Uint8Array {
 function vaultAssetSize(src: string): ImageSize | null {
   const match = VAULT_ASSET.exec(src);
   if (match === null) return null;
+  const slug = match[1] ?? "";
   let path: string;
   try {
-    path = join(
-      vaultDir(),
-      "articles",
-      match[1] ?? "",
-      "assets",
-      decodeURIComponent(match[2] ?? ""),
-    );
+    // The pattern matched the src as written, so it saw `..%2F` as one
+    // name. Decoded, that name would walk out of the article's `assets/`, and
+    // a clipped `<img>` could have the build read a file anywhere on its host
+    // and publish that file's dimensions. `covers.ts` refuses the same names.
+    const file = decodeURIComponent(match[2] ?? "");
+    if (!isPlainName(slug) || !isPlainName(file)) return null;
+    path = join(vaultDir(), "articles", slug, "assets", file);
   } catch {
     return null;
   }
