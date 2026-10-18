@@ -27,8 +27,9 @@ and the pages serve the copy in its place.
 
 - **Which images.** PNG, JPEG and WebP over 300 KB, or wider than 1600 px.
   1600 px covers the text column at 2× density. GIF (animation), SVG and AVIF
-  are left alone, and so is an animated WebP, which the encoder would cut to
-  its first frame.
+  are left alone, and so is any animation the encoder would cut to its
+  first frame: an animated WebP, which sharp reports as several pages, and
+  an animated PNG, which it does not, found by its `acTL` chunk.
 - **Kept only when it pays.** A copy that does not save at least a fifth of
   the original's bytes is not served. The original stays.
 - **Where.** `scripts/copy-assets.ts --derivatives` encodes with sharp at

@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { copyAssets } from "../scripts/copy-assets.ts";
+import { copyAssets, isAnimatedPng } from "../scripts/copy-assets.ts";
 import { resetAssetManifest, servedCopy } from "../src/lib/asset-manifest.ts";
 
 let root: string;
@@ -45,6 +45,24 @@ async function photo(width: number, height: number): Promise<Uint8Array> {
   return sharp(pixels, { raw: { width, height, channels: 3 } })
     .png()
     .toBuffer();
+}
+
+/** The PNG made animated, as an APNG encoder writes it: an `acTL` chunk
+ * (two frames, looping) between `IHDR` and the image data. */
+function animate(png: Uint8Array): Uint8Array {
+  const chunk = new Uint8Array(20);
+  const view = new DataView(chunk.buffer);
+  view.setUint32(0, 8);
+  chunk.set(new TextEncoder().encode("acTL"), 4);
+  view.setUint32(8, 2);
+  view.setUint32(12, 0);
+  view.setUint32(16, Bun.hash.crc32(chunk.subarray(4, 16)));
+  // Signature (8) and IHDR (25) come first.
+  return new Uint8Array([
+    ...png.subarray(0, 33),
+    ...chunk,
+    ...png.subarray(33),
+  ]);
 }
 
 function options(derive = true) {
@@ -120,6 +138,18 @@ describe("copyAssets", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  // libvips decodes an APNG's first frame and reports no `pages` for it, so
+  // only the chunk check stops a still copy replacing the animation.
+  test("an animated PNG keeps its original", async () => {
+    asset("a", "moving.png", animate(await photo(2400, 1200)));
+    const result = await copyAssets(options());
+    expect(readdirSync(join(root, "public/vault-assets/a"))).toEqual([
+      "moving.png",
+    ]);
+    expect(manifest()).toEqual({});
+    expect(result).toMatchObject({ copied: 1, derived: 0 });
+  });
+
   test("without sharp, every image is served full size", async () => {
     asset("a", "wide.png", await photo(2400, 1200));
     const result = await copyAssets({
@@ -159,5 +189,18 @@ describe("servedCopy", () => {
 
   test("serves originals when no manifest is named", () => {
     expect(servedCopy("/vault-assets/a/wide.png")).toBeNull();
+  });
+});
+
+describe("isAnimatedPng", () => {
+  test("finds acTL before the image data, and nothing in a still PNG", async () => {
+    const still = await photo(16, 16);
+    expect(isAnimatedPng(still)).toBe(false);
+    expect(isAnimatedPng(animate(still))).toBe(true);
+    // Not a PNG at all, and a PNG cut short inside its first chunk.
+    expect(isAnimatedPng(new TextEncoder().encode("GIF89a........"))).toBe(
+      false,
+    );
+    expect(isAnimatedPng(still.subarray(0, 20))).toBe(false);
   });
 });

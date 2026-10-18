@@ -99,12 +99,36 @@ function wantsCopy(file: string, path: string, bytes: number): boolean {
   return size !== null && size.width > DERIVED_WIDTH;
 }
 
+/**
+ * Whether a PNG is animated (APNG): an `acTL` chunk before the first `IDAT`.
+ * libvips decodes only an APNG's default image and reports no `pages` for
+ * it, so the metadata check in `encode` cannot see the animation, and the
+ * copy would be a still frame standing in for it.
+ */
+export function isAnimatedPng(bytes: Uint8Array): boolean {
+  if (bytes.length < 16 || bytes[0] !== 0x89 || bytes[1] !== 0x50) {
+    return false;
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let at = 8;
+  while (at + 8 <= bytes.length) {
+    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    if (type === "acTL") return true;
+    if (type === "IDAT" || type === "IEND") return false;
+    // Length, type and CRC around the chunk's data.
+    at += 12 + view.getUint32(at);
+  }
+  return false;
+}
+
 async function encode(
   sharp: Sharp,
   bytes: Uint8Array,
 ): Promise<{ data: Uint8Array; size: DerivedSize } | null> {
+  // An animation would be cut to its first frame: an APNG, which libvips
+  // does not report, and an animated WebP, which it does.
+  if (isAnimatedPng(bytes)) return null;
   const meta = await sharp(bytes).metadata();
-  // An animated WebP would be cut to its first frame.
   if ((meta.pages ?? 1) > 1) return null;
   const { data, info } = await sharp(bytes)
     // Upright by its EXIF orientation, since the copy carries no EXIF.
