@@ -6,6 +6,12 @@ import "@fontsource/spectral/latin-500.css";
 import "@fontsource/spectral/latin-600.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-500.css";
+// The same files the stylesheets above reference: Vite names an asset by its
+// content, so each `?url` resolves to the one copy in `_astro/`.
+import spectral300 from "@fontsource/spectral/files/spectral-latin-300-normal.woff2?url";
+import spectral400 from "@fontsource/spectral/files/spectral-latin-400-normal.woff2?url";
+import spectral500 from "@fontsource/spectral/files/spectral-latin-500-normal.woff2?url";
+import spectral600 from "@fontsource/spectral/files/spectral-latin-600-normal.woff2?url";
 import "../styles/global.css";
 import PaperDots from "../components/PaperDots.astro";
 import { PREF_SCRIPT_VARS } from "../lib/prefs.ts";
@@ -88,6 +94,16 @@ const nav = [
 // vertical rhythm, and for `narrow` a column narrower than the page it sits in.
 // The utility outranks the components layer, which is what makes that work.
 const isReader = width === "reader";
+// The serif faces every page sets above the fold, measured in the browser:
+// 400, 500 and 600 on every page, and 300 for an article's prose. A font is
+// otherwise found only once the stylesheet is parsed, and the text swaps
+// when it arrives. These all load on their pages anyway, so a preload adds
+// no bytes; it starts them sooner, and Cloudflare Pages sends preloads as
+// 103 Early Hints, before the HTML. Mono is left out: it sets small meta
+// text, where a late swap barely shows.
+const preloadFonts = isReader
+  ? [spectral300, spectral400, spectral500, spectral600]
+  : [spectral400, spectral500, spectral600];
 const mainClass = [
   "measure pt-12 pb-16",
   width === "narrow" && "max-w-[var(--w-narrow)]",
@@ -116,6 +132,17 @@ const mainClass = [
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    {
+      preloadFonts.map((href) => (
+        <link
+          rel="preload"
+          as="font"
+          type="font/woff2"
+          href={href}
+          crossorigin
+        />
+      ))
+    }
     <meta name="description" content={metaDescription} />
     <link rel="canonical" href={canonical} />
     {noindex && <meta name="robots" content="noindex, nofollow" />}
