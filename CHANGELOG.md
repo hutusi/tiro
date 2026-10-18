@@ -59,6 +59,11 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **Math is typeset properly.** Since math support landed, the site served
+  KaTeX 0.18's stylesheet to formulas rendered by KaTeX 0.16, which uses the
+  class names 0.18 renamed. So formulas got no line struts, scripts were not
+  shrunk, and accents sat wrong, on every article with math. Both now come
+  from one release, and a test fails if they drift apart.
 - **An article the provider's moderation partly refuses is still translated.**
   DashScope refuses some paragraphs outright, on every run and from every
   host, and one refused paragraph used to fail the whole article, which then
