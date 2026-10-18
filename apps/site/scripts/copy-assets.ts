@@ -45,8 +45,14 @@ export const DERIVE_OVER_BYTES = 300 * 1024;
 /** A copy must save at least this share of the original's bytes to be served. */
 const MIN_SAVING = 0.2;
 const QUALITY = 80;
-/** Changing any encoding setting changes this, so old copies are not reused. */
-const CACHE_VERSION = `w${DERIVED_WIDTH}-q${QUALITY}`;
+/**
+ * Names the cache directory. It must carry every input to what the cache
+ * stores, which is everything `encode` decides: the width, the quality and
+ * the saving a copy must make. A change to any of them, or to how `encode`
+ * works, changes this, and the old copies are pruned rather than reused.
+ * Which images get a copy at all is not cached (see `isAnimation`).
+ */
+export const CACHE_VERSION = `w${DERIVED_WIDTH}-q${QUALITY}-s${MIN_SAVING * 100}`;
 const RASTER = /\.(?:png|jpe?g|webp)$/i;
 const CONCURRENCY = 4;
 
@@ -77,7 +83,8 @@ export interface CopyAssetsResult {
   derived: number;
 }
 
-function hashOf(bytes: Uint8Array): string {
+/** An original's key in the cache. */
+export function cacheKey(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex").slice(0, 24);
 }
 
@@ -121,15 +128,26 @@ export function isAnimatedPng(bytes: Uint8Array): boolean {
   return false;
 }
 
+/**
+ * Whether the image is an animation, which a copy would cut to its first
+ * frame: an APNG, which libvips does not report, or an animated WebP, which
+ * it reports as several pages.
+ *
+ * Decided on every run, never cached. The cache stores what encoding
+ * produced, and a rule about which images get a copy, kept behind it, would
+ * miss every image a cache already holds.
+ */
+async function isAnimation(sharp: Sharp, bytes: Uint8Array): Promise<boolean> {
+  if (isAnimatedPng(bytes)) return true;
+  return ((await sharp(bytes).metadata()).pages ?? 1) > 1;
+}
+
+/** The copy, or null when it would not save `MIN_SAVING`. Everything this
+ * decides is named in `CACHE_VERSION`. */
 async function encode(
   sharp: Sharp,
   bytes: Uint8Array,
 ): Promise<{ data: Uint8Array; size: DerivedSize } | null> {
-  // An animation would be cut to its first frame: an APNG, which libvips
-  // does not report, and an animated WebP, which it does.
-  if (isAnimatedPng(bytes)) return null;
-  const meta = await sharp(bytes).metadata();
-  if ((meta.pages ?? 1) > 1) return null;
   const { data, info } = await sharp(bytes)
     // Upright by its EXIF orientation, since the copy carries no EXIF.
     .rotate()
@@ -204,7 +222,18 @@ export async function copyAssets(
     const work = candidates.map((candidate) => async () => {
       const { slug, file, source } = candidate;
       const bytes = readFileSync(source);
-      const hash = hashOf(bytes);
+      try {
+        // Before the cache is consulted, and every run: a copy cached by a
+        // build that did not yet know an animation when it saw one must not
+        // be served for it now.
+        if (await isAnimation(encoder, bytes)) return;
+      } catch (error) {
+        console.warn(
+          `could not read ${slug}/${file}; serving the original: ${(error as Error).message}`,
+        );
+        return;
+      }
+      const hash = cacheKey(bytes);
       const cachedFile = join(versionDir, `${hash}.webp`);
       let size: DerivedSize | null | undefined = previous[hash];
       if (size !== undefined && size !== null && !existsSync(cachedFile)) {

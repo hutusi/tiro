@@ -49,9 +49,14 @@ and the pages serve the copy in its place.
   way the build carries on. This is ADR 0020's rule, kept: one image costs at
   most its own bytes, never the deploy.
 - **Cached by content.** Copies are cached in `apps/site/.tiro/derivatives/`,
-  keyed by a hash of the original's bytes, under a directory named for the
-  encoding settings. Changing a setting starts a fresh directory and removes
-  the old one. Copies the vault no longer uses are pruned. The deploy
+  keyed by a hash of the original's bytes, under a directory named for
+  every input to what is cached: the width, the quality and the saving a
+  copy must make. Changing any of them starts a fresh directory and removes
+  the old one. The cache holds only what encoding produced. Whether an image
+  gets a copy at all, for instance because it is an animation, is decided on
+  every build before the cache is consulted, so a rule added later also
+  applies to images already cached. Copies the vault no longer uses are
+  pruned. The deploy
   restores the cache before building and saves it right after, so a deploy
   encodes only images it has not seen. It saves only when something was
   encoded.

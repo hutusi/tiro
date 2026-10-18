@@ -11,7 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { copyAssets, isAnimatedPng } from "../scripts/copy-assets.ts";
+import {
+  CACHE_VERSION,
+  cacheKey,
+  copyAssets,
+  isAnimatedPng,
+} from "../scripts/copy-assets.ts";
 import { resetAssetManifest, servedCopy } from "../src/lib/asset-manifest.ts";
 
 let root: string;
@@ -148,6 +153,37 @@ describe("copyAssets", () => {
     ]);
     expect(manifest()).toEqual({});
     expect(result).toMatchObject({ copied: 1, derived: 0 });
+  });
+
+  // The animation check used to run only when an image was encoded, so a
+  // still copy cached before the check existed was served on every later
+  // build. Whether an image gets a copy is now decided before the cache.
+  test("a still copy already in the cache is not served for an animation", async () => {
+    const moving = animate(await photo(2400, 1200));
+    asset("a", "moving.png", moving);
+    // The cache as a build without the check left it.
+    const versionDir = join(root, ".tiro/derivatives", CACHE_VERSION);
+    mkdirSync(versionDir, { recursive: true });
+    const key = cacheKey(moving);
+    writeFileSync(
+      join(versionDir, `${key}.webp`),
+      await sharp(await photo(1600, 800))
+        .webp()
+        .toBuffer(),
+    );
+    writeFileSync(
+      join(versionDir, "index.json"),
+      JSON.stringify({ [key]: { width: 1600, height: 800 } }),
+    );
+
+    const result = await copyAssets(options());
+    expect(readdirSync(join(root, "public/vault-assets/a"))).toEqual([
+      "moving.png",
+    ]);
+    expect(manifest()).toEqual({});
+    expect(result).toMatchObject({ derived: 0 });
+    // And the stale copy is pruned rather than kept for the next build.
+    expect(existsSync(join(versionDir, `${key}.webp`))).toBe(false);
   });
 
   test("without sharp, every image is served full size", async () => {
