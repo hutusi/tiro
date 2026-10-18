@@ -102,12 +102,25 @@ describe("imageSize", () => {
     ).toEqual({ width: 1920, height: 1080 });
   });
 
+  test("GIF, from the logical screen descriptor", () => {
+    expect(imageSize(bytes("GIF89a", u16le(480), u16le(270)))).toEqual({
+      width: 480,
+      height: 270,
+    });
+    expect(imageSize(bytes("GIF87a", u16le(1), u16le(1)))).toEqual({
+      width: 1,
+      height: 1,
+    });
+    // Truncated before the height, and a zero-sized screen.
+    expect(imageSize(bytes("GIF89a", u16le(480)))).toBeNull();
+    expect(imageSize(bytes("GIF89a", u16le(0), u16le(270)))).toBeNull();
+  });
+
   test("anything else is unknown rather than an error", () => {
     expect(imageSize(new Uint8Array())).toBeNull();
     expect(
       imageSize(bytes("<svg xmlns='http://www.w3.org/2000/svg'/>")),
     ).toBeNull();
-    expect(imageSize(bytes("GIF89a", [1, 0, 1, 0]))).toBeNull();
     // Truncated mid-segment.
     expect(
       imageSize(bytes([0xff, 0xd8, 0xff, 0xe1], u16be(9000), [0, 0])),

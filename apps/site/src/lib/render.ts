@@ -1,3 +1,5 @@
+import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { join } from "node:path";
 import {
   isPullQuoteBlock,
   normalizeBlockMath,
@@ -19,6 +21,8 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { rehypeShiki } from "./highlight.ts";
+import { type ImageSize, imageSize } from "./image-size.ts";
+import { vaultDir } from "./vault.ts";
 
 // GitHub-style sanitization schema. Everything a hostile page could smuggle
 // through Readability→Turndown (scripts, event handlers, iframes) is stripped
@@ -385,6 +389,108 @@ function rehypeScopeAnchors(pane: Pane) {
   };
 }
 
+/** Enough of a file to find its size in nearly every case: a PNG, WebP or GIF
+ * header is at the start, and a JPEG's frame header follows its metadata. */
+const IMAGE_HEAD_BYTES = 64 * 1024;
+
+const VAULT_ASSET = /^\/vault-assets\/([^/]+)\/([^/]+)$/;
+
+const assetSizes = new Map<string, ImageSize | null>();
+
+function readHead(path: string, bytes: number): Uint8Array {
+  const fd = openSync(path, "r");
+  try {
+    const buffer = new Uint8Array(bytes);
+    return buffer.subarray(0, readSync(fd, buffer, 0, bytes, 0));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * A published vault asset's pixel size, read from the original's header, or
+ * null when it is not a vault asset or cannot be read or measured. Never
+ * throws: an image without a size renders as it always did.
+ */
+function vaultAssetSize(src: string): ImageSize | null {
+  const match = VAULT_ASSET.exec(src);
+  if (match === null) return null;
+  let path: string;
+  try {
+    path = join(
+      vaultDir(),
+      "articles",
+      match[1] ?? "",
+      "assets",
+      decodeURIComponent(match[2] ?? ""),
+    );
+  } catch {
+    return null;
+  }
+  const cached = assetSizes.get(path);
+  if (cached !== undefined) return cached;
+  let size: ImageSize | null = null;
+  try {
+    const head = readHead(path, IMAGE_HEAD_BYTES);
+    size = imageSize(head);
+    // A large EXIF block, ICC profile or XMP packet can push a JPEG's frame
+    // header past the first read. Only then is the whole file read.
+    const jpeg = head[0] === 0xff && head[1] === 0xd8;
+    if (size === null && jpeg && head.length === IMAGE_HEAD_BYTES) {
+      size = imageSize(readHead(path, statSync(path).size));
+    }
+  } catch {
+    size = null;
+  }
+  assetSizes.set(path, size);
+  return size;
+}
+
+/**
+ * Lazy, sized, referrer-free images.
+ *
+ * - **`loading="lazy"` and `decoding="async"` on every image.** An article
+ *   used to fetch every picture at once, competing with its own stylesheet
+ *   and fonts. (Both panes carry the same image URLs, so the second pane
+ *   never cost a second download; lazy loading is about when, not twice.)
+ * - **`width` and `height` on a vault asset**, from its header, so the page
+ *   holds the image's space and does not jump as it arrives. Tailwind's
+ *   preflight gives `img` `max-width: 100%; height: auto`, so the attributes
+ *   set the aspect ratio and never stretch the picture. Sizes the clipped
+ *   markup already carries are left alone.
+ * - **`referrerpolicy="no-referrer"` on a hotlinked image.** Image hosts that
+ *   refuse other sites' referers (WeChat's, Zhihu's, Sina's) serve it then,
+ *   and the original site is not told which page of this one showed it.
+ *
+ * After sanitize, like every pass that adds attributes (ADR 0009), and after
+ * the passes that move images into figures and video links, so it reaches
+ * every image the page ends with.
+ */
+function rehypeImageAttributes() {
+  return (tree: Root): void => {
+    visit(tree, "element", (node) => {
+      if (node.tagName !== "img") return;
+      const properties = node.properties;
+      properties.loading = "lazy";
+      properties.decoding = "async";
+      const src = properties.src;
+      if (typeof src !== "string") return;
+      if (/^(?:https?:)?\/\//i.test(src)) {
+        properties.referrerPolicy = "no-referrer";
+        return;
+      }
+      if (properties.width !== undefined || properties.height !== undefined) {
+        return;
+      }
+      const size = vaultAssetSize(src);
+      if (size !== null) {
+        properties.width = size.width;
+        properties.height = size.height;
+      }
+    });
+  };
+}
+
 /**
  * Record every id in the finished tree.
  *
@@ -469,6 +575,7 @@ function buildProcessor(singleDollarTextMath: boolean, pane: Pane) {
       .use(rehypePullQuotes)
       .use(rehypeKatex, KATEX_OPTIONS)
       .use(rehypeIgnoreMathmlInSearch)
+      .use(rehypeImageAttributes)
       // Last, so what it records is what gets stringified — the generators
       // above rewrite elements, and an id on one they replace is gone.
       .use(rehypeCollectAnchorIds)

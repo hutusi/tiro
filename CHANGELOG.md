@@ -57,6 +57,14 @@ versions follow the `0.x` line while Tiro is a personal system.
   instead of being dropped. The data disclosure moves to version 7, so every
   install re-accepts it once (ADR 0037).
 
+### Changed
+
+- **Article pages load faster.** Images load lazily as you reach them, rather
+  than all at once with the page. Each saved image carries its size, so the
+  text no longer jumps as pictures arrive. An image still loading from its
+  original site no longer tells that site which page showed it, which also
+  lets hosts that refuse other sites' links (WeChat, Zhihu) serve it.
+
 ### Fixed
 
 - **Math is typeset properly.** Since math support landed, the site served

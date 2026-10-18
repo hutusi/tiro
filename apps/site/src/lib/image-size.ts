@@ -1,6 +1,7 @@
 /**
  * Pixel dimensions from an image's header, for the three formats covers are
- * mostly picked from: PNG, JPEG and WebP.
+ * mostly picked from (PNG, JPEG and WebP), and GIF, which article images use
+ * and covers do not.
  *
  * Never throws. Anything it cannot read — another format, a truncated file, a
  * header it does not recognise — is null, and the caller decides what an
@@ -15,7 +16,7 @@ export interface ImageSize {
 
 export function imageSize(bytes: Uint8Array): ImageSize | null {
   try {
-    return png(bytes) ?? jpeg(bytes) ?? webp(bytes);
+    return png(bytes) ?? jpeg(bytes) ?? webp(bytes) ?? gif(bytes);
   } catch {
     return null;
   }
@@ -89,4 +90,15 @@ function webp(b: Uint8Array): ImageSize | null {
     return { width: 1 + u24(24), height: 1 + u24(27) };
   }
   return null;
+}
+
+/** The logical screen size, which every frame is drawn within. */
+function gif(b: Uint8Array): ImageSize | null {
+  if (b.length < 10 || !/^GIF8[79]a$/.test(ascii(b, 0, 6))) return null;
+  const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const size = {
+    width: view.getUint16(6, true),
+    height: view.getUint16(8, true),
+  };
+  return size.width > 0 && size.height > 0 ? size : null;
 }
