@@ -56,7 +56,11 @@ export interface ChatClientOptions {
    * left and none may outlive it. */
   deadline?: Deadline;
   fetchImpl?: FetchLike;
-  sleep?: (ms: number) => Promise<void>;
+  /** The wait between attempts. Ends early when `signal` aborts, since a
+   * `Retry-After` can ask for a minute that a caller who has stopped waiting
+   * should not leave running. A test's fake may ignore the signal: the client
+   * checks it again after every wait. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Where a reply the provider did not end on its own is reported — see
    * `unfinishedReply`. */
   log?: (message: string) => void;
@@ -270,7 +274,22 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
     maxRetries = 3,
     deadline,
     fetchImpl = fetch,
-    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep = (ms, signal) =>
+      new Promise<void>((resolve) => {
+        if (signal?.aborted === true) {
+          resolve();
+          return;
+        }
+        // Cleared on abort, so no timer outlives the call and holds the
+        // process open.
+        const done = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", done);
+          resolve();
+        };
+        const timer = setTimeout(done, ms);
+        signal?.addEventListener("abort", done, { once: true });
+      }),
     log = () => {},
   } = options;
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -281,6 +300,9 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
   ): Promise<string> {
     let lastError: unknown;
     let timeouts = 0;
+    // Read through a call, not a property, so the check after an await is not
+    // narrowed away by the one before it: the signal can abort in between.
+    const callerGaveUp = () => options?.signal?.aborted === true;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       // Checked before the backoff, not after: sleeping 3s to then discover
       // there were 100ms left would overshoot the budget by the sleep itself.
@@ -312,8 +334,16 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
             { cause: lastError },
           );
         }
-        await sleep(Math.min(Math.max(scheduled, asked ?? 0), beforeSleep));
+        await sleep(
+          Math.min(Math.max(scheduled, asked ?? 0), beforeSleep),
+          options?.signal,
+        );
       }
+      // A caller that stopped waiting, during the wait or before the first
+      // attempt, gets no request at all: fetch would only be handed a dead
+      // signal. Before the budget check, as in the catch below, because it is
+      // the more specific instruction.
+      if (callerGaveUp()) throw options?.signal?.reason;
       // Outside the try, so an exhausted budget cannot be mistaken for a
       // retryable transport fault and burn the very time it is out of.
       const remainingMs = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
@@ -385,7 +415,7 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         // The caller has stopped waiting, so retrying would spend the
         // provider's quota on an answer nobody is going to read. Checked
         // before the budget, because this is the more specific instruction.
-        if (options?.signal?.aborted === true) throw error;
+        if (callerGaveUp()) throw error;
         const left = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
         if (left <= 0) {
           throw new DeadlineExceededError("a chat completions retry", left, {

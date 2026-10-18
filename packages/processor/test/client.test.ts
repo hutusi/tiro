@@ -471,19 +471,83 @@ describe("a caller that has stopped waiting", () => {
     // without this the caller stopped waiting and the client went on retrying
     // underneath — spending the provider's quota on an answer nobody reads.
     let calls = 0;
+    const controller = new AbortController();
     const chat = createChatClient({
       baseUrl: "https://llm.example/v1",
       apiKey: "k",
       maxRetries: 3,
       fetchImpl: async () => {
         calls += 1;
+        // The caller gives up while this first request is out.
+        controller.abort();
         return new Response("upstream", { status: 503 });
       },
       sleep: noSleep,
     });
 
+    await expect(
+      chat(request, { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+
+  test("a call already aborted sends nothing", async () => {
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse("ok");
+      },
+      sleep: noSleep,
+    });
+    await expect(
+      chat(request, { signal: AbortSignal.abort() }),
+    ).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  // A Retry-After can ask for a minute. A caller that stops waiting during it
+  // must not leave the client asleep, nor have it wake to send another request.
+  test("an abort during a Retry-After wait ends it, and starts no retry", async () => {
+    let calls = 0;
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("rate limited", {
+          status: 429,
+          headers: { "Retry-After": "30" },
+        });
+      },
+      // The real wait, which the abort has to cut short.
+    });
+    const started = Date.now();
+    const error = await chat(request, {
+      signal: AbortSignal.timeout(50),
+    }).catch((e: unknown) => e);
+    // The signal's own reason, as an aborted fetch would have thrown.
+    expect((error as { name?: string }).name).toBe("TimeoutError");
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(calls).toBe(1);
+  });
+
+  test("a fake sleep that ignores the signal still starts no retry", async () => {
+    let calls = 0;
     const controller = new AbortController();
-    controller.abort();
+    const chat = createChatClient({
+      baseUrl: "https://llm.example/v1",
+      apiKey: "k",
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("upstream", { status: 503 });
+      },
+      sleep: async () => {
+        controller.abort();
+      },
+    });
     await expect(
       chat(request, { signal: controller.signal }),
     ).rejects.toThrow();
