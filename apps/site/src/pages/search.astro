@@ -200,15 +200,26 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
     let request = 0;
     // The matches of the current request that are not on the page yet.
     let rest = null;
-    // The request whose search itself failed, which the button re-runs.
+    // The request whose search, or a page of whose results, failed to load.
     let failed = null;
+
+    // Pagefind remembers a failed load. An initialisation error is kept and
+    // thrown again by every later search, and a result body whose fetch
+    // failed stays failed for that instance. Asking it again cannot recover,
+    // so a retry reloads the page with the query in its address, which also
+    // picks up a new index if a deploy replaced it while the page was open.
+    const reloadWithQuery = () => {
+      const url = new URL(location.href);
+      url.searchParams.set("q", input.value.trim());
+      location.replace(url.href);
+    };
 
     const showPage = async (results, from, id) => {
       const slice = results.slice(from, from + PAGE);
       // Consume the page before awaiting: a second click while the bodies
-      // load must not append the same 30 again. On failure hand it back and
-      // turn the button into a retry — for the first page too, which has no
-      // button of its own yet.
+      // load must not append the same 30 again. On failure turn the button
+      // into a retry, for the first page too, which has no button of its
+      // own yet.
       rest = null;
       more.disabled = true;
       if (from === 0) more.hidden = true;
@@ -217,7 +228,7 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
         data = await Promise.all(slice.map((r) => r.data()));
       } catch {
         if (id === request) {
-          rest = { id, results, shown: from };
+          failed = id;
           more.textContent = T.retry;
           more.hidden = false;
           more.disabled = false;
@@ -257,10 +268,9 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
       try {
         response = await pagefind.debouncedSearch(term, {}, 250);
       } catch {
-        // An index chunk that failed to load (a dropped connection, or a
-        // deploy that replaced the index while the page was open). The
-        // retry button runs the search again, as it reloads a page of
-        // results that failed in `showPage`.
+        // Pagefind could not load what the search needs: a dropped
+        // connection, or a deploy that replaced the index while the page
+        // was open. The same retry as a page of results that failed.
         if (id !== request) return;
         clear();
         failed = id;
@@ -276,8 +286,7 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
 
     more.addEventListener("click", () => {
       if (failed !== null && failed === request) {
-        failed = null;
-        input.dispatchEvent(new Event("input"));
+        reloadWithQuery();
         return;
       }
       if (rest !== null && rest.id === request) {
