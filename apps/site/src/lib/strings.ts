@@ -92,6 +92,7 @@ export const STRINGS = {
     remaining: "还有 {n} 篇",
     retry: "加载失败，点击重试",
     devNotice: "搜索索引在构建后生成，开发模式下不可用。",
+    unavailable: "搜索暂时不可用，请稍后刷新页面重试。",
   },
   categories: { title: "分类" },
   notFound: {

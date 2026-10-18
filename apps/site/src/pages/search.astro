@@ -17,6 +17,10 @@ const tags = (await tagIndex()).sort(byCount);
 // The long tail folds away behind a summary; the most used stay in view.
 const TOP_TAGS = 30;
 const t = STRINGS.search;
+// The index is written by `pagefind --site dist` after the build, so in
+// `astro dev` it is missing by design. In production a missing or broken
+// index is a fault, and the reader should not be told about dev mode.
+const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
 ---
 
 <Base title={t.title}>
@@ -71,7 +75,7 @@ const t = STRINGS.search;
   <ol id="search-results" class="m-0 list-none p-0"></ol>
   <button id="search-more" type="button" class="chip mt-5" hidden></button>
   <p id="search-notice" hidden class="mt-9 font-ui text-sm text-ink-mute">
-    {t.devNotice}
+    {notice}
   </p>
 </Base>
 
@@ -143,7 +147,8 @@ const t = STRINGS.search;
     const PAGE = 30;
 
     // Pagefind's bundle is written by `pagefind --site dist` after the build,
-    // so in `astro dev` the import rejects and the notice explains why.
+    // so in `astro dev` the import rejects and the notice explains why. In
+    // production the same notice says search is unavailable.
     let pagefind = null;
     const ready = (async () => {
       try {
@@ -195,6 +200,8 @@ const t = STRINGS.search;
     let request = 0;
     // The matches of the current request that are not on the page yet.
     let rest = null;
+    // The request whose search itself failed, which the button re-runs.
+    let failed = null;
 
     const showPage = async (results, from, id) => {
       const slice = results.slice(from, from + PAGE);
@@ -246,7 +253,21 @@ const t = STRINGS.search;
         clear();
         return;
       }
-      const response = await pagefind.debouncedSearch(term, {}, 250);
+      let response;
+      try {
+        response = await pagefind.debouncedSearch(term, {}, 250);
+      } catch {
+        // An index chunk that failed to load (a dropped connection, or a
+        // deploy that replaced the index while the page was open). The
+        // retry button runs the search again, as it reloads a page of
+        // results that failed in `showPage`.
+        if (id !== request) return;
+        clear();
+        failed = id;
+        more.textContent = T.retry;
+        more.hidden = false;
+        return;
+      }
       if (response === null || id !== request) return;
       count.textContent = `${response.results.length} ${T.results}`;
       count.hidden = false;
@@ -254,6 +275,11 @@ const t = STRINGS.search;
     });
 
     more.addEventListener("click", () => {
+      if (failed !== null && failed === request) {
+        failed = null;
+        input.dispatchEvent(new Event("input"));
+        return;
+      }
       if (rest !== null && rest.id === request) {
         showPage(rest.results, rest.shown, rest.id);
       }
