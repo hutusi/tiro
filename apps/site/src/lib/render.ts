@@ -20,6 +20,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { servedCopy } from "./asset-manifest.ts";
 import { rehypeShiki } from "./highlight.ts";
 import { type ImageSize, imageSize } from "./image-size.ts";
 import { vaultDir } from "./vault.ts";
@@ -453,8 +454,12 @@ function vaultAssetSize(src: string): ImageSize | null {
  *   used to fetch every picture at once, competing with its own stylesheet
  *   and fonts. (Both panes carry the same image URLs, so the second pane
  *   never cost a second download; lazy loading is about when, not twice.)
- * - **`width` and `height` on a vault asset**, from its header, so the page
- *   holds the image's space and does not jump as it arrives. Tailwind's
+ * - **A large vault asset's resized copy in its place**, when the build made
+ *   one (ADR 0049): a WebP at most 1600 px wide instead of an original that
+ *   can be megabytes.
+ * - **`width` and `height` on a vault asset**, the copy's or else the
+ *   original's from its header, so the page holds the image's space and does
+ *   not jump as it arrives. Tailwind's
  *   preflight gives `img` `max-width: 100%; height: auto`, so the attributes
  *   set the aspect ratio and never stretch the picture. Sizes the clipped
  *   markup already carries are left alone.
@@ -479,10 +484,12 @@ function rehypeImageAttributes() {
         properties.referrerPolicy = "no-referrer";
         return;
       }
+      const copy = servedCopy(src);
+      if (copy !== null) properties.src = copy.src;
       if (properties.width !== undefined || properties.height !== undefined) {
         return;
       }
-      const size = vaultAssetSize(src);
+      const size = copy ?? vaultAssetSize(src);
       if (size !== null) {
         properties.width = size.width;
         properties.height = size.height;

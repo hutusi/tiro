@@ -308,7 +308,10 @@ flowchart LR
    time to commit. Anything it does not reach stays pending for the next run.
 3. **Publish.** The deploy workflow checks out both repos, builds the Astro
    site from the vault content, indexes it with Pagefind, and deploys to
-   Cloudflare Pages. The site is fully public.
+   Cloudflare Pages. The site is fully public. Large images are served as
+   WebP copies at most 1600 px wide, made at build time and cached between
+   deploys by content hash; the originals are published beside them and stay
+   untouched in the vault (ADR 0049).
 
    The site's shape follows the "Later Reader" design (ADR 0014): a paginated
    Library at `/` and `/page/N/`, a 搜索与标签 page carrying Pagefind search
@@ -525,7 +528,9 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   dimensionless SVG, say. It used to fail the whole build, because Astro's
   content layer measured every image an article referenced. The site reads the
   vault itself now and serves assets as plain copies, so a bad one costs its own
-  image and nothing else (ADR 0020); a fixture holds the line.
+  image and nothing else (ADR 0020); a fixture holds the line. The resized
+  copies of large images keep that rule: an image that will not encode, or a
+  build where sharp will not load, serves the original (ADR 0049).
 - **An imported document cannot be re-read at all.** Its bytes were never in
   the vault and CI cannot reach the disk they came from, so `--force`
   re-restructures the body rather than re-extracting it. Re-importing the file

@@ -1,0 +1,163 @@
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import sharp from "sharp";
+import { copyAssets } from "../scripts/copy-assets.ts";
+import { resetAssetManifest, servedCopy } from "../src/lib/asset-manifest.ts";
+
+let root: string;
+let articlesDir: string;
+const warn = spyOn(console, "warn").mockImplementation(() => {});
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "tiro-copy-assets-"));
+  articlesDir = join(root, "vault/articles");
+});
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true });
+  delete process.env.TIRO_ASSET_MANIFEST;
+  resetAssetManifest();
+  warn.mockClear();
+});
+
+function asset(slug: string, file: string, bytes: Uint8Array): void {
+  const dir = join(articlesDir, slug, "assets");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, file), bytes);
+}
+
+/** A photo-like image: random noise, which PNG cannot shrink and WebP can. */
+async function photo(width: number, height: number): Promise<Uint8Array> {
+  const pixels = new Uint8Array(width * height * 3);
+  // getRandomValues fills at most 64 KiB at a time.
+  for (let at = 0; at < pixels.length; at += 65536) {
+    crypto.getRandomValues(pixels.subarray(at, at + 65536));
+  }
+  return sharp(pixels, { raw: { width, height, channels: 3 } })
+    .png()
+    .toBuffer();
+}
+
+function options(derive = true) {
+  return {
+    articlesDir,
+    outRoot: join(root, "public/vault-assets"),
+    derive,
+    cacheDir: join(root, ".tiro/derivatives"),
+    manifestPath: join(root, ".tiro/assets.json"),
+  };
+}
+
+function manifest(): Record<string, { width: number; height: number }> {
+  return JSON.parse(readFileSync(join(root, ".tiro/assets.json"), "utf8"));
+}
+
+describe("copyAssets", () => {
+  test("a wide image gets a 1600px WebP copy beside its original", async () => {
+    asset("a", "wide.png", await photo(2400, 1200));
+    const result = await copyAssets(options());
+
+    const out = join(root, "public/vault-assets/a");
+    expect(readdirSync(out).sort()).toEqual(["wide.png", "wide.png.1600.webp"]);
+    const copy = await sharp(join(out, "wide.png.1600.webp")).metadata();
+    expect([copy.format, copy.width, copy.height]).toEqual(["webp", 1600, 800]);
+    expect(manifest()).toEqual({ "a/wide.png": { width: 1600, height: 800 } });
+    expect(result).toMatchObject({ copied: 1, encoded: 1, derived: 1 });
+  });
+
+  test("a small image and a non-raster one are only copied", async () => {
+    asset("a", "small.png", await photo(64, 64));
+    asset("a", "logo.svg", new TextEncoder().encode("<svg/>"));
+    const result = await copyAssets(options());
+    expect(readdirSync(join(root, "public/vault-assets/a")).sort()).toEqual([
+      "logo.svg",
+      "small.png",
+    ]);
+    expect(manifest()).toEqual({});
+    expect(result).toMatchObject({ copied: 2, encoded: 0, derived: 0 });
+  });
+
+  test("a second run takes the copy from the cache", async () => {
+    asset("a", "wide.png", await photo(2400, 1200));
+    await copyAssets(options());
+    const again = await copyAssets(options());
+    expect(again).toMatchObject({ encoded: 0, derived: 1 });
+    expect(
+      existsSync(join(root, "public/vault-assets/a/wide.png.1600.webp")),
+    ).toBe(true);
+  });
+
+  test("the cache drops copies the vault no longer has", async () => {
+    asset("a", "wide.png", await photo(2400, 1200));
+    await copyAssets(options());
+    rmSync(join(articlesDir, "a"), { recursive: true });
+    asset("b", "small.png", await photo(64, 64));
+    await copyAssets(options());
+    const cached = readdirSync(join(root, ".tiro/derivatives"), {
+      recursive: true,
+    }).filter((name) => String(name).endsWith(".webp"));
+    expect(cached).toEqual([]);
+  });
+
+  // ADR 0020's lesson: one image must never fail the deploy.
+  test("an image that will not encode is served as it is", async () => {
+    const broken = new Uint8Array(400 * 1024);
+    broken.set([0x89, 0x50, 0x4e, 0x47]);
+    asset("a", "broken.png", broken);
+    asset("a", "wide.png", await photo(2400, 1200));
+    const result = await copyAssets(options());
+    expect(Object.keys(manifest())).toEqual(["a/wide.png"]);
+    expect(result).toMatchObject({ copied: 2, derived: 1 });
+    expect(warn).toHaveBeenCalled();
+  });
+
+  test("without sharp, every image is served full size", async () => {
+    asset("a", "wide.png", await photo(2400, 1200));
+    const result = await copyAssets({
+      ...options(),
+      loadSharp: async () => {
+        throw new Error("no prebuilt binary for this platform");
+      },
+    });
+    expect(manifest()).toEqual({});
+    expect(result).toMatchObject({ copied: 1, derived: 0 });
+  });
+
+  test("dev copies only, and writes no manifest", async () => {
+    asset("a", "wide.png", await photo(2400, 1200));
+    await copyAssets(options(false));
+    expect(readdirSync(join(root, "public/vault-assets/a"))).toEqual([
+      "wide.png",
+    ]);
+    expect(existsSync(join(root, ".tiro/assets.json"))).toBe(false);
+  });
+});
+
+describe("servedCopy", () => {
+  test("serves the copy the manifest names, keeping the src's escaping", async () => {
+    asset("a", "photo#one.png", await photo(2400, 1200));
+    await copyAssets(options());
+    process.env.TIRO_ASSET_MANIFEST = join(root, ".tiro/assets.json");
+    resetAssetManifest();
+    expect(servedCopy("/vault-assets/a/photo%23one.png")).toEqual({
+      src: "/vault-assets/a/photo%23one.png.1600.webp",
+      width: 1600,
+      height: 800,
+    });
+    expect(servedCopy("/vault-assets/a/other.png")).toBeNull();
+    expect(servedCopy("https://example.com/a.png")).toBeNull();
+  });
+
+  test("serves originals when no manifest is named", () => {
+    expect(servedCopy("/vault-assets/a/wide.png")).toBeNull();
+  });
+});

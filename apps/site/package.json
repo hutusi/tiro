@@ -5,7 +5,7 @@
   "scripts": {
     "assets": "bun run scripts/copy-assets.ts",
     "dev": "bun run assets && astro dev",
-    "build": "bun run assets && astro build && bun run scripts/short-redirects.ts && pagefind --site dist",
+    "build": "bun run assets --derivatives && TIRO_ASSET_MANIFEST=.tiro/assets.json astro build && bun run scripts/short-redirects.ts && pagefind --site dist",
     "preview": "astro preview",
     "typecheck": "tsc --noEmit",
     "check": "astro check",
@@ -33,6 +33,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
+    "sharp": "^0.35.3",
     "shiki": "^4.4.3",
     "tailwindcss": "^4.3.3",
     "unified": "^11.0.5",

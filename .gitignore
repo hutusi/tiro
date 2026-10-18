@@ -7,6 +7,8 @@ dist/
 apps/extension/*.zip
 .astro/
 apps/site/public/vault-assets/
+# Resized copies of large vault images and their manifest (ADR 0049).
+apps/site/.tiro/
 *.log
 .DS_Store
 .sweep-cache/
