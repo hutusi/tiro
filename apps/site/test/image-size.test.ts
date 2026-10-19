@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import sharp from "sharp";
 import { imageSize } from "../src/lib/image-size.ts";
 
 function bytes(...parts: (number[] | string)[]): Uint8Array {
@@ -102,12 +103,87 @@ describe("imageSize", () => {
     ).toEqual({ width: 1920, height: 1080 });
   });
 
+  test("GIF, from the logical screen descriptor", () => {
+    expect(imageSize(bytes("GIF89a", u16le(480), u16le(270)))).toEqual({
+      width: 480,
+      height: 270,
+    });
+    expect(imageSize(bytes("GIF87a", u16le(1), u16le(1)))).toEqual({
+      width: 1,
+      height: 1,
+    });
+    // Truncated before the height, and a zero-sized screen.
+    expect(imageSize(bytes("GIF89a", u16le(480)))).toBeNull();
+    expect(imageSize(bytes("GIF89a", u16le(0), u16le(270)))).toBeNull();
+  });
+
+  // A browser shows a JPEG turned by its EXIF orientation, and the page
+  // sizes the image from these numbers.
+  test("JPEG, as its EXIF orientation shows it", async () => {
+    const stored = (orientation: number) =>
+      sharp({
+        create: { width: 400, height: 200, channels: 3, background: "#888" },
+      })
+        .jpeg()
+        .withMetadata({ orientation })
+        .toBuffer();
+    // 6 is a quarter turn: shown portrait.
+    expect(imageSize(new Uint8Array(await stored(6)))).toEqual({
+      width: 200,
+      height: 400,
+    });
+    // 3 is a half turn: the box keeps its shape.
+    expect(imageSize(new Uint8Array(await stored(3)))).toEqual({
+      width: 400,
+      height: 200,
+    });
+  });
+
+  test("JPEG orientation from a little-endian EXIF block, and a broken one", () => {
+    const u32le = (n: number) => [
+      n & 0xff,
+      (n >> 8) & 0xff,
+      (n >> 16) & 0xff,
+      n >>> 24,
+    ];
+    const exif = (ifdOffset: number) =>
+      bytes(
+        "Exif\0\0II",
+        u16le(42),
+        u32le(ifdOffset),
+        u16le(1),
+        // One entry: orientation, SHORT, count 1, value 8.
+        u16le(0x0112),
+        u16le(3),
+        u32le(1),
+        u16le(8),
+        u16le(0),
+      );
+    const jpegWith = (app1: Uint8Array) =>
+      bytes(
+        [0xff, 0xd8, 0xff, 0xe1],
+        u16be(app1.length + 2),
+        [...app1],
+        [0xff, 0xc0],
+        u16be(17),
+        [8],
+        u16be(300),
+        u16be(500),
+        [3],
+      );
+    expect(imageSize(jpegWith(exif(8)))).toEqual({ width: 300, height: 500 });
+    // An IFD offset past the segment costs the rotation, not the size.
+    expect(imageSize(jpegWith(exif(9000)))).toEqual({
+      width: 500,
+      height: 300,
+    });
+  });
+
   test("anything else is unknown rather than an error", () => {
     expect(imageSize(new Uint8Array())).toBeNull();
     expect(
       imageSize(bytes("<svg xmlns='http://www.w3.org/2000/svg'/>")),
     ).toBeNull();
-    expect(imageSize(bytes("GIF89a", [1, 0, 1, 0]))).toBeNull();
     // Truncated mid-segment.
     expect(
       imageSize(bytes([0xff, 0xd8, 0xff, 0xe1], u16be(9000), [0, 0])),

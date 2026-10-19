@@ -9,7 +9,11 @@
  *
  * Images are decorative (`alt=""`): the title always sits beside the cover,
  * and a screen reader announcing three filenames first would bury it.
+ *
+ * Each image is served as its resized copy when the build made one (ADR 0049).
  */
+import { servedCopy } from "../lib/asset-manifest.ts";
+
 interface Props {
   images: string[];
   title: string;
@@ -37,7 +41,13 @@ const loading = eager ? "eager" : "lazy";
   ) : (
     <div class="cover" data-count={images.length} aria-hidden="true">
       {images.map((src) => (
-        <img src={src} alt="" loading={loading} decoding="async" />
+        <img
+          src={servedCopy(src)?.src ?? src}
+          alt=""
+          loading={loading}
+          decoding="async"
+          fetchpriority={eager ? "high" : undefined}
+        />
       ))}
     </div>
   )

@@ -57,8 +57,31 @@ versions follow the `0.x` line while Tiro is a personal system.
   instead of being dropped. The data disclosure moves to version 7, so every
   install re-accepts it once (ADR 0037).
 
+### Changed
+
+- **Article pages load faster.** Images load lazily as you reach them, rather
+  than all at once with the page. Each saved image carries its size, so the
+  text no longer jumps as pictures arrive. An image still loading from its
+  original site no longer tells that site which page showed it, which also
+  lets hosts that refuse other sites' links (WeChat, Zhihu) serve it. A large
+  picture is served as a WebP copy at most 1600 px wide, made when the site is
+  built: the images that get one went from 203 MB to 29 MB across the vault,
+  and a collection's cover tiles shrink the same way (ADR 0049).
+- **Pages open sooner.** Pointing at a link to another page of the site for a
+  moment, or pressing it, fetches that page ahead, so the click lands on a
+  page already loaded. The stylesheets and fonts are cached for good once
+  fetched, and the fonts load ahead of the stylesheet that names them.
+- **The RSS feed carries the latest 100 articles**, about a week's worth, not
+  every article. It had grown to 634 KB, fetched in full on every poll by
+  every subscriber.
+
 ### Fixed
 
+- **Math is typeset properly.** Since math support landed, the site served
+  KaTeX 0.18's stylesheet to formulas rendered by KaTeX 0.16, which uses the
+  class names 0.18 renamed. So formulas got no line struts, scripts were not
+  shrunk, and accents sat wrong, on every article with math. Both now come
+  from one release, and a test fails if they drift apart.
 - **An article the provider's moderation partly refuses is still translated.**
   DashScope refuses some paragraphs outright, on every run and from every
   host, and one refused paragraph used to fail the whole article, which then

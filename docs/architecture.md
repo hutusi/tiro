@@ -308,7 +308,10 @@ flowchart LR
    time to commit. Anything it does not reach stays pending for the next run.
 3. **Publish.** The deploy workflow checks out both repos, builds the Astro
    site from the vault content, indexes it with Pagefind, and deploys to
-   Cloudflare Pages. The site is fully public.
+   Cloudflare Pages. The site is fully public. Large images are served as
+   WebP copies at most 1600 px wide, made at build time and cached between
+   deploys by content hash; the originals are published beside them and stay
+   untouched in the vault (ADR 0049).
 
    The site's shape follows the "Later Reader" design (ADR 0014): a paginated
    Library at `/` and `/page/N/`, a 搜索与标签 page carrying Pagefind search
@@ -515,11 +518,19 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   default `fixtures/vault` is found by searching upward rather than by counting
   `..` — the reader is bundled for the build, where a fixed depth pointed at
   `apps/fixtures/vault` and only this guard caught it.
+- **One unreadable vault file blocking every deploy** — an article whose
+  frontmatter fails the contract, or a collection file that will not parse.
+  It used to fail the build, so the old site stayed live and every later
+  change, deletions and unlistings included, was held back with nothing
+  announcing it. A deploy now leaves such a file off the site, publishes the
+  rest, and goes red naming it (ADR 0048). CI and local builds stay strict.
 - **A clipped asset that cannot be measured** — a tracking pixel served as a
   dimensionless SVG, say. It used to fail the whole build, because Astro's
   content layer measured every image an article referenced. The site reads the
   vault itself now and serves assets as plain copies, so a bad one costs its own
-  image and nothing else (ADR 0020); a fixture holds the line.
+  image and nothing else (ADR 0020); a fixture holds the line. The resized
+  copies of large images keep that rule: an image that will not encode, or a
+  build where sharp will not load, serves the original (ADR 0049).
 - **An imported document cannot be re-read at all.** Its bytes were never in
   the vault and CI cannot reach the disk they came from, so `--force`
   re-restructures the body rather than re-extracting it. Re-importing the file

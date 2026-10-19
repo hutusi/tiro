@@ -56,7 +56,11 @@ export interface ChatClientOptions {
    * left and none may outlive it. */
   deadline?: Deadline;
   fetchImpl?: FetchLike;
-  sleep?: (ms: number) => Promise<void>;
+  /** The wait between attempts. Ends early when `signal` aborts, since a
+   * `Retry-After` can ask for a minute that a caller who has stopped waiting
+   * should not leave running. A test's fake may ignore the signal: the client
+   * checks it again after every wait. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Where a reply the provider did not end on its own is reported — see
    * `unfinishedReply`. */
   log?: (message: string) => void;
@@ -115,6 +119,30 @@ function unfinishedReply(
 
 const RETRY_DELAYS_MS = [500, 1500, 3000];
 
+/** The longest `Retry-After` this client will wait out. A provider asking for
+ * more is not serving now, and the article is better left for a later run than
+ * held while the rest of the queue waits behind it. */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * A `Retry-After` header in milliseconds from `now`, or undefined when there is
+ * none or it cannot be read. RFC 9110 allows both delta-seconds and an
+ * HTTP-date; a date in the past means "now".
+ */
+export function retryAfterMs(
+  header: string | null,
+  now: number = Date.now(),
+): number | undefined {
+  if (header === null) return undefined;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) return Number(value) * 1000;
+  // Every HTTP-date form names its weekday and month. Without this guard
+  // `Date.parse` reads a bare "-5" as a year.
+  if (!/[a-z]/i.test(value)) return undefined;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+}
+
 /** Attempts a single logical call may spend on timeouts. Unlike a 429 or a
  * connection reset, a timeout has already burned `timeoutMs` of wall clock
  * before it is even observed, so the default `maxRetries` of 3 turns one stuck
@@ -127,6 +155,8 @@ export class ChatHttpError extends Error {
   constructor(
     readonly status: number,
     readonly body: string,
+    /** How long the provider asked us to wait, from its `Retry-After`. */
+    readonly retryAfterMs?: number,
   ) {
     super(
       `chat completions request failed with ${status}: ${body.slice(0, 300)}`,
@@ -244,7 +274,22 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
     maxRetries = 3,
     deadline,
     fetchImpl = fetch,
-    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    sleep = (ms, signal) =>
+      new Promise<void>((resolve) => {
+        if (signal?.aborted === true) {
+          resolve();
+          return;
+        }
+        // Cleared on abort, so no timer outlives the call and holds the
+        // process open.
+        const done = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", done);
+          resolve();
+        };
+        const timer = setTimeout(done, ms);
+        signal?.addEventListener("abort", done, { once: true });
+      }),
     log = () => {},
   } = options;
   const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -255,6 +300,9 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
   ): Promise<string> {
     let lastError: unknown;
     let timeouts = 0;
+    // Read through a call, not a property, so the check after an await is not
+    // narrowed away by the one before it: the signal can abort in between.
+    const callerGaveUp = () => options?.signal?.aborted === true;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       // Checked before the backoff, not after: sleeping 3s to then discover
       // there were 100ms left would overshoot the budget by the sleep itself.
@@ -267,11 +315,35 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         );
       }
       if (attempt > 0) {
-        const backoff =
+        const scheduled =
           RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ??
           3000;
-        await sleep(Math.min(backoff, beforeSleep));
+        // A rate limit usually says when it lifts. Asking sooner only spends
+        // another attempt on the same 429, and three of those used to read as
+        // a provider outage while the provider was simply throttling.
+        const asked =
+          lastError instanceof ChatHttpError
+            ? lastError.retryAfterMs
+            : undefined;
+        // The provider has said no attempt before then can succeed, so the
+        // budget it would sleep through is better spent committing.
+        if (asked !== undefined && asked > beforeSleep) {
+          throw new DeadlineExceededError(
+            "the wait a chat completions provider asked for",
+            beforeSleep,
+            { cause: lastError },
+          );
+        }
+        await sleep(
+          Math.min(Math.max(scheduled, asked ?? 0), beforeSleep),
+          options?.signal,
+        );
       }
+      // A caller that stopped waiting, during the wait or before the first
+      // attempt, gets no request at all: fetch would only be handed a dead
+      // signal. Before the budget check, as in the catch below, because it is
+      // the more specific instruction.
+      if (callerGaveUp()) throw options?.signal?.reason;
       // Outside the try, so an exhausted budget cannot be mistaken for a
       // retryable transport fault and burn the very time it is out of.
       const remainingMs = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
@@ -305,7 +377,11 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         if (!res.ok) {
           // The status is the verdict. A body that could not be read loses the
           // provider's explanation, not the classification: a 400 stays a 400.
-          throw new ChatHttpError(res.status, await res.text().catch(() => ""));
+          throw new ChatHttpError(
+            res.status,
+            await res.text().catch(() => ""),
+            retryAfterMs(res.headers.get("retry-after")),
+          );
         }
         // Read, then parsed, rather than `res.json()`, which rejects with the
         // same kind of error for both. Separately, a connection dropped mid-reply
@@ -339,7 +415,7 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         // The caller has stopped waiting, so retrying would spend the
         // provider's quota on an answer nobody is going to read. Checked
         // before the budget, because this is the more specific instruction.
-        if (options?.signal?.aborted === true) throw error;
+        if (callerGaveUp()) throw error;
         const left = deadline?.remainingMs() ?? Number.POSITIVE_INFINITY;
         if (left <= 0) {
           throw new DeadlineExceededError("a chat completions retry", left, {
@@ -350,7 +426,9 @@ export function createChatClient(options: ChatClientOptions): ChatFn {
         if (
           !retryable(error) ||
           timeouts >= TIMEOUT_ATTEMPT_LIMIT ||
-          attempt === maxRetries
+          attempt === maxRetries ||
+          (error instanceof ChatHttpError &&
+            (error.retryAfterMs ?? 0) > MAX_RETRY_AFTER_MS)
         )
           throw error;
       }

@@ -13,6 +13,8 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    # About a minute when healthy; the limit only stops a hang.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:

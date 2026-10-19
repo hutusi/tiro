@@ -444,7 +444,7 @@ the summary and recorded in the article.
 | `tiro.summary_failed: true` | the summary needs a human look. The run log says which of two things it is holding: `summary unusable after 3 attempts; using a first-paragraph excerpt`, or `summary unfinished after 3 attempts; keeping the longest cut reply`. On a forced reprocess the excerpt route keeps the article's existing category and tags rather than writing placeholders over them. Two lines above it say why each attempt failed, in sizes rather than text. `summary attempt N/3 reply held: …` lists the reply's keys in the order the model wrote them; a missing key may appear renamed or nested, and a cut field that comes last points at an output cap. `chat reply ended by finish_reason "length", not "stop": …` means the provider cut the reply, and it gives the token counts. Reasoning tokens are spent from the same output budget as the answer. Measured 2026-10: the vault's cut summaries were a straight `"` the model meant as a quotation mark, which closes the JSON string under JSON mode. Asking for “ ” still cut about one reply in four, so the prompt asks for 「 」 in Chinese (none cut in 50 replays) and the processor writes them back as “ ” | reprocess with `force` + slug. For the cut kind, read the article first — the kept summary is often serviceable, and a retry may cut it again |
 | `tiro.translation_failed: true` | translation misaligned/failed; no `zh.md` | reprocess with `force` + slug |
 | article stays unprocessed + run warning `failed and stays pending` | hard error (e.g. provider 403, timeout, network) at either LLM stage. The run turns red | fix the cause; next run retries automatically |
-| articles stay unprocessed + run warning `stopped after the provider failed 3 articles in a row` | the provider is down or refusing the key: three articles in a row failed with a 401, 403, 404, 429, 5xx or no connection, so the run stopped starting new ones rather than pay every article's retries to learn the same thing (ADR 0032). The run turns red | fix the cause — the `failed and stays pending` lines above it name the error. Everything not attempted is still pending, so the next run (at the latest the daily one) picks it all up |
+| articles stay unprocessed + run warning `stopped after the provider failed 3 articles in a row` | the provider is down or refusing the key: three articles in a row failed with a 401, 403, 404, 429, 5xx or no connection, so the run stopped starting new ones rather than pay every article's retries to learn the same thing (ADR 0032). The run turns red | fix the cause — the `failed and stays pending` lines above it name the error. Everything not attempted is still pending, so the next run (at the latest the daily one) picks it all up. A 429 has already been retried as long as the provider's `Retry-After` asked, up to a minute; a provider asking for longer, or a 429 that names no wait and outlasts the 0.5/1.5/3 s retries, is a rate limit or quota to raise with the provider, not a fault to retry |
 | article stays unprocessed + run line `budget reached; resuming next run` | too long to finish in one run; its checkpoint is committed | nothing — the next run resumes it, at the latest the daily one. Dispatch the workflow to hurry it along |
 | Import refused in the options page with `no usable text layer` or `covers only N of M` | a scanned PDF, or one that is mostly scans. The gates run in the extension so this is said while you are there | nothing to clean up — nothing was committed. OCR is out of scope |
 | `tiro.fetch_failed: "<reason>"` | the article's body could not be built, for a reason retrying will not change (ADR 0034): a saved link that answered 404, a bot check, a redirect to a sign-in page, a response that is not a page, a page that builds its text with scripts, a PDF that is a scan or too long. It is marked processed so no run asks again, and the site does not show it — it has no body. The run that set it turned red once and named it | clip the page in a browser if it needs one (a re-clip replaces the stub), or fix the cause and reprocess with `force` + slug to ask again, or delete it |
@@ -461,11 +461,48 @@ the summary and recorded in the article.
 
 ## Deploys
 
-Triggered by: push to `main` in tiro, `vault-updated` dispatch from the vault,
-or manually (Actions → Deploy site → Run workflow). Wrangler is pinned in
-devDependencies — the action must log "using pre-installed wrangler".
+Triggered by: a push to `main` in tiro that touches what the site build reads
+(`apps/site/`, `packages/shared/`, the root `package.json`, `bun.lock`,
+`tsconfig.base.json`, or the workflow itself), a `vault-updated` dispatch from
+the vault, or a manual run (Actions → Deploy site → Run workflow). A docs,
+processor or extension commit deploys nothing. If a site change ever fails to
+appear after its push, the path list in `deploy.yml` is the first suspect: run
+the workflow by hand and add the missing path. Wrangler is pinned in
+devDependencies — the action must log "using pre-installed wrangler". A run is
+cut off after 20 minutes; a healthy one takes about two.
 
-- A failed deploy is always safe to **Re-run** from the Actions UI.
+- A failed deploy is safe to **Re-run** from the Actions UI when it is the
+  latest run. A re-run builds the tiro commit its run started from against
+  the vault as it is *now*, so re-running an older run would publish older
+  site code. Run the workflow afresh instead.
+- **A vault file the site cannot read is left off, not fatal** (ADR 0048).
+  An article whose frontmatter fails the contract (`unlisted: yes`, a
+  date-only `clipped_at`, a numeric tag), or a collection file that will not
+  parse or is not named like an id, is skipped. Everything else is
+  published, and then "Report skipped vault entries" turns the run red and
+  lists each file in the job summary. A skipped article has no page, listing,
+  short link or sitemap row until it is fixed. `validate` names the same
+  files locally. CI and local builds still fail on the first such file:
+  only the deploy sets `TIRO_SKIP_REPORT`.
+- **Response headers** live in `apps/site/public/_headers`. Vite's
+  fingerprinted `/_astro/*` is cached for a year as immutable.
+  `/vault-assets/*` is cached for a day and then served stale while it
+  revalidates. It is never immutable, because a re-clip can put new bytes
+  under the same name (the name hashes the image's source URL). Pages and
+  `/pagefind/*` keep Pages' default (revalidate every time), so a deploy is
+  visible at once. Check with `curl -sI` on the live URLs, or locally against
+  `wrangler pages dev apps/site/dist`, which applies the file the way Pages
+  does.
+- **Resized images are cached between deploys** (ADR 0049). "Restore resized
+  images" brings back `apps/site/.tiro/derivatives` from the newest
+  `site-derivatives-*` cache, the build encodes only images it has not seen
+  (its log says how many: `served resized (N encoded this run)`), and "Save
+  resized images" stores the result when N is not 0. A deploy without the
+  cache — evicted after a week unused, or deleted under Actions → Caches —
+  encodes everything again, about 10 s for the whole vault, and is otherwise
+  identical. To force fresh copies, delete the caches; changing an encoding
+  setting in `copy-assets.ts` already does it, since the cache directory is
+  named for the settings.
 - **Empty-vault guard**: the build refuses to publish a site with zero
   articles. Keep at least one article in the vault. A vault whose articles are
   all *unlisted* does build, and publishes an empty library — hiding something
@@ -575,8 +612,9 @@ devDependencies — the action must log "using pre-installed wrangler".
     cannot read the old article at all — frontmatter that will not parse, an
     `unlisted:` value that is not `true`/`false`, or a blob it cannot fetch —
     the clip fails rather than guess. The popup shows
-    the reason; fix the article in the vault and clip again. (The same file
-    would fail the site build, so it needs the fix regardless.)
+    the reason; fix the article in the vault and clip again. (A deploy leaves
+    the same file off the site and goes red until it is fixed (ADR 0048), so
+    it needs the fix regardless.)
   - **Unlisted is not private.** The site is public and the slug is computable
     from the source URL, as are the paths under `/vault-assets/<slug>/`. It
     hides an article from anyone browsing, not from anyone looking. The same
@@ -622,8 +660,10 @@ record itself; don't hand-edit it.
   is what Cloudflare Pages serves as real 301s at the edge, and the
   `redirects` map in `apps/site/astro.config.mjs` mirrors it so `astro dev`
   redirects too and the static build carries meta-refresh pages as a
-  fallback. Today both map `/tags/` and `/categories/` to `/search/`
-  (ADR 0014); change them together.
+  fallback. Today both map `/tags/` to `/search/` (ADR 0014),
+  `/categories/` to `/` (ADR 0031: the category index has no page), and
+  `/favorites/` to `/collections/favorites/` (ADR 0029); change them
+  together.
 - `robots.txt` welcomes search — traditional engines and AI search or
   user-request agents alike (they cite with links) — and disallows
   AI-training and bulk-scraping crawlers by user agent (the site republishes
@@ -1839,6 +1879,7 @@ permanent extension ID, unrelated to the unpacked one.
 | `403 model_access_denied` in processing | model not activated for the key's Bailian workspace, or wrong model id | curl self-test; fix activation or `tiro.yml` |
 | A run stops early with `stopped after the provider failed 3 articles in a row` | a provider outage, an expired or revoked `TIRO_LLM_API_KEY`, a model id the key cannot use, or quota exhausted — the three errors before it say which | curl self-test against the provider; fix the key, the model or the quota. Nothing to clean up: the articles it did not attempt are still pending |
 | Deploy fails in "Deploy to Cloudflare Pages" with tarball/network errors | transient infra | Re-run; wrangler is pinned so the historic install-flake is gone |
+| Deploy is red at "Report skipped vault entries", every step before it green | the site is published, minus the vault files the job summary lists: frontmatter that fails the contract, or a collection file that will not parse (ADR 0048) | fix each named file in the vault (the reason after the path says which field); its push redeploys. Re-running the deploy changes nothing until then |
 | Extension "Repository not found" | wrong owner/repo field values, or PAT lacks the repo | curl `api.github.com/repos/hutusi/tiro-vault` with the PAT: 200 → fields, 404 → token access |
 | Settings sync is on but a second machine's Settings page is empty | Chrome is not carrying extension data to that profile — a managed profile's `SyncDisabled`/`SyncTypesListDisabled`, a paused sync, or a mismatched extension ID (unpacked vs store) | see "When the second machine's settings stay empty" — and on the empty machine do **not** press Save and do **not** untick the box |
 | A saved clip's note says some figures "stayed links" | the reason it gives: taller or wider than the window, covered by a banner or a sticky header, not drawn yet, kept moving, lost when the page changed (navigated, reloaded, re-rendered), not reached before Stop, too large, or could not be made (ADR 0045) | follow the remedy the note gives, then clip again: enlarge the window; close the banner or scroll the header away; let the page finish and scroll through it once; wait for it to settle; reload and scroll through it once |
@@ -1851,12 +1892,16 @@ permanent extension ID, unrelated to the unpacked one.
 | One article's `processing <slug>` line with no completion, run after run | the run budget is too small for it, or it is failing mid-translation | check for `.tiro-zh-cache.json` growing between runs — growing means it is converging, static means a real failure |
 | Several articles pending while only one is ever attempted | pre-ADR-0008 alphabetical ordering starved the rest | fixed: articles now run cheapest-first under a budget |
 | Site build logs `shiki: no grammar for "x"` | a fence whose language is outside the curated grammar list in `apps/site/src/lib/highlight.ts` | harmless — the block renders as plain text. Add the grammar there if the language is worth supporting |
+| Site build logs `could not resize <slug>/<file>; serving the original` | sharp could not decode or encode that image — a truncated download, or a format variant it does not read (ADR 0049) | harmless — the page serves the original, as before resizing existed. If the original is broken too, re-clip or reprocess the article to fetch it again |
+| Site build logs `sharp could not be loaded, so every image is served full size` | sharp's prebuilt binary is missing: it ships as an optional dependency per platform, so an install that skipped optional dependencies, or a platform sharp has no build for, leaves it out | harmless for correctness — every original is published — but pages are heavier until it is fixed: `bun install` again, and check `bun run --cwd apps/site build` locally logs `served resized` |
+| Site build logs `shiki: highlighting "x" failed; rendering as plain text` | Shiki threw on that block — usually its JavaScript regex engine meeting a grammar pattern it cannot translate | harmless — the block renders unhighlighted and the build carries on. If one language keeps failing, check its grammar against the engine, or drop it from the list |
 | A code block is highlighted as the wrong language | a bare fence, inferred wrongly by `packages/shared/src/detect-language.ts` (ADR 0012) | add the block to `packages/shared/test/fixtures/code-blocks/` with the right answer in its filename, then tighten the rule that fired. Nothing is wrong in the vault — the guess is made at build time |
 | A code block that is prose is highlighted at all | the same, and the more serious direction: about 16 of the vault's fenced blocks are prose | as above, expecting `plain-` — and prefer narrowing the rule over adding a prose test, since nothing should fire without a positive signature |
 | A red formula on the page, `katex-error` in the HTML | the clipped LaTeX does not parse | by design: KaTeX never fails the build. Hover the formula for KaTeX's own message, then fix the markdown in the vault |
 | A formula renders as literal `$x$` text | the article has no `has_math: true` | see Math rendering above |
 | A price renders as a formula | `has_math: true` on an article whose literal dollars are not escaped | escape them as `\$`, or clear the flag |
-| The search page shows "搜索索引在构建后生成" in production | `pagefind --site dist` did not run after `astro build`, so `dist/pagefind/` is missing | check the deploy log for the pagefind step; the results UI imports `/pagefind/pagefind.js` and shows the notice when that import fails |
+| The search page shows "搜索暂时不可用，请稍后刷新页面重试。" | `/pagefind/pagefind.js` failed to load or initialise: `pagefind --site dist` did not run after `astro build`, so `dist/pagefind/` is missing, or the request failed. (`astro dev` shows "搜索索引在构建后生成" instead, which is expected there) | check the deploy log for the pagefind step; the results UI imports `/pagefind/pagefind.js` and shows the notice when that import fails |
+| A search shows "加载失败，点击重试" with no results | the search itself, or a page of its results, failed to load — a dropped connection, or a deploy that replaced the index while the page was open | press it: it reloads the page with the query kept, because Pagefind keeps a failed load for the life of the page and asking it again cannot recover. The reload also picks up a new index |
 | The popup says a collection save failed: "… cannot parse …" | a hand-edited `collections/<id>.md` no longer validates, and the extension refuses to overwrite what it cannot read | run `validate` on the vault, fix the file, then "Save now" — the queued changes were kept |
 | The popup says a collection save failed: "… kept moving" | three commits landed on the branch during one save — a processing run committing back in a burst | "Save now" again once processing settles; nothing was lost |
 | The extension card on `chrome://extensions` shows **Errors** right after reloading | the service worker threw while loading, so it never registered — nothing it does (collection saves, settings-sync mirroring) runs. The usual cause is a DOM API reached at module load: the worker imported `@tiro/shared`'s root, which pulls in remark | open Errors for the stack; the extension `build` should already have refused this bundle (`scripts/check-worker.ts`). Import `@tiro/shared/documents` from anything the worker reaches |

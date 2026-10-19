@@ -3,6 +3,17 @@ import type { APIContext } from "astro";
 import { articleUrl, getArticles } from "../lib/articles.ts";
 import { STRINGS } from "../lib/strings.ts";
 
+/**
+ * How many of the newest articles the feed carries. A feed is polled, often
+ * hourly, by every reader subscribed to it, and it used to list every article:
+ * 436 items, 634 KB, fetched in full on each poll. A reader keeps the items it
+ * has already seen, so the feed only needs to reach back far enough to cover a
+ * reader that polls weekly. In October 2026 the vault took in about 13
+ * articles a day, so a hundred is about a week. Fifty would have been three
+ * days.
+ */
+export const FEED_ITEMS = 100;
+
 /** Summary+link items only — the feed never carries clipped HTML, so the
  * sanitize pipeline (invariant 5) stays out of the picture. */
 export async function GET(context: APIContext): Promise<Response> {
@@ -12,7 +23,8 @@ export async function GET(context: APIContext): Promise<Response> {
   if (context.site === undefined) {
     throw new Error("astro.config `site` is required to build the RSS feed");
   }
-  const articles = await getArticles();
+  // Newest first already, so the slice is the latest ones.
+  const articles = (await getArticles()).slice(0, FEED_ITEMS);
   return rss({
     title: STRINGS.siteTitle,
     description: STRINGS.siteDescription,

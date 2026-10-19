@@ -3,6 +3,18 @@ name: Deploy site
 on:
   push:
     branches: [main]
+    # Only what the site build reads. A docs, processor or extension commit
+    # cannot change a page, and the vault's own changes arrive through the
+    # dispatch below, so neither needs a rebuild here. A path missing from
+    # this list holds a site change back until the next vault dispatch or a
+    # manual run.
+    paths:
+      - apps/site/**
+      - packages/shared/**
+      - package.json
+      - bun.lock
+      - tsconfig.base.json
+      - .github/workflows/deploy.yml
   # Fired by tiro-vault's process.yml after it commits processed articles.
   repository_dispatch:
     types: [vault-updated]
@@ -20,6 +32,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A healthy run takes about two minutes. Without a limit a hung build
+    # holds the deploy concurrency group for GitHub's six-hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,10 +55,37 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Resized copies of large vault images, keyed by the original's content
+      # hash (ADR 0049). With them restored, a deploy encodes only images it
+      # has not seen; without them it encodes everything, which still works.
+      - name: Restore resized images
+        uses: actions/cache/restore@v6
+        with:
+          path: apps/site/.tiro/derivatives
+          key: site-derivatives-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: site-derivatives-
+
       - name: Build site from the vault
+        id: build
         env:
           TIRO_VAULT_DIR: ${{ github.workspace }}/vault
+          # A vault entry the site cannot read is left off and listed here,
+          # rather than failing the build and holding back every other change
+          # (ADR 0048). The step after the upload turns the run red over it.
+          TIRO_SKIP_REPORT: ${{ runner.temp }}/skipped-vault-entries.txt
         run: bun run --cwd apps/site build
+
+      # Saved straight after the build, not by the cache action's post step,
+      # which saves only when the whole job succeeds: a run that goes red over
+      # a skipped vault entry (ADR 0048) has still encoded its images. Skipped
+      # when nothing new was encoded, so an unchanged cache is not uploaded
+      # again on every deploy.
+      - name: Save resized images
+        if: steps.build.outputs.derivatives_encoded != '0'
+        uses: actions/cache/save@v6
+        with:
+          path: apps/site/.tiro/derivatives
+          key: site-derivatives-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
@@ -51,3 +93,28 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy apps/site/dist --project-name=tiro
+
+      # After the upload, so the rest of the vault is already live. A red run
+      # with this step failing means the site is current except for the files
+      # named in the job summary: fix them in the vault and the next deploy
+      # publishes them. Re-running this one changes nothing.
+      - name: Report skipped vault entries
+        env:
+          TIRO_SKIP_REPORT: ${{ runner.temp }}/skipped-vault-entries.txt
+        run: |
+          [ -s "$TIRO_SKIP_REPORT" ] || exit 0
+          # Every module graph that reads the vault reports what it skipped.
+          # Byte order: a UTF-8 collation can rank distinct CJK names equal,
+          # and -u would then drop one of them.
+          LC_ALL=C sort -u "$TIRO_SKIP_REPORT" > "$TIRO_SKIP_REPORT.unique"
+          {
+            echo "### Vault entries left off the site"
+            echo
+            echo "Everything else was published. Fix these files in the vault; the next deploy picks them up (ADR 0048)."
+            echo
+            sed 's/^/- /' "$TIRO_SKIP_REPORT.unique"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Workflow commands read % and newlines specially; a line has no
+          # newline, so only % needs escaping.
+          sed 's/%/%25/g; s/^/::error title=Vault entry left off the site::/' "$TIRO_SKIP_REPORT.unique"
+          exit 1

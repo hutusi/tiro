@@ -5,7 +5,7 @@
 // read English.
 import Base from "../layouts/Base.astro";
 
-const updated = "2026-09-29";
+const updated = "2026-10-19";
 ---
 
 <Base title="隐私政策">
@@ -186,6 +186,8 @@ const updated = "2026-09-29";
       Cookie，不运行分析脚本；搜索完全在浏览器本地完成。
       阅读偏好（纸色、字号、版面宽度、默认排版、首页视图）保存在浏览器的
       <code>localStorage</code> 里，不会上传。站点托管在 Cloudflare Pages，由其按常规方式处理访问日志。
+      少数文章的图片未能存入仓库，仍从原网站加载：阅读这些文章时，你的浏览器会直接请求那些网站的图片服务器，
+      但不会告诉它们你正在看本站的哪个页面。
     </p>
 
     <h2>English</h2>
@@ -408,7 +410,10 @@ const updated = "2026-09-29";
       search runs entirely in your browser. Your reading preferences — paper,
       text size, layout width, default reader layout, home view — are kept in
       <code>localStorage</code> and never uploaded. It is hosted on Cloudflare Pages,
-      which handles request logs in the ordinary way.
+      which handles request logs in the ordinary way. A few articles have images that
+      could not be saved to the repository and still load from the original site:
+      reading one, your browser requests those images from that site's servers directly,
+      without telling them which page of this site you are on.
     </p>
 
     <h3>Contact</h3>
