@@ -1594,10 +1594,14 @@ const SNAPSHOT_ATTR = "data-tiro-snapshot";
  */
 const FIGURE_LABEL_ATTR = "data-tiro-label";
 
-/** A video address a reader can follow: http(s), resolved against the page.
- * `blob:` is what a streaming player hands its `<video>`, and it means nothing
- * outside the tab that made it; `data:` would put the file in the markdown. */
-function followableUrl(value: string | null, base: string): string | null {
+/** A video or picture address a reader can follow: http(s), resolved against
+ * the page. `blob:` is what a streaming player hands its `<video>`, and it
+ * means nothing outside the tab that made it; `data:` would put the file in
+ * the markdown. */
+export function followableUrl(
+  value: string | null,
+  base: string,
+): string | null {
   if (value === null || value.trim() === "") return null;
   try {
     const url = new URL(value.trim(), base);

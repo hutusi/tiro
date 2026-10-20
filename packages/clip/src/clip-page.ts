@@ -20,6 +20,7 @@ import {
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipPayload } from "./payload.ts";
+import { pictureEssayIn } from "./picture-essay.ts";
 import {
   normalizeSourceMarkdown,
   plainTextMarkdownSource,
@@ -116,9 +117,17 @@ export function clipPage(
   }
 
   const readabilityFailed = article?.content == null || article.content === "";
+  // A page of pictures and no prose gives Readability nothing to score, so it
+  // chooses something else — on Ways of Seeing, the site header — and the
+  // pictures that are the article are what it leaves out (pictureEssayIn).
+  const essay = readabilityFailed
+    ? null
+    : pictureEssayIn(article?.content ?? "", preparedBody, doc, url);
   // Readability resolves relative URLs to absolute ones; the raw-body
   // fallback does not, which is one reason the failure is flagged.
-  const extracted = readabilityFailed ? preparedBody : (article?.content ?? "");
+  const extracted = readabilityFailed
+    ? preparedBody
+    : (essay ?? article?.content ?? "");
   // Figures fold only now: doing it before Readability replaces the elements
   // carrying the attributes it selects on, which republished hidden images
   // (ADR 0011, foldFiguresIn). Fence languages are restored here for the
