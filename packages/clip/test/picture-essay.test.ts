@@ -112,6 +112,30 @@ describe("a page that is nothing but pictures", () => {
     const md = clip(essay(icon(1) + icon(2) + icon(3) + icon(4)));
     expect(imageOffsets(md)).toHaveLength(0);
   });
+
+  test("leaves out the pictures the page hides", () => {
+    // Each way a detached copy can still tell: the attribute, an inline
+    // style, a carousel's clones, a framework's class.
+    const hidden = [
+      `<figure hidden><img src="images/h1.jpg" alt=""></figure>`,
+      `<div class="lightbox" style="display: none"><img src="images/h2.jpg" alt=""></div>`,
+      `<div aria-hidden="true"><img src="images/h3.jpg" alt=""></div>`,
+      `<div class="hidden"><img src="images/h4.jpg" alt=""></div>`,
+    ].join("");
+    const md = clip(essay(pair(0, 1) + hidden + pair(2, 3)));
+    expect(imageOffsets(md)).toHaveLength(4);
+    expect(md).not.toContain("images/h");
+  });
+
+  test("is not found in a landmark the page hides", () => {
+    const md = clip(
+      essay(pair(0, 1) + pair(2, 3)).replace(
+        '<main class="photo-essay">',
+        '<main class="photo-essay" hidden>',
+      ),
+    );
+    expect(imageOffsets(md)).toHaveLength(0);
+  });
 });
 
 describe("a picture essay's excerpt", () => {

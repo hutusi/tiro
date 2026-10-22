@@ -66,6 +66,13 @@ every condition is narrow and each has a test that fails without it:
   one or two images is an error page or a shell as often as it is content.
   Images are counted, not figures: one plate of three photographs is three.
 - **An icon is not a picture**: an image declared smaller than 48 px on a side.
+- **What the page hides is not a picture**, by the test the clipper's other
+  passes ask (`pageHides`): the `hidden` attribute, `aria-hidden`, an inline
+  `display: none`, a framework's hiding class. Readability never reads a
+  hidden subtree, but the essay is read from the page before Readability,
+  and a lightbox's copies or a carousel's clones would otherwise be published
+  (the ADR 0011 failure). Strict where the page is ambiguous: `hidden
+  md:block` counts as hidden.
 - **A lazy loader's `data-src` comes before `src`.** Below the fold `src` is
   still a placeholder, and not always a `data:` pixel: an ordinary address
   like `/img/blank.gif` is as followable as the picture. Once the picture

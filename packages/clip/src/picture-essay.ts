@@ -1,4 +1,4 @@
-import { followableUrl } from "./dom-prepare.ts";
+import { followableUrl, pageHides } from "./dom-prepare.ts";
 
 /**
  * The pictures of a page that is nothing but pictures — a photo essay, a
@@ -48,6 +48,7 @@ export function pictureEssayIn(
   if (lettersIn(scratch.body.textContent ?? "") >= MAX_LETTERS) return null;
 
   scratch.body.innerHTML = preparedBody;
+  dropHidden(scratch.body);
   // The base `videosAsPostersIn` resolves against, for the same reasons.
   const base = /^https?:/i.test(doc.baseURI) ? doc.baseURI : (pageUrl ?? "");
   let best: Picture[] = [];
@@ -93,6 +94,24 @@ const MIN_PICTURES = 3;
 
 /** An image declared smaller than this on either side is an icon. */
 const ICON_PX = 48;
+
+/**
+ * Remove what the page hides, by the test the clipper's other passes ask
+ * (`pageHides`). Readability never reads a hidden subtree, but this reads the
+ * page as it stood before Readability, and a picture the page did not show —
+ * a `<main hidden>`, a lightbox's `display: none` copies, a carousel's
+ * `aria-hidden` clones — must not be published on the essay's behalf, which
+ * is the ADR 0011 failure again.
+ *
+ * Strict where the page is ambiguous, as `pageHides` is: `hidden md:block`
+ * counts as hidden. Dropping a picture wrongly loses one the clip was losing
+ * anyway; keeping one wrongly publishes what the page hid.
+ */
+function dropHidden(body: Element): void {
+  for (const element of Array.from(body.querySelectorAll("*"))) {
+    if (pageHides(element)) element.remove();
+  }
+}
 
 function lettersIn(text: string): number {
   return text.match(/\p{L}/gu)?.length ?? 0;
