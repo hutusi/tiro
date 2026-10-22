@@ -66,7 +66,11 @@ every condition is narrow and each has a test that fails without it:
   one or two images is an error page or a shell as often as it is content.
   Images are counted, not figures: one plate of three photographs is three.
 - **An icon is not a picture**: an image declared smaller than 48 px on a side.
-- **A lazy loader's `data-src`** stands in for a `src` that is a placeholder.
+- **A lazy loader's `data-src` comes before `src`.** Below the fold `src` is
+  still a placeholder, and not always a `data:` pixel: an ordinary address
+  like `/img/blank.gif` is as followable as the picture. Once the picture
+  loads the loader copies `data-src` into `src`, so asking `data-src` first
+  costs nothing on a loaded one.
 
 ## Rejected
 

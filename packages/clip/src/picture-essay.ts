@@ -136,14 +136,19 @@ function picturesIn(landmark: Element, base: string): Picture[] {
   return pictures;
 }
 
-/** Point `image` at an absolute address, and say whether it is a picture. A
- * lazy loader's `data-src` stands in for a `src` that is still a placeholder. */
+/** Point `image` at an absolute address, and say whether it is a picture.
+ *
+ * A lazy loader's `data-src` comes first. Below the fold its `src` is still a
+ * placeholder — a `data:` pixel, or as often an ordinary address like
+ * `/img/blank.gif` that nothing about it marks as a stand-in — and once the
+ * picture loads, the loader copies `data-src` into `src`, so the two agree. A
+ * long essay is mostly below the fold. */
 function resolvePicture(image: Element, base: string): boolean {
   if (declaredPx(image, "width") < ICON_PX) return false;
   if (declaredPx(image, "height") < ICON_PX) return false;
   const src =
-    followableUrl(image.getAttribute("src"), base) ??
-    followableUrl(image.getAttribute("data-src"), base);
+    followableUrl(image.getAttribute("data-src"), base) ??
+    followableUrl(image.getAttribute("src"), base);
   if (src === null) return false;
   image.setAttribute("src", src);
   return true;

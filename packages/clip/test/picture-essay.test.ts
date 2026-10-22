@@ -89,6 +89,18 @@ describe("a page that is nothing but pictures", () => {
     expect(md).not.toContain("data:image");
   });
 
+  test("takes a lazy loader's address over a placeholder that is an ordinary file", () => {
+    // `/img/blank.gif` is as followable as the picture is, so only the order
+    // the two are asked in tells them apart.
+    const lazy = (n: number) =>
+      `<img src="/img/blank.gif" data-src="images/lazy${n}.jpg" alt="">`;
+    const md = clip(essay(lazy(1) + lazy(2) + lazy(3)));
+    expect(md).toContain(
+      "(https://www.ways-of-seeing.example/images/lazy1.jpg)",
+    );
+    expect(md).not.toContain("blank.gif");
+  });
+
   test("does not count icons as pictures", () => {
     const icon = (n: number) =>
       `<img src="icons/${n}.svg" width="24" height="24" alt="">`;
