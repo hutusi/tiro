@@ -93,10 +93,16 @@ none.
 ## Consequences
 
 - A picture essay clips as its pictures. The processor keeps them as images
-  like any other, translates their `alt` text with the rest of the article
-  (so `zh.md` names the paintings in Chinese), and summarizes from what the
-  summary prompt is given: the title and the body, which here is the
-  pictures' names.
+  like any other and summarizes from what the summary prompt is given: the
+  title and the body, which here is the pictures' names (chapter 4's summary
+  lists religious subjects, mythological scenes, still lifes). It does not
+  translate them: a paragraph that is only an image is copied into `zh.md`
+  verbatim, `alt` included, so the Chinese column names the paintings in
+  English.
+- Side by side, each picture shows twice, once per column, since every row
+  holds the original beside its translation and here the two are the same.
+  A text article shows its images twice too; a page of nothing else makes it
+  plain.
 - An essay whose pictures carry no `alt`, like chapter 2, gives the summarizer
   only its title and a list of image links, so its summary can say little
   more than the title does.
@@ -106,5 +112,6 @@ none.
   essay is saved as one. So would be a script-built page whose landmark
   arrives with three pictures and no words, where before it was refused as a
   shell; none is in the corpus.
-- Owed: re-clip *Ways of Seeing* chapters 2, 4 and 6.
+- *Ways of Seeing* chapters 2, 4 and 6 were re-clipped on 2026-10-22: 10, 36
+  and 34 pictures, each matching the page in order.
 - In the sweep corpus nothing else changes; see the PR for the run.
