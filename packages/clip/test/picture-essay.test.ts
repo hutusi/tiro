@@ -64,6 +64,17 @@ describe("a page that is nothing but pictures", () => {
     for (const n of [1, 2, 3]) expect(md).toContain(`Plate ${n}:`);
   });
 
+  test("points a figure's links at the page they came from", () => {
+    // Left relative, both would be published as links into Tiro.
+    const figure = (n: number) =>
+      `<figure><a href="/full/${n}.jpg"><img src="images/f${n}.jpg" alt=""></a><figcaption>By <a href="/artists/${n}">the artist</a></figcaption></figure>`;
+    const md = clip(essay(figure(1) + figure(2) + figure(3)));
+    expect(imageOffsets(md)).toHaveLength(3);
+    expect(md).toContain("(https://www.ways-of-seeing.example/full/1.jpg)");
+    expect(md).toContain("(https://www.ways-of-seeing.example/artists/1)");
+    expect(md).not.toMatch(/\]\(\//);
+  });
+
   test("counts each picture in a figure, not each figure", () => {
     // One plate of three photographs is three pictures, enough for an essay.
     const md = clip(

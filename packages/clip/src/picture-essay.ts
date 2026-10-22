@@ -63,12 +63,28 @@ export function pictureEssayIn(
   }
   if (imagesIn(best) < MIN_PICTURES) return null;
   return best
-    .map(({ element }) =>
-      element.tagName === "FIGURE"
-        ? element.outerHTML
-        : `<p>${element.outerHTML}</p>`,
-    )
+    .map(({ element }) => {
+      if (element.tagName !== "FIGURE") return `<p>${element.outerHTML}</p>`;
+      resolveLinksIn(element, base);
+      return element.outerHTML;
+    })
     .join("");
+}
+
+/**
+ * Point the links a figure keeps — round its picture, in its caption — at the
+ * page they came from. Readability does this for the article it returns, and
+ * nothing after it does it for an essay, so `/artists/0` would be published
+ * as a link into Tiro. An in-page `#anchor` stays as it is, as Readability
+ * leaves it, and so does anything that names its own scheme.
+ */
+function resolveLinksIn(figure: Element, base: string): void {
+  for (const link of Array.from(figure.querySelectorAll("a[href]"))) {
+    const href = (link.getAttribute("href") ?? "").trim();
+    if (href.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(href)) continue;
+    const absolute = followableUrl(href, base);
+    if (absolute !== null) link.setAttribute("href", absolute);
+  }
 }
 
 /** What the article is made of: an image, or a figure and how many of its

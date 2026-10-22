@@ -32,7 +32,10 @@ article** (`pictureEssayIn`).
   address resolved against the page, its `alt` and `title` kept, so a gallery
   that names its pictures keeps the names (chapter 4 names every painting). A
   `<figure>` is taken whole, so its caption comes with it, less any image in
-  it that is not a picture (an icon, an address nobody can follow).
+  it that is not a picture (an icon, an address nobody can follow). The
+  links a figure keeps, round its picture or in its caption, are resolved
+  against the page as Readability resolves its article's, or they would be
+  published as links into Tiro.
 - **Every other word in the landmark is left behind**: the chapter number and
   the next link, which is the furniture Readability strips from a text
   article too.
