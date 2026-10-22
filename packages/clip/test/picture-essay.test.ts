@@ -59,6 +59,26 @@ describe("a page that is nothing but pictures", () => {
     for (const n of [1, 2, 3]) expect(md).toContain(`Plate ${n}:`);
   });
 
+  test("counts each picture in a figure, not each figure", () => {
+    // One plate of three photographs is three pictures, enough for an essay.
+    const md = clip(
+      essay(
+        `<figure><img src="images/p1.jpg" alt=""><img src="images/p2.jpg" alt=""><img src="images/p3.jpg" alt=""><figcaption>Plate 1</figcaption></figure>`,
+      ),
+    );
+    expect(imageOffsets(md)).toHaveLength(3);
+    expect(md).toContain("Plate 1");
+  });
+
+  test("leaves an icon out of the figure it sits in, and keeps the caption", () => {
+    const figure = (n: number) =>
+      `<figure><img src="images/f${n}.jpg" alt=""><img src="icons/zoom.svg" width="16" height="16" alt="Zoom"><figcaption>Plate ${n}</figcaption></figure>`;
+    const md = clip(essay(figure(1) + figure(2) + figure(3)));
+    expect(imageOffsets(md)).toHaveLength(3);
+    expect(md).not.toContain("zoom.svg");
+    for (const n of [1, 2, 3]) expect(md).toContain(`Plate ${n}`);
+  });
+
   test("takes a lazy loader's address over its placeholder", () => {
     const lazy = (n: number) =>
       `<img src="data:image/gif;base64,R0lGOD" data-src="images/lazy${n}.jpg" alt="">`;

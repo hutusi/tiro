@@ -50,7 +50,7 @@ export function pictureEssayIn(
   scratch.body.innerHTML = preparedBody;
   // The base `videosAsPostersIn` resolves against, for the same reasons.
   const base = /^https?:/i.test(doc.baseURI) ? doc.baseURI : (pageUrl ?? "");
-  let best: Element[] = [];
+  let best: Picture[] = [];
   for (const landmark of Array.from(
     scratch.body.querySelectorAll('main, [role="main"], article'),
   )) {
@@ -58,16 +58,28 @@ export function pictureEssayIn(
     const pictures = picturesIn(landmark, base);
     // On a tie the later landmark wins: nested in the earlier one, it is the
     // tighter frame around the same pictures.
-    if (pictures.length >= best.length) best = pictures;
+    if (imagesIn(pictures) >= imagesIn(best)) best = pictures;
   }
-  if (best.length < MIN_PICTURES) return null;
+  if (imagesIn(best) < MIN_PICTURES) return null;
   return best
-    .map((picture) =>
-      picture.tagName === "FIGURE"
-        ? picture.outerHTML
-        : `<p>${picture.outerHTML}</p>`,
+    .map(({ element }) =>
+      element.tagName === "FIGURE"
+        ? element.outerHTML
+        : `<p>${element.outerHTML}</p>`,
     )
     .join("");
+}
+
+/** What the article is made of: an image, or a figure and how many of its
+ * images are pictures — counted, because a figure of three photographs is
+ * three pictures, not one. */
+interface Picture {
+  element: Element;
+  images: number;
+}
+
+function imagesIn(pictures: Picture[]): number {
+  return pictures.reduce((sum, picture) => sum + picture.images, 0);
 }
 
 /** Fewer letters than this is a site header or a stray label, not an article:
@@ -99,20 +111,27 @@ function uncaptionedLetters(landmark: Element): number {
 /**
  * The landmark's pictures in the page's order, addresses resolved: each
  * `<figure>` holding one, whole, and each image outside a figure. An image
- * with no address a reader can follow, or declared icon-sized, is not one.
+ * with no address a reader can follow, or declared icon-sized, is not one —
+ * nor does it ride along inside a figure that has a picture: a zoom icon or a
+ * placeholder nobody resolved is removed, and the caption stays.
+ *
+ * Removes from the landmark as it goes. The rejection is the same whichever
+ * landmark asks, so a landmark nested in this one finds the same pictures.
  */
-function picturesIn(landmark: Element, base: string): Element[] {
-  const pictures: Element[] = [];
+function picturesIn(landmark: Element, base: string): Picture[] {
+  const pictures: Picture[] = [];
   for (const element of Array.from(landmark.querySelectorAll("figure, img"))) {
-    if (pictures.some((kept) => kept.contains(element))) continue;
+    if (pictures.some((kept) => kept.element.contains(element))) continue;
     if (element.tagName === "IMG") {
-      if (resolvePicture(element, base)) pictures.push(element);
+      if (resolvePicture(element, base)) pictures.push({ element, images: 1 });
       continue;
     }
-    const images = Array.from(element.querySelectorAll("img")).filter((image) =>
-      resolvePicture(image, base),
-    );
-    if (images.length > 0) pictures.push(element);
+    let images = 0;
+    for (const image of Array.from(element.querySelectorAll("img"))) {
+      if (resolvePicture(image, base)) images++;
+      else image.remove();
+    }
+    if (images > 0) pictures.push({ element, images });
   }
   return pictures;
 }

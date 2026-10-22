@@ -31,7 +31,8 @@ article** (`pictureEssayIn`).
 - **The article is the pictures, in the page's order.** Each `<img>`, with its
   address resolved against the page, its `alt` and `title` kept, so a gallery
   that names its pictures keeps the names (chapter 4 names every painting). A
-  `<figure>` is taken whole, so its caption comes with it.
+  `<figure>` is taken whole, so its caption comes with it, less any image in
+  it that is not a picture (an icon, an address nobody can follow).
 - **Every other word in the landmark is left behind**: the chapter number and
   the next link, which is the furniture Readability strips from a text
   article too.
@@ -63,6 +64,7 @@ every condition is narrow and each has a test that fails without it:
   text. Captions are not counted, so a captioned essay is still an essay.
 - **The landmark holds at least 3 pictures.** A page with nothing to read and
   one or two images is an error page or a shell as often as it is content.
+  Images are counted, not figures: one plate of three photographs is three.
 - **An icon is not a picture**: an image declared smaller than 48 px on a side.
 - **A lazy loader's `data-src`** stands in for a `src` that is a placeholder.
 
