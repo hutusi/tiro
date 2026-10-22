@@ -72,6 +72,11 @@ every condition is narrow and each has a test that fails without it:
   loads the loader copies `data-src` into `src`, so asking `data-src` first
   costs nothing on a loaded one.
 
+The excerpt follows the article. With no description in the page's metadata,
+Readability's excerpt is the first paragraph of what it chose, the header the
+essay replaced; it is then the essay's own first paragraph instead, usually
+none.
+
 ## Rejected
 
 - **Lowering Readability's `charThreshold`.** It changes what counts as enough

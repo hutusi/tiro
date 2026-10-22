@@ -7,10 +7,15 @@ import { pictureEssayIn } from "../src/picture-essay.ts";
 const PAGE = "https://www.ways-of-seeing.example/ch2";
 
 /** The whole clip, as the extension runs it, on a page at `PAGE`. */
-function clip(body: string): string {
+function clipOf(body: string, head = "") {
   const window = new Window({ url: PAGE });
+  window.document.head.innerHTML = head;
   window.document.body.innerHTML = body;
-  return clipPage(window.document as unknown as Document, PAGE).markdown;
+  return clipPage(window.document as unknown as Document, PAGE);
+}
+
+function clip(body: string): string {
+  return clipOf(body).markdown;
 }
 
 /** The shape Ways of Seeing serves its wordless chapters in: a header naming
@@ -106,6 +111,28 @@ describe("a page that is nothing but pictures", () => {
       `<img src="icons/${n}.svg" width="24" height="24" alt="">`;
     const md = clip(essay(icon(1) + icon(2) + icon(3) + icon(4)));
     expect(imageOffsets(md)).toHaveLength(0);
+  });
+});
+
+describe("a picture essay's excerpt", () => {
+  // A tagline in the header Readability chooses: with no description in the
+  // page's metadata, its excerpt is that paragraph.
+  const tagline = "Essays on art and the ways we look at it";
+  const withTagline = (pictures: string) =>
+    essay(pictures).replace("</h5>", `</h5><p class="tagline">${tagline}</p>`);
+
+  test("is not read out of the header the essay replaced", () => {
+    const page = clipOf(withTagline(pair(0, 1) + pair(2, 3)));
+    expect(imageOffsets(page.markdown)).toHaveLength(4);
+    expect(page.excerpt).toBe("");
+  });
+
+  test("is the page's own description when it has one", () => {
+    const page = clipOf(
+      withTagline(pair(0, 1) + pair(2, 3)),
+      `<meta name="description" content="A pictorial essay on women in art.">`,
+    );
+    expect(page.excerpt).toBe("A pictorial essay on women in art.");
   });
 });
 
