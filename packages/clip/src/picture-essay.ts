@@ -48,6 +48,9 @@ export function pictureEssayIn(
   if (lettersIn(scratch.body.textContent ?? "") >= MAX_LETTERS) return null;
 
   scratch.body.innerHTML = preparedBody;
+  // In Readability's order: a lazy loader may hide its placeholder until the
+  // picture loads, and the `<noscript>` copy that replaces it is not hidden.
+  settleNoscripts(scratch.body);
   dropHidden(scratch.body);
   // The base `videosAsPostersIn` resolves against, for the same reasons.
   const base = /^https?:/i.test(doc.baseURI) ? doc.baseURI : (pageUrl ?? "");
@@ -110,6 +113,48 @@ const MIN_PICTURES = 3;
 
 /** An image declared smaller than this on either side is an icon. */
 const ICON_PX = 48;
+
+/**
+ * A `<noscript>` copy of a lazy picture takes the lazy one's place, and every
+ * other `<noscript>` goes — what Readability's `_unwrapNoscriptImages` and
+ * `_removeScripts` do to a page before reading it, and why its articles never
+ * show a picture twice. A scratch document parses with scripting off, so a
+ * `<noscript>`'s markup is elements here: without this each lazy picture
+ * counted twice, and two passed for the three an essay needs.
+ *
+ * The copy wins, as in Readability, because it had to work with no script to
+ * load it. The lazy one's `alt` and `title` go with it when it has none.
+ */
+function settleNoscripts(body: Element): void {
+  for (const noscript of Array.from(body.querySelectorAll("noscript"))) {
+    const copy = soleImage(noscript);
+    const previous = noscript.previousElementSibling;
+    const lazy = previous === null ? null : soleImage(previous);
+    if (copy !== null && lazy !== null && previous !== null) {
+      for (const name of ["alt", "title"]) {
+        const value = lazy.getAttribute(name) ?? "";
+        if (value !== "" && (copy.getAttribute(name) ?? "") === "") {
+          copy.setAttribute(name, value);
+        }
+      }
+      previous.replaceWith(copy);
+    }
+    noscript.remove();
+  }
+}
+
+/** The image `element` is, or holds with nothing else around it: Readability's
+ * `_isSingleImage`. */
+function soleImage(element: Element): Element | null {
+  for (let node: Element | undefined = element; node !== undefined; ) {
+    if (node.tagName === "IMG") return node;
+    if (node.children.length !== 1 || (node.textContent ?? "").trim() !== "") {
+      return null;
+    }
+    node = node.children[0];
+  }
+  return null;
+}
 
 /**
  * Remove what the page hides, by the test the clipper's other passes ask

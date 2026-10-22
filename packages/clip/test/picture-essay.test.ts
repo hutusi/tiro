@@ -117,6 +117,30 @@ describe("a page that is nothing but pictures", () => {
     expect(md).not.toContain("blank.gif");
   });
 
+  test("counts a lazy picture and its <noscript> copy once", () => {
+    // The copy wins, as in Readability: it had to work with no script.
+    const lazy = (n: number, alt = "") =>
+      `<img class="lazy" src="data:image/gif;base64,R0lGOD" data-src="images/lazy${n}.jpg" alt="${alt}"><noscript><img src="images/full${n}.jpg"></noscript>`;
+    const three = clip(
+      essay(lazy(1, "Pity by William Blake") + lazy(2) + lazy(3)),
+    );
+    expect(imageOffsets(three)).toHaveLength(3);
+    expect(three).not.toContain("images/lazy");
+    expect(three).toContain(
+      "![Pity by William Blake](https://www.ways-of-seeing.example/images/full1.jpg)",
+    );
+    // Two pictures are two, whatever the markup repeats: not an essay.
+    expect(imageOffsets(clip(essay(lazy(1) + lazy(2))))).toHaveLength(0);
+  });
+
+  test("keeps the copy of a placeholder hidden until it loads", () => {
+    const lazy = (n: number) =>
+      `<img class="lazy" style="display: none" data-src="images/lazy${n}.jpg" alt=""><noscript><img src="images/full${n}.jpg"></noscript>`;
+    const md = clip(essay(lazy(1) + lazy(2) + lazy(3)));
+    expect(imageOffsets(md)).toHaveLength(3);
+    expect(md).toContain("images/full3.jpg");
+  });
+
   test("does not count icons as pictures", () => {
     const icon = (n: number) =>
       `<img src="icons/${n}.svg" width="24" height="24" alt="">`;

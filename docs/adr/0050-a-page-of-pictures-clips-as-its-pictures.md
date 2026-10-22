@@ -69,6 +69,11 @@ every condition is narrow and each has a test that fails without it:
   one or two images is an error page or a shell as often as it is content.
   Images are counted, not figures: one plate of three photographs is three.
 - **An icon is not a picture**: an image declared smaller than 48 px on a side.
+- **A lazy picture and its `<noscript>` copy are one picture.** As
+  Readability does before reading a page, the copy takes the lazy one's
+  place (it had to work with no script), and every other `<noscript>` goes.
+  A scratch document parses with scripting off, so the copies are elements
+  there, and two lazy pictures would otherwise pass for four.
 - **What the page hides is not a picture**, by the test the clipper's other
   passes ask (`pageHides`): the `hidden` attribute, `aria-hidden`, an inline
   `display: none`, a framework's hiding class. Readability never reads a
