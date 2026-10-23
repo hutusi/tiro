@@ -170,6 +170,24 @@ describe("a page that is nothing but pictures", () => {
     );
   });
 
+  test("does not take a tracking pixel for a picture's copy", () => {
+    // The commonest image in a <noscript>. Swapped in, it would be dropped as
+    // an icon or as hidden, and the picture before it with it. Facebook's is
+    // both; Google Ads' only declares its size; some beacons only hide.
+    const pixels = [
+      `<img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1&amp;ev=PageView&amp;noscript=1">`,
+      `<div style="display:inline;"><img height="1" width="1" style="border-style:none;" alt="" src="https://googleads.g.doubleclick.net/pagead/viewthroughconversion/1/"></div>`,
+      `<img style="display:none" alt="" src="https://beacon.example/p.gif">`,
+    ];
+    for (const pixel of pixels) {
+      const after = (n: number) =>
+        `<img src="images/r${n}.jpg" alt=""><noscript>${pixel}</noscript>`;
+      const md = clip(essay(after(1) + after(2) + after(3)));
+      expect(imageOffsets(md)).toHaveLength(3);
+      expect(md).toContain("images/r3.jpg");
+    }
+  });
+
   test("does not count icons as pictures", () => {
     const icon = (n: number) =>
       `<img src="icons/${n}.svg" width="24" height="24" alt="">`;

@@ -137,7 +137,7 @@ function settleNoscripts(body: Element): void {
     const copy = soleImage(noscript);
     const previous = noscript.previousElementSibling;
     const lazy = previous === null ? null : soleImage(previous);
-    if (copy !== null && lazy !== null) {
+    if (copy !== null && lazy !== null && isCopyOfAPicture(copy)) {
       for (const name of ["alt", "title"]) {
         const value = lazy.getAttribute(name) ?? "";
         if (value !== "" && (copy.getAttribute(name) ?? "") === "") {
@@ -153,6 +153,18 @@ function settleNoscripts(body: Element): void {
     }
     noscript.remove();
   }
+}
+
+/** Whether a `<noscript>`'s image can be a picture's copy at all. A tracking
+ * pixel is the commonest image in a `<noscript>` — `width="1" height="1"`,
+ * often `display: none` as well — and one placed after a real picture would
+ * take its place and then be dropped as an icon or as hidden, losing the
+ * picture. Readability does not ask; before this pass existed the pixel was
+ * an icon and the picture stood, so neither may this lose it. A beacon that
+ * declares neither, placed straight after a picture, still takes its place,
+ * as it would in Readability. */
+function isCopyOfAPicture(copy: Element): boolean {
+  return !iconSized(copy) && !pageHides(copy);
 }
 
 /** The image `element` is, or holds with nothing else around it: Readability's
@@ -236,14 +248,20 @@ function picturesIn(landmark: Element, base: string): Picture[] {
  * picture loads, the loader copies `data-src` into `src`, so the two agree. A
  * long essay is mostly below the fold. */
 function resolvePicture(image: Element, base: string): boolean {
-  if (declaredPx(image, "width") < ICON_PX) return false;
-  if (declaredPx(image, "height") < ICON_PX) return false;
+  if (iconSized(image)) return false;
   const src =
     followableUrl(image.getAttribute("data-src"), base) ??
     followableUrl(image.getAttribute("src"), base);
   if (src === null) return false;
   image.setAttribute("src", src);
   return true;
+}
+
+function iconSized(image: Element): boolean {
+  return (
+    declaredPx(image, "width") < ICON_PX ||
+    declaredPx(image, "height") < ICON_PX
+  );
 }
 
 /** The size the markup declares, or Infinity when it declares none. */
