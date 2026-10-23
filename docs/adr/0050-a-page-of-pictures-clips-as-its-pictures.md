@@ -70,8 +70,12 @@ every condition is narrow and each has a test that fails without it:
   Images are counted, not figures: one plate of three photographs is three.
 - **An icon is not a picture**: an image declared smaller than 48 px on a side.
 - **A lazy picture and its `<noscript>` copy are one picture.** As
-  Readability does before reading a page, the copy takes the lazy one's
-  place (it had to work with no script), and every other `<noscript>` goes.
+  Readability does before reading a page, the copy's image takes the lazy
+  one's place (it had to work with no script), and every other `<noscript>`
+  goes. Unlike Readability, only the image is swapped, inside whatever the
+  lazy one sat in, usually a link to the full-size picture that the copy may
+  not repeat; a wrapper the page hides until the picture loads is replaced
+  outright, so the copy is not dropped with it.
   A scratch document parses with scripting off, so the copies are elements
   there, and two lazy pictures would otherwise pass for four.
 - **What the page hides is not a picture**, by the test the clipper's other

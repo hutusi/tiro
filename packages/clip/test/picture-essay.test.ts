@@ -141,6 +141,35 @@ describe("a page that is nothing but pictures", () => {
     expect(md).toContain("images/full3.jpg");
   });
 
+  test("keeps the link round a lazy picture when its copy takes over", () => {
+    // A thumbnail linking to the full-size picture, the copy linked the same
+    // way or not at all: the link is what the reader saw either way.
+    const linked = (n: number, copy: string) =>
+      `<figure><a href="/full/${n}.jpg"><img class="lazy" src="data:image/gif;base64,R0lGOD" data-src="images/t${n}.jpg" alt=""></a><noscript>${copy}</noscript><figcaption>Plate ${n}</figcaption></figure>`;
+    const both = (n: number) =>
+      linked(n, `<a href="/full/${n}.jpg"><img src="images/t${n}.jpg"></a>`);
+    const lazyOnly = (n: number) => linked(n, `<img src="images/t${n}.jpg">`);
+    for (const figure of [both, lazyOnly]) {
+      const md = clip(essay(figure(1) + figure(2) + figure(3)));
+      expect(imageOffsets(md)).toHaveLength(3);
+      expect(md).toContain(
+        "[![](https://www.ways-of-seeing.example/images/t1.jpg)](https://www.ways-of-seeing.example/full/1.jpg)",
+      );
+    }
+  });
+
+  test("keeps the link when what the page hides is a wrapper, not the image", () => {
+    // The copy cannot go inside the hidden wrapper — it would be dropped with
+    // it — so it takes the wrapper's place, under the link.
+    const lazy = (n: number) =>
+      `<figure><a href="/full/${n}.jpg"><span class="hidden"><img class="lazy" data-src="images/t${n}.jpg" alt=""></span></a><noscript><img src="images/t${n}.jpg"></noscript></figure>`;
+    const md = clip(essay(lazy(1) + lazy(2) + lazy(3)));
+    expect(imageOffsets(md)).toHaveLength(3);
+    expect(md).toContain(
+      "[![](https://www.ways-of-seeing.example/images/t3.jpg)](https://www.ways-of-seeing.example/full/3.jpg)",
+    );
+  });
+
   test("does not count icons as pictures", () => {
     const icon = (n: number) =>
       `<img src="icons/${n}.svg" width="24" height="24" alt="">`;

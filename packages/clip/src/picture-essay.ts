@@ -122,22 +122,34 @@ const ICON_PX = 48;
  * `<noscript>`'s markup is elements here: without this each lazy picture
  * counted twice, and two passed for the three an essay needs.
  *
- * The copy wins, as in Readability, because it had to work with no script to
- * load it. The lazy one's `alt` and `title` go with it when it has none.
+ * The copy's image wins, as in Readability, because it had to work with no
+ * script to load it. The lazy one's `alt` and `title` go with it when it has
+ * none. Only the image is swapped, inside whatever the lazy one sat in: that
+ * wrapper is what the reader saw, and it is usually a link to the full-size
+ * picture, which the copy may not repeat. Readability puts the copy's whole
+ * markup in the wrapper's place, which loses that link whenever it does not.
+ * The exception is a wrapper the page hides until the picture loads: the copy
+ * takes the place of the outermost one, so it is not dropped with it, and a
+ * link round that stays.
  */
 function settleNoscripts(body: Element): void {
   for (const noscript of Array.from(body.querySelectorAll("noscript"))) {
     const copy = soleImage(noscript);
     const previous = noscript.previousElementSibling;
     const lazy = previous === null ? null : soleImage(previous);
-    if (copy !== null && lazy !== null && previous !== null) {
+    if (copy !== null && lazy !== null) {
       for (const name of ["alt", "title"]) {
         const value = lazy.getAttribute(name) ?? "";
         if (value !== "" && (copy.getAttribute(name) ?? "") === "") {
           copy.setAttribute(name, value);
         }
       }
-      previous.replaceWith(copy);
+      let placeholder = lazy;
+      for (let node: Element | null = lazy; node !== null; ) {
+        if (pageHides(node)) placeholder = node;
+        node = node === previous ? null : node.parentElement;
+      }
+      placeholder.replaceWith(copy);
     }
     noscript.remove();
   }
