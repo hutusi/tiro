@@ -7,6 +7,15 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A page of pictures clips as its pictures** (ADR 0050). Readability finds
+  an article by its text, so a photo essay with no prose clipped as whatever
+  text the page had elsewhere: *Ways of Seeing*'s wordless chapters came out
+  as the site header, none of their 10, 36 and 34 pictures kept. When
+  Readability's choice holds no picture and almost no text, the page's main
+  landmark's pictures are the article, in order, with their names.
+
 ## [0.11.0] - 2026-10-19
 
 ### Added

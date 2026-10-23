@@ -20,6 +20,7 @@ import {
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import type { ClipPayload } from "./payload.ts";
+import { pictureEssayIn } from "./picture-essay.ts";
 import {
   normalizeSourceMarkdown,
   plainTextMarkdownSource,
@@ -116,9 +117,17 @@ export function clipPage(
   }
 
   const readabilityFailed = article?.content == null || article.content === "";
+  // A page of pictures and no prose gives Readability nothing to score, so it
+  // chooses something else — on Ways of Seeing, the site header — and the
+  // pictures that are the article are what it leaves out (pictureEssayIn).
+  const essay = readabilityFailed
+    ? null
+    : pictureEssayIn(article?.content ?? "", preparedBody, doc, url);
   // Readability resolves relative URLs to absolute ones; the raw-body
   // fallback does not, which is one reason the failure is flagged.
-  const extracted = readabilityFailed ? preparedBody : (article?.content ?? "");
+  const extracted = readabilityFailed
+    ? preparedBody
+    : (essay ?? article?.content ?? "");
   // Figures fold only now: doing it before Readability replaces the elements
   // carrying the attributes it selects on, which republished hidden images
   // (ADR 0011, foldFiguresIn). Fence languages are restored here for the
@@ -160,14 +169,19 @@ export function clipPage(
         doc.title),
     excerpt:
       latexml?.excerpt ??
-      excerptWithoutPlaceholders(
-        readExcerpt(
-          article?.excerpt ?? "",
+      excerptBesideEssay(
+        excerptWithoutPlaceholders(
+          readExcerpt(
+            article?.excerpt ?? "",
+            article?.content ?? "",
+            dropped,
+            doc,
+          ),
           article?.content ?? "",
-          dropped,
           doc,
         ),
         article?.content ?? "",
+        essay,
         doc,
       ).trim(),
     author: latexml?.author ?? (article?.byline ?? "").trim(),
@@ -370,4 +384,23 @@ function readExcerpt(
   if (dropped.firstParagraph === null) return excerpt;
   if (excerpt.trim() !== dropped.firstParagraph) return excerpt;
   return firstParagraphText(content, doc);
+}
+
+/**
+ * Readability's excerpt, unless it was read out of the choice a picture essay
+ * replaced (`pictureEssayIn`). With no description in the page's metadata it
+ * takes the first paragraph of what it chose, and what it chose there was not
+ * the article — a site header's tagline, say. Then it is the essay's own
+ * first paragraph, which for pictures alone is usually none at all. Compared
+ * as `readExcerpt` compares, with the same one remote risk.
+ */
+function excerptBesideEssay(
+  excerpt: string,
+  chosen: string,
+  essay: string | null,
+  doc: Document,
+): string {
+  if (essay === null || excerpt.trim() === "") return excerpt;
+  if (excerpt.trim() !== firstParagraphText(chosen, doc)) return excerpt;
+  return firstParagraphText(essay, doc);
 }

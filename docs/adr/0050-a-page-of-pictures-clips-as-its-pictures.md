@@ -1,0 +1,139 @@
+# ADR 0050: A page of pictures clips as its pictures
+
+Status: accepted (2026-10). Changes what the clipper extracts from one page
+shape. It touches neither identity nor the document format, so `tiro.schema`
+is unchanged.
+
+## Context
+
+Three chapters of John Berger's *Ways of Seeing* were clipped from
+ways-of-seeing.com, and each came out as two lines: "Ways of Seeing / John
+Berger". Chapters 2, 4 and 6 are the book's wordless picture essays, and the
+site serves each as a `<main class="photo-essay">` of photographs (10, 36 and
+34) whose only words are the chapter number and a "Next Chapter" link.
+
+**Readability finds an article by its text.** It scores paragraphs by their
+length and commas, and an image adds nothing to a score. On a page with no
+prose the best-scoring block was the site header, the book's title and
+author, so that is what it returned. It returned something, so the clipper's
+raw-body fallback (for a Readability that returns nothing) never ran.
+
+The text chapters of the same site clip correctly, with every picture
+(38, 27, 39 and 40): there, the pictures sit inside the prose Readability
+chooses.
+
+## Decision
+
+**When what Readability chose holds no picture and almost no text, the page's
+main landmark is asked instead, and if it holds pictures, they are the
+article** (`pictureEssayIn`).
+
+- **The article is the pictures, in the page's order.** Each `<img>`, with its
+  address resolved against the page, its `alt` and `title` kept, so a gallery
+  that names its pictures keeps the names (chapter 4 names every painting). A
+  `<figure>` is taken whole, so its caption comes with it, less any image in
+  it that is not a picture (an icon, an address nobody can follow). The
+  links a figure keeps, round its picture or in its caption, are resolved
+  against the page as Readability resolves its article's, or they would be
+  published as links into Tiro.
+- **Every other word in the landmark is left behind**: the chapter number and
+  the next link, which is the furniture Readability strips from a text
+  article too.
+- **The landmark is one the page names**: `<main>`, `role="main"` or
+  `<article>`, the one holding the most pictures. Not the whole body, which
+  would bring the logo and every icon with it.
+
+It runs after Readability, on the prepared body as it stood before Readability
+consumed it, and its result goes through every later pass like Readability's
+would: videos, figures, anchors.
+
+### The guards
+
+Overruling Readability wrongly replaces an article with its illustrations, so
+every condition is narrow and each has a test that fails without it:
+
+- **Readability's choice holds no picture.** A photo with a one-line caption
+  is a choice, however short.
+- **It holds fewer than 100 letters.** Letters, not words, since Chinese prose
+  has no spaces to count by; a 120-character Chinese article counted by
+  whitespace is one word. The header Readability chose on Ways of Seeing has
+  22.
+- **The landmark is as wordless, captions apart.** Fewer than 100 letters
+  outside its `<figcaption>`s; the essay's own words, "2" and "Next Chapter",
+  are 11. A landmark with prose in it is an article Readability failed to
+  read, not an essay. The sweep found one: under happy-dom, Developers
+  Digest's `<article>`, 9,494 letters, lost to the site's nav menu, and
+  without this guard the clip kept its four illustrations and none of its
+  text. Captions are not counted, so a captioned essay is still an essay.
+- **The landmark holds at least 3 pictures.** A page with nothing to read and
+  one or two images is an error page or a shell as often as it is content.
+  Images are counted, not figures: one plate of three photographs is three.
+- **An icon is not a picture**: an image declared smaller than 48 px on a side.
+- **A lazy picture and its `<noscript>` copy are one picture.** As
+  Readability does before reading a page, the copy's image takes the lazy
+  one's place (it had to work with no script), and every other `<noscript>`
+  goes. Unlike Readability, only the image is swapped, inside whatever the
+  lazy one sat in, usually a link to the full-size picture that the copy may
+  not repeat; a wrapper the page hides until the picture loads is replaced
+  outright, so the copy is not dropped with it. A `<noscript>` image that
+  is icon-sized or hidden is a tracking pixel, not a copy, and never takes a
+  picture's place; a beacon declaring neither still would, as in
+  Readability.
+  A scratch document parses with scripting off, so the copies are elements
+  there, and two lazy pictures would otherwise pass for four.
+- **What the page hides is not a picture**, by the test the clipper's other
+  passes ask (`pageHides`): the `hidden` attribute, `aria-hidden`, an inline
+  `display: none`, a framework's hiding class. Readability never reads a
+  hidden subtree, but the essay is read from the page before Readability,
+  and a lightbox's copies or a carousel's clones would otherwise be published
+  (the ADR 0011 failure). Strict where the page is ambiguous: `hidden
+  md:block` counts as hidden.
+- **A lazy loader's `data-src` comes before `src`.** Below the fold `src` is
+  still a placeholder, and not always a `data:` pixel: an ordinary address
+  like `/img/blank.gif` is as followable as the picture. Once the picture
+  loads the loader copies `data-src` into `src`, so asking `data-src` first
+  costs nothing on a loaded one.
+
+The excerpt follows the article. With no description in the page's metadata,
+Readability's excerpt is the first paragraph of what it chose, the header the
+essay replaced; it is then the essay's own first paragraph instead, usually
+none.
+
+## Rejected
+
+- **Lowering Readability's `charThreshold`.** It changes what counts as enough
+  text, not what is scored, and a picture still scores nothing.
+- **Keeping the landmark's text too.** On this page it is "2" and "Next
+  Chapter". A landmark with real text is one Readability would have chosen.
+- **The whole body when no landmark is named.** It brings the site's
+  furniture, images and all, into the article. An essay laid out without a
+  landmark is still lost, as before.
+- **A rule keyed on ways-of-seeing.com.** The shape is a class, a gallery with
+  no prose, and the rule keys on that shape, as every repair in the clipper
+  does.
+
+## Consequences
+
+- A picture essay clips as its pictures. The processor keeps them as images
+  like any other and summarizes from what the summary prompt is given: the
+  title and the body, which here is the pictures' names (chapter 4's summary
+  lists religious subjects, mythological scenes, still lifes). It does not
+  translate them: a paragraph that is only an image is copied into `zh.md`
+  verbatim, `alt` included, so the Chinese column names the paintings in
+  English.
+- Side by side, each picture shows twice, once per column, since every row
+  holds the original beside its translation and here the two are the same.
+  A text article shows its images twice too; a page of nothing else makes it
+  plain.
+- An essay whose pictures carry no `alt`, like chapter 2, gives the summarizer
+  only its title and a list of image links, so its summary can say little
+  more than the title does.
+- **A saved link takes the same path** (ADR 0034): the processor clips the
+  fetched page with this clipper, and its shell check counts the markdown's
+  characters, image addresses included. A page whose raw HTML is a picture
+  essay is saved as one. So would be a script-built page whose landmark
+  arrives with three pictures and no words, where before it was refused as a
+  shell; none is in the corpus.
+- *Ways of Seeing* chapters 2, 4 and 6 were re-clipped on 2026-10-22: 10, 36
+  and 34 pictures, each matching the page in order.
+- In the sweep corpus nothing else changes; see the PR for the run.

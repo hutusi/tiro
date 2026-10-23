@@ -236,6 +236,15 @@ flowchart LR
    Readability split at every link and stripped of every heading, so each text
    block becomes the paragraph, heading, list item or quote it is before
    Readability reads it.
+
+   A page of pictures and no prose clips as its pictures (ADR 0050).
+   Readability scores text, so on a photo essay it chose the next most
+   text-like block, a site header. When its choice holds no picture and fewer
+   than 100 letters, the page's `<main>`, `role="main"` or `<article>` with the
+   most pictures (at least 3) and as few words outside its captions is taken
+   instead: its images in order, each `<figure>` whole, and none of its other
+   words.
+
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
