@@ -16,8 +16,11 @@ import { dateLabel, minutesLabel, STRINGS } from "../lib/strings.ts";
 
 interface Props {
   article: Article;
+  /** 3 under a collection's section heading, so the outline nests (ADR 0051). */
+  headingLevel?: 2 | 3;
 }
-const { article } = Astro.props;
+const { article, headingLevel = 2 } = Astro.props;
+const Title = headingLevel === 3 ? "h3" : "h2";
 const { frontmatter: fm } = article;
 const meta = articleMeta(article);
 const statusLabel = {
@@ -34,7 +37,7 @@ const statusLabel = {
       <span class="domain">{fm.domain}</span>
       {statusLabel !== null && <span class="pill">{statusLabel}</span>}
     </div>
-    <h2 class="title">{fm.title}</h2>
+    <Title class="title">{fm.title}</Title>
     {
       meta.titleZh !== null && (
         <p class="title-zh" lang="zh-CN">

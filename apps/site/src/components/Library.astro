@@ -5,6 +5,7 @@
  * script) picks the presentation, so switching never re-renders anything.
  */
 import type { Article } from "../lib/articles.ts";
+import type { CollectionSection } from "../lib/collections.ts";
 import { pageNote, STRINGS } from "../lib/strings.ts";
 import ArticleItem from "./ArticleItem.astro";
 import Pager from "./Pager.astro";
@@ -25,6 +26,12 @@ interface Props {
    */
   emptyText?: string | null;
   pager?: { current: number; last: number; total: number };
+  /**
+   * `articles` under headings — a collection's sections (ADR 0051). Each one
+   * is its own list, so both views lay out per section; absent, `articles`
+   * is the one untitled list.
+   */
+  sections?: CollectionSection[];
 }
 const {
   articles,
@@ -32,6 +39,7 @@ const {
   count,
   emptyText = STRINGS.list.empty,
   pager,
+  sections = [{ title: null, articles }],
 } = Astro.props;
 const t = STRINGS.library;
 ---
@@ -87,9 +95,30 @@ putting anything in the index that is not an article. */
   )
 }
 
-<ol class="items m-0 list-none p-0">
-  {articles.map((article) => <ArticleItem article={article} />)}
-</ol>
+{
+  sections.map((section, i) => (
+    <Fragment>
+      {section.title !== null && (
+        <h2
+          class:list={[
+            "mb-3 font-ui text-[13px] font-medium uppercase tracking-[0.06em] text-ink-mute",
+            i === 0 ? "mt-2" : "mt-10",
+          ]}
+        >
+          {section.title}
+        </h2>
+      )}
+      <ol class="items m-0 list-none p-0">
+        {section.articles.map((article) => (
+          <ArticleItem
+            article={article}
+            headingLevel={section.title === null ? 2 : 3}
+          />
+        ))}
+      </ol>
+    </Fragment>
+  ))
+}
 
 {
   pager !== undefined && pager.last > 1 && (
