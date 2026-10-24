@@ -4,6 +4,12 @@ import { coverImages } from "./covers.ts";
 import { STRINGS } from "./strings.ts";
 import { readCollections } from "./vault-read.ts";
 
+/** A run of listed members under one heading, or under none (ADR 0051). */
+export interface CollectionSection {
+  title: string | null;
+  articles: Article[];
+}
+
 export interface Collection {
   /** The filename stem, which is the collection's whole identity (ADR 0029). */
   id: string;
@@ -21,6 +27,14 @@ export interface Collection {
    * straight back. The membership itself is untouched; see `memberSlugs`.
    */
   articles: Article[];
+  /**
+   * `articles`, split where the members' `section` changes (ADR 0051).
+   *
+   * Grouped after the listed join, so a run broken only by an unlisted or
+   * missing member is still one group. A collection with no sections is one
+   * untitled group, and renders exactly as it did before sections existed.
+   */
+  sections: CollectionSection[];
   /**
    * Every member slug, listed or not, in file order.
    *
@@ -88,9 +102,18 @@ export async function getCollections(): Promise<Collection[]> {
 
   const collections = entries.map((entry): Collection => {
     const memberSlugs = entry.frontmatter.items.map((item) => item.slug);
-    const members = memberSlugs
-      .map((slug) => bySlug.get(slug))
-      .filter((article): article is Article => article !== undefined);
+    const members: Article[] = [];
+    const sections: CollectionSection[] = [];
+    for (const item of entry.frontmatter.items) {
+      const article = bySlug.get(item.slug);
+      if (article === undefined) continue;
+      members.push(article);
+      const title = item.section ?? null;
+      const last = sections.at(-1);
+      if (last !== undefined && last.title === title)
+        last.articles.push(article);
+      else sections.push({ title, articles: [article] });
+    }
     return {
       id: entry.id,
       title: entry.frontmatter.title,
@@ -98,6 +121,7 @@ export async function getCollections(): Promise<Collection[]> {
       body: entry.body,
       updatedAt: entry.frontmatter.updated_at ?? null,
       articles: members,
+      sections,
       memberSlugs,
       coverImages: coverImages(
         entry.id,
@@ -116,6 +140,7 @@ export async function getCollections(): Promise<Collection[]> {
       body: "",
       updatedAt: null,
       articles: [],
+      sections: [],
       memberSlugs: [],
       coverImages: [],
       virtual: true,

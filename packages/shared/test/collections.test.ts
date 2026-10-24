@@ -19,7 +19,7 @@ const T2 = "2026-09-22T11:00:00.000Z";
 const T3 = "2026-09-22T12:00:00.000Z";
 
 function collection(
-  items: { slug: string; added_at?: string }[],
+  items: { slug: string; added_at?: string; section?: string }[],
   body = "",
 ): ParsedCollection {
   return {
@@ -75,6 +75,26 @@ describe("parseCollection", () => {
       "---\ntitle: Reading\nitems:\n  - slug: a-1234abcd\ntiro:\n  schema: 1\n---\n",
     );
     expect(parsed.frontmatter.items).toEqual([{ slug: "a-1234abcd" }]);
+  });
+
+  test("an item may name the section it is listed under", () => {
+    const parsed = parseCollection(
+      "reading",
+      '---\ntitle: Reading\nitems:\n  - slug: a-1234abcd\n    section: "Science & Tech"\n  - slug: b-1234abcd\ntiro:\n  schema: 1\n---\n',
+    );
+    expect(parsed.frontmatter.items).toEqual([
+      { slug: "a-1234abcd", section: "Science & Tech" },
+      { slug: "b-1234abcd" },
+    ]);
+  });
+
+  test("refuses an empty section rather than a heading with no words", () => {
+    expect(() =>
+      parseCollection(
+        "reading",
+        '---\ntitle: Reading\nitems:\n  - slug: a-1234abcd\n    section: " "\ntiro:\n  schema: 1\n---\n',
+      ),
+    ).toThrow();
   });
 
   test("refuses a file with no frontmatter", () => {
@@ -154,6 +174,36 @@ describe("cover", () => {
     );
     expect(written.frontmatter.description).toBe("值得反复读的几篇");
     expect(written.body).toBe("为什么留着这个列表。\n");
+  });
+
+  // Same failure, one level down: an item's section the schema did not know
+  // would be stripped from every member the next time the clipper writes.
+  test("sections survive the clipper's parse, apply and write", () => {
+    const text = stringifyCollection(
+      collection([
+        { slug: "a-1234abcd", added_at: T1, section: "Science & Tech" },
+        { slug: "b-1234abcd", added_at: T1, section: "Science & Tech" },
+        { slug: "c-1234abcd", added_at: T1, section: "Life" },
+      ]).frontmatter,
+      "",
+    );
+    const result = applyCollectionOps(
+      FAVORITES_ID,
+      parseCollection(FAVORITES_ID, text),
+      [op("add", "d-1234abcd", T2), op("remove", "a-1234abcd", T2)],
+    );
+    if (result === null) throw new Error("expected a change");
+    const written = parseCollection(
+      FAVORITES_ID,
+      stringifyCollection(result.frontmatter, result.body),
+    );
+    // The new member lands first, under no heading; removing a section's
+    // first member leaves the rest of it under the same heading.
+    expect(written.frontmatter.items).toEqual([
+      { slug: "d-1234abcd", added_at: T2 },
+      { slug: "b-1234abcd", added_at: T1, section: "Science & Tech" },
+      { slug: "c-1234abcd", added_at: T1, section: "Life" },
+    ]);
   });
 });
 
@@ -378,6 +428,17 @@ describe("renameCollectionMember", () => {
     ]);
     // Nothing the owner decided has changed.
     expect(renamed?.frontmatter.updated_at).toBe(T1);
+  });
+
+  test("keeps the member's section under its new slug", () => {
+    const [renamed] = renameCollectionMember(
+      [collection([{ slug: "old-slug", added_at: T1, section: "History" }])],
+      "old-slug",
+      "new-slug",
+    );
+    expect(renamed?.frontmatter.items).toEqual([
+      { slug: "new-slug", added_at: T1, section: "History" },
+    ]);
   });
 
   test("drops the old entry when the new slug is already a member", () => {

@@ -565,6 +565,15 @@ cut off after 20 minutes; a healthy one takes about two.
     only warns in the build log, so `validate` is where you find out. A
     re-clip can prune the asset a cover names, which is how a correct cover
     goes stale.
+  - **Sections are a hand edit too** (ADR 0051). Give each member a
+    `section: "Science & Tech"`; consecutive members with the same one are
+    drawn under that heading, and a member without one under none — which is
+    where the clipper's newest additions land until you file them. Repeat the
+    section on every member: one that only the first member carries would be
+    lost the moment that member is removed. After pulling this change,
+    rebuild the extension (`bun run --cwd apps/extension build`) and then
+    reload it before ticking a sectioned collection: a reload alone runs the
+    old build in `dist/`, which writes the file back without them.
   - **Deleting an article now has a second step**: drop it from any collection
     that names it. `validate` lists them. The popup's Remove (below) does both.
   - `publish.yml` ships in `vault-template/`, which does not propagate — copy it

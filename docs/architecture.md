@@ -467,6 +467,8 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   collection's cover is derived from its listed members' lead images unless a
   hand-set `cover:` pins one article asset by vault path (ADR 0030); `validate`
   checks it exists and is listed, and the sweep carries it across a rename.
+  An item may carry a `section:`, repeated on every member of it; consecutive
+  members sharing one are drawn under that heading (ADR 0051).
   Every page
   carries a `tiro:site` meta and article pages a `#tiro-page` JSON island (slug,
   memberships, catalog), which is how the clipper recognizes a Tiro page on any

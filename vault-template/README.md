@@ -48,7 +48,9 @@ extension popup's "Remove" does both in one commit (ADR 0036).
 A collection may also carry a `description:` line, shown under its title, and
 a `cover:` naming one article image by its vault path,
 `articles/<slug>/assets/<file>`. Without a cover, the site builds one from the
-members' own pictures (ADR 0030), so most collections never need one.
+members' own pictures (ADR 0030), so most collections never need one. A long
+list can be split under headings by giving its members a `section:` — the same
+one on every member of a section (ADR 0051).
 
 ## Setup
 

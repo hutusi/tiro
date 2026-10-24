@@ -7,6 +7,16 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Collections can have sections** (ADR 0051). A member's optional
+  `section:` puts it under a heading on the collection page, so a list that
+  arrives already organized — The Electric Typewriter's Atlantic 200, in 34
+  sections — reads as its sections. The heading is repeated on every member,
+  so the clipper's toggles and Remove can never move an article under another
+  one. The extension keeps sections when it rewrites a collection; rebuild
+  and then reload it before ticking a sectioned one.
+
 ### Fixed
 
 - **A page of pictures clips as its pictures** (ADR 0050). Readability finds

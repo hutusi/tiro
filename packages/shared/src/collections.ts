@@ -75,6 +75,18 @@ export function parseCoverPath(
 export const CollectionItemSchema = z.object({
   slug: z.string().min(1),
   added_at: isoDatetime.optional(),
+  /**
+   * The heading this member is listed under (ADR 0051). Consecutive members
+   * with the same section are one group; a member without one is listed
+   * under no heading, which is where the extension's prepend puts a new one.
+   *
+   * On every member of a section, not only its first: a heading held by the
+   * first member would leave with it when that member is removed, and the
+   * rest of its group would slide silently under the heading before. Declared
+   * here, like `cover`, because the clipper rewrites the file through this
+   * schema and zod drops keys it was not told about.
+   */
+  section: z.string().trim().min(1).optional(),
 });
 export type CollectionItem = z.infer<typeof CollectionItemSchema>;
 

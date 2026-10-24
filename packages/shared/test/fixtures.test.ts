@@ -123,6 +123,8 @@ describe("fixture collections", () => {
       // shape a hand-written collection has, which the extension never emits.
       // Three members with pictures, so its cover is the full mosaic; one of
       // them opens with an SVG, which is passed over for the photo after it.
+      // Two sections after an unsectioned first member, the shape the
+      // extension's prepend leaves (ADR 0051), so its page draws headings.
       "reading-notes.md",
     ]);
   });

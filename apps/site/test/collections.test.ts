@@ -201,6 +201,65 @@ describe("getCollections", () => {
     }
   });
 
+  test("splits members into sections where their section changes", async () => {
+    const dir = vault();
+    try {
+      for (const slug of ["new", "a", "b", "hidden", "c", "d"]) {
+        writeArticle(dir, slug, slug === "hidden");
+      }
+      writeCollection(
+        dir,
+        "atlantic",
+        `title: "Atlantic"\nitems:\n  - slug: "new"\n  - slug: "a"\n    section: "Science & Tech"\n  - slug: "b"\n    section: "Life"\n  - slug: "hidden"\n    section: "Death"\n  - slug: "c"\n    section: "Life"\n  - slug: "missing"\n    section: "Life"\n  - slug: "d"\n    section: "Science & Tech"\n`,
+      );
+      resetVaultCache();
+
+      const atlantic = (await getCollections()).find(
+        (c) => c.id === "atlantic",
+      );
+      // The prepended member comes first, under no heading; a run broken only
+      // by an unlisted or missing member stays one group; a section that
+      // comes back later is a second group, in file order.
+      expect(
+        atlantic?.sections.map((s) => [s.title, s.articles.map((a) => a.slug)]),
+      ).toEqual([
+        [null, ["new"]],
+        ["Science & Tech", ["a"]],
+        ["Life", ["b", "c"]],
+        ["Science & Tech", ["d"]],
+      ]);
+      expect(atlantic?.articles.map((a) => a.slug)).toEqual([
+        "new",
+        "a",
+        "b",
+        "c",
+        "d",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a collection without sections is one untitled group", async () => {
+    const dir = vault();
+    try {
+      for (const slug of ["a", "b"]) writeArticle(dir, slug);
+      writeCollection(
+        dir,
+        "reading",
+        'title: "重读"\nitems:\n  - slug: "b"\n  - slug: "a"\n',
+      );
+      resetVaultCache();
+
+      const reading = (await getCollections()).find((c) => c.id === "reading");
+      expect(
+        reading?.sections.map((s) => [s.title, s.articles.map((a) => a.slug)]),
+      ).toEqual([[null, ["b", "a"]]]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("favorites leads, then most recently updated, then id", async () => {
     const dir = vault();
     try {
