@@ -60,7 +60,8 @@ export type LeadMerge =
 /** Letters a paragraph needs before it can say where an article begins. */
 const MIN_START_LETTERS = 30;
 
-/** How much of a paragraph is compared, normalized. */
+/** How much of a block says it is present, normalized. The version check
+ * compares whole paragraphs instead (`firstParagraph`). */
 const KEY_CHARS = 60;
 
 /** A caption shorter than this is not evidence the picture is there. */
@@ -140,8 +141,8 @@ export function mergeLead(
     const page = pageMarkdown.startsWith(lead)
       ? pageMarkdown.slice(lead.length)
       : pageMarkdown;
-    const pageStart = firstProseKey(splitBlocks(page));
-    const articleStart = firstProseKey(bodyBlocks.slice(opening));
+    const pageStart = firstParagraph(splitBlocks(page));
+    const articleStart = firstParagraph(bodyBlocks.slice(opening));
     if (pageStart === null || pageStart !== articleStart) {
       return {
         kind: "refused",
@@ -294,16 +295,20 @@ function keyOf(markdown: string): string {
 }
 
 /**
- * The key of the first paragraph of prose. Paragraphs only: a section heading
- * outlives an edit to the paragraph under it, so a page whose opening was
- * rewritten would pass as the same article on a heading both versions share.
+ * The first paragraph of prose, normalized and whole. Paragraphs only: a
+ * section heading outlives an edit to the paragraph under it, so a page whose
+ * opening was rewritten would pass as the same article on a heading both
+ * versions share. Whole, for the same reason: an edit past a prefix is still
+ * an edit. Measured free: over the saved pages it refuses exactly what a
+ * 60-character prefix did, though the article was read from Chrome's page,
+ * often by an older clipper, and the page from raw HTML.
  */
-function firstProseKey(blocks: readonly Block[]): string | null {
+function firstParagraph(blocks: readonly Block[]): string | null {
   for (const { type, text } of blocks) {
     if (type !== "paragraph" || imageOffsets(text).length > 0) continue;
     const prose = normalized(plainText(text));
     if ((prose.match(/\p{L}/gu)?.length ?? 0) < MIN_START_LETTERS) continue;
-    return prose.slice(0, KEY_CHARS);
+    return prose;
   }
   return null;
 }

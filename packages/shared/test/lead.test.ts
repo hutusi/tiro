@@ -150,6 +150,20 @@ describe("mergeLead", () => {
     ).toBe("merged");
   });
 
+  test("compares the whole opening paragraph, not its first words", () => {
+    // The same first sixty letters, and an edit after them.
+    const edited = BODY.replace("in our village.", "in our town on the river.");
+    expect(mergeLead(article(), offer(LEAD), `${LEAD}\n\n${edited}`)).toEqual({
+      kind: "refused",
+      reason: "the page no longer begins where the article does",
+    });
+    // Markup and punctuation are not words, and do not count as an edit.
+    const marked = BODY.replace("permanent ambition", "*permanent* ambition —");
+    expect(mergeLead(article(), offer(LEAD), `${LEAD}\n\n${marked}`).kind).toBe(
+      "merged",
+    );
+  });
+
   test("refuses a part whose dollar signs the article would read differently", () => {
     const refused = {
       kind: "refused",

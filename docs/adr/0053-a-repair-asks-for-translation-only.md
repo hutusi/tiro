@@ -49,7 +49,9 @@ is missing:
   with. A page edited since, a paywall stub, or an archived copy of another
   version is refused, and nothing is written. Paragraphs only: a section
   heading both versions open with survives an edit to the paragraph under
-  it.
+  it. And the whole paragraph, compared by its words: an edit past its first
+  line is still an edit. Over the saved pages that refuses nothing a
+  60-character prefix did not.
 - **Only what reads the same.** A part whose dollar signs the article would
   read differently is refused (ADR 0009): a formula from a page with math in
   an article without `has_math`, which the site would show as its delimiters
