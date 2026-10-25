@@ -432,8 +432,12 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   ignores it. Every translated article keeps a
   `.tiro-zh-cache.json` checkpoint beside it: an article too long for one run
   resumes from it (ADR 0008), and a finished one holds onto it so a later
-  re-clip pays only for the blocks whose source text changed (ADR 0010). The
-  checkpoint is invisible to every reader, which glob `index.md`/`zh.md` only.
+  re-clip pays only for the blocks whose source text changed (ADR 0010). A
+  block is found by its words with its link and picture addresses set aside,
+  which are filled back in from the block as it stands, so a picture the
+  image stage moves to `./assets/` keeps its caption's translation (ADR
+  0054). The checkpoint is invisible to every reader, which glob
+  `index.md`/`zh.md` only.
 - **Translation alignment**: `zh.md` has strict 1:1 top-level-block alignment
   with the `index.md` body (`code` and `math` blocks byte-identical). The site
   zips the two block arrays for side-by-side rendering; misalignment falls back

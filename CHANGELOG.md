@@ -25,6 +25,14 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ### Fixed
 
+- **A translation is found by its words, not by where its links point** (ADR
+  0054). The translation checkpoint keyed each block on its exact text, so a
+  picture that downloaded on a later run, moving from a hotlink to
+  `./assets/`, sent its caption back to the model for not one changed word:
+  38 captions in the run after the lead repair. A block is now found by its
+  words with its link and picture addresses set aside, which are filled back
+  in from the block as it stands. Markup still counts, and every existing
+  checkpoint carries over.
 - **An article keeps the header Readability leaves out** (ADR 0052). A page
   that sets its dek and lead picture beside the body rather than inside it —
   The Atlantic, Substack subtitles, IEEE Spectrum, Quanta — lost both, and

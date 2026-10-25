@@ -23,16 +23,25 @@ import {
   splitBlocks,
   stringifyArticle,
 } from "@tiro/shared";
+import { modelFor } from "@tiro/shared/config";
 import { joinPdfPages } from "@tiro/shared/pdf";
 import { createDeadline, DeadlineExceededError } from "../src/deadline.ts";
-import { TRANSLATION_CACHE_FILE } from "../src/llm/cache.ts";
+import {
+  loadTranslationCache,
+  TRANSLATION_CACHE_FILE,
+} from "../src/llm/cache.ts";
 import {
   type ChatFn,
   ChatHttpError,
   type FetchLike,
 } from "../src/llm/client.ts";
 import { loadVaultConfig, runPipeline } from "../src/pipeline.ts";
-import { makeFakeChat, makePdf, makeStyledPdf } from "./helpers.ts";
+import {
+  fakeTranslateBlock,
+  makeFakeChat,
+  makePdf,
+  makeStyledPdf,
+} from "./helpers.ts";
 
 const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const RAW = "example-org-blog-raw-clip-b5de6fbd";
@@ -2897,5 +2906,79 @@ describe("runPipeline with an imported local document", () => {
     expect(seen.join("\n")).toContain("Section 1");
     expect(seen.join("\n")).toContain("Section 2");
     expect(seen.every((batch) => !batch.includes("\f"))).toBe(true);
+  });
+});
+
+describe("a picture downloaded after its caption was translated (ADR 0054)", () => {
+  const SLUG = "zz-river-caption-aaaaaaaa";
+  const CAPTION =
+    "![](https://img.example/river.png)  \nA steamboat on the river at dawn, long before the bridge.";
+  const BODY = [
+    "An opening paragraph about the river, long enough to be prose.",
+    CAPTION,
+    "A closing paragraph about the pilots who learned every bend of it.",
+  ];
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  test("keeps the caption's translation from a checkpoint keyed by its hotlink", async () => {
+    const vault = freshVault();
+    const dir = join(vault, "articles", SLUG);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "index.md"),
+      [
+        "---",
+        'url: "https://example.net/river"',
+        'title: "The River"',
+        'domain: "example.net"',
+        'clipped_at: "2026-08-23T09:00:00.000Z"',
+        "tiro:",
+        "  schema: 1",
+        "---",
+        "",
+        ...BODY.flatMap((block) => [block, ""]),
+      ].join("\n"),
+    );
+    const config = await loadVaultConfig(vault);
+    // A checkpoint as every run before ADR 0054 left one: each block keyed
+    // by its exact text, the caption by its hotlink.
+    const seeded = await loadTranslationCache(
+      join(dir, TRANSLATION_CACHE_FILE),
+      {
+        target: config.translation.target,
+        model: modelFor(config, "translation"),
+      },
+    );
+    for (const block of BODY) seeded.set(block, fakeTranslateBlock(block));
+    await seeded.flush();
+
+    let translations = 0;
+    const report = await runPipeline({ vaultDir: vault, slug: SLUG }, config, {
+      ...deps,
+      chat: makeFakeChat({
+        onRequest: (r) => {
+          if (r.response_format?.type !== "json_object") translations += 1;
+        },
+      }),
+      fetchImpl: async () =>
+        new Response(PNG, { headers: { "Content-Type": "image/png" } }),
+    });
+
+    expect(report.processed).toEqual([SLUG]);
+    expect(report.imagesDownloaded).toBe(1);
+    expect(translations).toBe(0);
+    const zh = readFileSync(join(dir, "zh.md"), "utf8");
+    expect(zh).toMatch(
+      /中文：!\[\]\(\.\/assets\/[0-9a-f]+\.png\) {2}\n中文：A steamboat/,
+    );
+    expect(zh).not.toContain("img.example");
+    // Settled under the new key alone: one entry per translated block.
+    const kept = JSON.parse(
+      readFileSync(join(dir, TRANSLATION_CACHE_FILE), "utf8"),
+    ).blocks;
+    expect(Object.keys(kept)).toHaveLength(BODY.length);
   });
 });
