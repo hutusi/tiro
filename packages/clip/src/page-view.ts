@@ -171,7 +171,7 @@ export function iconSized(image: Element): boolean {
 }
 
 /** The size the markup declares, or Infinity when it declares none. */
-function declaredPx(image: Element, side: "width" | "height"): number {
+export function declaredPx(image: Element, side: "width" | "height"): number {
   const px = Number.parseInt(image.getAttribute(side) ?? "", 10);
   return Number.isNaN(px) ? Number.POSITIVE_INFINITY : px;
 }

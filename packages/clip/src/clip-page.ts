@@ -1,5 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import { parseGitHubMarkdownUrl } from "@tiro/shared";
+import { articleLeadIn, readLeadEvidence } from "./article-lead.ts";
 import {
   type ClipOptions,
   type DroppedAsides,
@@ -90,6 +91,10 @@ export function clipPage(
   // before Readability, which removes the `<h1>` along with the rest of the
   // page around the article (ADR 0042).
   const titleEvidence = readTitleEvidence(doc);
+  // What the page says its dek and lead picture are — before Readability,
+  // which deletes every JSON-LD script, and from the head, which the snapshot
+  // below does not hold (ADR 0052).
+  const leadEvidence = readLeadEvidence(doc, url);
   // Snapshot before Readability, which consumes the document. Serializing
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
@@ -123,38 +128,48 @@ export function clipPage(
   const essay = readabilityFailed
     ? null
     : pictureEssayIn(article?.content ?? "", preparedBody, doc, url);
+  const title =
+    latexml?.title ??
+    xArticleTitle ??
+    (chooseTitle((article?.title ?? "").trim(), titleEvidence).trim() ||
+      doc.title);
+  // The dek and lead picture a header beside the body held, which Readability
+  // never looked at (ADR 0052). Not for a picture essay, which is already
+  // the page's pictures, nor a LaTeXML paper, whose abstract is its own.
+  const lead =
+    readabilityFailed ||
+    essay !== null ||
+    latexml !== null ||
+    options.recoverLead === false
+      ? ""
+      : articleLeadIn({
+          chosen: article?.content ?? "",
+          preparedBody,
+          doc,
+          pageUrl: url,
+          title,
+          titleClaims: titleEvidence.claims,
+          evidence: leadEvidence,
+        });
   // Readability resolves relative URLs to absolute ones; the raw-body
   // fallback does not, which is one reason the failure is flagged.
   const extracted = readabilityFailed
     ? preparedBody
-    : (essay ?? article?.content ?? "");
-  // Figures fold only now: doing it before Readability replaces the elements
-  // carrying the attributes it selects on, which republished hidden images
-  // (ADR 0011, foldFiguresIn). Fence languages are restored here for the
-  // mirror-image reason: Readability strips the class Turndown reads them
-  // from, so they cross it on a `data-*` marker and become a class again once
-  // it is out of the way.
-  // Anchors are placed between the two: a `<figure id>` resolves to its
-  // caption, and folding then carries the anchor into the caption half of the
-  // paragraph it builds, where the picture is still the first thing in it.
-  // Videos — and the embedded players Readability kept — become linked posters
-  // before any of it, so that a video's figure is an image figure by the time
-  // the fold looks (videosAsPostersIn). A figure
-  // the page draws with script becomes a described link just after, and before
-  // the anchors, which place the one it carries over (scriptFiguresIn).
-  const drawn = scriptFiguresIn(
-    videosAsPostersIn(extracted, doc, url),
-    doc,
-    url,
-  );
-  const html = foldFiguresIn(
-    placeAnchorsIn(restoreCodeLanguagesIn(drawn.html, doc), doc),
-    doc,
-  );
-
-  // hasMath comes from the HTML actually being converted, so a formula
-  // Readability discarded with the page furniture cannot set the flag.
-  const { markdown, hasMath } = htmlToMarkdown(html);
+    : (essay ?? lead + (article?.content ?? ""));
+  // Every pass after Readability, in its order (`convertArticle`).
+  const { markdown, hasMath, drawn } = convertArticle(extracted, doc, url);
+  // The lead on its own, for a repair that adds it to an article already
+  // saved (ADR 0053): what converting the article with the lead added in
+  // front of converting it without. Every pass after Readability works block
+  // by block, so that is a prefix; should it ever not be one, no lead is
+  // reported rather than a guess at where it ends.
+  let leadMarkdown = "";
+  if (lead !== "") {
+    const without = convertArticle(article?.content ?? "", doc, url).markdown;
+    if (without !== "" && markdown.endsWith(without)) {
+      leadMarkdown = markdown.slice(0, markdown.length - without.length).trim();
+    }
+  }
 
   // LaTeXML wins where it answered, because it read the paper's own markup
   // while Readability guessed from rendered text. These pages carry no <meta>
@@ -162,11 +177,7 @@ export function clipPage(
   // `†thanks:` notes and all.
   return {
     url,
-    title:
-      latexml?.title ??
-      xArticleTitle ??
-      (chooseTitle((article?.title ?? "").trim(), titleEvidence).trim() ||
-        doc.title),
+    title,
     excerpt:
       latexml?.excerpt ??
       excerptBesideEssay(
@@ -193,7 +204,43 @@ export function clipPage(
     markdownSource: false,
     scriptFigures: drawn.figures,
     snapshots: drawn.snapshots,
+    lead: leadMarkdown,
   };
+}
+
+/**
+ * Article HTML to the markdown Tiro stores, through every pass that runs after
+ * Readability, in the order the comments in `clipPage` explain. A function so
+ * the lead can be converted with and without, never two copies of the order.
+ *
+ * Figures fold only now: doing it before Readability replaces the elements
+ * carrying the attributes it selects on, which republished hidden images
+ * (ADR 0011, foldFiguresIn). Fence languages are restored here for the
+ * mirror-image reason: Readability strips the class Turndown reads them from,
+ * so they cross it on a `data-*` marker and become a class again once it is
+ * out of the way. Anchors are placed between the two: a `<figure id>` resolves
+ * to its caption, and folding then carries the anchor into the caption half
+ * of the paragraph it builds, where the picture is still the first thing in
+ * it. Videos — and the embedded players Readability kept — become linked
+ * posters before any of it, so that a video's figure is an image figure by the
+ * time the fold looks (videosAsPostersIn). A figure the page draws with script
+ * becomes a described link just after, and before the anchors, which place the
+ * one it carries over (scriptFiguresIn).
+ *
+ * hasMath comes from the HTML actually being converted, so a formula
+ * Readability discarded with the page furniture cannot set the flag.
+ */
+function convertArticle(extracted: string, doc: Document, url: string) {
+  const drawn = scriptFiguresIn(
+    videosAsPostersIn(extracted, doc, url),
+    doc,
+    url,
+  );
+  const html = foldFiguresIn(
+    placeAnchorsIn(restoreCodeLanguagesIn(drawn.html, doc), doc),
+    doc,
+  );
+  return { ...htmlToMarkdown(html), drawn };
 }
 
 /**

@@ -245,6 +245,18 @@ flowchart LR
    instead: its images in order, each `<figure>` whole, and none of its other
    words.
 
+   An article keeps the header Readability leaves beside it (ADR 0052).
+   Readability looks only at its chosen block's siblings, so a page that sets
+   its header next to the body — The Atlantic's hero, a Substack subtitle —
+   lost its dek and lead picture. The page is read again between the
+   confirmed `<h1>` and where Readability's article begins, and two things
+   may come back from there, in the page's order: a dek the page's own
+   description confirms, as a paragraph, and a lead picture the page's
+   `og:image` or JSON-LD names, or that it sets as a `<figure>`, with its
+   caption. The byline never does; it stays `author`. If Readability kept any
+   of it, nothing is added. The clip reports the lead on its own too
+   (`ClipPayload.lead`), for the repair that adds it to articles saved before.
+
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,

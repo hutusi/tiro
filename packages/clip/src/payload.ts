@@ -32,4 +32,12 @@ export interface ClipPayload {
   /** The snapshots the article shows, by id: exactly the files a commit has
    * to carry beside it. */
   snapshots?: string[];
+  /**
+   * The article's lead that Readability left out and the clip recovered — its
+   * dek and lead picture as markdown, already at the start of `markdown`
+   * (ADR 0052). What a repair adds to an article saved before the lead was
+   * recovered, without touching the rest of it (ADR 0053). Empty or absent
+   * when there was none to recover.
+   */
+  lead?: string;
 }
