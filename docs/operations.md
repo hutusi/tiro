@@ -391,7 +391,9 @@ so re-runs are always safe no-ops for finished articles.
   and that every `zh.md` belongs to an article that should have one and stays
   block-aligned with it. A vault not yet retagged reports its old spellings
   here — `retag` (below) is the fix, and a clean `validate` is how you know it
-  finished. Exits non-zero on any of these —
+  finished. A pending article is not held to alignment: a re-clip or a lead
+  repair leaves its `zh.md` behind its body until the next run. Exits
+  non-zero on any of these —
   `run` only warns, so this is the only thing that fails on a violation.
 
 ### Math rendering
