@@ -116,8 +116,12 @@ a time and which now lives in one module (`page-view.ts`):
 - it settles `<noscript>` copies;
 - it drops what the page hides (`pageHides`);
 - for a lazy picture, it reads the loader's address (`data-src`,
-  `data-lazy-src`, `data-original`, `data-srcset`) before `src`, then the
-  largest `srcset` candidate;
+  `data-lazy-src`, `data-original`, `data-srcset`) before `src`;
+- it takes the largest `srcset` candidate when there is no `src`, or when
+  `src` names none of the set's pictures: a browser that reads `srcset`
+  never shows that `src`, so it is a placeholder (`/img/blank.gif`). A copy
+  named for its size (`header-2-2xl.png` beside `header-2.png`) is the same
+  picture;
 - it resolves relative links and unwraps `javascript:` ones;
 - it flattens a caption the page boxes in blocks into its words, so the figure
   folds.

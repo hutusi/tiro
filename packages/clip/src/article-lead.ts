@@ -602,33 +602,28 @@ function leadPictureIn(
 
 /**
  * Every address an image is known by: what it shows now, what a lazy loader
- * will show, and every candidate of its `srcset` and its `<picture>`'s
- * sources. Readability's `_fixLazyImages` reads the same attributes.
+ * will show, and every candidate of its `srcset`. Readability's
+ * `_fixLazyImages` reads the same attributes. A `<picture>`'s sources are
+ * gone by now: `unwrapPictures` leaves its `<img>`, with the `src` the page
+ * nominated.
  */
 function imageUrls(image: Element, base: string): string[] {
   const urls: string[] = [];
-  const add = (value: string | null) => {
-    const url = followableUrl(value, base);
-    if (url !== null) urls.push(url);
-  };
-  const addSet = (value: string | null) => {
-    if (value === null) return;
-    for (const { start, end } of srcsetUrlRanges(value)) {
-      add(value.slice(start, end));
-    }
-  };
   for (const name of ["src", "data-src", "data-lazy-src", "data-original"]) {
-    add(image.getAttribute(name));
+    const url = followableUrl(image.getAttribute(name), base);
+    if (url !== null) urls.push(url);
   }
-  for (const name of ["srcset", "data-srcset"])
-    addSet(image.getAttribute(name));
-  const picture = image.parentElement?.closest("picture");
-  if (picture !== null && picture !== undefined) {
-    for (const source of Array.from(picture.querySelectorAll("source"))) {
-      addSet(source.getAttribute("srcset"));
-    }
+  for (const name of ["srcset", "data-srcset"]) {
+    urls.push(...candidateUrls(image.getAttribute(name), base));
   }
   return urls;
+}
+
+function candidateUrls(value: string | null, base: string): string[] {
+  if (value === null) return [];
+  return srcsetUrlRanges(value)
+    .map(({ start, end }) => followableUrl(value.slice(start, end), base))
+    .filter((url): url is string => url !== null);
 }
 
 /**
@@ -636,21 +631,49 @@ function imageUrls(image: Element, base: string): string[] {
  * first — `data-src`, `data-lazy-src`, `data-original`, then the largest
  * candidate of a `data-srcset` — since below the fold `src` is still a
  * placeholder, and an ordinary-looking one (`/img/blank.gif`) is as
- * followable as the picture. Then `src`, then the largest candidate of
- * `srcset` when there is nothing else. Every attribute `imageUrls` matches
- * the picture by is one it may be shown by, so a picture confirmed by its
- * lazy address is never published as its placeholder.
+ * followable as the picture. Then `src`, unless it names none of the
+ * pictures in the image's `srcset` (`samePicture`): a browser that reads
+ * `srcset` never shows `src`, so that one is a placeholder too, and the
+ * largest candidate is shown instead. A `src` that is one of the set's
+ * pictures is kept, at the size the page chose. Every attribute `imageUrls` matches the picture by is
+ * one it may be shown by, so a picture confirmed by a lazy or responsive
+ * address is never published as its placeholder.
  */
 function leadSource(image: Element, base: string): string | null {
   for (const name of ["data-src", "data-lazy-src", "data-original"]) {
     const url = followableUrl(image.getAttribute(name), base);
     if (url !== null) return url;
   }
-  return (
-    largestCandidate(image.getAttribute("data-srcset"), base) ??
-    followableUrl(image.getAttribute("src"), base) ??
-    largestCandidate(image.getAttribute("srcset"), base)
-  );
+  const lazySet = largestCandidate(image.getAttribute("data-srcset"), base);
+  if (lazySet !== null) return lazySet;
+  const src = followableUrl(image.getAttribute("src"), base);
+  const srcset = image.getAttribute("srcset");
+  const shown = largestCandidate(srcset, base);
+  if (src === null || shown === null) return src ?? shown;
+  return candidateUrls(srcset, base).some((url) => samePicture(src, url))
+    ? src
+    : shown;
+}
+
+/**
+ * Whether two addresses name one picture: the same `imageKey`, or file names
+ * one of which is the other with a size appended, which is how a CMS writes
+ * its responsive copies — Publii's `posts/21/occlusion-header-2.png` beside
+ * `responsive/occlusion-header-2-2xl.png`, Hugo's `photo.jpg` beside
+ * `photo_hu3d03a01_800x0_resize.jpg`.
+ */
+function samePicture(a: string, b: string): boolean {
+  const keyA = imageKey(a);
+  const keyB = imageKey(b);
+  if (keyA === null || keyB === null) return false;
+  if (keyA === keyB) return true;
+  const stem = (key: string) =>
+    (key.split("/").pop() ?? "").replace(/\.[a-z0-9]+$/, "");
+  const extendsStem = (long: string, short: string) =>
+    short !== "" &&
+    (long.startsWith(`${short}-`) || long.startsWith(`${short}_`));
+  const [stemA, stemB] = [stem(keyA), stem(keyB)];
+  return extendsStem(stemA, stemB) || extendsStem(stemB, stemA);
 }
 
 /** The widest candidate of a `srcset`, or its first when none says a width. */

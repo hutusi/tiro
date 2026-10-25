@@ -289,6 +289,42 @@ describe("the lead picture", () => {
     expect(md).toContain(`![](${LEAD_SRC})`);
   });
 
+  test("reads a srcset over a src that names another picture", () => {
+    // A browser that reads `srcset` never shows `src`, so a `src` naming no
+    // picture of the set is a placeholder, however ordinary it looks.
+    const small = `${CDN}/s=/0x0:1x1/480x270/media/img/2017/11/River-1/original.jpg`;
+    const md = clipOf(
+      bare(
+        `<img src="/img/blank.gif" srcset="${small} 480w, ${LEAD_SRC} 960w" width="960" height="540" alt="">`,
+      ),
+      head(),
+    ).markdown;
+    expect(md).toContain(`![](${LEAD_SRC})`);
+    expect(md).not.toContain("blank.gif");
+  });
+
+  test("keeps a src that names a picture of its srcset", () => {
+    const large = `${CDN}/l=/0x0:1x1/1920x1080/media/img/2017/11/River-1/original.jpg`;
+    // Publii keeps its responsive copies in a folder of their own, each
+    // named for its size.
+    const site = "https://magazine.example/media/posts/21";
+    for (const [src, srcset] of [
+      [LEAD_SRC, `${LEAD_SRC} 960w, ${large} 1920w`],
+      [
+        `${site}/occlusion-header-2.png`,
+        `${site}/responsive/occlusion-header-2-xs.png 640w, ${site}/responsive/occlusion-header-2-2xl.png 1920w`,
+      ],
+    ]) {
+      const md = clipOf(
+        bare(
+          `<figure><img src="${src}" srcset="${srcset}" width="960" height="540" alt=""></figure>`,
+        ),
+        head(),
+      ).markdown;
+      expect(md).toContain(`![](${src})`);
+    }
+  });
+
   test("resolves a relative address", () => {
     const md = clipOf(
       bare(
