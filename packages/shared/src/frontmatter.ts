@@ -179,6 +179,23 @@ const capture = z.literal("link").optional();
 const fetchFailed = z.string().trim().min(1).optional();
 
 /**
+ * What the next processing run must redo, when it is less than everything.
+ *
+ * `translation`: a repair inserted blocks into a processed article's body —
+ * the lead the clipper used to leave out (ADR 0053) — and the run should
+ * download their pictures and translate them, reusing the checkpoint for
+ * every block it already translated, and keep the summary, tags and titles it
+ * wrote before. Set together with removing `processed_at`, so what selects
+ * the article is unchanged (invariant 3); the run that finishes it removes
+ * this too. A re-clip rebuilds the frontmatter and drops it, which is right:
+ * a new body needs everything redone.
+ *
+ * On the article schema only, like `fetch_failed`. Optional and additive, so
+ * no `tiro.schema` bump.
+ */
+const refresh = z.literal("translation").optional();
+
+/**
  * The article's title, translated into the vault's target language.
  *
  * `zh.md` is a bare body that must stay strictly 1:1 block-aligned with
@@ -309,6 +326,7 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
     summary_failed: z.boolean().optional(),
     translation_failed: z.boolean().optional(),
     fetch_failed: fetchFailed,
+    refresh,
   }),
 });
 export type ArticleFrontmatter = z.infer<typeof ArticleFrontmatterSchema>;
