@@ -259,6 +259,25 @@ describe("the lead picture", () => {
     expect(md).not.toContain("data:image");
   });
 
+  test("reads every lazy loader's address over an ordinary placeholder", () => {
+    // `/img/blank.gif` is as followable as the picture; the picture was
+    // confirmed by its lazy address, and is what must be shown.
+    for (const lazy of [
+      `data-lazy-src="${LEAD_SRC}"`,
+      `data-original="${LEAD_SRC}"`,
+      `data-srcset="${LEAD_SRC} 960w"`,
+    ]) {
+      const md = clipOf(
+        bare(
+          `<img src="/img/blank.gif" ${lazy} width="960" height="540" alt="">`,
+        ),
+        head(),
+      ).markdown;
+      expect(md).toContain(`![](${LEAD_SRC})`);
+      expect(md).not.toContain("blank.gif");
+    }
+  });
+
   test("takes the largest candidate of a srcset with no src", () => {
     const small = `${CDN}/s=/0x0:1x1/480x270/media/img/2017/11/River-1/original.jpg`;
     const md = clipOf(

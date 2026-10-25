@@ -35,7 +35,7 @@ The picture and its caption were gone.
 
 **It is a class, not a publisher.** Measured on 210 saved pages:
 - The Atlantic: 37 of 40 had lost something, 35 a dek and 35 a picture.
-- Across the vault, 228 of its 245 articles had lost their dek.
+- Across the vault, 228 of its 245 Atlantic articles had lost their dek.
 - 32 articles on 21 other sites, including 11 Substack posts that lost their
   subtitle (an `h3.subtitle` above the body) and IEEE Spectrum, Quanta,
   Noema, Ars Technica, Big Think, Lit Hub and github.blog.
@@ -115,8 +115,9 @@ Readability normalizes, which picture essays (ADR 0050) learned one review at
 a time and which now lives in one module (`page-view.ts`):
 - it settles `<noscript>` copies;
 - it drops what the page hides (`pageHides`);
-- for a lazy picture, it reads `data-src` before `src`, then the largest
-  `srcset` candidate;
+- for a lazy picture, it reads the loader's address (`data-src`,
+  `data-lazy-src`, `data-original`, `data-srcset`) before `src`, then the
+  largest `srcset` candidate;
 - it resolves relative links and unwraps `javascript:` ones;
 - it flattens a caption the page boxes in blocks into its words, so the figure
   folds.

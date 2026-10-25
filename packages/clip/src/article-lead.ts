@@ -632,30 +632,39 @@ function imageUrls(image: Element, base: string): string[] {
 }
 
 /**
- * The address to show the lead picture by: a lazy loader's `data-src` first,
- * as for a picture essay — below the fold its `src` is still a placeholder —
- * then `src`, then the largest candidate of its `srcset` when it has nothing
- * else.
+ * The address to show the lead picture by: what a lazy loader will show
+ * first — `data-src`, `data-lazy-src`, `data-original`, then the largest
+ * candidate of a `data-srcset` — since below the fold `src` is still a
+ * placeholder, and an ordinary-looking one (`/img/blank.gif`) is as
+ * followable as the picture. Then `src`, then the largest candidate of
+ * `srcset` when there is nothing else. Every attribute `imageUrls` matches
+ * the picture by is one it may be shown by, so a picture confirmed by its
+ * lazy address is never published as its placeholder.
  */
 function leadSource(image: Element, base: string): string | null {
-  const own =
-    followableUrl(image.getAttribute("data-src"), base) ??
-    followableUrl(image.getAttribute("src"), base);
-  if (own !== null) return own;
-  for (const name of ["srcset", "data-srcset"]) {
-    const value = image.getAttribute(name);
-    if (value === null) continue;
-    let best: { url: string; width: number } | null = null;
-    for (const { start, end } of srcsetUrlRanges(value)) {
-      const url = followableUrl(value.slice(start, end), base);
-      if (url === null) continue;
-      const descriptor = value.slice(end).split(",")[0] ?? "";
-      const width = Number.parseFloat(descriptor) || 0;
-      if (best === null || width > best.width) best = { url, width };
-    }
-    if (best !== null) return best.url;
+  for (const name of ["data-src", "data-lazy-src", "data-original"]) {
+    const url = followableUrl(image.getAttribute(name), base);
+    if (url !== null) return url;
   }
-  return null;
+  return (
+    largestCandidate(image.getAttribute("data-srcset"), base) ??
+    followableUrl(image.getAttribute("src"), base) ??
+    largestCandidate(image.getAttribute("srcset"), base)
+  );
+}
+
+/** The widest candidate of a `srcset`, or its first when none says a width. */
+function largestCandidate(value: string | null, base: string): string | null {
+  if (value === null) return null;
+  let best: { url: string; width: number } | null = null;
+  for (const { start, end } of srcsetUrlRanges(value)) {
+    const url = followableUrl(value.slice(start, end), base);
+    if (url === null) continue;
+    const descriptor = value.slice(end).split(",")[0] ?? "";
+    const width = Number.parseFloat(descriptor) || 0;
+    if (best === null || width > best.width) best = { url, width };
+  }
+  return best?.url ?? null;
 }
 
 function keysOf(urls: readonly string[]): string[] {
