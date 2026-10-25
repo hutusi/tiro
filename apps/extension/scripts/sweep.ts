@@ -33,9 +33,33 @@
  *                          to its new slug in the same write (ADR 0029).
  *                          Reports only, until `--write`.
  *
+ *   --fill-leads           Lead repair (ADR 0053). Clips each page, and adds
+ *                          the lead the clip recovered (ADR 0052) — the dek and
+ *                          lead picture a header beside the body held — to the
+ *                          committed article through `mergeLead`: the rest of
+ *                          the body is untouched, and the article is marked for
+ *                          a run that translates only the new blocks. Reports
+ *                          only, until `--write`.
+ *
+ *   --dek-from-excerpt <host>
+ *                          Lead repair without a page, for a publisher whose
+ *                          stored excerpt is its visible dek (The Atlantic, per
+ *                          ADR 0042's measurement). Adds the excerpt as the dek
+ *                          where the body lacks it — but only once every saved
+ *                          page of that host, bar those `--skip-url` names,
+ *                          shows its excerpt, and it refuses the whole run
+ *                          otherwise. Reports only, until `--write`.
+ *
  *   (default)              Re-clip advisor. Compares a fresh clip against the
  *                          body and title committed in the vault. Answers "which
  *                          articles would gain from being re-clipped?"
+ *
+ * `--pages <dir>` reads saved pages instead of fetching: `<slug>.html`, with the
+ * address it was saved from in `<slug>.html.url` — the article's own address,
+ * or a Wayback Machine capture of it (`…/web/<ts>id_/<url>`, or `<ts> <url>`).
+ * Never written to, and never mixed into the cache: a page from an archive is a
+ * different document from one the sweep fetched, and a regression run must not
+ * compare one against the other without saying so.
  *
  * Three things it cannot see, all of which can make a result wrong rather than
  * merely incomplete. They are stated here, printed by the tool, and repeated in
@@ -77,7 +101,7 @@ import {
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { clipPage } from "@tiro/clip";
+import { clipPage, htmlToMarkdown } from "@tiro/clip";
 import { plainTextShell, withHtmlDocument } from "@tiro/clip/happy-dom";
 import {
   type ArticleFrontmatter,
@@ -90,10 +114,12 @@ import {
   htmlRanges,
   imageOffsets,
   markdownLinks,
+  mergeLead,
   normalizeUrl,
   type ParsedCollection,
   parseArticle,
   parseCollection,
+  plainText,
   renameCollectionMember,
   slugForUrl,
   splitBlocks,
@@ -298,6 +324,53 @@ async function fetchPage(url: string, pages: string, slug: string) {
  */
 export function isPlainText(header: string | null): boolean {
   return (header ?? "").split(";")[0]?.trim().toLowerCase() === "text/plain";
+}
+
+/**
+ * Whether a saved page's stamp names the address the sweep would read: the
+ * address itself, or a Wayback Machine capture of it — `<ts> <url>`, or the
+ * capture's own address, `…/web/<ts>id_/<url>`. Compared normalized, so a
+ * trailing slash the archive added is not another page.
+ */
+export function savedFrom(stamp: string, url: string): boolean {
+  const text = stamp.trim();
+  const wayback =
+    /^(?:\d{14}\s+(\S+)|https?:\/\/web\.archive\.org\/web\/\d{1,14}(?:[a-z]{2}_)?\/(\S+))$/.exec(
+      text,
+    );
+  const saved = wayback?.[1] ?? wayback?.[2] ?? text;
+  try {
+    return normalizeUrl(saved) === normalizeUrl(url);
+  } catch {
+    return false;
+  }
+}
+
+/** A saved page from `--pages`, or null when there is none for this address. */
+export async function readSavedPage(
+  dir: string,
+  slug: string,
+  url: string,
+): Promise<string | null> {
+  const path = join(dir, `${slug}.html`);
+  const stamp = `${path}.url`;
+  if (!existsSync(path) || !existsSync(stamp)) return null;
+  if (!savedFrom(await readFile(stamp, "utf-8"), url)) return null;
+  return readFile(path, "utf-8");
+}
+
+/** An article's page: saved, under `--pages`, or else fetched and cached. */
+async function pageFor(
+  article: Article,
+  args: ReturnType<typeof parseArgs>,
+): Promise<string> {
+  const url = sourceUrl(article);
+  if (args.saved === undefined) {
+    return fetchPage(url, args.pages, article.slug);
+  }
+  const html = await readSavedPage(args.saved, article.slug, url);
+  if (html === null) throw new Error("no saved page");
+  return html;
 }
 
 type Clip = (doc: Document, url: string) => { markdown: string; title: string };
@@ -644,7 +717,7 @@ async function fillLanguages(
     let zhText: string | null;
     try {
       const url = sourceUrl(article);
-      const html = await fetchPage(url, args.pages, article.slug);
+      const html = await pageFor(article, args);
       const fresh = (await clipHtml(html, url, clipPage)).markdown;
       indexText = await readFile(indexPath, "utf-8");
       zhText = existsSync(zhPath) ? await readFile(zhPath, "utf-8") : null;
@@ -695,6 +768,214 @@ async function fillLanguages(
       (notes.length > 0 ? ` (${notes.join(", ")})` : ""),
   );
   return { failed };
+}
+
+/* ------------------------------------------------- lead repair (ADR 0053) */
+
+/** Whether an article has a translation checkpoint to resume from. Without
+ * one, a translation-only refresh translates the whole article again. */
+function hasCheckpoint(vault: string, slug: string): boolean {
+  return existsSync(join(vault, "articles", slug, ".tiro-zh-cache.json"));
+}
+
+/** How a lead's blocks read in a report: a picture by its first line, a dek
+ * by its words. */
+function describeAdded(blocks: readonly string[]): string {
+  return blocks
+    .map((block) =>
+      imageOffsets(block).length > 0
+        ? "+ picture"
+        : `+ dek ${JSON.stringify(block.replace(/\s+/g, " ").slice(0, 60))}`,
+    )
+    .join(", ");
+}
+
+/**
+ * Add each article's lead from its page (`--fill-leads`).
+ *
+ * The page is clipped as today's clipper clips it, and only the lead the clip
+ * recovered is offered to the committed article — through `mergeLead`, which
+ * leaves every other byte of the body alone and refuses a page that no longer
+ * begins where the article does. Not a re-clip: the committed body was read
+ * from Chrome's rendered page and this one from raw HTML, which differ in ways
+ * that are not this repair's business.
+ */
+async function fillLeads(
+  articles: Article[],
+  args: ReturnType<typeof parseArgs>,
+): Promise<{ failed: number }> {
+  console.log(
+    `Lead repair — ${articles.length} article(s), the lead a fresh clip recovers vs the vault${args.write ? "" : " (report only; --write to apply)"}`,
+  );
+  let added = 0;
+  let failed = 0;
+  for (const article of articles) {
+    const indexPath = join(args.vault, "articles", article.slug, "index.md");
+    try {
+      const url = sourceUrl(article);
+      const html = await pageFor(article, args);
+      const fresh = await clipHtml(html, url, clipPage);
+      if ((fresh.lead ?? "") === "") continue;
+      const merge = mergeLead(
+        await readFile(indexPath, "utf-8"),
+        fresh.lead ?? "",
+        fresh.markdown,
+      );
+      if (merge.kind === "unchanged") continue;
+      if (merge.kind === "refused") {
+        console.log(`  !  ${article.slug}: refused — ${merge.reason}`);
+        failed++;
+        continue;
+      }
+      added++;
+      const note = hasCheckpoint(args.vault, article.slug)
+        ? ""
+        : " (no translation checkpoint: translated in full)";
+      console.log(`  ${article.slug}: ${describeAdded(merge.added)}${note}`);
+      if (args.write) await writeTogether([[indexPath, merge.text]]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.log(`  ?  ${article.slug}: ${reason}`);
+      failed++;
+    }
+  }
+  const verb = args.write ? "given" : "would be given";
+  console.log(
+    `\n${added} of ${articles.length} article(s) ${verb} their lead` +
+      (failed > 0 ? ` (${failed} could not be read or were refused)` : ""),
+  );
+  return { failed };
+}
+
+/**
+ * A stored excerpt as the paragraph a dek would be, or null when it is not
+ * one. The excerpt is text, but it can hold the markup a publisher's
+ * description carried escaped — The Atlantic's `<em>Friends</em>` — which
+ * the clipper's own converter turns into what the page shows.
+ */
+export function excerptDek(excerpt: string | undefined): string | null {
+  if (excerpt === undefined || excerpt.trim() === "") return null;
+  const markdown = htmlToMarkdown(excerpt).markdown.trim();
+  const blocks = splitBlocks(markdown);
+  return blocks.length === 1 && blocks[0]?.type === "paragraph"
+    ? markdown
+    : null;
+}
+
+/** Text as a key: letters and digits, case-folded, one space between runs. */
+function textKey(markdown: string): string {
+  return plainText(markdown)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * Add each article's stored excerpt as its dek, for one host
+ * (`--dek-from-excerpt`).
+ *
+ * For the articles no page can be had for: The Atlantic refuses a fetch that
+ * is not a browser, and the Wayback Machine's captures of most of its
+ * articles are paywall pages. ADR 0042 measured its excerpt to be its visible
+ * dek, and that is a claim about the host, so this checks it again before
+ * using it: every article of the host with a saved page must show its excerpt
+ * — as the lead the clip recovered, or in the clip itself — or nothing is
+ * written. A class of page that does not, the operator names with
+ * `--skip-url`, and those articles are left for the extension's "Add missing
+ * lead", which reads the real page.
+ */
+async function dekFromExcerpt(
+  articles: Article[],
+  args: ReturnType<typeof parseArgs>,
+  host: string,
+): Promise<{ refused: boolean }> {
+  const ofHost = articles.filter((article) => {
+    let hostname = "";
+    try {
+      hostname = new URL(article.url).hostname;
+    } catch {
+      return false;
+    }
+    return hostname === host && !(args.skipUrl?.test(article.url) ?? false);
+  });
+  console.log(
+    `Dek from excerpt — ${ofHost.length} article(s) on ${host}${args.skipUrl === undefined ? "" : `, skipping ${args.skipUrl}`}${args.write ? "" : " (report only; --write to apply)"}`,
+  );
+
+  // The gate: saved pages only. A fetch here would ask the host the gate exists
+  // because it will not answer.
+  let checked = 0;
+  const contradicted: string[] = [];
+  for (const article of ofHost) {
+    const dek = excerptDek(article.frontmatter.excerpt);
+    if (dek === null) continue;
+    const url = sourceUrl(article);
+    const html =
+      args.saved !== undefined
+        ? await readSavedPage(args.saved, article.slug, url)
+        : await readSavedPage(args.pages, article.slug, url);
+    if (html === null) continue;
+    let shown: string;
+    try {
+      shown = textKey((await clipHtml(html, url, clipPage)).markdown);
+    } catch {
+      continue;
+    }
+    checked++;
+    if (!shown.includes(textKey(dek).slice(0, 60))) {
+      contradicted.push(article.slug);
+    }
+  }
+  if (checked === 0) {
+    console.log(
+      `\nrefused: no saved page of ${host} to check its excerpts against`,
+    );
+    return { refused: true };
+  }
+  if (contradicted.length > 0) {
+    for (const slug of contradicted) {
+      console.log(`  !  ${slug}: the page does not show its excerpt`);
+    }
+    console.log(
+      `\nrefused: ${contradicted.length} of ${checked} saved page(s) do not show their excerpt — name that kind of page with --skip-url, or leave the host to "Add missing lead"`,
+    );
+    return { refused: true };
+  }
+  console.log(`  every one of ${checked} saved page(s) shows its excerpt`);
+
+  let added = 0;
+  let failed = 0;
+  for (const article of ofHost) {
+    const dek = excerptDek(article.frontmatter.excerpt);
+    if (dek === null) continue;
+    const indexPath = join(args.vault, "articles", article.slug, "index.md");
+    try {
+      const merge = mergeLead(await readFile(indexPath, "utf-8"), dek, null);
+      if (merge.kind === "unchanged") continue;
+      if (merge.kind === "refused") {
+        console.log(`  !  ${article.slug}: refused — ${merge.reason}`);
+        failed++;
+        continue;
+      }
+      added++;
+      const note = hasCheckpoint(args.vault, article.slug)
+        ? ""
+        : " (no translation checkpoint: translated in full)";
+      console.log(`  ${article.slug}: ${describeAdded(merge.added)}${note}`);
+      if (args.write) await writeTogether([[indexPath, merge.text]]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.log(`  ?  ${article.slug}: ${reason}`);
+      failed++;
+    }
+  }
+  const verb = args.write ? "given" : "would be given";
+  console.log(
+    `\n${added} of ${ofHost.length} article(s) ${verb} their excerpt as a dek` +
+      (failed > 0 ? ` (${failed} could not be read or were refused)` : ""),
+  );
+  return { refused: false };
 }
 
 /* -------------------------------------------------- slug recanonicalization */
@@ -927,8 +1208,11 @@ function parseArgs(argv: string[]) {
   if (vault === undefined) {
     console.error(
       "usage: sweep --vault <dir> [--baseline <git-ref>] [--cache <dir>]\n" +
-        "             [--only <slug>] [--min-chars <n>]\n" +
+        "             [--pages <dir>] [--only <slug>] [--min-chars <n>]\n" +
         "       sweep --vault <dir> --fill-languages [--write] [--only <slug>]\n" +
+        "       sweep --vault <dir> --fill-leads [--write] [--pages <dir>] [--only <slug>]\n" +
+        "       sweep --vault <dir> --dek-from-excerpt <host> [--skip-url <regex>]\n" +
+        "             [--write] [--pages <dir>]\n" +
         "       sweep --vault <dir> --recanonicalize [--write] [--only <slug>]",
     );
     process.exit(2);
@@ -939,19 +1223,37 @@ function parseArgs(argv: string[]) {
   const cache = resolve(get("cache") ?? ".sweep-cache");
   const fillLanguages = argv.includes("--fill-languages");
   const recanonicalize = argv.includes("--recanonicalize");
+  const fillLeads = argv.includes("--fill-leads");
+  const dekFromExcerpt = get("dek-from-excerpt");
   const exclusive = [
     fillLanguages && "--fill-languages",
     recanonicalize && "--recanonicalize",
+    fillLeads && "--fill-leads",
+    dekFromExcerpt !== undefined && "--dek-from-excerpt",
     argv.includes("--baseline") && "--baseline",
   ].filter((name) => name !== false);
   if (exclusive.length > 1) {
     console.error(`${exclusive.join(" and ")} answer different questions`);
     process.exit(2);
   }
+  const skip = get("skip-url");
+  let skipUrl: RegExp | undefined;
+  try {
+    skipUrl = skip === undefined ? undefined : new RegExp(skip);
+  } catch {
+    console.error(`--skip-url is not a regular expression: ${skip}`);
+    process.exit(2);
+  }
+  const saved = get("pages");
   return {
     vault,
     fillLanguages,
     recanonicalize,
+    fillLeads,
+    dekFromExcerpt,
+    skipUrl,
+    // Absolute for the same reason as the cache.
+    saved: saved === undefined ? undefined : resolve(saved),
     // Reporting is the default because this is the one mode that writes to the
     // content repo, and the run that changes it should be one someone has read.
     write: argv.includes("--write"),
@@ -1011,6 +1313,22 @@ async function main() {
     }
   }
 
+  if (args.fillLeads) {
+    const { failed } = await fillLeads(articles, args);
+    if (failed === articles.length) process.exit(1);
+    return;
+  }
+
+  if (args.dekFromExcerpt !== undefined) {
+    const { refused } = await dekFromExcerpt(
+      articles,
+      args,
+      args.dekFromExcerpt,
+    );
+    if (refused) process.exit(1);
+    return;
+  }
+
   if (args.fillLanguages) {
     const { failed } = await fillLanguages(articles, args);
     // Same reasoning as the sweep's own guard below: some articles failing is
@@ -1050,7 +1368,7 @@ async function main() {
     let titleBefore: string;
     try {
       const url = sourceUrl(article);
-      const html = await fetchPage(url, args.pages, article.slug);
+      const html = await pageFor(article, args);
       const fresh = await clipHtml(html, url, clipPage);
       after = fresh.markdown;
       titleAfter = fresh.title.trim();
@@ -1117,12 +1435,21 @@ async function main() {
     // clipped from Chrome's DOM, this one from raw HTML — so only its counts
     // are a finding. A regression sweep's two clips read the same HTML, and
     // any difference at all is one.
+    // A lead the working tree recovered (ADR 0052) is a prefix and nothing
+    // else, and says so, so "additions only at the top" can be read off the
+    // report rather than taken on trust; any other change still reads as one.
+    const prepended =
+      baselineClip !== null && before !== after && after.endsWith(before)
+        ? after.slice(0, after.length - before.length).trim()
+        : null;
     const body =
       baselineClip === null
         ? delta
         : before === after
           ? null
-          : (delta ?? "text differs");
+          : prepended !== null
+            ? `lead prepended${delta === null ? "" : ` (${delta})`}: ${JSON.stringify(prepended.replace(/\s+/g, " ").slice(0, 70))}`
+            : (delta ?? "text differs");
     if (body === null && retitled === null) continue;
 
     changed++;
