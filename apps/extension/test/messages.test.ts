@@ -72,6 +72,21 @@ describe("isClipResult", () => {
     }
   });
 
+  /** ADR 0052. Optional, since only a page clip that recovered a lead has
+   * one; the popup offers it to the vault, so it is text or nothing. */
+  test("takes a recovered lead only as text", () => {
+    const withLead = (lead: unknown) => ({
+      ...valid,
+      payload: { ...valid.payload, lead },
+    });
+    expect(
+      isClipResult(withLead("A dek.\n\n![](https://a.example/p.jpg)")),
+    ).toBe(true);
+    expect(isClipResult(withLead(""))).toBe(true);
+    expect(isClipResult(withLead(["A dek."]))).toBe(false);
+    expect(isClipResult(withLead(null))).toBe(false);
+  });
+
   test("rejects other message types and non-objects", () => {
     expect(isClipResult({ ...valid, type: "other" })).toBe(false);
     expect(isClipResult(null)).toBe(false);

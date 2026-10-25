@@ -1576,7 +1576,7 @@ const FIGURE_LABEL = "Interactive figure";
  * them (`figureHosts`), which is how the extension names a figure to capture
  * (ADR 0039).
  */
-const FIGURE_ATTR = "data-tiro-figure";
+export const FIGURE_ATTR = "data-tiro-figure";
 
 /**
  * The snapshot a marked figure is shown by, as a bare id (`SNAPSHOT_ID`). Never
@@ -2436,7 +2436,7 @@ function isCaptionBox(node: Element): boolean {
 
 /** Readability's `UNLIKELY_ROLES` (`Readability.js:177`): a region it removes
  * before scoring, whatever it holds. */
-const UNLIKELY_ROLES: ReadonlySet<string> = new Set([
+export const UNLIKELY_ROLES: ReadonlySet<string> = new Set([
   "menu",
   "menubar",
   "complementary",
@@ -3265,7 +3265,7 @@ function unwrapMediaWrappers(doc: Document): void {
 const UNLIKELY_CANDIDATES =
   /-ad-|ai2html|banner|breadcrumbs|combx|comment|community|cover-wrap|disqus|extra|footer|gdpr|header|legends|menu|related|remark|replies|rss|shoutbox|sidebar|skyscraper|social|sponsor|supplemental|ad-break|agegate|pagination|pager|popup|yom-remote/i;
 const MAYBE_A_CANDIDATE = /and|article|body|column|content|main|shadow/i;
-const BYLINE = /byline|author|dateline|writtenby|p-author/i;
+export const BYLINE = /byline|author|dateline|writtenby|p-author/i;
 
 /**
  * Readability's `negative` regex (`Readability.js:146`) with the single token
@@ -3760,6 +3760,12 @@ export interface ClipOptions {
    * clip receives them, to the id of the picture to show it by.
    */
   snapshots?: ReadonlyMap<number, string>;
+  /**
+   * Whether to recover the article's lead Readability left out (ADR 0052).
+   * On unless false. Off clips as before ADR 0052: what a regression check
+   * compares against, and nothing the extension ever sets.
+   */
+  recoverLead?: boolean;
 }
 
 /**

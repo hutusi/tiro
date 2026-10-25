@@ -11,6 +11,7 @@ export * from "./detect-language.ts";
 export * from "./emphasis.ts";
 export * from "./frontmatter.ts";
 export * from "./languages.ts";
+export * from "./lead.ts";
 export * from "./local-document.ts";
 export * from "./paths.ts";
 export * from "./pdf-limits.ts";

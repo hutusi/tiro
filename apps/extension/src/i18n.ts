@@ -195,7 +195,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a page whose figures its own script draws, “Clip to vault” first scrolls the page to each figure and keeps a picture of that part of the tab — unless you untick “Save figures as pictures” — and the pictures are committed with the clip, to the same repository. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Once a clip is saved, the popup reads your collections from the same repository and offers them under it, kept and committed the same way. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a page whose figures its own script draws, “Clip to vault” first scrolls the page to each figure and keeps a picture of that part of the tab — unless you untick “Save figures as pictures” — and the pictures are committed with the clip, to the same repository. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Once a clip is saved, the popup reads your collections from the same repository and offers them under it, kept and committed the same way. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. “Add missing lead”, offered on a page you clipped before, reads that article from the same repository and commits into it only the dek and lead picture at the top of the page, leaving the rest as it was. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -373,6 +373,21 @@ const en = {
   labelRemoving: "Removing…",
   labelRemoved: "Removed ✓",
   labelNotInVault: "Not in vault",
+
+  // Add missing lead (ADR 0053): offered on a page clipped before, it adds
+  // only the dek and lead picture the clip recovered to the vault's copy.
+  leadOffer: "Add missing lead",
+  leadOfferHint:
+    "Add only the dek and lead picture at the top of this page to the article in your vault. The rest of the article stays as it is.",
+  leadAdding: "Adding…",
+  leadAdded: (vault: string) =>
+    `Added to the article in ${vault}. The site shows it once processing has translated it — usually within a few minutes.`,
+  leadUnchanged: (vault: string) =>
+    `The article in ${vault} already has this page's lead — nothing was changed.`,
+  leadAbsent: (vault: string) =>
+    `This article is not in ${vault} — clip it instead.`,
+  leadRefused:
+    "The saved article can't take this page's lead as it stands — the page may have changed since it was clipped — so nothing was added. Re-clip to replace the article.",
 };
 
 export type Messages = typeof en;
@@ -510,7 +525,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。对图示由页面脚本绘制的文章，点击「剪藏到仓库」时会先逐个滚动到每张图示，截下标签页中该部分的画面，并随剪藏一起提交到同一个仓库；取消勾选「将图示保存为截图」则不截取。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。剪藏保存后，弹窗会从同一个仓库读取你的合集并在下方列出，勾选的改动同样保留并提交。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。对图示由页面脚本绘制的文章，点击「剪藏到仓库」时会先逐个滚动到每张图示，截下标签页中该部分的画面，并随剪藏一起提交到同一个仓库；取消勾选「将图示保存为截图」则不截取。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。剪藏保存后，弹窗会从同一个仓库读取你的合集并在下方列出，勾选的改动同样保留并提交。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。对你剪藏过的页面，弹窗提供「补上导语」：它从同一个仓库读取这篇文章，只把页面顶部的导语和题图提交进去，其余内容保持不变。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -645,6 +660,18 @@ const zh: Messages = {
   labelRemoving: "移除中…",
   labelRemoved: "已移除 ✓",
   labelNotInVault: "不在仓库中",
+
+  leadOffer: "补上导语",
+  leadOfferHint:
+    "只把本页顶部的导语和题图补到仓库中的这篇文章里，文章其余部分保持不变。",
+  leadAdding: "正在补上…",
+  leadAdded: (vault: string) =>
+    `已补到 ${vault} 中的文章。处理程序译好后站点即会显示，通常只需几分钟。`,
+  leadUnchanged: (vault: string) =>
+    `${vault} 中的文章已有本页的导语，未做任何更改。`,
+  leadAbsent: (vault: string) => `${vault} 中没有这篇文章，请直接剪藏。`,
+  leadRefused:
+    "保存的文章无法直接补上本页的导语（本页可能在剪藏后有过改动），因此没有补上任何内容。如需更新，请再次剪藏。",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

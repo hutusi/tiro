@@ -369,6 +369,10 @@ so re-runs are always safe no-ops for finished articles.
   model — `llm.translation_model`, or `llm.model` when that is unset — either of
   which invalidates every checkpoint wholesale; or delete the article's
   `.tiro-zh-cache.json`.
+- **A lead repair** (ADR 0053) leaves the article pending with
+  `tiro.refresh: translation`: an ordinary run translates its new blocks and
+  keeps its summary. Do not `force` it, which re-summarizes and discards the
+  checkpoint.
 - **Redo one article's title only**:
   `backfill-titles --slug <slug> --force` (below). Far cheaper than a forced
   run when the title is the only thing wrong with the article.
@@ -387,7 +391,9 @@ so re-runs are always safe no-ops for finished articles.
   and that every `zh.md` belongs to an article that should have one and stays
   block-aligned with it. A vault not yet retagged reports its old spellings
   here — `retag` (below) is the fix, and a clean `validate` is how you know it
-  finished. Exits non-zero on any of these —
+  finished. A pending article is not held to alignment: a re-clip or a lead
+  repair leaves its `zh.md` behind its body until the next run. Exits
+  non-zero on any of these —
   `run` only warns, so this is the only thing that fails on a violation.
 
 ### Math rendering
@@ -1529,6 +1535,55 @@ was rather than half-labelled.
 It does not touch `tiro.processed_at`, so nothing becomes pending and the
 processor will not re-run. `.tiro-zh-cache.json` is keyed by content hash but
 holds no verbatim blocks, so relabelling a fence orphans nothing.
+
+#### Recovering lost article leads
+
+Clips taken before ADR 0052 lost the header a page sets beside its body: the
+dek, and the lead picture with its caption. Three repairs add them without a
+re-clip, all through `mergeLead` (ADR 0053). Each inserts only the missing
+parts at the top of the body, leaves the rest byte for byte, and swaps
+`tiro.processed_at` for `tiro.refresh: translation`. The next processing run
+then downloads the picture and translates the new blocks, and keeps the
+summary, tags and titles. **Never pass `--force` for these**: it discards the
+checkpoints and re-summarizes.
+
+```sh
+# From saved pages: report, then apply
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --fill-leads --pages <dir>
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault --fill-leads --pages <dir> --write
+
+# The Atlantic's deks, from their stored excerpts (gated on the saved pages)
+bun run --cwd apps/extension sweep -- --vault ../../../tiro-vault \
+  --dek-from-excerpt www.theatlantic.com --pages <dir> \
+  --skip-url 'theatlantic\.com/(past|ideastour)/|theatlantic\.com/(?!magazine/)[a-z-]+/archive/(19[0-9][0-9]|20(0[0-9]|1[0-2]))/'
+```
+
+- **`--pages <dir>`** reads `<slug>.html` beside a `<slug>.html.url` stamp,
+  and never fetches or writes. The stamp is the article's address, or a
+  Wayback capture of it (`<ts> <url>`, or `https://web.archive.org/web/<ts>id_/<url>`).
+  The Wayback CDX API finds the latest good capture:
+  `https://web.archive.org/cdx/search/cdx?url=<url>&filter=statuscode:200&fl=timestamp&limit=-1`.
+  Without `--pages`, `--fill-leads` uses the cache and fetches what is
+  missing, like every other mode. Keep archived pages out of `.sweep-cache/`,
+  so a regression run never compares one without saying so.
+- **`refused — the page no longer begins where the article does`** means the
+  saved page is another version (an edit, a paywall stub, an old capture).
+  Nothing is written; "Add missing lead" in the browser is the fallback.
+- **`(no translation checkpoint: translated in full)`** means the article will
+  cost a whole translation, not one block.
+- **`--dek-from-excerpt` refuses the whole run** unless every saved page of the
+  host, bar those `--skip-url` names, shows its excerpt. The pattern above
+  leaves out the 2011–2012 blog-era sections, whose dek box is empty, and the
+  legacy `/past/` and `/ideastour/` pages. Run `--fill-leads` first so pages
+  that have a picture get it under their dek; the order does not matter for
+  correctness, since `mergeLead` never adds a part twice.
+- **Commit the vault separately**, then let processing run. Between the commit
+  and that run, the site shows a repaired article stacked rather than side by
+  side.
+
+For a page only the browser can see (most Atlantic lead pictures), open it,
+open the popup, and press **Add missing lead**. It is offered only on a page
+this machine clipped, when the clip recovered a lead.
 
 Read the output as a prompt for judgement, not a verdict:
 

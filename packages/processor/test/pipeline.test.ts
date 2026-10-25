@@ -16,6 +16,7 @@ import {
   checkAlignment,
   LOCAL_DOCUMENT_DOMAIN,
   localDocumentUrl,
+  mergeLead,
   needsProcessing,
   parseArticle,
   slugForUrl,
@@ -1514,6 +1515,123 @@ describe("run budget", () => {
     expect(
       checkAlignment(splitBlocks(fresh.body), splitBlocks(zh)).errors,
     ).toEqual([]);
+  });
+
+  describe("a translation-only refresh (ADR 0053)", () => {
+    const DEK =
+      "A dek the clipper used to leave out, set above the paper by its publisher.";
+
+    /** BIG processed, then repaired the way every repair does it: the lead
+     * inserted by `mergeLead`, which drops `processed_at` and asks for
+     * `refresh: translation`. */
+    async function repaired(vault: string) {
+      const config = await tinyConfig(vault);
+      await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+        ...deps,
+        chat: makeFakeChat(),
+      });
+      const indexAbs = join(vault, "articles", BIG, "index.md");
+      const merge = mergeLead(
+        readFileSync(indexAbs, "utf8"),
+        { markdown: DEK, hasMath: false },
+        null,
+      );
+      if (merge.kind !== "merged") throw new Error(merge.kind);
+      writeFileSync(indexAbs, merge.text);
+      return { config, indexAbs };
+    }
+
+    function counting() {
+      const calls = { summary: 0, translation: 0 };
+      const chat = makeFakeChat({
+        onRequest: (r) => {
+          if (r.response_format?.type === "json_object") calls.summary += 1;
+          else calls.translation += 1;
+        },
+      });
+      return { calls, chat };
+    }
+
+    test("translates the new blocks and keeps the summary, tags and titles", async () => {
+      const vault = withBigArticle();
+      const { config, indexAbs } = await repaired(vault);
+      const before = parseArticle(readFileSync(indexAbs, "utf8")).frontmatter;
+      expect(before.tiro.refresh).toBe("translation");
+
+      const { calls, chat } = counting();
+      const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+        ...deps,
+        chat,
+      });
+      expect(report.processed).toEqual([BIG]);
+      expect(calls.summary).toBe(0);
+      // The dek, and only the dek: every other block is in the checkpoint.
+      expect(calls.translation).toBe(1);
+
+      const { frontmatter, body } = parseArticle(
+        readFileSync(indexAbs, "utf8"),
+      );
+      expect(frontmatter.tiro.refresh).toBeUndefined();
+      expect(frontmatter.tiro.processed_at).toBeDefined();
+      for (const key of [
+        "summary",
+        "summary_orig",
+        "title_zh",
+        "category",
+        "tags",
+      ] as const) {
+        expect(frontmatter[key]).toEqual(before[key]);
+      }
+      const zh = readFileSync(join(vault, "articles", BIG, "zh.md"), "utf8");
+      expect(checkAlignment(splitBlocks(body), splitBlocks(zh)).errors).toEqual(
+        [],
+      );
+      expect(zh.startsWith(`中文：${DEK}`)).toBe(true);
+    });
+
+    test("leaves the hint for the next run when this one stops early", async () => {
+      const vault = withBigArticle();
+      const { config, indexAbs } = await repaired(vault);
+      // No time at all: the run defers the article before it starts.
+      const report = await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+        ...deps,
+        chat: makeFakeChat(),
+        deadline: createDeadline(0, () => 0),
+      });
+      expect(report.processed).toEqual([]);
+      const { frontmatter } = parseArticle(readFileSync(indexAbs, "utf8"));
+      expect(frontmatter.tiro.processed_at).toBeUndefined();
+      expect(frontmatter.tiro.refresh).toBe("translation");
+    });
+
+    test("summarizes as always when there is no summary to keep", async () => {
+      const vault = withBigArticle();
+      const { config, indexAbs } = await repaired(vault);
+      const { frontmatter, body } = parseArticle(
+        readFileSync(indexAbs, "utf8"),
+      );
+      writeFileSync(
+        indexAbs,
+        stringifyArticle({ ...frontmatter, summary: undefined }, body),
+      );
+      const { calls, chat } = counting();
+      await runPipeline({ vaultDir: vault, slug: BIG }, config, {
+        ...deps,
+        chat,
+      });
+      expect(calls.summary).toBe(1);
+    });
+
+    test("is ignored by --force, which asks for everything", async () => {
+      const vault = withBigArticle();
+      const { config } = await repaired(vault);
+      const { calls, chat } = counting();
+      await runPipeline({ vaultDir: vault, slug: BIG, force: true }, config, {
+        ...deps,
+        chat,
+      });
+      expect(calls.summary).toBe(1);
+    });
   });
 
   test("--force --dry-run leaves the checkpoint alone", async () => {

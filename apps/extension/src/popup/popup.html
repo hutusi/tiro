@@ -41,7 +41,10 @@
         the extension. “Remove”, at the foot of the popup for an article you
         clipped or are reading on a Tiro site, looks the article up in the same
         repository and, once you confirm, deletes it there — its files, and
-        its place in your collections — in one commit. Your token and settings
+        its place in your collections — in one commit. “Add missing lead”,
+        offered on a page you clipped before, reads that article from the same
+        repository and commits into it only the dek and lead picture at the top
+        of the page, leaving the rest as it was. Your token and settings
         stay on this machine unless you turn on settings sync, which lets
         Chrome copy them to your other devices.
       </p>
@@ -152,10 +155,15 @@
       <button id="capture-stop" type="button" class="btn btn-secondary" hidden>
         Stop and clip
       </button>
+      <button id="lead-offer" type="button" class="btn btn-secondary" hidden>
+        Add missing lead
+      </button>
       <button id="clip" type="button" class="btn btn-primary" disabled>
         Clip to vault
       </button>
     </div>
+    <!-- What "Add missing lead" came to (ADR 0053). -->
+    <p id="lead-status" data-tone="neutral" aria-live="polite" hidden></p>
 
     <!-- Pending collection changes, on any page: a queue that could only be
       seen from a Tiro page would be one the reader loses track of. -->

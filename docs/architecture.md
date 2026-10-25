@@ -245,6 +245,26 @@ flowchart LR
    instead: its images in order, each `<figure>` whole, and none of its other
    words.
 
+   An article keeps the header Readability leaves beside it (ADR 0052).
+   Readability looks only at its chosen block's siblings, so a page that sets
+   its header next to the body — The Atlantic's hero, a Substack subtitle —
+   lost its dek and lead picture. The page is read again between the
+   confirmed `<h1>` and where Readability's article begins, and two things
+   may come back from there, in the page's order: a dek the page's own
+   description confirms, as a paragraph, and a lead picture the page's
+   `og:image` or JSON-LD names, or that it sets as a `<figure>`, with its
+   caption. The byline never does; it stays `author`. If Readability kept any
+   of it, nothing is added. The clip reports the lead on its own too
+   (`ClipPayload.lead`), for the repair that adds it to articles saved before.
+
+   **Adding a missing lead** (ADR 0053). An article saved before ADR 0052 gets
+   its lead without a re-clip: "Add missing lead" in the popup, on a page this
+   machine clipped, or `sweep --fill-leads` / `--dek-from-excerpt` offline.
+   All three go through `mergeLead` (`@tiro/shared`), which inserts only the
+   missing parts at the top of the body, keeps every other byte, refuses a
+   page that no longer begins where the article does, and swaps
+   `tiro.processed_at` for `tiro.refresh: translation`.
+
    **Saving a link instead** (ADR 0034). A phone's Share Sheet shortcut — or
    the extension's "Clip link" — writes one file into the vault's `inbox/`
    holding the URL, through the same Contents API. A file rather than an event,
@@ -404,7 +424,12 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   sitemap. Two articles deriving one id lose it both, rather than one of them
   being reassigned something a later rebuild could resolve differently.
 - **Needs processing** = frontmatter lacks `tiro.processed_at`. Idempotent and
-  retry-safe; no dependence on push diffs. Every translated article keeps a
+  retry-safe; no dependence on push diffs. How much is redone is a separate
+  question: the optional `tiro.refresh: translation`, set by a lead repair
+  (ADR 0053) and named on `ArticleFrontmatterSchema` only, has the run keep
+  the summary, tags and titles it already wrote and translate only the new
+  blocks; the run that finishes the article removes it, and `--force`
+  ignores it. Every translated article keeps a
   `.tiro-zh-cache.json` checkpoint beside it: an article too long for one run
   resumes from it (ADR 0008), and a finished one holds onto it so a later
   re-clip pays only for the blocks whose source text changed (ADR 0010). The

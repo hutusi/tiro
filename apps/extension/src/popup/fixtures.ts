@@ -7,6 +7,7 @@ import type {
   ArticlePage,
   CollectionsState,
 } from "./collections-view.ts";
+import type { LeadState, LeadStep } from "./lead-view.ts";
 import type { RemovalState, RemovalStep } from "./removal-view.ts";
 import type { CaptureRun, PopupState } from "./view.ts";
 
@@ -97,6 +98,11 @@ function removal(
     problem: null,
     ...extra,
   };
+}
+
+/** Add missing lead (ADR 0053) at one step, for the vault the links name. */
+function lead(step: LeadStep, extra: Partial<LeadState> = {}): LeadState {
+  return { step, vault: "hutusi/tiro-vault", problem: null, ...extra };
 }
 
 const base: PopupState = {
@@ -287,6 +293,30 @@ export function fixtures(m: Messages): Record<string, PopupState> {
         problem: m.errRemoveCollection("collections/reading-notes.md"),
       }),
     },
+    // A page clipped before the clipper kept its lead (ADR 0052, 0053).
+    ...Object.fromEntries(
+      (
+        [
+          ["offered", {}],
+          ["adding", {}],
+          ["added", {}],
+          ["unchanged", {}],
+          ["absent", {}],
+          ["refused", {}],
+          ["failed", { problem: m.errTokenInvalid }],
+        ] as const
+      ).map(([step, extra]) => [
+        `lead-${step}`,
+        {
+          ...base,
+          clippedOn: "Sep 2, 2026",
+          links,
+          removal: removal("offered"),
+          lead: lead(step, extra),
+          leadAvailable: true,
+        },
+      ]),
+    ),
     // Just clipped: GitHub's read side has not caught up yet.
     "remove-not-yet": {
       ...base,

@@ -157,6 +157,36 @@ describe("validateVault", () => {
     rmSync(vault, { recursive: true, force: true });
   });
 
+  /** The article as a repair or a re-clip leaves it: one block ahead of its
+   * translation. */
+  function withLeadAdded(vault: string, keepProcessed: boolean): void {
+    const path = join(vault, "articles", EN, "index.md");
+    const text = readFileSync(path, "utf8");
+    const at = text.indexOf("\n---\n", 4) + "\n---\n".length;
+    let head = text.slice(0, at);
+    if (!keepProcessed) head = head.replace(/^ {2}processed_at: .*\n/m, "");
+    writeFileSync(
+      path,
+      `${head}\nA dek the clipper used to leave out.\n${text.slice(at)}`,
+    );
+  }
+
+  test("catches a processed article whose translation is misaligned", async () => {
+    const vault = freshVault();
+    withLeadAdded(vault, true);
+    const report = await validateVault(vault);
+    expect(report.errors.some((e) => e.includes(EN))).toBe(true);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
+  test("exempts a pending article whose translation trails its body", async () => {
+    const vault = freshVault();
+    withLeadAdded(vault, false);
+    const report = await validateVault(vault);
+    expect(report.errors.filter((e) => e.includes(EN))).toEqual([]);
+    rmSync(vault, { recursive: true, force: true });
+  });
+
   test("exempts a pending article with no translation", async () => {
     const vault = freshVault();
     // The raw clip fixture is pending and has no zh.md — nothing has looked

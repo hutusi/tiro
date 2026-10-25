@@ -864,3 +864,89 @@ describe("clipping with pictures (ADR 0045)", () => {
     expect(captureSeconds(29)).toBe(60);
   });
 });
+
+describe("Add missing lead (ADR 0053)", () => {
+  const offered = { step: "offered" as const, vault: "o/r", problem: null };
+  const clipped = state({
+    clippedOn: "Sep 2, 2026",
+    links,
+    leadAvailable: true,
+  });
+
+  test("is offered on a page clipped before whose body recovered a lead", () => {
+    const v = popupView({ ...clipped, lead: offered }, m);
+    expect(v.lead.offer).toEqual({
+      visible: true,
+      enabled: true,
+      label: m.leadOffer,
+      hint: m.leadOfferHint,
+    });
+    expect(v.lead.status).toBeNull();
+  });
+
+  test("is not offered without a lead, before a clip, or while anything else runs", () => {
+    for (const s of [
+      { ...clipped, leadAvailable: false },
+      { ...clipped, clippedOn: null },
+      { ...clipped, fetching: true },
+      { ...clipped, configured: false },
+      { ...clipped, phase: "clipping" as const },
+      { ...clipped, phase: "saved" as const },
+    ]) {
+      expect(popupView({ ...s, lead: offered }, m).lead.offer.visible).toBe(
+        false,
+      );
+    }
+  });
+
+  test("holds Clip and Remove while it writes", () => {
+    const v = popupView(
+      {
+        ...clipped,
+        lead: { ...offered, step: "adding" },
+        removal: { step: "offered", vault: "o/r", title: null, problem: null },
+      },
+      m,
+    );
+    expect(v.lead.offer).toMatchObject({
+      visible: true,
+      enabled: false,
+      label: m.leadAdding,
+    });
+    expect(v.clip.enabled).toBe(false);
+    expect(v.remove.offer.visible).toBe(false);
+  });
+
+  test("says what became of it, and offers it again only after a failure", () => {
+    const cases = [
+      ["added", m.leadAdded("o/r"), "ok"],
+      ["unchanged", m.leadUnchanged("o/r"), "neutral"],
+      ["absent", m.leadAbsent("o/r"), "neutral"],
+      ["refused", m.leadRefused, "neutral"],
+    ] as const;
+    for (const [step, text, tone] of cases) {
+      const v = popupView({ ...clipped, lead: { ...offered, step } }, m);
+      expect(v.lead.status).toEqual({ text, tone });
+      expect(v.lead.offer.visible).toBe(false);
+      expect(v.clip.enabled).toBe(true);
+    }
+    const failed = popupView(
+      { ...clipped, lead: { ...offered, step: "failed", problem: "Nope." } },
+      m,
+    );
+    expect(failed.lead.status).toEqual({ text: "Nope.", tone: "error" });
+    expect(failed.lead.offer.visible).toBe(true);
+  });
+
+  test("gives way to a removal under way", () => {
+    const v = popupView(
+      {
+        ...clipped,
+        lead: offered,
+        removal: { step: "removing", vault: "o/r", title: null, problem: null },
+      },
+      m,
+    );
+    expect(v.lead.offer.visible).toBe(false);
+  });
+});

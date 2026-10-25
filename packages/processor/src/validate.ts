@@ -119,6 +119,11 @@ export async function validateVault(
         `${slug}/zh.md: article is marked translation_failed but a translation exists`,
       );
     }
+    // A pending article's translation trails its body by design: a re-clip
+    // or a lead repair (ADR 0053) changed the body, and the next run writes
+    // the translation that matches it. The site renders it stacked meanwhile
+    // (ADR 0003), so only a processed article is held to alignment.
+    if (frontmatter.tiro.processed_at === undefined) continue;
     const alignment = checkAlignment(
       splitBlocks(body),
       splitBlocks(await zhFile.text()),

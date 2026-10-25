@@ -1,5 +1,6 @@
 import type { PictureRefusal, PictureReport } from "../figure-capture.ts";
 import type { FetchSourceKind, Messages } from "../i18n.ts";
+import { type LeadState, type LeadView, leadView } from "./lead-view.ts";
 import {
   type RemovalState,
   type RemovalView,
@@ -113,6 +114,12 @@ export interface PopupState {
   captured?: PictureReport | null;
   /** Clipping: snapshots uploaded so far, before the commit that names them. */
   uploading?: { done: number; total: number } | null;
+  /** "Add missing lead" (ADR 0053). Absent, or null, on a page this machine
+   * never clipped. */
+  lead?: LeadState | null;
+  /** The body on screen recovered a lead (`ClipPayload.lead`) — the one
+   * thing the button could add. */
+  leadAvailable?: boolean;
 }
 
 export interface PopupView {
@@ -162,6 +169,7 @@ export interface PopupView {
     more: string | null;
   } | null;
   remove: RemovalView;
+  lead: LeadView;
 }
 
 /** Phases an in-flight fetch may repaint. See the derivation below. */
@@ -186,10 +194,38 @@ function removalOfferable(s: PopupState): boolean {
   }
 }
 
+/**
+ * Whether this page is a moment to offer "Add missing lead": it was clipped
+ * from here before, so its article should be in the vault; the body on
+ * screen recovered a lead to add; and nothing else is under way. Not in this
+ * popup after a Clip, whose body already carries the lead.
+ */
+function leadOfferable(s: PopupState): boolean {
+  return (
+    s.configured &&
+    !s.fetching &&
+    s.phase === "ready" &&
+    s.clippedOn !== null &&
+    s.leadAvailable === true
+  );
+}
+
 export function popupView(s: PopupState, m: Messages): PopupView {
   const view = phaseView(s, m);
   const remove = removalView(s.removal, m, removalOfferable(s));
-  if (!remove.active && !remove.settled) return { ...view, remove };
+  if (!remove.active && !remove.settled) {
+    const lead = leadView(s.lead, m, leadOfferable(s));
+    // Adding the lead is a write to this article: Clip, which would write it
+    // too, waits for it.
+    return lead.active
+      ? {
+          ...view,
+          clip: { ...view.clip, enabled: false },
+          remove: { ...remove, offer: { ...remove.offer, visible: false } },
+          lead,
+        }
+      : { ...view, remove, lead };
+  }
   // A removal under way, or done, is what the popup is about now. The preview
   // stays — it shows what is being removed — and everything that would act on
   // the article goes: Clip most of all, since re-adding an article a moment
@@ -214,6 +250,7 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     captured: null,
     links: null,
     remove,
+    lead: leadView(null, m, false),
   };
 }
 
@@ -289,7 +326,10 @@ function capturedView(
   };
 }
 
-function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
+function phaseView(
+  s: PopupState,
+  m: Messages,
+): Omit<PopupView, "remove" | "lead"> {
   // Null on an ordinary page, where none of these strings are reachable: every
   // one of them is behind `s.source !== null` by way of `gated`, `fetching` or
   // `fetchOffered`, which only a publisher rule ever sets.
@@ -367,7 +407,7 @@ function phaseView(s: PopupState, m: Messages): Omit<PopupView, "remove"> {
     primary: !reclip,
     label: clipLabel,
   };
-  const base: Omit<PopupView, "remove"> = {
+  const base: Omit<PopupView, "remove" | "lead"> = {
     label: "",
     labelTone: "neutral",
     message: null,

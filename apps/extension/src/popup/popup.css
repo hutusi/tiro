@@ -363,3 +363,14 @@ body {
 #remove-status[data-tone="neutral"] {
   color: var(--ink-soft);
 }
+
+/* "Add missing lead" (ADR 0053): set like the removal's status. */
+#lead-status {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+#lead-status[data-tone="neutral"] {
+  color: var(--ink-soft);
+}

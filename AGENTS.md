@@ -44,6 +44,8 @@ bun run --cwd apps/shortcut build -- --repo <owner>/tiro-vault  # the iPhone sho
 bun run process -- --vault <dir> [--slug S] [--force] [--dry-run]
 bun run --cwd apps/extension sweep -- --vault <dir> [--baseline <ref>] [--only S]
 bun run --cwd apps/extension sweep -- --vault <dir> --fill-languages [--write]
+bun run --cwd apps/extension sweep -- --vault <dir> --fill-leads [--pages <dir>] [--write]
+bun run --cwd apps/extension sweep -- --vault <dir> --dek-from-excerpt <host> [--skip-url <re>] [--write]
 ```
 
 ## Development workflow

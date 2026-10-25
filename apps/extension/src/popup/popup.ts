@@ -61,6 +61,7 @@ import {
   POPUP_PORT,
 } from "../messages.ts";
 import { lookupArticle, removeArticle } from "../remove-article.ts";
+import { restoreLead } from "../restore-lead.ts";
 import {
   acceptDisclosure,
   type FlushStatus,
@@ -88,6 +89,7 @@ import {
   collectionsView,
   visibleQueue,
 } from "./collections-view.ts";
+import type { LeadState, LeadView } from "./lead-view.ts";
 import { createToggleChannel, type ToggleOp } from "./recorder.ts";
 import type { RemovalState, RemovalView } from "./removal-view.ts";
 import {
@@ -186,6 +188,8 @@ const el = {
   removeStatus: document.getElementById(
     "remove-status",
   ) as HTMLParagraphElement,
+  leadOffer: document.getElementById("lead-offer") as HTMLButtonElement,
+  leadStatus: document.getElementById("lead-status") as HTMLParagraphElement,
 };
 
 /**
@@ -275,6 +279,19 @@ function apply(view: PopupView): void {
     el.openHint.hidden = !view.links.hint;
   }
   applyRemoval(view.remove);
+  applyLead(view.lead);
+}
+
+/** Paint "Add missing lead" (ADR 0053): the button beside Clip, and what it
+ * came to under them. */
+function applyLead(view: LeadView): void {
+  el.leadOffer.hidden = !view.offer.visible;
+  el.leadOffer.disabled = !view.offer.enabled;
+  el.leadOffer.textContent = view.offer.label;
+  el.leadOffer.title = view.offer.hint;
+  el.leadStatus.hidden = view.status === null;
+  el.leadStatus.textContent = view.status?.text ?? "";
+  el.leadStatus.dataset.tone = view.status?.tone ?? "neutral";
 }
 
 /** Paint Remove from Tiro (ADR 0036), the same in both modes: the link in the
@@ -362,6 +379,7 @@ function localize(locale: Locale, m: Messages): void {
   el.disclosureBody2.textContent = m.disclosureBody2;
   el.accept.textContent = m.disclosureAccept;
   el.clip.textContent = m.clipButton;
+  el.leadOffer.textContent = m.leadOffer;
   el.view.textContent = m.viewInVault;
   el.open.textContent = m.openInTiro;
   el.openHint.textContent = m.openHint;
@@ -496,6 +514,12 @@ async function main(): Promise<void> {
   /** The slug this popup just clipped. GitHub's read side can trail its write
    * by a moment, so "not there" right after a clip is not yet an answer. */
   let clippedSlug: string | null = null;
+
+  /* ---------------------------------------- add missing lead (ADR 0053) */
+
+  /** Where "Add missing lead" has got to on this page — offered once the
+   * page is known to have been clipped from here. */
+  let leadRepair: LeadState | null = null;
 
   function offerRemoval(slug: string): void {
     removeSlug = slug;
@@ -909,6 +933,9 @@ async function main(): Promise<void> {
           : null),
       links: saved?.links ?? previousLinks,
       removal,
+      lead: leadRepair,
+      leadAvailable:
+        result !== null && !result.pdfViewer && (result.lead ?? "") !== "",
       figures: figuresOffer(),
       capture,
       captured,
@@ -1296,7 +1323,14 @@ async function main(): Promise<void> {
     try {
       const slug = await slugForUrl(tabUrl);
       clippedAt = await lastClippedAt(config, slug);
-      if (clippedAt !== null) offerRemoval(slug);
+      if (clippedAt !== null) {
+        offerRemoval(slug);
+        leadRepair = {
+          step: "offered",
+          vault: `${config.owner}/${config.repo}`,
+          problem: null,
+        };
+      }
       if (clippedAt !== null && homepage !== undefined) {
         previousLinks = {
           site: articleUrl(homepage, slug),
@@ -1749,6 +1783,50 @@ async function main(): Promise<void> {
       repaint();
       // The safe answer is the one under the keyboard.
       if (removal?.step === "confirming") el.removeCancel.focus();
+    })();
+  });
+
+  el.leadOffer.addEventListener("click", () => {
+    const payload = result;
+    const lead = payload?.lead ?? "";
+    if (
+      payload === null ||
+      lead === "" ||
+      leadRepair === null ||
+      leadRepair.step === "adding" ||
+      committing ||
+      removalHolds()
+    ) {
+      return;
+    }
+    const repair = leadRepair;
+    void (async () => {
+      leadRepair = { ...repair, step: "adding", problem: null };
+      render();
+      try {
+        // Filed where a clip of this body would be: the payload's URL, the
+        // one `commitClip` derives the slug from.
+        const slug = await slugForUrl(payload.url);
+        const outcome = await restoreLead(
+          config,
+          slug,
+          { markdown: lead, hasMath: payload.hasMath },
+          payload.markdown,
+        );
+        leadRepair = {
+          ...repair,
+          step: outcome.kind === "added" ? "added" : outcome.kind,
+          problem: null,
+        };
+      } catch (error) {
+        console.error("adding the lead failed:", error);
+        leadRepair = {
+          ...repair,
+          step: "failed",
+          problem: describeClipError(error, m),
+        };
+      }
+      render();
     })();
   });
 
