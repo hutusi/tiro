@@ -180,6 +180,49 @@ function keepBetterSummary(
 }
 
 /**
+ * The summary, tags and titles an article already has, when a repair asked
+ * only for its new blocks to be translated (`tiro.refresh`, ADR 0053) — or
+ * `null`, and the run summarizes as always.
+ *
+ * A repair inserts a lead the clipper used to leave out: a dek and a picture
+ * at the top of a body that is otherwise byte for byte the one summarized.
+ * Re-rolling the summary, tags and translated title for that would spend a
+ * call per article to replace a reading of the same text with another, and
+ * churn what readers already see. Kept only when there is a whole one to
+ * keep: a summary marked for review, or an article with no category, is
+ * summarized again. `--force` asks for everything to be done again, the
+ * hint included.
+ */
+function keptSummary(
+  frontmatter: {
+    summary?: string;
+    summary_orig?: string;
+    title_zh?: string;
+    category?: string;
+    tags?: string[];
+    tiro: { refresh?: string; summary_failed?: boolean };
+  },
+  force: boolean,
+): SummaryResult | null {
+  if (force || frontmatter.tiro.refresh !== "translation") return null;
+  if (frontmatter.tiro.summary_failed === true) return null;
+  const summary = frontmatter.summary?.trim() ?? "";
+  if (summary === "" || frontmatter.category === undefined) return null;
+  return {
+    summary: frontmatter.summary ?? summary,
+    category: frontmatter.category,
+    tags: frontmatter.tags ?? [],
+    ...(frontmatter.title_zh !== undefined
+      ? { titleZh: frontmatter.title_zh }
+      : {}),
+    ...(frontmatter.summary_orig !== undefined
+      ? { summaryOrig: frontmatter.summary_orig }
+      : {}),
+    failed: false,
+  };
+}
+
+/**
  * Keep an article's category and tags when this run has nothing but
  * placeholders to put in their place.
  *
@@ -547,23 +590,31 @@ async function processOne(
   const blocks = splitBlocks(body);
 
   const { aliases, vocabulary } = tagging;
-  const summary = await summarize({
-    chat: deps.chat,
-    model: modelFor(config, "summary"),
-    categories: config.categories,
-    title: frontmatter.title,
-    body,
-    targetLang: config.translation.target,
-    // The same condition the translation branch below runs on: an article
-    // already in the target language has no title to translate and no second
-    // language to summarize itself in.
-    bilingual: lang !== config.translation.target,
-    cjkThreshold: config.translation.cjk_threshold,
-    tagAliases: aliases,
-    vocabulary,
-    currentTags: frontmatter.tags ?? [],
-    log,
-  });
+  const kept = keptSummary(frontmatter, force);
+  if (kept !== null) {
+    log(
+      `${article.slug}: refresh: translation — keeping its summary, tags and titles`,
+    );
+  }
+  const summary =
+    kept ??
+    (await summarize({
+      chat: deps.chat,
+      model: modelFor(config, "summary"),
+      categories: config.categories,
+      title: frontmatter.title,
+      body,
+      targetLang: config.translation.target,
+      // The same condition the translation branch below runs on: an article
+      // already in the target language has no title to translate and no second
+      // language to summarize itself in.
+      bilingual: lang !== config.translation.target,
+      cjkThreshold: config.translation.cjk_threshold,
+      tagAliases: aliases,
+      vocabulary,
+      currentTags: frontmatter.tags ?? [],
+      log,
+    }));
   const chosen = summary.failed
     ? keepExistingTerms(
         keepBetterSummary(summary, frontmatter, log),
@@ -667,6 +718,9 @@ async function processOne(
     // earlier would lose the flag if a later stage threw; later, and a
     // deferred run would find it still set over a finished body.
     pdf_unstructured: _convertedNow,
+    // Settled by this write, for the same reason: a run that stops before it
+    // leaves the hint for the next one (ADR 0053).
+    refresh: _refreshed,
     ...previousTiro
   } = frontmatter.tiro;
   const updated = {
