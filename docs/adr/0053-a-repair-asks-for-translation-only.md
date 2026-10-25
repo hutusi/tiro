@@ -50,6 +50,14 @@ is missing:
   version is refused, and nothing is written. Paragraphs only: a section
   heading both versions open with survives an edit to the paragraph under
   it.
+- **Only what reads the same.** A part whose dollar signs the article would
+  read differently is refused (ADR 0009): a formula from a page with math in
+  an article without `has_math`, which the site would show as its delimiters
+  and the translator would not keep, or a price from a page without math in
+  an article with it, where "$10 to $20" becomes a formula. Setting or
+  clearing the flag instead would change how every dollar sign already in
+  the body reads. A stored excerpt has no formula, so a dek made from one is
+  offered as a clip without math.
 
 ### `tiro.refresh: translation`
 

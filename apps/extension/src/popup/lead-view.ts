@@ -10,7 +10,8 @@ import type { Tone } from "./view.ts";
  * - `added`: committed; the site shows it once processing translates it.
  * - `unchanged`: the vault's copy already had every part of the lead.
  * - `absent`: there is no article at this page's slug to add it to.
- * - `refused`: the page no longer begins where the saved article does.
+ * - `refused`: `mergeLead` would not — the page no longer begins where the
+ *   saved article does, or the lead would read differently there.
  * - `failed`: GitHub said no; the button is back, as a retry.
  */
 export type LeadStep =

@@ -823,7 +823,7 @@ async function fillLeads(
       if ((fresh.lead ?? "") === "") continue;
       const merge = mergeLead(
         await readFile(indexPath, "utf-8"),
-        fresh.lead ?? "",
+        { markdown: fresh.lead ?? "", hasMath: fresh.hasMath },
         fresh.markdown,
       );
       if (merge.kind === "unchanged") continue;
@@ -956,7 +956,13 @@ async function dekFromExcerpt(
     if (dek === null) continue;
     const indexPath = join(args.vault, "articles", article.slug, "index.md");
     try {
-      const merge = mergeLead(await readFile(indexPath, "utf-8"), dek, null);
+      // An excerpt is plain text with no recovered formula, so its dollar
+      // signs are left as written: what a clip without math does.
+      const merge = mergeLead(
+        await readFile(indexPath, "utf-8"),
+        { markdown: dek, hasMath: false },
+        null,
+      );
       if (merge.kind === "unchanged") continue;
       if (merge.kind === "refused") {
         console.log(`  !  ${article.slug}: refused — ${merge.reason}`);

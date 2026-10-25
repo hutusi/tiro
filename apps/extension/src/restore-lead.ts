@@ -1,4 +1,4 @@
-import { mergeLead, parseArticle } from "@tiro/shared";
+import { type LeadOffer, mergeLead, parseArticle } from "@tiro/shared";
 import {
   encodeBase64Utf8,
   type FetchLike,
@@ -30,7 +30,8 @@ export type LeadRestore =
   /** The vault has no article at this slug. */
   | { kind: "absent" }
   /** `mergeLead` would not: the page no longer begins where the article
-   * does, or the article cannot be read. */
+   * does, the lead's dollar signs would read differently there, or the
+   * article cannot be read. */
   | { kind: "refused"; reason: string };
 
 /** Thrown from the conflict retry to end it with an answer rather than a
@@ -43,8 +44,9 @@ class Settled extends Error {
 }
 
 /**
- * Offer `lead` — the clip's `ClipPayload.lead` — to the article at `slug`,
- * checked against `pageMarkdown`, the whole clip it came from.
+ * Offer `lead` — the clip's `ClipPayload.lead`, with its `hasMath` — to the
+ * article at `slug`, checked against `pageMarkdown`, the whole clip it came
+ * from.
  *
  * One read and at most one commit. A commit landing between the two — the
  * processor finishing another run, a collection edit — makes the write's sha
@@ -55,7 +57,7 @@ class Settled extends Error {
 export async function restoreLead(
   config: TiroExtensionConfig,
   slug: string,
-  lead: string,
+  lead: LeadOffer,
   pageMarkdown: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<LeadRestore> {

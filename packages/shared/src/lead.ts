@@ -3,6 +3,7 @@ import {
   type Block,
   imageOffsets,
   markdownLinks,
+  mathRanges,
   plainText,
   splitBlocks,
 } from "./blocks.ts";
@@ -31,6 +32,18 @@ import {
  * and stored excerpts — so the three cannot disagree about what is missing.
  */
 
+/** A lead offered to a saved article. */
+export interface LeadOffer {
+  /** The lead's markdown: `ClipPayload.lead`, or a dek made from an excerpt. */
+  markdown: string;
+  /**
+   * Whether it was converted the way an article with math is, formulas
+   * between bare `$` and every literal `$` escaped: `ClipPayload.hasMath` of
+   * the clip it came from, which frontmatter `has_math` records (ADR 0009).
+   */
+  hasMath: boolean;
+}
+
 /** The outcome of offering a lead to a saved article. */
 export type LeadMerge =
   | {
@@ -54,8 +67,8 @@ const KEY_CHARS = 60;
 const MIN_CAPTION_LETTERS = 10;
 
 /**
- * Insert the parts of `lead` that `indexText`'s article is missing, at the top
- * of its body.
+ * Insert the parts of `offer` that `indexText`'s article is missing, at the
+ * top of its body.
  *
  * `pageMarkdown` is the whole clip the lead came from, lead included — the
  * page the reader is on, or a saved copy of it — and is how the article is
@@ -76,12 +89,18 @@ const MIN_CAPTION_LETTERS = 10;
  * bytes. The frontmatter loses `tiro.processed_at`, so the next run takes the
  * article (invariant 3), and gains `tiro.refresh: translation` when it had
  * been processed with a summary, so that run keeps the summary.
+ *
+ * A missing part whose dollar signs the article would read differently is
+ * refused: a formula in an article without `has_math`, or a price in one
+ * with it. Setting or clearing the flag instead would change how every
+ * dollar sign already in the body reads.
  */
 export function mergeLead(
   indexText: string,
-  lead: string,
+  offer: LeadOffer,
   pageMarkdown: string | null,
 ): LeadMerge {
+  const lead = offer.markdown;
   const leadBlocks = splitBlocks(lead);
   if (leadBlocks.length === 0) return { kind: "unchanged" };
   if (leadBlocks.some((block) => block.type !== "paragraph")) {
@@ -180,6 +199,14 @@ export function mergeLead(
     inserts.set(position, [...(inserts.get(position) ?? []), part.text]);
     added.push(part.text);
   });
+  if (
+    !sameMath(added.join("\n\n"), offer.hasMath, frontmatter.has_math === true)
+  ) {
+    return {
+      kind: "refused",
+      reason: "the lead's dollar signs would read differently in the article",
+    };
+  }
 
   // Inserted by offset, so every byte of the old body stays as it was.
   const offsets: number[] = [];
@@ -237,6 +264,19 @@ export function mergeLead(
     };
   }
   return { kind: "merged", text, added };
+}
+
+/**
+ * Whether `markdown`, converted with literal dollars escaped or not (`from`),
+ * holds the same formulas read as an article that does or does not have math
+ * (`to`) — which is how the site and the translator will read it there. Text
+ * with no `$` reads the same either way, and so does an escaped one.
+ */
+function sameMath(markdown: string, from: boolean, to: boolean): boolean {
+  if (from === to) return true;
+  const formulas = (singleDollar: boolean) =>
+    JSON.stringify(mathRanges(markdown, { singleDollar }));
+  return formulas(from) === formulas(to);
 }
 
 /** Text as a key: letters and digits, case-folded, one space between runs. */

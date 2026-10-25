@@ -387,7 +387,7 @@ const en = {
   leadAbsent: (vault: string) =>
     `This article is not in ${vault} — clip it instead.`,
   leadRefused:
-    "This page no longer begins where the saved article does, so nothing was added. Re-clip to replace the article.",
+    "The saved article can't take this page's lead as it stands — the page may have changed since it was clipped — so nothing was added. Re-clip to replace the article.",
 };
 
 export type Messages = typeof en;
@@ -671,7 +671,7 @@ const zh: Messages = {
     `${vault} 中的文章已有本页的导语，未做任何更改。`,
   leadAbsent: (vault: string) => `${vault} 中没有这篇文章，请直接剪藏。`,
   leadRefused:
-    "本页的开头已与保存的文章不一致，因此没有补上任何内容。如需更新，请再次剪藏。",
+    "保存的文章无法直接补上本页的导语（本页可能在剪藏后有过改动），因此没有补上任何内容。如需更新，请再次剪藏。",
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

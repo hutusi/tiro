@@ -1807,7 +1807,12 @@ async function main(): Promise<void> {
         // Filed where a clip of this body would be: the payload's URL, the
         // one `commitClip` derives the slug from.
         const slug = await slugForUrl(payload.url);
-        const outcome = await restoreLead(config, slug, lead, payload.markdown);
+        const outcome = await restoreLead(
+          config,
+          slug,
+          { markdown: lead, hasMath: payload.hasMath },
+          payload.markdown,
+        );
         leadRepair = {
           ...repair,
           step: outcome.kind === "added" ? "added" : outcome.kind,

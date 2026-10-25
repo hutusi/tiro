@@ -1531,7 +1531,11 @@ describe("run budget", () => {
         chat: makeFakeChat(),
       });
       const indexAbs = join(vault, "articles", BIG, "index.md");
-      const merge = mergeLead(readFileSync(indexAbs, "utf8"), DEK, null);
+      const merge = mergeLead(
+        readFileSync(indexAbs, "utf8"),
+        { markdown: DEK, hasMath: false },
+        null,
+      );
       if (merge.kind !== "merged") throw new Error(merge.kind);
       writeFileSync(indexAbs, merge.text);
       return { config, indexAbs };
