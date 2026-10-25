@@ -17,8 +17,22 @@ versions follow the `0.x` line while Tiro is a personal system.
   one. The extension keeps sections when it rewrites a collection; rebuild
   and then reload it before ticking a sectioned one.
 
+- **Add missing lead** (ADR 0053). An article saved before its lead was kept
+  gets it without a re-clip: the popup's "Add missing lead" on a page clipped
+  before, or `sweep --fill-leads` and `--dek-from-excerpt` offline. Only the
+  missing dek and picture are inserted, and the next run translates them and
+  keeps the summary (`tiro.refresh: translation`).
+
 ### Fixed
 
+- **An article keeps the header Readability leaves out** (ADR 0052). A page
+  that sets its dek and lead picture beside the body rather than inside it —
+  The Atlantic, Substack subtitles, IEEE Spectrum, Quanta — lost both, and
+  228 of the vault's 245 Atlantic articles had no dek. The page is read again
+  between the headline and the body, and a dek the page's description
+  confirms, and a lead picture its card names or its `<figure>` sets, come
+  back above the article with the picture's caption. The byline stays in the
+  meta row.
 - **A page of pictures clips as its pictures** (ADR 0050). Readability finds
   an article by its text, so a photo essay with no prose clipped as whatever
   text the page had elsewhere: *Ways of Seeing*'s wordless chapters came out
