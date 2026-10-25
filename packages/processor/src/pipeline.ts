@@ -29,6 +29,7 @@ import {
   TRANSLATION_CACHE_FILE,
   type TranslationCache,
 } from "./llm/cache.ts";
+import { adoptExactEntries, liveKeys } from "./llm/checkpoint-key.ts";
 import {
   type ChatFn,
   type FetchLike,
@@ -645,8 +646,9 @@ async function processOne(
   let translationSucceeded = false;
   if (lang !== config.translation.target) {
     // Resume whatever an earlier run got through: the checkpoint is keyed by
-    // block source text, so a reuse is only ever the same input translated by
-    // the same model.
+    // a block's words with its addresses set aside, and filled back in from
+    // the block as it stands (ADR 0054), so a reuse is only ever the same
+    // words translated by the same model.
     const cache = await loadTranslationCache(
       cacheAbs,
       {
@@ -656,6 +658,15 @@ async function processOne(
       log,
     );
     translationCache = cache;
+    // The image stage may have just moved a hotlink to `./assets/`, and an
+    // entry from before ADR 0054 is keyed by the hotlinked text, which only
+    // the body as it stood before that stage still has.
+    if (body !== sourceBody) {
+      adoptExactEntries(
+        cache,
+        splitBlocks(sourceBody).map((block) => block.text),
+      );
+    }
     const zhBody = await translateBlocks({
       chat: deps.chat,
       model: modelFor(config, "translation"),
@@ -768,7 +779,12 @@ async function processOne(
   // resumed or the misalignment repeats forever, and an article that needed no
   // translation has nothing worth keeping.
   if (translationSucceeded && translationCache !== null) {
-    translationCache.retain(blocks.map((block) => block.text));
+    translationCache.retain(
+      liveKeys(
+        translationCache,
+        blocks.map((block) => block.text),
+      ),
+    );
     await flushCheckpointQuietly(translationCache, log);
   } else {
     await discardCheckpointQuietly(cacheAbs, log);

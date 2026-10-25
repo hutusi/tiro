@@ -15,6 +15,11 @@ import {
   unboundedDeadline,
 } from "../deadline.ts";
 import type { TranslationCache } from "./cache.ts";
+import {
+  adoptExactEntries,
+  recordTranslation,
+  reuseTranslation,
+} from "./checkpoint-key.ts";
 import { type ChatFn, isModerationRefusal } from "./client.ts";
 
 export interface TranslateOptions {
@@ -124,17 +129,31 @@ export async function translateBlocks(
     );
   }
 
-  // Resume: anything an earlier run already translated is reused as-is and
-  // never re-sent, so each run picks up where the last one stopped.
+  // Resume: anything an earlier run already translated is reused and never
+  // re-sent, so each run picks up where the last one stopped. Found by its
+  // words, not by where its links point (ADR 0054): the image stage may have
+  // just moved a picture to `./assets/`, and that is no reason to translate
+  // its caption again.
   const todo: Todo[] = [];
   for (const item of translatable) {
-    const cached = cache?.get(item.block.text);
-    if (cached === undefined) todo.push(item);
+    const cached =
+      cache === undefined
+        ? undefined
+        : reuseTranslation(cache, item.block.text);
+    if (cached === undefined) {
+      todo.push(item);
+      continue;
+    }
     // Repaired on the way out as well as on the way in (see `record` below):
     // a checkpoint written before that repair existed — or one `tiro-process
     // repair` could not read — still holds `_强调_`, and reusing it verbatim
     // would put the defect back into zh.md for every block that resumed.
-    else translated[item.index] = normalizeCjkEmphasis(cached);
+    translated[item.index] = normalizeCjkEmphasis(cached.translation);
+    // An entry from before ADR 0054 moves to its new key, so the next move
+    // of an address finds it too.
+    if (cached.exact && cache !== undefined) {
+      adoptExactEntries(cache, [item.block.text]);
+    }
   }
   const resumed = translatable.length - todo.length;
   if (resumed > 0) {
@@ -165,7 +184,7 @@ export async function translateBlocks(
     // otherwise put the defect back after the article had been repaired.
     const cleaned = normalizeCjkEmphasis(restored?.trim() || item.block.text);
     translated[item.index] = cleaned;
-    cache?.set(item.block.text, cleaned);
+    if (cache !== undefined) recordTranslation(cache, item.block.text, cleaned);
   };
 
   /**

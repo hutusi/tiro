@@ -12,12 +12,13 @@ import { rename, rm } from "node:fs/promises";
  * twelve and the next run started again at batch 1, so a long article could
  * never finish no matter how often it retried.
  *
- * Keyed by a hash of the block's source text rather than its index, so the
+ * Keyed by a hash of a piece of source text rather than its index, so the
  * checkpoint survives a re-clip that edits or reorders part of the article —
- * every block whose source is byte-identical keeps its translation, and only
- * genuinely changed blocks are re-sent. That also makes reuse safe by
- * construction: a cached translation is only ever returned for exactly the
- * input that produced it.
+ * every unchanged block keeps its translation, and only genuinely changed
+ * blocks are re-sent. Which text: translation keys a block by its words with
+ * the places its links and pictures point set aside, and fills those back in
+ * from the block as it stands (`checkpoint-key.ts`, ADR 0054), so a picture
+ * that moved to `./assets/` keeps its caption's translation.
  */
 
 const CACHE_VERSION = 1;
