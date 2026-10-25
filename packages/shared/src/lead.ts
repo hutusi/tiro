@@ -1,5 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import {
+  type Block,
   imageOffsets,
   markdownLinks,
   plainText,
@@ -120,10 +121,8 @@ export function mergeLead(
     const page = pageMarkdown.startsWith(lead)
       ? pageMarkdown.slice(lead.length)
       : pageMarkdown;
-    const pageStart = firstProseKey(splitBlocks(page).map((b) => b.text));
-    const articleStart = firstProseKey(
-      bodyBlocks.slice(opening).map((b) => b.text),
-    );
+    const pageStart = firstProseKey(splitBlocks(page));
+    const articleStart = firstProseKey(bodyBlocks.slice(opening));
     if (pageStart === null || pageStart !== articleStart) {
       return {
         kind: "refused",
@@ -254,10 +253,14 @@ function keyOf(markdown: string): string {
   return normalized(plainText(markdown)).slice(0, KEY_CHARS);
 }
 
-/** The key of the first block that is a paragraph of prose. */
-function firstProseKey(blocks: readonly string[]): string | null {
-  for (const text of blocks) {
-    if (imageOffsets(text).length > 0) continue;
+/**
+ * The key of the first paragraph of prose. Paragraphs only: a section heading
+ * outlives an edit to the paragraph under it, so a page whose opening was
+ * rewritten would pass as the same article on a heading both versions share.
+ */
+function firstProseKey(blocks: readonly Block[]): string | null {
+  for (const { type, text } of blocks) {
+    if (type !== "paragraph" || imageOffsets(text).length > 0) continue;
     const prose = normalized(plainText(text));
     if ((prose.match(/\p{L}/gu)?.length ?? 0) < MIN_START_LETTERS) continue;
     return prose.slice(0, KEY_CHARS);

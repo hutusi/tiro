@@ -47,7 +47,9 @@ is missing:
 - **Only the same article.** The page's first paragraph after its lead must
   be the article's first paragraph after whatever lead it already opens
   with. A page edited since, a paywall stub, or an archived copy of another
-  version is refused, and nothing is written.
+  version is refused, and nothing is written. Paragraphs only: a section
+  heading both versions open with survives an edit to the paragraph under
+  it.
 
 ### `tiro.refresh: translation`
 

@@ -128,6 +128,19 @@ describe("mergeLead", () => {
     });
   });
 
+  test("compares paragraphs, not a heading both versions open with", () => {
+    const heading = "## Part One: The Boyhood Ambition of a River Town";
+    const saved = `${heading}\n\n${BODY}`;
+    const rewritten = `${heading}\n\nThis installment was revised after it first ran, and now opens here instead.\n\n${BODY}`;
+    expect(mergeLead(article(saved), LEAD, `${LEAD}\n\n${rewritten}`)).toEqual({
+      kind: "refused",
+      reason: "the page no longer begins where the article does",
+    });
+    expect(mergeLead(article(saved), LEAD, `${LEAD}\n\n${saved}`).kind).toBe(
+      "merged",
+    );
+  });
+
   test("needs no page for a lead taken from the article itself", () => {
     const result = mergeLead(article(), DEK, null);
     expect(result.kind === "merged" && result.added).toEqual([DEK]);
