@@ -241,6 +241,13 @@ describe("the lead picture", () => {
     expect(md.startsWith(`![](${LEAD_SRC})`)).toBe(true);
   });
 
+  test("keeps a caption the page boxes in blocks as the picture's caption", () => {
+    // Quanta's shape: the credit three boxes and a paragraph deep.
+    const figure = `<figure><img src="${LEAD_SRC}" width="960" height="540" alt=""><figcaption><section><div><div class="credit"><p>Mark Belan/<em>The Magazine</em></p></div></div></section></figcaption></figure>`;
+    const md = clipOf(atlantic(hero({ figure })), head()).markdown;
+    expect(md).toContain(`![](${LEAD_SRC})  \nMark Belan/*The Magazine*\n\n`);
+  });
+
   test("reads a lazy loader's address over its placeholder", () => {
     const md = clipOf(
       bare(

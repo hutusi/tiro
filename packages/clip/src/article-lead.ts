@@ -765,7 +765,26 @@ function pictureHtml(picture: LeadPicture, base: string): string {
     }
     unwrapScriptLinks(copy);
     resolveLinksIn(copy, base);
+    flattenBlocks(copy);
     figure.appendChild(copy);
   }
   return figure.outerHTML;
+}
+
+/**
+ * A caption's words without the boxes a page lays them out in. Quanta sets a
+ * credit three `<div>`s and a `<p>` deep, Big Think one `<div>` deep, and a
+ * caption holding blocks is one `foldFiguresIn` declines — so the credit came
+ * out as a paragraph of its own under the picture rather than its caption.
+ * Each block is replaced by what it holds and a space, innermost first, which
+ * is what a reader sees of it: the words, in order.
+ */
+function flattenBlocks(element: Element): void {
+  for (const block of Array.from(element.querySelectorAll("*")).reverse()) {
+    if (!BLOCKS.has(block.tagName)) continue;
+    block.replaceWith(
+      ...Array.from(block.childNodes),
+      block.ownerDocument.createTextNode(" "),
+    );
+  }
 }
