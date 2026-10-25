@@ -772,10 +772,15 @@ async function fillLanguages(
 
 /* ------------------------------------------------- lead repair (ADR 0053) */
 
-/** Whether an article has a translation checkpoint to resume from. Without
- * one, a translation-only refresh translates the whole article again. */
-function hasCheckpoint(vault: string, slug: string): boolean {
-  return existsSync(join(vault, "articles", slug, ".tiro-zh-cache.json"));
+/** Whether a translation-only refresh would translate this article in full:
+ * it has a translation, and no checkpoint to reuse its blocks from. An
+ * article already in the target language has neither, and needs none. */
+function translatesInFull(vault: string, slug: string): boolean {
+  const dir = join(vault, "articles", slug);
+  return (
+    existsSync(join(dir, "zh.md")) &&
+    !existsSync(join(dir, ".tiro-zh-cache.json"))
+  );
 }
 
 /** How a lead's blocks read in a report: a picture by its first line, a dek
@@ -828,9 +833,9 @@ async function fillLeads(
         continue;
       }
       added++;
-      const note = hasCheckpoint(args.vault, article.slug)
-        ? ""
-        : " (no translation checkpoint: translated in full)";
+      const note = translatesInFull(args.vault, article.slug)
+        ? " (no translation checkpoint: translated in full)"
+        : "";
       console.log(`  ${article.slug}: ${describeAdded(merge.added)}${note}`);
       if (args.write) await writeTogether([[indexPath, merge.text]]);
     } catch (error) {
@@ -959,9 +964,9 @@ async function dekFromExcerpt(
         continue;
       }
       added++;
-      const note = hasCheckpoint(args.vault, article.slug)
-        ? ""
-        : " (no translation checkpoint: translated in full)";
+      const note = translatesInFull(args.vault, article.slug)
+        ? " (no translation checkpoint: translated in full)"
+        : "";
       console.log(`  ${article.slug}: ${describeAdded(merge.added)}${note}`);
       if (args.write) await writeTogether([[indexPath, merge.text]]);
     } catch (error) {
