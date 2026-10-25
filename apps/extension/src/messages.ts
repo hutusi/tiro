@@ -72,6 +72,8 @@ export function isClipResult(message: unknown): message is ClipResultMessage {
   ) {
     return false;
   }
+  // Optional: only a page clip that recovered a lead carries one (ADR 0052).
+  if (p.lead !== undefined && typeof p.lead !== "string") return false;
   return (
     typeof p.url === "string" &&
     typeof p.title === "string" &&

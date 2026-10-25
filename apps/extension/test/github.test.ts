@@ -203,6 +203,7 @@ describe("findExistingIndex", () => {
       sha: "abc123",
       unlisted: false,
       body: "Body.\n",
+      text: article({}),
     });
     expect(requested).toHaveLength(1);
   });

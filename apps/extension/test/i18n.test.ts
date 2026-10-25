@@ -155,6 +155,17 @@ describe("the disclosure and Remove (ADR 0036)", () => {
   });
 });
 
+describe("the disclosure and adding a missing lead (ADR 0053)", () => {
+  // A write into an article already in the vault, and consent that never
+  // mentioned it would not cover it — in either language.
+  test("both disclosures name it by the words on its button, quoted", () => {
+    const en = messages("en");
+    const zh = messages("zh");
+    expect(en.disclosureBody2).toContain(`“${en.leadOffer}”`);
+    expect(zh.disclosureBody2).toContain(`「${zh.leadOffer}」`);
+  });
+});
+
 describe("the disclosure and capturing figures (ADR 0039)", () => {
   // Pictures of the tab are a new kind of page data reaching the vault, and
   // consent that never mentioned them would not cover them — in either

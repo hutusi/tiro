@@ -143,6 +143,9 @@ export interface ExistingIndex {
    * answer `unlisted` gives there.
    */
   body: string;
+  /** The whole file as the vault holds it: what a repair edits in place
+   * rather than rebuilds (ADR 0053). */
+  text: string;
 }
 
 /** The inverse of `encodeBase64Utf8`, for content GitHub hands back. */
@@ -254,7 +257,7 @@ export async function findExistingIndex(
       ? file.content
       : await fetchBlobContent(config, path, file.sha, fetchImpl),
   );
-  return { path, sha: file.sha, ...existingIndexFrom(path, text) };
+  return { path, sha: file.sha, text, ...existingIndexFrom(path, text) };
 }
 
 /**
