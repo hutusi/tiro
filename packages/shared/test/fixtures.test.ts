@@ -114,7 +114,8 @@ describe("fixture sites", () => {
       // Processed, English, with a translated title, a description, a note,
       // and a `source_url` holding the view's fragment that the identity
       // drops (ADR 0055). Its body is the little text a map has. It shares a
-      // tag with articles, so a tag page lists both kinds.
+      // tag with articles, so a tag page lists both kinds, and it is a member
+      // of `field-guide`, as `sites/<slug>`.
       "maps-example-org-roman-battles-facc4f75/index.md",
     ]);
   });
@@ -160,7 +161,8 @@ describe("fixture collections", () => {
       // two-image mosaic: hello-ai's only image is too small to be picked.
       "favorites.md",
       // A hand-set `cover:` that is not a member's image, so the page shows
-      // the override and not the members' own pictures (ADR 0030).
+      // the override and not the members' own pictures (ADR 0030). Its last
+      // member is a saved site, named `sites/<slug>` (ADR 0055).
       "field-guide.md",
       // A prose body, a description, and one item with no `added_at` — the
       // shape a hand-written collection has, which the extension never emits.

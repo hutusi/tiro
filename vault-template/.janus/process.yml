@@ -9,8 +9,9 @@ on:
   push:
     branches: [main]
     # inbox/: a link saved from a phone or the extension (ADR 0034).
+    # sites/: a page saved as a site (ADR 0055).
     # collections/ never starts processing (ADR 0029) — that is publish.yml.
-    paths: ["articles/**", "inbox/**"]
+    paths: ["articles/**", "inbox/**", "sites/**"]
 
 # Queued, never cancelled, and shared with daily.yml: one processing run at a
 # time, as on Actions.

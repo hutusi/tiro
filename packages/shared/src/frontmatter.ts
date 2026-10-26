@@ -331,8 +331,11 @@ export const ArticleFrontmatterSchema = ClipFrontmatterSchema.extend({
 });
 export type ArticleFrontmatter = z.infer<typeof ArticleFrontmatterSchema>;
 
-/** An article needs processing iff the processed marker is absent. */
-export function needsProcessing(frontmatter: ArticleFrontmatter): boolean {
+/** An article — or a saved site (ADR 0055) — needs processing iff the
+ * processed marker is absent. */
+export function needsProcessing(frontmatter: {
+  tiro: { processed_at?: string | undefined };
+}): boolean {
   return frontmatter.tiro.processed_at === undefined;
 }
 

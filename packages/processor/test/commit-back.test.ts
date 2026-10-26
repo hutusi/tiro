@@ -320,6 +320,21 @@ describe("the commit-back step", () => {
     expect(files.get("articles/b/zh.md")).toBe("b, translated\n");
   });
 
+  // ADR 0055: a site is removed from the popup like an article, and a run
+  // may be introducing it at that moment.
+  test("a saved site main deleted while the run changed it stays deleted", () => {
+    const s = sandbox({ ...VAULT, "sites/m/index.md": "m, as saved\n" });
+    s.write(s.run, { "sites/m/index.md": "m, introduced\n", ...PROCESSED_B });
+    s.push({ "sites/m": null }, "remove: sites/m");
+    const r = s.runStep();
+    expect(r.exitCode).toBe(0);
+    expect(r.outputs.committed).toBe("true");
+    expect(r.log).toContain("::notice::sites/m was deleted on main");
+    const files = s.remoteFiles();
+    expect([...files.keys()].filter((p) => p.startsWith("sites/"))).toEqual([]);
+    expect(files.get("articles/b/index.md")).toBe("b, summarized\n");
+  });
+
   test("files the run only added under a deleted article do not come back as an orphan", () => {
     const s = sandbox(VAULT);
     // A budget deferral: a checkpoint and an image, index.md untouched.

@@ -3,6 +3,9 @@ import {
   normalizeTag,
   normalizeTags,
   parseArticle,
+  parseSite,
+  SITES_DIR,
+  siteRef,
   TAG_LIMIT,
 } from "@tiro/shared";
 import {
@@ -140,7 +143,9 @@ export function tagReport(
   };
 }
 
-/** Every readable article's slug and tags, and how many could not be read. */
+/** Every readable article's slug and tags, and every saved site's as
+ * `sites/<slug>` (ADR 0055) — the vocabulary is both of theirs — and how many
+ * could not be read. */
 export async function readTaggedArticles(
   vaultDir: string,
 ): Promise<{ articles: TaggedArticle[]; unreadable: number }> {
@@ -159,6 +164,31 @@ export async function readTaggedArticles(
       );
       articles.push({
         slug,
+        tags: frontmatter.tags ?? [],
+        processed: !needsProcessing(frontmatter),
+      });
+    } catch {
+      unreadable += 1;
+    }
+  }
+  const sitesDir = `${vaultDir}/${SITES_DIR}`;
+  let sitePaths: string[] = [];
+  try {
+    sitePaths = Array.from(
+      new Bun.Glob("*/index.md").scanSync({ cwd: sitesDir }),
+    ).sort();
+  } catch {
+    // No `sites/` is no sites.
+  }
+  for (const relPath of sitePaths) {
+    const [slug] = relPath.split("/");
+    if (slug === undefined) continue;
+    try {
+      const { frontmatter } = parseSite(
+        await Bun.file(`${sitesDir}/${relPath}`).text(),
+      );
+      articles.push({
+        slug: siteRef(slug),
         tags: frontmatter.tags ?? [],
         processed: !needsProcessing(frontmatter),
       });

@@ -8,6 +8,11 @@ import {
   parseArticle,
   parseCollection,
   parseCoverPath,
+  parseMemberRef,
+  parseSite,
+  previewFile,
+  SITES_DIR,
+  siteRef,
   slugForUrl,
   splitBlocks,
   tagFormProblems,
@@ -23,6 +28,8 @@ export interface ValidationReport {
   articles: number;
   /** Well-formed `collections/<id>.md` files seen. */
   collections: number;
+  /** Well-formed `sites/<slug>/index.md` files seen (ADR 0055). */
+  sites: number;
   errors: string[];
 }
 
@@ -146,13 +153,90 @@ export async function validateVault(
     }
   }
 
+  const sites = await validateSites(vaultDir, errors);
+  // A collection names a site as `sites/<slug>`, an article by its slug; the
+  // two never collide, since an article slug has no `/` (ADR 0055).
   const collections = await validateCollections(
     vaultDir,
-    slugs,
-    unlisted,
+    new Set([...slugs, ...sites.refs]),
+    new Set([...unlisted, ...sites.unlisted]),
     errors,
   );
-  return { articles, collections, errors };
+  return { articles, collections, sites: sites.count, errors };
+}
+
+/**
+ * Saved sites (ADR 0055): the flat layout, the schema, the slug, tag forms —
+ * as an article's — and the two things only a site has. Its screenshot must
+ * be a file the site can serve, since the gallery would otherwise show a
+ * broken picture in silence; and it has no translation, because nothing ever
+ * writes one, so a `zh.md` there is a file somebody put in the wrong place.
+ *
+ * A site with no `preview` at all passes: one written by hand need not have a
+ * picture, and the gallery draws a placeholder for it.
+ */
+async function validateSites(
+  vaultDir: string,
+  errors: string[],
+): Promise<{ count: number; refs: Set<string>; unlisted: Set<string> }> {
+  const dir = `${vaultDir}/${SITES_DIR}`;
+  const refs = new Set<string>();
+  const unlisted = new Set<string>();
+  // No directory is no sites, and Bun's glob throws on a missing root.
+  if (!existsSync(dir)) return { count: 0, refs, unlisted };
+  let count = 0;
+  const indexPaths = Array.from(
+    new Bun.Glob("**/index.md").scanSync({ cwd: dir }),
+  ).sort();
+  for (const relPath of indexPaths) {
+    const where = `${SITES_DIR}/${relPath}`;
+    const parts = relPath.split("/");
+    const slug = parts[0];
+    if (parts.length !== 2 || slug === undefined) {
+      errors.push(
+        `${where}: nested site, expected ${SITES_DIR}/<slug>/index.md`,
+      );
+      continue;
+    }
+    let parsed: ReturnType<typeof parseSite>;
+    try {
+      parsed = parseSite(await Bun.file(`${dir}/${relPath}`).text());
+    } catch (error) {
+      errors.push(`${where}: ${String(error)}`);
+      continue;
+    }
+    count += 1;
+    refs.add(siteRef(slug));
+    const { frontmatter } = parsed;
+    if (frontmatter.unlisted === true) unlisted.add(siteRef(slug));
+
+    const expected = await slugForUrl(frontmatter.url);
+    if (expected !== slug) {
+      errors.push(`${where}: slug does not match url (expected ${expected})`);
+    }
+    for (const problem of tagFormProblems(frontmatter.tags ?? [])) {
+      errors.push(`${where}: ${problem}`);
+    }
+    const file = previewFile(frontmatter.preview);
+    if (file !== null) {
+      const abs = `${dir}/${slug}/assets/${file}`;
+      if (!existsSync(abs)) {
+        errors.push(`${where}: preview ${frontmatter.preview} does not exist`);
+      } else if (!statSync(abs).isFile()) {
+        errors.push(`${where}: preview ${frontmatter.preview} is not a file`);
+      } else if (statSync(abs).size > MAX_SERVED_ASSET_BYTES) {
+        errors.push(
+          `${where}: preview ${frontmatter.preview} is over the ${MAX_SERVED_ASSET_BYTES / 1024 / 1024} MiB the site serves`,
+        );
+      }
+    }
+    if (existsSync(`${dir}/${slug}/zh.md`)) {
+      errors.push(
+        `${SITES_DIR}/${slug}/zh.md: a site is never translated, so it has no zh.md`,
+      );
+    }
+  }
+  return { count, refs, unlisted };
 }
 
 /**
@@ -173,7 +257,9 @@ export async function validateVault(
  */
 async function validateCollections(
   vaultDir: string,
-  slugs: ReadonlySet<string>,
+  /** Every document a collection may name, as it names them: article slugs
+   * and `sites/<slug>`. */
+  refs: ReadonlySet<string>,
   unlisted: ReadonlySet<string>,
   errors: string[],
 ): Promise<number> {
@@ -229,8 +315,10 @@ async function validateCollections(
         continue;
       }
       seen.add(slug);
-      if (!slugs.has(slug)) {
-        errors.push(`${where}: ${slug} is not an article in this vault`);
+      if (!refs.has(slug)) {
+        errors.push(
+          `${where}: ${slug} is not ${parseMemberRef(slug).kind === "site" ? "a site" : "an article"} in this vault`,
+        );
       }
     }
 
@@ -241,9 +329,9 @@ async function validateCollections(
     const { cover } = parsed.frontmatter;
     const target = cover === undefined ? null : parseCoverPath(cover);
     if (cover !== undefined && target !== null) {
-      if (!slugs.has(target.slug)) {
+      if (!refs.has(target.ref)) {
         errors.push(
-          `${where}: cover ${cover} names ${target.slug}, which is not an article in this vault`,
+          `${where}: cover ${cover} names ${target.ref}, which is not ${target.kind === "site" ? "a site" : "an article"} in this vault`,
         );
       } else if (!isCoverImageFile(target.file)) {
         // The site would put it in an <img> and a social card as it stands.
@@ -261,12 +349,12 @@ async function validateCollections(
         errors.push(
           `${where}: cover ${cover} is over the ${MAX_SERVED_ASSET_BYTES / 1024 / 1024} MiB the site serves`,
         );
-      } else if (unlisted.has(target.slug)) {
+      } else if (unlisted.has(target.ref)) {
         // The site will not show it: the image's path carries the slug, and a
         // public list page naming an unlisted article is the enumeration
         // ADR 0017 exists to remove.
         errors.push(
-          `${where}: cover ${cover} belongs to an unlisted article, which the site will not show`,
+          `${where}: cover ${cover} belongs to an unlisted ${target.kind === "site" ? "site" : "article"}, which the site will not show`,
         );
       }
     }
