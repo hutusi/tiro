@@ -98,7 +98,10 @@ it may be empty.
   processor's own shape, so a re-save's old screenshot is pruned once the new
   `preview` stops naming it. The processor counts `preview` as a reference,
   not only the body. A body-only rule would delete the screenshot of every
-  site on its first run.
+  site on its first run. A collection whose hand-set cover is the old
+  screenshot moves to the new one in the save's own commit: left alone, that
+  cover would name a pruned file after nearly every re-save, since a new
+  picture is a new name.
 - **`tiro.source_url` keeps the view.** `normalizeUrl` drops the fragment, and
   a single-page app often keeps its state there. Identity follows the
   normalized URL; "open site" goes to the address that was saved.

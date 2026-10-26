@@ -1371,7 +1371,8 @@ can be both; the Tiro site lists sites at `/sites/`.
   the address the tab showed — a map's `#view` included — is
   `tiro.source_url`, and "打开网站" goes there.
 - **Re-saving** replaces the picture and the note with what the form holds;
-  `unlisted` carries over. The processor prunes the old picture.
+  `unlisted` carries over. The processor prunes the old picture, and a
+  collection cover that named it moves to the new one in the save's commit.
 - **The introduction** is written by the next processing run (one call, sites
   before articles), from the title, the description, the note and the page's
   text — never from the picture. The site shows the description until then.

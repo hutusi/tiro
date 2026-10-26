@@ -1,5 +1,6 @@
 import {
   normalizeUrl,
+  previewFile,
   previewRef,
   readFrontmatterLoose,
   SiteClipFrontmatterSchema,
@@ -7,9 +8,11 @@ import {
   siteIndexPath,
   slugForUrl,
   snapshotAssetName,
+  stringifyCollection,
   stringifySite,
   TIRO_SCHEMA_VERSION,
 } from "@tiro/shared";
+import { readEveryCollection } from "./collections-read.ts";
 import {
   commitFiles,
   createBlob,
@@ -152,6 +155,13 @@ export interface CommittedSite {
  * survive this save. The note is not carried — the reader was shown it and
  * sent back what they want kept. The old screenshot is left for the processor
  * to prune once nothing names it, which is how a re-clip's old pictures go.
+ *
+ * A collection whose hand-set cover is the old screenshot moves to the new one
+ * in the same commit. Otherwise the processor's pruning would leave the cover
+ * naming a file that is gone — not a rare stale cover, as an article's can be,
+ * but the outcome of nearly every re-save, since a new picture is a new name.
+ * A collection file that cannot be parsed is left as it is; `validate` reports
+ * a cover it names that is gone.
  */
 export async function commitSite(
   config: TiroExtensionConfig,
@@ -176,11 +186,19 @@ export async function commitSite(
           unlisted: found?.unlisted,
         });
         built = { file, updated: text !== null };
+        const covers =
+          text === null
+            ? []
+            : await coversFollowing(reader, text, slug, shotPath);
         return {
-          message: `site: ${file.title}`,
+          message:
+            covers.length === 0
+              ? `site: ${file.title}`
+              : `site: ${file.title}\n\ncovers moved to the new picture: ${covers.map((c) => c.id).join(", ")}`,
           files: [
             { path: file.path, content: file.content },
             { path: shotPath, blob },
+            ...covers.map((c) => ({ path: c.path, content: c.content })),
           ],
         };
       },
@@ -189,4 +207,36 @@ export async function commitSite(
   );
   if (built === null) throw new Error("the site was never built");
   return built;
+}
+
+/**
+ * The collections whose cover is the site's current screenshot, rewritten to
+ * name `next` — the picture this save commits. Empty when the site had no
+ * screenshot, or when the new one is the same file.
+ */
+async function coversFollowing(
+  reader: Parameters<typeof readEveryCollection>[0],
+  oldIndex: string,
+  slug: string,
+  next: string,
+): Promise<{ id: string; path: string; content: string }[]> {
+  const old = readFrontmatterLoose(oldIndex);
+  const file =
+    old.kind === "ok" && typeof old.data.preview === "string"
+      ? previewFile(old.data.preview)
+      : null;
+  if (file === null) return [];
+  const previous = `${siteAssetsDir(slug)}/${file}`;
+  if (previous === next) return [];
+  const { parsed } = await readEveryCollection(reader);
+  return parsed
+    .filter(({ collection }) => collection.frontmatter.cover === previous)
+    .map(({ path, collection }) => ({
+      id: collection.id,
+      path,
+      content: stringifyCollection(
+        { ...collection.frontmatter, cover: next },
+        collection.body,
+      ),
+    }));
 }

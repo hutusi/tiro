@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseSite, slugForUrl } from "@tiro/shared";
+import { parseCollection, parseSite, slugForUrl } from "@tiro/shared";
 import { buildSiteFile, commitSite, lookupSite } from "../src/site-commit.ts";
 import type { TiroExtensionConfig } from "../src/storage.ts";
 import { fakeGitHub } from "./fake-github.ts";
@@ -140,5 +140,48 @@ describe("lookupSite", () => {
     await expect(lookupSite(config, TAB, gh.fetch)).rejects.toThrow(
       /cannot read/,
     );
+  });
+});
+
+describe("commitSite, and a cover that is the site's picture", () => {
+  // The processor prunes the old picture once nothing names it, so a cover
+  // left naming it would point at a file that is gone after nearly every
+  // re-save — a new picture is a new name.
+  test("a re-save moves the cover to the new picture, in the same commit", async () => {
+    const slug = await slugForUrl(TAB);
+    const old = `sites/${slug}/assets/0123456789ab.webp`;
+    const gh = fakeGitHub({
+      [`sites/${slug}/index.md`]:
+        '---\nurl: "https://maps.example.org/roman-battles"\ntitle: Old\ndomain: maps.example.org\nclipped_at: 2026-10-01T00:00:00.000Z\npreview: "./assets/0123456789ab.webp"\ntiro:\n  schema: 1\n---\n',
+      [old]: "old picture",
+      "collections/maps.md": `---\ntitle: Maps\ncover: "${old}"\nitems:\n  - slug: "sites/${slug}"\ntiro:\n  schema: 1\n---\n`,
+      "collections/other.md":
+        '---\ntitle: Other\ncover: "articles/a-1234abcd/assets/c.png"\nitems: []\ntiro:\n  schema: 1\n---\n',
+    });
+    await commitSite(config, site, SHOT, gh.fetch);
+    expect(gh.log()).toHaveLength(2);
+    const files = gh.files();
+    expect(
+      parseCollection("maps", files.get("collections/maps.md") ?? "")
+        .frontmatter.cover,
+    ).toBe(`sites/${slug}/assets/54ea819b7af4.webp`);
+    expect(
+      parseCollection("other", files.get("collections/other.md") ?? "")
+        .frontmatter.cover,
+    ).toBe("articles/a-1234abcd/assets/c.png");
+    expect(gh.log().at(-1)).toContain("covers moved to the new picture: maps");
+  });
+
+  test("the same picture again touches no collection", async () => {
+    const slug = await slugForUrl(TAB);
+    const same = `sites/${slug}/assets/54ea819b7af4.webp`;
+    const collection = `---\ntitle: Maps\ncover: "${same}"\nitems: []\ntiro:\n  schema: 1\n---\n`;
+    const gh = fakeGitHub({
+      [`sites/${slug}/index.md`]:
+        '---\nurl: "https://maps.example.org/roman-battles"\ntitle: Old\ndomain: maps.example.org\nclipped_at: 2026-10-01T00:00:00.000Z\npreview: "./assets/54ea819b7af4.webp"\ntiro:\n  schema: 1\n---\n',
+      "collections/maps.md": collection,
+    });
+    await commitSite(config, site, SHOT, gh.fetch);
+    expect(gh.files().get("collections/maps.md")).toBe(collection);
   });
 });
