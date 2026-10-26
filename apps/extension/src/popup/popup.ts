@@ -501,10 +501,12 @@ async function main(): Promise<void> {
       const { fixtures, standInPictures } = await import("./fixtures.ts");
       for (const [id, url] of standInPictures()) pictureUrls.set(id, url);
       const fixture = fixtures(m)[name];
-      if (fixture !== undefined) apply(popupView(fixture, m));
-      // The site form's title is filled when it opens, not by `apply`.
-      if (fixture?.preview != null) el.siteTitle.value = fixture.preview.title;
-      else el.label.textContent = `no fixture "${name}"`;
+      if (fixture !== undefined) {
+        apply(popupView(fixture, m));
+        // The site form's title is filled when it opens, not by `apply`.
+        if (fixture.preview !== null)
+          el.siteTitle.value = fixture.preview.title;
+      } else el.label.textContent = `no fixture "${name}"`;
       const afterClipName = params.get("after-clip");
       if (afterClipName !== null) {
         const { afterClipFixtures } = await import("./fixtures.ts");
