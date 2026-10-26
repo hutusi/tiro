@@ -116,8 +116,15 @@ isolation (invariants 7 and 8). Its processing is one call to the model:
 title, address, description, note and up to 8,000 characters of the body go
 in; a two-to-three sentence introduction in the target language, a category,
 tags from the vault's vocabulary (ADR 0033) and, for a site in another
-language, a translated title come out. The language is detected from all of
-those together — an empty body alone reads as English.
+language, a translated title come out. The language is detected from the
+title, the description and the text together — an empty body alone reads as
+English — and never from the note, which is in the owner's language, not the
+site's: counted, a Chinese note made an English site "zh" and cost it its
+translated title.
+
+Sites run first in the same work list as articles, since each is one call and
+so cheaper than any article; the loop's budget, outage breaker and deferral
+apply to both alike.
 
 Nothing else from the article pipeline runs: no fetch, no image download, no
 translation, no `zh.md`. A reply the model cannot get right falls back to the
@@ -162,8 +169,10 @@ to the model provider. The disclosure moves to version 9.
   machinery changes to allow it.
 - Every place that assumed `articles/` was the only root learned a second
   one. That covers collection members and covers, served assets, `validate`,
-  `sweep --recanonicalize`, Remove, and the vault's `process.yml` trigger,
-  which must list `sites/**` or a site waits for the daily run.
+  `retag`, `sweep --recanonicalize`, Remove, the commit-back's rule that a
+  deletion on `main` wins over a run's changes (ADR 0036), and the vault's
+  `process.yml` trigger, which must list `sites/**` or a site waits for the
+  daily run.
 - A site's introduction is written from text alone. A model that can read the
   screenshot might write a better one for a page whose text says little.
   That is left for when the text-only ones prove thin.

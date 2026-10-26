@@ -7,6 +7,21 @@ versions follow the `0.x` line while Tiro is a personal system.
 
 ## [Unreleased]
 
+### Added
+
+- **Saved sites** (ADR 0055). A page that is a tool rather than an article —
+  an interactive map, a visualization, an app — is kept as a site: the
+  popup's "Save as site" takes a picture of the window and commits it to
+  `sites/<slug>/` with the page's title and description and a note, and the
+  next processing run writes a short Chinese introduction, a category and
+  tags. Sites have their own gallery on the site, `/sites/`, and sit beside
+  articles on tag, category, collection and search pages; a page can be both
+  an article and a site. When a page has little text to read, the popup puts
+  Save as site in front of Clip, and a page with nothing to clip — once a
+  dead end — offers it instead. The data disclosure moves to version 9. After
+  merging, copy the template's `process.yml` (and `.janus/process.yml`) into
+  the vault, which must now list `sites/**`.
+
 ## [0.12.0] - 2026-10-26
 
 ### Added
