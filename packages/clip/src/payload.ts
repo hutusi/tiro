@@ -40,4 +40,13 @@ export interface ClipPayload {
    * when there was none to recover.
    */
   lead?: string;
+  /**
+   * The page's description of itself, from its `<meta>`: `og:description`,
+   * then `description`, then `twitter:description`, whitespace collapsed.
+   * What a saved site shows beside its introduction (ADR 0055) — unlike
+   * `excerpt`, which is Readability's guess at the article's opening and is
+   * empty for exactly the pages a site is for. Absent where no page was
+   * clipped, and empty when the page says nothing.
+   */
+  description?: string;
 }
