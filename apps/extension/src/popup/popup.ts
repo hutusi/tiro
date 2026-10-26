@@ -6,9 +6,12 @@ import "../ui/tokens.css";
 import "./popup.css";
 import {
   collectionId,
+  parseMemberRef,
   readingMinutes,
+  siteRef,
   slugForUrl,
   sourceUrlOf,
+  THIN_PAGE_CHARS,
 } from "@tiro/shared";
 import {
   type ClipCandidate,
@@ -34,10 +37,12 @@ import {
   type CaptureOutcome,
   captureFigures,
   cropAndEncode,
+  encodeScreenshot,
   FRAME_OPTIONS,
   type PictureReport,
   pictureReport,
   placedBody,
+  snapshotId,
 } from "../figure-capture.ts";
 import {
   beginCapture,
@@ -62,6 +67,7 @@ import {
 } from "../messages.ts";
 import { lookupArticle, removeArticle } from "../remove-article.ts";
 import { restoreLead } from "../restore-lead.ts";
+import { commitSite, lookupSite, type SiteShot } from "../site-commit.ts";
 import {
   acceptDisclosure,
   type FlushStatus,
@@ -78,7 +84,7 @@ import {
   saveCapturePictures,
 } from "../storage.ts";
 import { parseTiroPage, readTiroMarker, type TiroPage } from "../tiro-page.ts";
-import { countWords } from "../words.ts";
+import { countWords, readableChars } from "../words.ts";
 import {
   type AfterClip,
   type ArticlePage,
@@ -92,6 +98,7 @@ import {
 import type { LeadState, LeadView } from "./lead-view.ts";
 import { createToggleChannel, type ToggleOp } from "./recorder.ts";
 import type { RemovalState, RemovalView } from "./removal-view.ts";
+import { type SiteState, type SiteView, siteUrl } from "./site-view.ts";
 import {
   articleUrl,
   type CaptureRun,
@@ -190,6 +197,21 @@ const el = {
   ) as HTMLParagraphElement,
   leadOffer: document.getElementById("lead-offer") as HTMLButtonElement,
   leadStatus: document.getElementById("lead-status") as HTMLParagraphElement,
+  siteOffer: document.getElementById("site-offer") as HTMLButtonElement,
+  site: document.getElementById("site") as HTMLElement,
+  siteShot: document.getElementById("site-shot") as HTMLImageElement,
+  siteDescription: document.getElementById(
+    "site-description",
+  ) as HTMLParagraphElement,
+  siteTitleLabel: document.getElementById(
+    "site-title-label",
+  ) as HTMLSpanElement,
+  siteTitle: document.getElementById("site-title") as HTMLInputElement,
+  siteNoteLabel: document.getElementById("site-note-label") as HTMLSpanElement,
+  siteNote: document.getElementById("site-note") as HTMLTextAreaElement,
+  siteCancel: document.getElementById("site-cancel") as HTMLButtonElement,
+  siteSave: document.getElementById("site-save") as HTMLButtonElement,
+  siteStatus: document.getElementById("site-status") as HTMLParagraphElement,
 };
 
 /**
@@ -280,6 +302,41 @@ function apply(view: PopupView): void {
   }
   applyRemoval(view.remove);
   applyLead(view.lead);
+  applySite(view.site);
+}
+
+/** Paint Save as site (ADR 0055): the button beside Clip, the form, and what
+ * came of it. The fields' *values* are never written here — `render` runs on
+ * every change, and rewriting a box the reader is typing in would lose what
+ * they typed; they are filled once, when the form opens. */
+function applySite(view: SiteView): void {
+  el.siteOffer.hidden = !view.offer.visible;
+  el.siteOffer.textContent = view.offer.label;
+  el.siteOffer.title = view.offer.hint;
+  el.siteOffer.classList.toggle("btn-primary", view.offer.primary);
+  el.siteOffer.classList.toggle("btn-secondary", !view.offer.primary);
+  el.site.hidden = view.form === null;
+  if (view.form !== null) {
+    el.site.setAttribute("aria-label", view.form.heading);
+    el.siteShot.hidden = view.form.shot === null;
+    if (view.form.shot !== null && el.siteShot.src !== view.form.shot) {
+      el.siteShot.src = view.form.shot;
+    }
+    el.siteDescription.hidden = view.form.description === null;
+    el.siteDescription.textContent = view.form.description ?? "";
+    el.siteTitleLabel.textContent = view.form.titleLabel;
+    el.siteNoteLabel.textContent = view.form.noteLabel;
+    el.siteNote.placeholder = view.form.notePlaceholder;
+    el.siteSave.textContent = view.form.saveLabel;
+    el.siteCancel.textContent = view.form.cancelLabel;
+    el.siteTitle.disabled = view.form.busy;
+    el.siteNote.disabled = view.form.busy;
+    el.siteSave.disabled = view.form.busy;
+    el.siteCancel.disabled = view.form.busy;
+  }
+  el.siteStatus.hidden = view.status === null;
+  el.siteStatus.textContent = view.status?.text ?? "";
+  el.siteStatus.dataset.tone = view.status?.tone ?? "neutral";
 }
 
 /** Paint "Add missing lead" (ADR 0053): the button beside Clip, and what it
@@ -380,6 +437,7 @@ function localize(locale: Locale, m: Messages): void {
   el.accept.textContent = m.disclosureAccept;
   el.clip.textContent = m.clipButton;
   el.leadOffer.textContent = m.leadOffer;
+  el.siteOffer.textContent = m.siteOffer;
   el.view.textContent = m.viewInVault;
   el.open.textContent = m.openInTiro;
   el.openHint.textContent = m.openHint;
@@ -444,6 +502,8 @@ async function main(): Promise<void> {
       for (const [id, url] of standInPictures()) pictureUrls.set(id, url);
       const fixture = fixtures(m)[name];
       if (fixture !== undefined) apply(popupView(fixture, m));
+      // The site form's title is filled when it opens, not by `apply`.
+      if (fixture?.preview != null) el.siteTitle.value = fixture.preview.title;
       else el.label.textContent = `no fixture "${name}"`;
       const afterClipName = params.get("after-clip");
       if (afterClipName !== null) {
@@ -521,6 +581,32 @@ async function main(): Promise<void> {
    * page is known to have been clipped from here. */
   let leadRepair: LeadState | null = null;
 
+  /* ------------------------------------------ save as site (ADR 0055) */
+
+  /** Where saving this page as a site has got to — offered once the page is
+   * known to be an ordinary one that can be pictured. */
+  let siteSave: SiteState | null = null;
+  /** The picture taken for it, kept across a failed save so a retry commits
+   * the same one rather than taking another. */
+  let siteShot: SiteShot | null = null;
+  /** The tab's address when the picture was taken: the page it shows. */
+  let siteShotUrl: string | null = null;
+  /** This machine saved the page as a site before — the local record, like
+   * `clippedAt` for an article. */
+  let siteSavedAt: string | null = null;
+
+  /** Taking the picture, the form, or the commit: the popup is about the
+   * site, and nothing else may act on the page meanwhile. */
+  function siteHolds(): boolean {
+    return (
+      siteSave !== null &&
+      siteSave.step !== "offered" &&
+      !(siteSave.step === "failed" && siteShot === null)
+    );
+  }
+
+  /** `slug` is the document as the vault names it — `sites/<slug>` for a
+   * saved site (ADR 0055) — which is also what the removal says it is. */
   function offerRemoval(slug: string): void {
     removeSlug = slug;
     removeTitle = null;
@@ -529,6 +615,7 @@ async function main(): Promise<void> {
       vault: `${config.owner}/${config.repo}`,
       title: null,
       problem: null,
+      kind: parseMemberRef(slug).kind,
     };
   }
 
@@ -872,15 +959,32 @@ async function main(): Promise<void> {
     // other is a body with nothing in it — derived here, of the body that won,
     // rather than in `showPayload` of each arrival, so a fetched source body
     // that turns out empty is refused like an empty tab is.
+    const empty =
+      !committing &&
+      !(
+        source !== null &&
+        !source.degradesToTab &&
+        clipRefused(best, policy, attempt.resolved)
+      ) &&
+      refusesAsEmpty(result, policy, attempt.resolved);
     const refusal = committing
       ? null
       : source !== null &&
           !source.degradesToTab &&
           clipRefused(best, policy, attempt.resolved)
         ? source.instead
-        : refusesAsEmpty(result, policy, attempt.resolved)
-          ? m.nothingToClip
+        : empty
+          ? siteSave !== null
+            ? m.nothingToClipSite
+            : m.nothingToClip
           : null;
+    // Little or nothing to read: an app, a map, a tool (ADR 0055). Measured
+    // on the body that won, as a reader would read it, never on a PDF.
+    const thin =
+      result !== null &&
+      !result.pdfViewer &&
+      (hasNothingToClip(result) ||
+        readableChars(result.markdown) < THIN_PAGE_CHARS);
     // The page is still read when unconfigured — the preview is harmless and
     // shows what Settings would unlock — but the phase stays blocked on the
     // Settings instruction however far the extraction gets.
@@ -914,7 +1018,9 @@ async function main(): Promise<void> {
         ? { text: m.settingsFirst, error: true }
         : refusal === null
           ? problem
-          : { text: refusal, error: true },
+          : // An empty page that can be kept as a site is not an error: it is
+            // the page a site is for, and the sentence says so.
+            { text: refusal, error: !(empty && siteSave !== null) },
       clippedOn: clippedAt === null ? null : formatClipDate(locale, clippedAt),
       updated: saved?.updated ?? false,
       source: source?.kind ?? null,
@@ -940,6 +1046,11 @@ async function main(): Promise<void> {
       capture,
       captured,
       uploading,
+      // Not over a commit, nor for a tab whose PDF is all there is to picture.
+      site: committing || result?.pdfViewer === true ? null : siteSave,
+      thin,
+      siteSavedOn:
+        siteSavedAt === null ? null : formatClipDate(locale, siteSavedAt),
     };
     apply(popupView(state, m));
   }
@@ -1337,8 +1448,22 @@ async function main(): Promise<void> {
           vault: vaultFileUrl(config, `articles/${slug}/index.md`),
         };
       }
+      // A site of this page, by the same local record, under its own name.
+      siteSavedAt = await lastClippedAt(config, siteRef(slug));
     } catch {
       clippedAt = null;
+    }
+    if (configured) {
+      siteSave = {
+        step: "offered",
+        vault: `${config.owner}/${config.repo}`,
+        existing: false,
+        shot: null,
+        description: null,
+        problem: null,
+        links: null,
+        updated: false,
+      };
     }
     source = fetchableSource(tabUrl, m);
     if (source === null) {
@@ -1368,6 +1493,7 @@ async function main(): Promise<void> {
       result === null ||
       committing ||
       removalHolds() ||
+      siteHolds() ||
       hasNothingToClip(result)
     ) {
       return;
@@ -1740,8 +1866,14 @@ async function main(): Promise<void> {
   /** Where a removal ends with the article not in the vault — removed now, or
    * already gone. This machine stops calling it clipped either way. */
   async function forgetRemoved(slug: string): Promise<void> {
-    clippedAt = null;
-    previousLinks = null;
+    // A site's record is its own (ADR 0055): removing it says nothing about
+    // the article of the same page.
+    if (parseMemberRef(slug).kind === "site") {
+      siteSavedAt = null;
+    } else {
+      clippedAt = null;
+      previousLinks = null;
+    }
     try {
       await forgetClip(config, slug);
     } catch {
@@ -1795,7 +1927,8 @@ async function main(): Promise<void> {
       leadRepair === null ||
       leadRepair.step === "adding" ||
       committing ||
-      removalHolds()
+      removalHolds() ||
+      siteHolds()
     ) {
       return;
     }
@@ -1827,6 +1960,227 @@ async function main(): Promise<void> {
         };
       }
       render();
+    })();
+  });
+
+  /**
+   * A picture of the tab as it is now, for a site (ADR 0055). Taken while
+   * the tab is still the one the popup opened on, and taken first — before
+   * anything else is asked of the page — so it is what the reader saw.
+   */
+  async function takeScreenshot(): Promise<
+    { ok: true; shot: SiteShot; url: string } | { ok: false; problem: string }
+  > {
+    let current: chrome.tabs.Tab;
+    try {
+      current = await chrome.tabs.get(tabId);
+    } catch {
+      return { ok: false, problem: m.siteShotFailed };
+    }
+    // The page's own address may have moved on in place — a map writes its
+    // view into the URL as it is used — so the site is filed under where the
+    // tab is now, as long as that is still a web page.
+    const url = current.url ?? "";
+    if (!current.active || !/^https?:/.test(url)) {
+      return { ok: false, problem: m.siteShotFailed };
+    }
+    let dataUrl: string | null = null;
+    for (let attempt = 0; attempt < 2 && dataUrl === null; attempt++) {
+      try {
+        dataUrl = await chrome.tabs.captureVisibleTab(current.windowId, {
+          format: "png",
+        });
+      } catch {
+        // Most likely the per-second quota; one wait covers it.
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    if (dataUrl === null) return { ok: false, problem: m.siteShotFailed };
+    try {
+      const encoded = await encodeScreenshot(dataUrl);
+      if (!encoded.ok) {
+        return {
+          ok: false,
+          problem:
+            encoded.refusal === "blank" ? m.siteShotBlank : m.siteShotFailed,
+        };
+      }
+      return {
+        ok: true,
+        shot: { id: await snapshotId(encoded.bytes), bytes: encoded.bytes },
+        url,
+      };
+    } catch {
+      return { ok: false, problem: m.siteShotFailed };
+    }
+  }
+
+  /** Revoked when the picture is replaced or the popup goes. */
+  let siteShotObjectUrl: string | null = null;
+  addEventListener("pagehide", () => {
+    if (siteShotObjectUrl !== null) URL.revokeObjectURL(siteShotObjectUrl);
+  });
+
+  el.siteOffer.addEventListener("click", () => {
+    const payload = result;
+    if (
+      siteSave === null ||
+      siteHolds() ||
+      payload === null ||
+      committing ||
+      removalHolds()
+    ) {
+      return;
+    }
+    const base = siteSave;
+    void (async () => {
+      siteSave = { ...base, step: "capturing", problem: null };
+      render();
+      const taken = await takeScreenshot();
+      if (!taken.ok) {
+        siteSave = { ...base, step: "failed", problem: taken.problem };
+        render();
+        return;
+      }
+      siteShot = taken.shot;
+      siteShotUrl = taken.url;
+      if (siteShotObjectUrl !== null) URL.revokeObjectURL(siteShotObjectUrl);
+      siteShotObjectUrl = URL.createObjectURL(
+        new Blob([taken.shot.bytes as Uint8Array<ArrayBuffer>], {
+          type: "image/webp",
+        }),
+      );
+      // Asked only now, by the reader's own act: the vault's copy of this
+      // site holds the note they wrote before, which a save would otherwise
+      // replace unseen. So a lookup that fails is a failure, not an empty
+      // note: the picture goes, and the button is the retry.
+      let found: Awaited<ReturnType<typeof lookupSite>>;
+      try {
+        found = await lookupSite(config, taken.url);
+      } catch (error) {
+        console.error("site lookup failed:", error);
+        siteShot = null;
+        siteShotUrl = null;
+        siteSave = {
+          ...base,
+          step: "failed",
+          problem: describeClipError(error, m),
+        };
+        render();
+        return;
+      }
+      el.siteTitle.value = payload.title;
+      el.siteNote.value = found?.note ?? "";
+      const description = payload.description?.trim() ?? "";
+      siteSave = {
+        ...base,
+        step: "form",
+        existing: found !== null,
+        shot: siteShotObjectUrl,
+        description: description === "" ? null : description,
+        problem: null,
+      };
+      render();
+      el.siteNote.focus();
+    })();
+  });
+
+  el.siteCancel.addEventListener("click", () => {
+    if (siteSave === null || siteSave.step === "saving") return;
+    siteShot = null;
+    siteShotUrl = null;
+    siteSave = {
+      ...siteSave,
+      step: "offered",
+      existing: false,
+      shot: null,
+      description: null,
+      problem: null,
+    };
+    render();
+    el.siteOffer.focus();
+  });
+
+  el.siteSave.addEventListener("click", () => {
+    const payload = result;
+    const shot = siteShot;
+    const url = siteShotUrl;
+    if (
+      siteSave === null ||
+      (siteSave.step !== "form" && siteSave.step !== "failed") ||
+      shot === null ||
+      url === null ||
+      payload === null
+    ) {
+      return;
+    }
+    const base = siteSave;
+    const title = el.siteTitle.value;
+    const note = el.siteNote.value;
+    const commit = bodyCommit;
+    siteSave = { ...base, step: "saving", problem: null };
+    render();
+    // A popup closed mid-save says so on the toolbar, as a clip's does.
+    const watch = reportClip(
+      () => chrome.runtime.connect({ name: CLIP_PORT }),
+      tabId,
+    );
+    watch.stage("committing");
+    void (async () => {
+      let inVault = false;
+      const nowIso = new Date().toISOString();
+      try {
+        const { file, updated } = await commitSite(
+          config,
+          {
+            url,
+            title,
+            ...(payload.description !== undefined
+              ? { description: payload.description }
+              : {}),
+            note,
+            markdown: payload.pdfViewer ? "" : payload.markdown,
+            clippedAt: nowIso,
+            clipperVersion: chrome.runtime.getManifest().version,
+            clipperCommit: commit,
+          },
+          shot,
+        );
+        inVault = true;
+        watch.saved();
+        const ref = siteRef(file.slug);
+        siteSave = {
+          ...base,
+          step: "saved",
+          updated,
+          problem: null,
+          links: {
+            site: siteUrl(homepage ?? "https://tiro.ainaive.com/", file.slug),
+            vault: vaultFileUrl(config, file.path),
+          },
+        };
+        siteSavedAt = nowIso;
+        // Remove, and the collections, act on the site from here.
+        clippedSlug = ref;
+        offerRemoval(ref);
+        render();
+        try {
+          await recordClip(config, ref, nowIso);
+        } catch {
+          // Saved already; losing the hint must not relabel it failed.
+        }
+        void offerClipCollections(ref);
+      } catch (error) {
+        console.error("saving the site failed:", error);
+        siteSave = {
+          ...base,
+          step: "failed",
+          problem: describeClipError(error, m),
+        };
+        render();
+      } finally {
+        if (!inVault) watch.failed();
+      }
     })();
   });
 

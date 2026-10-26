@@ -219,7 +219,10 @@ export function collectionsView(
   );
   return {
     label,
-    intro: m.tiroArticleIntro,
+    // A saved site's page names it `sites/<slug>` (ADR 0055).
+    intro: s.page.slug.startsWith("sites/")
+      ? m.tiroSavedSiteIntro
+      : m.tiroArticleIntro,
     rows,
     locked: remove.active,
     footer,

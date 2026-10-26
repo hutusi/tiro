@@ -526,8 +526,14 @@ export async function saveCapturePictures(on: boolean): Promise<void> {
  *
  * 8: "Add missing lead" (ADR 0053) reads an article already in the repository
  * and commits the page's dek and lead picture into it. Same destination, no
- * new permission; bumped because 7 has shipped (0.17.0) without it. */
-export const DISCLOSURE_VERSION = 8;
+ * new permission; bumped because 7 has shipped (0.17.0) without it.
+ *
+ * 9: "Save as site" (ADR 0055) keeps a picture of the whole visible tab — not
+ * a figure the page drew, as 7 described, but whatever the window shows — and
+ * commits it with a note the reader types; the vault's processor then sends
+ * that note and the page's text to the model provider. New kinds of data on a
+ * known path; bumped because 8 has shipped (0.18.0). */
+export const DISCLOSURE_VERSION = 9;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */

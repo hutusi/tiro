@@ -426,6 +426,108 @@ export function fixtures(m: Messages): Record<string, PopupState> {
       gated: true,
       fetchOffered: true,
     },
+    ...siteFixtures(m),
+  };
+}
+
+/** A stand-in screenshot for the site form: the real one is a blob made from
+ * the tab, which a fixture has no tab to make. */
+const SITE_SHOT = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="#dfe8ee"/><path d="M40 30 C100 50 120 20 180 40 S280 30 300 60 L310 110 C250 100 200 130 150 115 S60 100 30 80 Z" fill="#e9dfc4" stroke="#8a7a55"/><g fill="#9b2c2c"><circle cx="100" cy="64" r="5"/><circle cx="165" cy="80" r="5"/><circle cx="220" cy="58" r="5"/></g><rect y="180" width="320" height="20" fill="#33302b"/></svg>',
+)}`;
+
+/** Save as site (ADR 0055), at one step: `?state=site-form` and friends. */
+function siteFixtures(m: Messages): Record<string, PopupState> {
+  const map = {
+    title: "Battles of the Roman Republic",
+    host: "iosiflazaridis.github.io",
+    words: 38,
+    minutes: 1,
+    excerpt: "",
+    readabilityFailed: true,
+    fromFetch: false,
+  };
+  const site: NonNullable<PopupState["site"]> = {
+    step: "offered",
+    vault: "hutusi/tiro-vault",
+    existing: false,
+    shot: null,
+    description: null,
+    problem: null,
+    links: null,
+    updated: false,
+  };
+  const form = {
+    ...site,
+    step: "form" as const,
+    shot: SITE_SHOT,
+    description:
+      "An interactive map of the battles Rome fought, with a timeline you can scrub.",
+  };
+  const siteLinks = {
+    site: "https://tiro.ainaive.com/sites/iosiflazaridis-github-io-battles-of-the-romans-7c1d2e4f/",
+    vault:
+      "https://github.com/hutusi/tiro-vault/blob/main/sites/iosiflazaridis-github-io-battles-of-the-romans-7c1d2e4f/index.md",
+  };
+  return {
+    /** An ordinary page: Save as site beside a primary Clip. */
+    "site-offer": { ...base, site },
+    /** Little text: the site leads. */
+    "thin-page": { ...base, preview: map, site, thin: true },
+    /** Nothing to clip at all: once a dead end, now the offer. */
+    "nothing-to-clip-site": {
+      ...base,
+      phase: "blocked",
+      preview: null,
+      problem: { text: m.nothingToClipSite, error: false },
+      site,
+      thin: true,
+    },
+    "site-capturing": {
+      ...base,
+      preview: map,
+      site: { ...site, step: "capturing" },
+      thin: true,
+    },
+    "site-form": { ...base, preview: map, site: form, thin: true },
+    "site-form-existing": {
+      ...base,
+      preview: map,
+      site: { ...form, existing: true },
+      thin: true,
+    },
+    "site-saving": {
+      ...base,
+      preview: map,
+      site: { ...form, step: "saving" },
+      thin: true,
+    },
+    "site-saved": {
+      ...base,
+      preview: map,
+      site: { ...form, step: "saved", links: siteLinks },
+      removal: removal("offered", { kind: "site" }),
+      thin: true,
+    },
+    "site-failed": {
+      ...base,
+      preview: map,
+      site: { ...form, step: "failed", problem: m.errNetwork },
+      thin: true,
+    },
+    "site-blank": {
+      ...base,
+      preview: map,
+      site: { ...site, step: "failed", problem: m.siteShotBlank },
+      thin: true,
+    },
+    "site-saved-before": {
+      ...base,
+      preview: map,
+      site,
+      thin: true,
+      siteSavedOn: "Oct 20",
+    },
   };
 }
 

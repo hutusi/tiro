@@ -44,7 +44,12 @@
         its place in your collections — in one commit. “Add missing lead”,
         offered on a page you clipped before, reads that article from the same
         repository and commits into it only the dek and lead picture at the top
-        of the page, leaving the rest as it was. Your token and settings
+        of the page, leaving the rest as it was. “Save as site” keeps a picture
+        of the part of the tab you can see — whatever the window shows — and,
+        with the page's title, its description and the note you type, commits
+        them to the same repository; the processor in your repository later
+        sends that text and your note to the language model your repository is
+        set up with, to write the site's introduction. Your token and settings
         stay on this machine unless you turn on settings sync, which lets
         Chrome copy them to your other devices.
       </p>
@@ -74,6 +79,30 @@
         Read in your browser to build this preview. Nothing is sent to your
         vault until you clip.
       </p>
+    </section>
+
+    <!-- Save as site (ADR 0055): the page kept as a picture, its title and
+      the reader's note, in place of the article preview while it is open. -->
+    <p id="site-status" data-tone="neutral" aria-live="polite" hidden></p>
+    <section id="site" aria-label="Save as site" hidden>
+      <img id="site-shot" alt="" hidden />
+      <p id="site-description" class="note" hidden></p>
+      <label class="field">
+        <span id="site-title-label">Title</span>
+        <input id="site-title" type="text" maxlength="300" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span id="site-note-label">Why keep it? (optional)</span>
+        <textarea id="site-note" rows="3" maxlength="2000"></textarea>
+      </label>
+      <div class="actions">
+        <button id="site-cancel" type="button" class="btn btn-secondary">
+          Cancel
+        </button>
+        <button id="site-save" type="button" class="btn btn-primary">
+          Save site
+        </button>
+      </div>
     </section>
 
     <div id="progress" hidden aria-live="polite">
@@ -157,6 +186,9 @@
       </button>
       <button id="lead-offer" type="button" class="btn btn-secondary" hidden>
         Add missing lead
+      </button>
+      <button id="site-offer" type="button" class="btn btn-secondary" hidden>
+        Save as site
       </button>
       <button id="clip" type="button" class="btn btn-primary" disabled>
         Clip to vault

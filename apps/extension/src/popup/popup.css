@@ -374,3 +374,84 @@ body {
 #lead-status[data-tone="neutral"] {
   color: var(--ink-soft);
 }
+
+/* ---------------------------------------------- save as site (ADR 0055) */
+
+#site {
+  margin-top: 4px;
+}
+/* The whole picture, uncropped: it is exactly what is about to be saved. A
+   very tall window is held to a height the popup can show. */
+#site-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: contain;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--wash);
+}
+#site-shot[hidden],
+#site-description[hidden] {
+  display: none;
+}
+#site-description {
+  margin-top: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#site .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+#site .field > span {
+  margin-bottom: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+#site input,
+#site textarea {
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+/* The text field's look from tokens.css, which styles `input` and `select`
+   and not this. */
+#site textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  resize: vertical;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+}
+#site textarea:focus-visible {
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+#site input:disabled,
+#site textarea:disabled,
+#site .btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#site-status {
+  margin: 4px 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+#site-status[data-tone="neutral"] {
+  color: var(--ink-soft);
+}
+#site-offer:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
