@@ -166,17 +166,32 @@ export async function loadVaultConfig(vaultDir: string): Promise<TiroConfig> {
  * beside a cut `summary` — accepted, because the alternative breaks the one
  * thing that ADR promises about them.
  *
+ * An excerpt — this run's reply unusable, so `fromExcerpt` — never replaces a
+ * summary at all, whatever their lengths. The ellipsis cannot be relied on to
+ * say so: only an excerpt cut at 300 characters carries one, and a short
+ * paragraph, or a saved site's description (ADR 0055), ends like a sentence.
+ * A site measured it: its two-sentence Chinese introduction lost, on a failed
+ * forced rerun, to its longer English description.
+ *
+ * The translated title is kept with the summary it came with, for the same
+ * reason as `summary_orig`: this run has none to offer in its place.
+ *
  * `summary_failed` stays set either way. The article still needs a human look,
  * and the log line below is what tells this route from the other two.
  */
 function keepBetterSummary(
   produced: SummaryResult,
-  frontmatter: { summary?: string; summary_orig?: string },
+  frontmatter: { summary?: string; summary_orig?: string; title_zh?: string },
   log: (line: string) => void,
 ): SummaryResult {
   const existing = frontmatter.summary?.trim() ?? "";
   if (existing === "") return produced;
-  if (!isBetterSummary(existing, produced.summary.trim())) return produced;
+  if (
+    produced.fromExcerpt !== true &&
+    !isBetterSummary(existing, produced.summary.trim())
+  ) {
+    return produced;
+  }
   log(
     `summary would have regressed; keeping the existing one (${existing.length} chars, was offered ${produced.summary.trim().length})`,
   );
@@ -184,6 +199,9 @@ function keepBetterSummary(
     ...produced,
     summary: existing,
     summaryOrig: frontmatter.summary_orig,
+    ...(produced.titleZh === undefined && frontmatter.title_zh !== undefined
+      ? { titleZh: frontmatter.title_zh }
+      : {}),
   };
 }
 

@@ -277,6 +277,29 @@ describe("processing a saved site", () => {
   });
 });
 
+describe("a failed forced rerun of a site", () => {
+  // The reply is unusable, so the fallback is the page's description: English,
+  // longer than the two-sentence introduction, and ending like a sentence —
+  // so length and punctuation alone would have let it win.
+  test("keeps the introduction and the translated title it already had", async () => {
+    const vault = freshVault();
+    const dir = join(vault, "sites", FIXTURE_SITE);
+    const before = readSite(dir).frontmatter;
+    const report = await runPipeline(
+      { vaultDir: vault, slug: `sites/${FIXTURE_SITE}`, force: true },
+      await loadVaultConfig(vault),
+      { ...deps, chat: async () => "not json" },
+    );
+    expect(report.summaryFailed).toEqual([`sites/${FIXTURE_SITE}`]);
+    const after = readSite(dir).frontmatter;
+    expect(after.summary).toBe(before.summary);
+    expect(after.title_zh).toBe(before.title_zh);
+    expect(after.tags).toEqual(before.tags);
+    expect(after.tiro.summary_failed).toBe(true);
+    rmSync(vault, { recursive: true, force: true });
+  });
+});
+
 describe("discoverSites", () => {
   test("no sites directory is no sites", async () => {
     const vault = freshVault();
