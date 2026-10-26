@@ -110,6 +110,24 @@ export async function buildSiteFile(
   };
 }
 
+/**
+ * Whether the tab still shows the page the popup read, by the vault's own
+ * identity rule: the normalized URL. A view's fragment, a tracking parameter
+ * or a trailing slash is the same page — a map writes its view into the
+ * address as it is used — and the picture can be filed under the address as
+ * it is now. A different path or host is another page, and saving it with
+ * what was read from the first would put one page's title, description and
+ * text under the other's URL: a redirect, or a single-page app's navigation,
+ * while the popup was open.
+ */
+export function samePage(read: string, now: string): boolean {
+  try {
+    return normalizeUrl(read) === normalizeUrl(now);
+  } catch {
+    return false;
+  }
+}
+
 /** What the vault already holds as this page's site: enough to say a save
  * updates it, and to offer its note again — the one thing a re-save cannot
  * regenerate. */

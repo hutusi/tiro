@@ -67,7 +67,12 @@ import {
 } from "../messages.ts";
 import { lookupArticle, removeArticle } from "../remove-article.ts";
 import { restoreLead } from "../restore-lead.ts";
-import { commitSite, lookupSite, type SiteShot } from "../site-commit.ts";
+import {
+  commitSite,
+  lookupSite,
+  type SiteShot,
+  samePage,
+} from "../site-commit.ts";
 import {
   acceptDisclosure,
   type FlushStatus,
@@ -593,6 +598,10 @@ async function main(): Promise<void> {
   let siteShot: SiteShot | null = null;
   /** The tab's address when the picture was taken: the page it shows. */
   let siteShotUrl: string | null = null;
+  /** The page as the popup read it, pinned with the picture: the save takes
+   * its title, description and text from here, never from a body that
+   * arrived after the picture was checked against it. */
+  let sitePayload: ClipResultMessage["payload"] | null = null;
   /** This machine saved the page as a site before — the local record, like
    * `clippedAt` for an article. */
   let siteSavedAt: string | null = null;
@@ -1969,8 +1978,13 @@ async function main(): Promise<void> {
    * A picture of the tab as it is now, for a site (ADR 0055). Taken while
    * the tab is still the one the popup opened on, and taken first — before
    * anything else is asked of the page — so it is what the reader saw.
+   *
+   * Only while the tab still shows `read`, the page the popup read: a view's
+   * fragment may have moved, another page may not (`samePage`).
    */
-  async function takeScreenshot(): Promise<
+  async function takeScreenshot(
+    read: string,
+  ): Promise<
     { ok: true; shot: SiteShot; url: string } | { ok: false; problem: string }
   > {
     let current: chrome.tabs.Tab;
@@ -1981,11 +1995,14 @@ async function main(): Promise<void> {
     }
     // The page's own address may have moved on in place — a map writes its
     // view into the URL as it is used — so the site is filed under where the
-    // tab is now, as long as that is still a web page.
+    // tab is now, as long as that is still a web page and still the page
+    // that was read. Asked before the picture, so another page is never
+    // taken at all.
     const url = current.url ?? "";
     if (!current.active || !/^https?:/.test(url)) {
       return { ok: false, problem: m.siteShotFailed };
     }
+    if (!samePage(read, url)) return { ok: false, problem: m.siteMoved };
     let dataUrl: string | null = null;
     for (let attempt = 0; attempt < 2 && dataUrl === null; attempt++) {
       try {
@@ -2038,7 +2055,7 @@ async function main(): Promise<void> {
     void (async () => {
       siteSave = { ...base, step: "capturing", problem: null };
       render();
-      const taken = await takeScreenshot();
+      const taken = await takeScreenshot(payload.url);
       if (!taken.ok) {
         siteSave = { ...base, step: "failed", problem: taken.problem };
         render();
@@ -2046,6 +2063,7 @@ async function main(): Promise<void> {
       }
       siteShot = taken.shot;
       siteShotUrl = taken.url;
+      sitePayload = payload;
       if (siteShotObjectUrl !== null) URL.revokeObjectURL(siteShotObjectUrl);
       siteShotObjectUrl = URL.createObjectURL(
         new Blob([taken.shot.bytes as Uint8Array<ArrayBuffer>], {
@@ -2063,6 +2081,7 @@ async function main(): Promise<void> {
         console.error("site lookup failed:", error);
         siteShot = null;
         siteShotUrl = null;
+        sitePayload = null;
         siteSave = {
           ...base,
           step: "failed",
@@ -2091,6 +2110,7 @@ async function main(): Promise<void> {
     if (siteSave === null || siteSave.step === "saving") return;
     siteShot = null;
     siteShotUrl = null;
+    sitePayload = null;
     siteSave = {
       ...siteSave,
       step: "offered",
@@ -2104,7 +2124,7 @@ async function main(): Promise<void> {
   });
 
   el.siteSave.addEventListener("click", () => {
-    const payload = result;
+    const payload = sitePayload;
     const shot = siteShot;
     const url = siteShotUrl;
     if (

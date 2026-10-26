@@ -1369,7 +1369,9 @@ can be both; the Tiro site lists sites at `/sites/`.
   picture, an account name included.
 - **The address is kept exactly.** The site is filed under the normalized URL;
   the address the tab showed — a map's `#view` included — is
-  `tiro.source_url`, and "打开网站" goes there.
+  `tiro.source_url`, and "打开网站" goes there. A tab that has gone to another
+  page since the popup read it — a redirect, an app's own navigation — is
+  refused rather than saved with the first page's title and text: reopen Tiro.
 - **Re-saving** replaces the picture and the note with what the form holds;
   `unlisted` carries over. The processor prunes the old picture, and a
   collection cover that named it moves to the new one in the save's commit.

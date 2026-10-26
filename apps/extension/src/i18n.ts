@@ -423,6 +423,9 @@ const en = {
     "The page looks blank — wait for it to finish drawing, then try again.",
   siteShotFailed:
     "Could not take a picture of the page. Keep this tab in front and try again.",
+  /** The tab went to another page after the popup read it. */
+  siteMoved:
+    "This tab has moved to another page since Tiro read it. Reopen Tiro to save the page it shows now.",
   labelSiteForm: "Save as site",
   labelSiteCapturing: "Capturing…",
   // Remove, when what it would remove is a saved site rather than an article.
@@ -742,6 +745,8 @@ const zh: Messages = {
   siteSavedOn: (date: string) => `已于 ${date} 保存为网站。`,
   siteShotBlank: "页面看起来是空白的，请等它绘制完成后再试。",
   siteShotFailed: "无法截取页面画面。请保持这个标签页在最前面，然后重试。",
+  siteMoved:
+    "读取之后，这个标签页已经跳转到了另一个页面。请重新打开 Tiro，再保存它现在显示的页面。",
   labelSiteForm: "保存为网站",
   labelSiteCapturing: "截取中…",
   removeSiteOfferHint: "从你的仓库移除这个保存的网站",

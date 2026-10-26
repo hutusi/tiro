@@ -104,7 +104,10 @@ it may be empty.
   picture is a new name.
 - **`tiro.source_url` keeps the view.** `normalizeUrl` drops the fragment, and
   a single-page app often keeps its state there. Identity follows the
-  normalized URL; "open site" goes to the address that was saved.
+  normalized URL; "open site" goes to the address that was saved. The tab
+  may move within that identity between the read and the picture, never
+  out of it: a different normalized URL is another page, and its picture
+  would be filed with the first page's title and text.
 - **The note is the owner's**, typed in the popup. It is the one field a person
   writes that is not in a collection, and it is safe where it is: the
   processor only ever rewrites a site to add what it derives, and round-trips

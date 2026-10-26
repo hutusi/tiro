@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { parseCollection, parseSite, slugForUrl } from "@tiro/shared";
-import { buildSiteFile, commitSite, lookupSite } from "../src/site-commit.ts";
+import {
+  buildSiteFile,
+  commitSite,
+  lookupSite,
+  samePage,
+} from "../src/site-commit.ts";
 import type { TiroExtensionConfig } from "../src/storage.ts";
 import { fakeGitHub } from "./fake-github.ts";
 
@@ -183,5 +188,35 @@ describe("commitSite, and a cover that is the site's picture", () => {
     });
     await commitSite(config, site, SHOT, gh.fetch);
     expect(gh.files().get("collections/maps.md")).toBe(collection);
+  });
+});
+
+describe("samePage", () => {
+  // A map writes its view into the address as it is used; that is the same
+  // page, and the picture may be filed under the address as it is now.
+  test("a moved fragment, a tracking parameter or a trailing slash is the same page", () => {
+    const read = "https://maps.example.org/roman-battles";
+    expect(samePage(read, `${read}/#year=-216`)).toBe(true);
+    expect(samePage(read, `${read}?utm_source=x`)).toBe(true);
+  });
+
+  // A redirect or a single-page app's navigation while the popup was open:
+  // saving would put one page's title and text under the other's URL.
+  test("another path or host is another page", () => {
+    const read = "https://maps.example.org/old-page";
+    expect(samePage(read, "https://maps.example.org/new-page")).toBe(false);
+    expect(samePage(read, "https://other.example.org/old-page")).toBe(false);
+    expect(samePage(read, "not a url")).toBe(false);
+  });
+
+  // A paper's forms are one identity (ADR 0013), so a body fetched from its
+  // HTML full text still matches the tab on its abstract or PDF.
+  test("follows the publisher's identity rule", () => {
+    expect(
+      samePage(
+        "https://arxiv.org/html/2404.19756v1",
+        "https://arxiv.org/abs/2404.19756",
+      ),
+    ).toBe(true);
   });
 });
