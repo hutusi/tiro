@@ -21,7 +21,8 @@ versions follow the `0.x` line while Tiro is a personal system.
   gets it without a re-clip: the popup's "Add missing lead" on a page clipped
   before, or `sweep --fill-leads` and `--dek-from-excerpt` offline. Only the
   missing dek and picture are inserted, and the next run translates them and
-  keeps the summary (`tiro.refresh: translation`).
+  keeps the summary (`tiro.refresh: translation`). The data disclosure moves
+  to version 8, so every install accepts it once more.
 
 ### Fixed
 

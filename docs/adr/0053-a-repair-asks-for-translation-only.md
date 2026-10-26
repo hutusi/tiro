@@ -91,7 +91,8 @@ stacked, as it shows a re-clip (ADR 0003).
     than overwritten, and if that commit already added the lead, nothing is
     written.
   - This is the way for pages only the reader's browser can see.
-  - The privacy disclosure names it.
+  - The privacy disclosure names it, at version 8: version 7 had shipped
+    without it.
 - **`sweep --fill-leads`**, over saved pages (`--pages`, or the cache).
   - It clips each page as today's clipper clips it and offers only the lead.
   - It is a report until `--write`.

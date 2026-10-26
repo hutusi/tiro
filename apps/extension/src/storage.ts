@@ -522,8 +522,12 @@ export async function saveCapturePictures(on: boolean): Promise<void> {
  * of page data, so it is disclosed; folded into 7 rather than bumped to 8
  * because 7 has not been released (0.16.0 asks for 6), the same reasoning that
  * folded Remove into 6. Reworded, still as 7, by ADR 0045 before any release:
- * Clip itself takes the pictures, unless the reader unticks the box. */
-export const DISCLOSURE_VERSION = 7;
+ * Clip itself takes the pictures, unless the reader unticks the box.
+ *
+ * 8: "Add missing lead" (ADR 0053) reads an article already in the repository
+ * and commits the page's dek and lead picture into it. Same destination, no
+ * new permission; bumped because 7 has shipped (0.17.0) without it. */
+export const DISCLOSURE_VERSION = 8;
 
 export interface DisclosureState {
   /** Highest disclosure version the user has accepted; 0 if never. */

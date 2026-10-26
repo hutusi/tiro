@@ -55,6 +55,10 @@ across machines, not for an audience.
 >   button files an article into your collections instead. The change is
 >   committed to the same repository when you close the popup, and only for an
 >   article your repository already holds.
+> - Fill in what an older clip missed: on a page you clipped before, "Add
+>   missing lead" adds only the dek and lead picture at the top of the page to
+>   the article in your repository, when the clip had left them out. The rest
+>   of the article stays as it was.
 > - Change your mind: "Remove", at the foot of the popup on a page you clipped
 >   or on its Tiro page, deletes the article from your repository — its files, and its
 >   place in your collections — in one commit, once you confirm. Your
@@ -92,7 +96,7 @@ across machines, not for an audience.
 | `contextMenus` | Adds one item, "Clip link to Tiro", to the right-click menu on links. Choosing it saves that link's address into the user's own repository, so the page can be clipped later without being opened. It reads nothing from the page the link is on, and sends only the address, only on that click. Chrome shows no install warning for this permission. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. Before that, on the same click, it runs a two-line function that looks for the marker a Tiro site publishes, so the popup can offer collections instead of a clip on a page carrying that marker — on any domain; it does not check whose site it is. Both are bundled with the extension; nothing is fetched or evaluated at runtime. |
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus whether Clip saves a page's drawn figures as pictures, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup, plus collection changes not yet saved to the repository and the outcome of the last save (kept briefly after saving, at most a week, never synced). Removing an article from the popup deletes its entry from the clip record. Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
-| `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. Collection edits go to the same repository with the same token through the Git Data API, so several collection files change in one commit; once a clip is saved, the popup also reads the repository's collection files from there, to list them under it. So does removing an article, which the user confirms in the popup: its files are deleted and it is taken out of their collections, in one commit. |
+| `https://api.github.com/*` | The destination the clip is committed to, via the GitHub Contents API, using the user's own token. Collection edits go to the same repository with the same token through the Git Data API, so several collection files change in one commit; once a clip is saved, the popup also reads the repository's collection files from there, to list them under it. So does removing an article, which the user confirms in the popup: its files are deleted and it is taken out of their collections, in one commit. "Add missing lead" reads an article the user clipped before from the same repository through the Contents API and commits it back with the page's dek and lead picture added at the top. |
 | `https://arxiv.org/*` (optional) | Fetches a paper's HTML full text (`arxiv.org/html/<id>`) when the user clips an arXiv page. Tiro treats a paper's abstract, PDF and HTML addresses as one article, so it reads the full text rather than whichever of the three the tab happens to show — the PDF address in particular has no readable text at all. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it, and revoking it returns the extension to clipping the current tab — except at a paper's PDF address, which holds no readable text for it to clip. |
 | `https://raw.githubusercontent.com/*` (optional) | Fetches a Markdown file's own bytes when the user clips a `github.com` page showing one. The tab shows GitHub's rendering of the file — its chrome, its heading anchors, its emoji images — and committing that as the article's text would store a copy of the page rather than the file the user pointed at. Declared as an *optional* host permission and requested from the user's own click, so it is never held unless the user grants it. Revoking it does not degrade the clip silently: on a GitHub file page the extension declines and names the file's direct address to open instead, which needs no permission at all. Not needed to clip a Markdown file served as plain text anywhere, including `raw.githubusercontent.com` itself — the tab already holds the file. |
 
@@ -134,8 +138,9 @@ repository — a declaration that reads narrower than the code is a rejection.
   clipped, but a use of its address all the same, so declared. The same holds
   for a collection ticked in the popup right after a clip, which files the
   article just committed. Removing an
-  article sends its slug to the same repository, as the paths it deletes. The
-  same
+  article sends its slug to the same repository, as the paths it deletes, and
+  adding a missing lead reads and writes the article at the slug derived from
+  the page's URL. The same
   declaration covers both optional fetches: requesting
   `arxiv.org/html/<id>` tells that site which paper is being read, and requesting
   a file from `raw.githubusercontent.com` tells GitHub which file is being read,
@@ -152,7 +157,10 @@ repository — a declaration that reads narrower than the code is a rejection.
   GitHub repository. On a page whose figures its own script draws, pressing
   "Clip to vault" takes pictures of parts of the page — each figure its script
   draws — too, unless the user unticks "Save figures as pictures", and they are
-  transmitted the same way, with the clip, to the same repository. The same declaration is stretched to cover a PDF the user
+  transmitted the same way, with the clip, to the same repository. "Add missing
+  lead" transmits part of a page — its dek and lead picture's address and
+  caption — to the same repository, into an article clipped from it before,
+  only when the user presses it. The same declaration is stretched to cover a PDF the user
   imports from their own computer, whose text the extension reads in the page
   and commits the same way. That file is not website content and Google
   publishes no category that fits it, so it is declared here rather than left
@@ -163,7 +171,7 @@ repository — a declaration that reads narrower than the code is a rejection.
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 7, having been bumped when the disclosure
+this disclosure ever changes; it is at 8, having been bumped when the disclosure
 gained the optional arxiv.org fetch, again when it gained opt-in settings sync,
 again when it gained the raw.githubusercontent.com fetch, again when
 collections made the popup keep a change after it closes — which falsified the
@@ -176,7 +184,9 @@ the popup began offering collections under a saved clip: 6 had shipped saying
 collection changes are made on a Tiro site, and they now are on any page just
 clipped. Version 7 also names the pictures of parts of the page that "Clip to
 vault" takes on a page whose figures its script draws; 7 had not been released,
-so it joined 7 rather than bumping to 8.
+so it joined 7 rather than bumping to 8. Version 8 came with "Add missing lead",
+which reads an article already in the repository and commits the page's dek and
+lead picture into it: 7 had shipped (0.17.0) without it.
 
 Required certifications, all true of this extension:
 
@@ -185,7 +195,9 @@ Required certifications, all true of this extension:
   single purpose. (Transfers at the user's direction, each of them the single
   purpose: the clip itself, to GitHub; a collection change, to the same
   repository; a link's address saved from the context menu, to the same
-  repository; a removal the user confirms, to the same repository; and — only once the user has granted the matching optional
+  repository; a removal the user confirms, to the same repository; a missing
+  lead the user adds to an article clipped before, to the same repository; and
+  — only once the user has granted the matching optional
   permission — the request to arxiv.org that fetches the paper being clipped,
   or to raw.githubusercontent.com for the markdown file being clipped, each of
   which tells that site which document it is.)
