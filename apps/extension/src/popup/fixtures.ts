@@ -528,7 +528,7 @@ export function collectionFixtures(
       syncing: false,
       report: null,
     },
-    site: { page: { kind: "site" }, queue: [], ...idle },
+    site: { page: { kind: "tiro" }, queue: [], ...idle },
     "not-recorded": { page: article, queue: pending, ...idle, unrecorded: 1 },
     "save-unreachable": {
       page: article,

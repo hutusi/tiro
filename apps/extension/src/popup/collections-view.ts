@@ -163,10 +163,10 @@ export function collectionsView(
   m: Messages,
 ): CollectionsView {
   const footer = collectionsFooter(s, m);
-  const siteLabel = { text: m.labelTiroPage, tone: "neutral" as const };
-  if (s.page.kind === "site") {
+  const tiroLabel = { text: m.labelTiroPage, tone: "neutral" as const };
+  if (s.page.kind === "tiro") {
     return {
-      label: siteLabel,
+      label: tiroLabel,
       intro: m.tiroSiteIntro,
       rows: null,
       locked: false,
@@ -175,7 +175,7 @@ export function collectionsView(
     };
   }
   const remove = removalView(s.removal, m);
-  const label = remove.label ?? siteLabel;
+  const label = remove.label ?? tiroLabel;
   if (remove.settled) {
     // The article is gone from the vault, whatever this page still shows until
     // the next deploy: no collection can take it.

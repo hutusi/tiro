@@ -51,8 +51,9 @@ export type TiroPage =
     }
   /** A Tiro page that is not an article — the library, search, settings — or
    * an article page whose payload could not be read. Nothing to toggle, and
-   * nothing worth clipping either: it is a Tiro site, whoever runs it. */
-  | { kind: "site" };
+   * nothing worth clipping either: it is a page of a Tiro deployment, whoever
+   * runs it. */
+  | { kind: "tiro" };
 
 /** A slug as `slugForUrl` makes them — or as a local import's is. Loose on
  * purpose: this only has to stop something that is not a path segment. */
@@ -70,20 +71,20 @@ export function parseTiroPage(marker: unknown): TiroPage | null {
   if (typeof marker !== "object" || marker === null) return null;
   const { site, payload } = marker as Partial<TiroMarker>;
   if (site !== true) return null;
-  if (typeof payload !== "string") return { kind: "site" };
+  if (typeof payload !== "string") return { kind: "tiro" };
 
   let data: unknown;
   try {
     data = JSON.parse(payload);
   } catch {
-    return { kind: "site" };
+    return { kind: "tiro" };
   }
-  if (typeof data !== "object" || data === null) return { kind: "site" };
+  if (typeof data !== "object" || data === null) return { kind: "tiro" };
   const d = data as Record<string, unknown>;
   // A future payload version is not something this build can read. Showing
   // it as a plain Tiro page is honest; guessing at its fields is not.
   if (d.v !== 1 || typeof d.slug !== "string" || !isArticleSlug(d.slug)) {
-    return { kind: "site" };
+    return { kind: "tiro" };
   }
 
   const catalog: CatalogEntry[] = [];

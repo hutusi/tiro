@@ -111,7 +111,7 @@ describe("collectionsView", () => {
 
   test("a Tiro page that is not an article has nothing to toggle", () => {
     const view = collectionsView(
-      { ...reached, page: { kind: "site" }, queue: [], ...idle },
+      { ...reached, page: { kind: "tiro" }, queue: [], ...idle },
       m,
     );
     expect(view.rows).toBeNull();
@@ -457,7 +457,7 @@ describe("collectionsView, Remove from Tiro (ADR 0036)", () => {
     const view = collectionsView(
       {
         ...reached,
-        page: { kind: "site" },
+        page: { kind: "tiro" },
         queue: [],
         ...idle,
         removal: removal("offered"),
