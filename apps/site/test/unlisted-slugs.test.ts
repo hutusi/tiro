@@ -62,3 +62,20 @@ describe("isSitemapEligible, short links", () => {
     expect(isSitemapEligible(`${SITE}/s/e8446b12/more/`)).toBe(true);
   });
 });
+
+/** ADR 0055: a saved site's page is judged by the site's own flag. */
+describe("isSitemapEligible, saved sites", () => {
+  const FIXTURE_SITE = "maps-example-org-roman-battles-facc4f75";
+
+  test("keeps a listed site's page and the gallery", () => {
+    expect(isSitemapEligible(`${SITE}/sites/${FIXTURE_SITE}/`)).toBe(true);
+    expect(isSitemapEligible(`${SITE}/sites/`)).toBe(true);
+    expect(isSitemapEligible(`${SITE}/sites/page/2/`)).toBe(true);
+  });
+
+  // An unlisted article's slug under /sites/ names a site, which is listed
+  // (there is none) — the article's flag must not reach across.
+  test("does not take an unlisted article's flag for a site's", () => {
+    expect(isSitemapEligible(`${SITE}/sites/${UNLISTED}/`)).toBe(true);
+  });
+});

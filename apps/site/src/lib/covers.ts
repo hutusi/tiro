@@ -12,11 +12,14 @@ import { join } from "node:path";
 import {
   isCoverImageFile,
   MAX_SERVED_ASSET_BYTES,
+  memberDir,
   parseCoverPath,
+  previewFile,
 } from "@tiro/shared";
 import type { Article } from "./articles.ts";
 import { imageSize } from "./image-size.ts";
 import { renderedImageSources } from "./render.ts";
+import { type Member, previewSrc, type Site } from "./sites.ts";
 import { vaultDir } from "./vault.ts";
 
 /** A mosaic has room for three: one large, two stacked. */
@@ -47,15 +50,22 @@ export const MIN_COVER_BYTES = 5 * 1024;
  */
 const PHOTO_EXT = /\.(?:jpe?g|png|webp|avif)$/i;
 
-function publicAsset(slug: string, file: string): string {
-  return `/vault-assets/${slug}/${file}`;
+/** Where a document's asset is served. `ref` is how the vault names the
+ * document: an article's slug, or `sites/<slug>` for a saved site, whose
+ * assets `copy-assets` puts under `/vault-assets/sites/` (ADR 0055). */
+function publicAsset(ref: string, file: string): string {
+  return `/vault-assets/${ref}/${file}`;
+}
+
+function assetPath(ref: string, file: string): string {
+  return join(vaultDir(), memberDir(ref), "assets", file);
 }
 
 /** The asset's size, or null when it is not a servable file — missing, or over
  * the limit `copy-assets` skips, so it would never reach `/vault-assets/`. */
-function servableSize(slug: string, file: string): number | null {
+function servableSize(ref: string, file: string): number | null {
   try {
-    const stat = statSync(join(vaultDir(), "articles", slug, "assets", file));
+    const stat = statSync(assetPath(ref, file));
     if (!stat.isFile() || stat.size > MAX_SERVED_ASSET_BYTES) return null;
     return stat.size;
   } catch {
@@ -71,14 +81,12 @@ function decodeFile(file: string): string {
   }
 }
 
-function worthACover(slug: string, file: string): boolean {
-  const bytes = servableSize(slug, file);
+function worthACover(ref: string, file: string): boolean {
+  const bytes = servableSize(ref, file);
   if (bytes === null) return false;
   let size: ReturnType<typeof imageSize>;
   try {
-    size = imageSize(
-      readFileSync(join(vaultDir(), "articles", slug, "assets", file)),
-    );
+    size = imageSize(readFileSync(assetPath(ref, file)));
   } catch {
     return false;
   }
@@ -123,6 +131,17 @@ export function leadImage(article: Article): string | null {
   return found;
 }
 
+/**
+ * A saved site's lead image: its screenshot (ADR 0055), held to the rules an
+ * article's picture is, or null. A screenshot is always a picture of the
+ * thing, so there is nothing to search for — only the file to check.
+ */
+export function siteLeadImage(site: Site): string | null {
+  const file = previewFile(site.frontmatter.preview);
+  if (file === null || !worthACover(site.ref, file)) return null;
+  return previewSrc(site);
+}
+
 /** Formats a social card can carry. Facebook's `og:image:type` lists only
  * these three, so a WebP lead image or a pinned SVG — both valid covers on the
  * page — is no card at all to its crawler. */
@@ -150,12 +169,14 @@ export function socialImage(images: readonly string[]): string | undefined {
  *   lends a picture for the same reason.
  * - Otherwise nothing, and the page draws the typographic cover.
  *
- * `listed` is every listed article, not only members: a cover may name any.
+ * `listed` is every listed document, as the vault names it — article slugs
+ * and `sites/<slug>` — not only members: a cover may name any. A saved site
+ * lends its screenshot as an article lends its picture (ADR 0055).
  */
 export function coverImages(
   id: string,
   cover: string | undefined,
-  members: readonly Article[],
+  members: readonly Member[],
   listed: ReadonlySet<string>,
 ): string[] {
   if (cover !== undefined) {
@@ -163,18 +184,21 @@ export function coverImages(
     if (
       target !== null &&
       isCoverImageFile(target.file) &&
-      listed.has(target.slug) &&
-      servableSize(target.slug, target.file) !== null
+      listed.has(target.ref) &&
+      servableSize(target.ref, target.file) !== null
     ) {
-      return [publicAsset(target.slug, target.file)];
+      return [publicAsset(target.ref, target.file)];
     }
     console.warn(
-      `collections/${id}.md: cover ${cover} is not a listed article's image; using the members' images instead`,
+      `collections/${id}.md: cover ${cover} is not a listed article's or site's image; using the members' images instead`,
     );
   }
   const images: string[] = [];
-  for (const article of members) {
-    const image = leadImage(article);
+  for (const member of members) {
+    const image =
+      member.kind === "article"
+        ? leadImage(member.article)
+        : siteLeadImage(member.site);
     if (image === null || images.includes(image)) continue;
     images.push(image);
     if (images.length === MAX_COVER_IMAGES) break;

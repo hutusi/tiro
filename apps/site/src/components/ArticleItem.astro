@@ -4,6 +4,10 @@
  * `html[data-library-view="cards"]`. The whole item opens the article (a
  * stretched pseudo-element on the title link); tag and category links sit
  * above it so they stay clickable on their own.
+ *
+ * Or one saved site (ADR 0055), where a tag, a category or a collection lists
+ * one beside articles: the same row, badged 网站, with its screenshot in place
+ * of a reading time — one component, so the two kinds of row cannot drift.
  */
 import { articleMeta } from "../lib/article-meta.ts";
 import {
@@ -12,44 +16,102 @@ import {
   categoryUrl,
   tagUrl,
 } from "../lib/articles.ts";
+import { servedCopy } from "../lib/asset-manifest.ts";
+import { previewSrc, type Site, siteUrl } from "../lib/sites.ts";
 import { dateLabel, minutesLabel, STRINGS } from "../lib/strings.ts";
 
-interface Props {
-  article: Article;
+type Props = {
   /** 3 under a collection's section heading, so the outline nests (ADR 0051). */
   headingLevel?: 2 | 3;
-}
-const { article, headingLevel = 2 } = Astro.props;
+} & ({ article: Article; site?: never } | { site: Site; article?: never });
+const { article, site, headingLevel = 2 } = Astro.props;
 const Title = headingLevel === 3 ? "h3" : "h2";
-const { frontmatter: fm } = article;
-const meta = articleMeta(article);
-const statusLabel = {
-  pending: STRINGS.status.pending,
-  "zh-original": STRINGS.status.zhOriginal,
-  untranslated: STRINGS.status.untranslated,
-  translated: null,
-}[meta.status];
+
+interface Row {
+  href: string;
+  fm: {
+    domain: string;
+    title: string;
+    clipped_at: string;
+    category?: string | undefined;
+    tags?: string[] | undefined;
+  };
+  titleZh: string | null;
+  summary: string | undefined;
+  pill: string | null;
+  minutes: string | null;
+  thumb: string | null;
+}
+let row: Row;
+if (article !== undefined) {
+  const meta = articleMeta(article);
+  row = {
+    href: articleUrl(article),
+    fm: article.frontmatter,
+    titleZh: meta.titleZh,
+    summary: article.frontmatter.summary,
+    pill: {
+      pending: STRINGS.status.pending,
+      "zh-original": STRINGS.status.zhOriginal,
+      untranslated: STRINGS.status.untranslated,
+      translated: null,
+    }[meta.status],
+    minutes: minutesLabel(meta.minutes),
+    thumb: null,
+  };
+} else {
+  const preview = previewSrc(site);
+  row = {
+    href: siteUrl(site),
+    fm: site.frontmatter,
+    titleZh: site.frontmatter.title_zh ?? null,
+    // The introduction once the processor has written one, and until then
+    // the page's own description.
+    summary: site.frontmatter.summary ?? site.frontmatter.description,
+    pill: STRINGS.sites.badge,
+    minutes: null,
+    thumb: preview === null ? null : (servedCopy(preview)?.src ?? preview),
+  };
+}
+const { fm } = row;
+const statusLabel = row.pill;
 ---
 
-<li class="item">
-  <a href={articleUrl(article)} class="item-link">
+<li
+  class:list={[
+    "item",
+    { "is-site": site !== undefined, "has-thumb": row.thumb !== null },
+  ]}
+>
+  {
+    row.thumb !== null && (
+      <img
+        class="thumb"
+        src={row.thumb}
+        alt=""
+        loading="lazy"
+        decoding="async"
+      />
+    )
+  }
+  <a href={row.href} class="item-link">
     <div class="top">
       <span class="domain">{fm.domain}</span>
       {statusLabel !== null && <span class="pill">{statusLabel}</span>}
     </div>
     <Title class="title">{fm.title}</Title>
     {
-      meta.titleZh !== null && (
+      row.titleZh !== null && (
         <p class="title-zh" lang="zh-CN">
-          {meta.titleZh}
+          {row.titleZh}
         </p>
       )
     }
-    {fm.summary !== undefined && <p class="summary">{fm.summary}</p>}
+    {row.summary !== undefined && <p class="summary">{row.summary}</p>}
   </a>
   <div class="meta">
     <span class="domain">{fm.domain}</span>
-    <span class="minutes">{minutesLabel(meta.minutes)}</span>
+    {row.minutes !== null && <span class="minutes">{row.minutes}</span>}
     <time datetime={fm.clipped_at}>{dateLabel(fm.clipped_at)}</time>
     {statusLabel !== null && <span class="pill">{statusLabel}</span>}
     {
@@ -160,6 +222,30 @@ const statusLabel = {
     color: var(--accent);
     text-decoration: underline;
   }
+  /* A saved site's screenshot (ADR 0055): beside the text in a row, across
+     the top of a card. Outside the link, under its stretched overlay, so a
+     click on it opens the site's page like the rest of the row. */
+  .item.has-thumb {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 132px;
+    column-gap: 22px;
+  }
+  .item.has-thumb > .item-link,
+  .item.has-thumb > .meta {
+    grid-column: 1;
+  }
+  .thumb {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: start;
+    width: 132px;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    object-position: top;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--wash);
+  }
   /* The row's negative margin lives inside a ≥24px gutter; on phones the
      gutter is 16px, so the row sits flush instead. */
   @media (max-width: 39.99rem) {
@@ -167,6 +253,13 @@ const statusLabel = {
       margin: 0;
       padding: 20px 12px;
       border-radius: 0;
+    }
+    .item.has-thumb {
+      grid-template-columns: minmax(0, 1fr) 88px;
+      column-gap: 14px;
+    }
+    .thumb {
+      width: 88px;
     }
   }
 
@@ -189,6 +282,20 @@ const statusLabel = {
     border-color: var(--ink-mute);
     transform: translateY(-2px);
     box-shadow: var(--shadow-card);
+  }
+  :global(html[data-library-view="cards"]) .item.has-thumb {
+    display: flex;
+  }
+  :global(html[data-library-view="cards"]) .thumb {
+    order: -1;
+    /* Past the card's padding to its edges, which preflight's
+       \`img { max-width: 100% }\` would otherwise stop at the padding. */
+    max-width: none;
+    width: calc(100% + 40px);
+    margin: -20px -20px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    border-radius: 10px 10px 0 0;
   }
   :global(html[data-library-view="cards"]) .item-link {
     display: flex;
@@ -239,6 +346,10 @@ const statusLabel = {
   }
   :global(html[data-library-view="cards"]) .meta time::before {
     content: "· ";
+  }
+  /* A site has no reading time for the date to follow. */
+  :global(html[data-library-view="cards"]) .is-site .meta time::before {
+    content: none;
   }
   :global(html[data-library-view="cards"]) .meta .domain,
   :global(html[data-library-view="cards"]) .meta .pill,

@@ -9,7 +9,11 @@ export const STRINGS = {
   nav: {
     home: "首页",
     collections: "合集",
+    sites: "网站",
     search: "搜索与标签",
+    /** `search` on a phone, where the header has room for five short items
+     * and not for this one's full name. */
+    searchShort: "搜索",
     settings: "设置",
   },
   /** The header's outbound Star link. Kept out of `nav`, which is iterated to
@@ -72,6 +76,27 @@ export const STRINGS = {
     memberOf: "收录于",
     /** Before a collection card's last-updated date. */
     updated: "更新于",
+  },
+  /** Saved sites (ADR 0055): pages kept for what they do, not what they say. */
+  sites: {
+    title: "网站",
+    tagline: "交互地图、可视化与工具——值得回来再用的网页",
+    /** The `/sites/` gallery with nothing in it. */
+    empty: "还没有保存任何网站。",
+    /** Marks a site in a list of articles, and in search results. */
+    badge: "网站",
+    open: "打开网站",
+    /** The processor's introduction. */
+    intro: "简介",
+    /** What the page says about itself, in its own words. */
+    description: "网站自述",
+    /** The owner's note, typed when it was saved. */
+    note: "为什么保存",
+    savedAt: "保存于",
+    /** The alt text of a screenshot. */
+    screenshot: "网站截图",
+    /** Shown when the processor has not written the introduction yet. */
+    pending: "简介生成中",
   },
   library: {
     title: "文章",
@@ -161,6 +186,23 @@ export function pageNote(current: number, last: number, total: number): string {
 
 export function articleCountLabel(count: number): string {
   return `${count} 篇`;
+}
+
+/** A collection's size: "3 篇", "3 篇 · 1 个网站", or "1 个网站" (ADR 0055). */
+export function memberCountLabel(articles: number, sites: number): string {
+  if (sites === 0) return articleCountLabel(articles);
+  const siteLabel = `${sites} 个网站`;
+  return articles === 0
+    ? siteLabel
+    : `${articleCountLabel(articles)} · ${siteLabel}`;
+}
+
+export function sitesPageNote(
+  current: number,
+  last: number,
+  total: number,
+): string {
+  return `第 ${current} / ${last} 页 · 共 ${total} 个网站`;
 }
 
 export function resultsLabel(count: number): string {

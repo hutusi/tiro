@@ -3,9 +3,10 @@
  * A collection's cover (ADR 0030): one image, a mosaic of two or three, or —
  * with none — the title's first character set on ruled paper. Fills its
  * container's width; the caller shapes it through custom properties on an
- * element it owns — `--cover-ratio` (16/10 by default), `--cover-max-height`
- * and `--cover-glyph` — rather than a passed class, which the caller's scoped
- * styles would not reach.
+ * element it owns — `--cover-ratio` (16/10 by default), `--cover-max-height`,
+ * `--cover-glyph` and `--cover-position` (where a cropped image is anchored;
+ * a saved site's screenshot keeps its top, ADR 0055) — rather than a passed
+ * class, which the caller's scoped styles would not reach.
  *
  * Images are decorative (`alt=""`): the title always sits beside the cover,
  * and a screen reader announcing three filenames first would bury it.
@@ -72,6 +73,7 @@ const loading = eager ? "eager" : "lazy";
     height: 100%;
     min-height: 0;
     object-fit: cover;
+    object-position: var(--cover-position, center);
     transition: transform 0.4s ease;
   }
   .cover[data-count="2"] {

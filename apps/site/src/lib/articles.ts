@@ -8,6 +8,7 @@ import {
   reportShortLinks,
   type ShortLinks,
 } from "./short-links.ts";
+import { getSites, type Site } from "./sites.ts";
 import { groupByTerm, type TermGroup } from "./terms.ts";
 import { usableTranslation } from "./translation.ts";
 import { readVault } from "./vault-read.ts";
@@ -157,19 +158,42 @@ export interface ArticleGroup {
   slug: string;
   label: string;
   articles: Article[];
+  /** The listed saved sites with this term (ADR 0055): a tag or a category
+   * is about a topic, and a site is as much on it as an article is. */
+  sites: Site[];
 }
 
-function toArticleGroups(groups: TermGroup<Article>[]): ArticleGroup[] {
+type Tagged = { article: Article } | { site: Site };
+
+/**
+ * Group articles and sites together, so one spelling decides a term's label
+ * across both and a term only a site carries still gets its page.
+ */
+function toArticleGroups(groups: TermGroup<Tagged>[]): ArticleGroup[] {
   return groups.map(({ slug, label, items }) => ({
     slug,
     label,
-    articles: items,
+    articles: items.flatMap((item) =>
+      "article" in item ? [item.article] : [],
+    ),
+    sites: items.flatMap((item) => ("site" in item ? [item.site] : [])),
   }));
+}
+
+async function tagged(): Promise<Tagged[]> {
+  return [
+    ...(await getArticles()).map((article) => ({ article })),
+    ...getSites().map((site) => ({ site })),
+  ];
+}
+
+function frontmatterOf(item: Tagged) {
+  return "article" in item ? item.article.frontmatter : item.site.frontmatter;
 }
 
 export async function tagIndex(): Promise<ArticleGroup[]> {
   return toArticleGroups(
-    groupByTerm(await getArticles(), (a) => a.frontmatter.tags ?? []),
+    groupByTerm(await tagged(), (item) => frontmatterOf(item).tags ?? []),
   );
 }
 
@@ -178,6 +202,7 @@ let termPageCache: { tags: Set<string>; categories: Set<string> } | null = null;
  * `cacheSource`, for the same reason: without one it survived a vault edit and
  * kept answering about the terms of articles that had since changed. */
 let termPageSource: unknown = null;
+let termSiteSource: unknown = null;
 
 /** The term slugs that actually have a page.
  *
@@ -191,8 +216,14 @@ async function termPages(): Promise<{
   categories: Set<string>;
 }> {
   const articles = await getArticles();
-  if (termPageCache === null || termPageSource !== articles) {
+  const sites = getSites();
+  if (
+    termPageCache === null ||
+    termPageSource !== articles ||
+    termSiteSource !== sites
+  ) {
     termPageSource = articles;
+    termSiteSource = sites;
     termPageCache = {
       tags: new Set((await tagIndex()).map((group) => group.slug)),
       categories: new Set((await categoryIndex()).map((group) => group.slug)),
@@ -217,8 +248,9 @@ export async function categoryPageUrl(
 
 export async function categoryIndex(): Promise<ArticleGroup[]> {
   return toArticleGroups(
-    groupByTerm(await getArticles(), (a) =>
-      a.frontmatter.category === undefined ? [] : [a.frontmatter.category],
-    ),
+    groupByTerm(await tagged(), (item) => {
+      const { category } = frontmatterOf(item);
+      return category === undefined ? [] : [category];
+    }),
   );
 }

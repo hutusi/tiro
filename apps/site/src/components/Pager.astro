@@ -6,8 +6,11 @@ interface Props {
   current: number;
   last: number;
   total: number;
+  /** A page's address; the library's by default. The saved-sites gallery
+   * pages the same way under its own path (ADR 0055). */
+  href?: (page: number) => string;
 }
-const { current, last } = Astro.props;
+const { current, last, href = pageUrl } = Astro.props;
 const t = STRINGS.library;
 const items = pageWindow(current, last);
 const cell =
@@ -20,7 +23,7 @@ const cell =
 >
   {
     current > 1 ? (
-      <a href={pageUrl(current - 1)} class="text-ink-soft hover:text-ink">
+      <a href={href(current - 1)} class="text-ink-soft hover:text-ink">
         {t.newer}
       </a>
     ) : (
@@ -46,7 +49,7 @@ const cell =
           </span>
         ) : (
           <a
-            href={pageUrl(item)}
+            href={href(item)}
             class:list={[
               cell,
               "border border-transparent text-ink-soft hover:border-rule hover:text-ink",
@@ -60,7 +63,7 @@ const cell =
   </div>
   {
     current < last ? (
-      <a href={pageUrl(current + 1)} class="text-ink-soft hover:text-ink">
+      <a href={href(current + 1)} class="text-ink-soft hover:text-ink">
         {t.older}
       </a>
     ) : (

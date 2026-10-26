@@ -8,6 +8,7 @@ import {
   tiroPagePayload,
 } from "../src/lib/collections.ts";
 import { socialImage } from "../src/lib/covers.ts";
+import type { Member } from "../src/lib/sites.ts";
 import { resetVaultCache } from "../src/lib/vault-read.ts";
 
 function writeArticle(
@@ -85,6 +86,39 @@ function writeCollection(
   writeFileSync(
     join(collectionsDir, `${id}.md`),
     `---\n${frontmatter}tiro:\n  schema: 1\n---\n${body === "" ? "" : `\n${body}\n`}`,
+  );
+}
+
+/** A member as the vault names it. */
+function refOf(member: Member): string {
+  return member.kind === "article" ? member.article.slug : member.site.ref;
+}
+
+/** A saved site (ADR 0055), with a screenshot when `preview` is given. */
+function writeSite(
+  dir: string,
+  slug: string,
+  options: { unlisted?: boolean; preview?: Uint8Array } = {},
+): void {
+  const siteDir = join(dir, "sites", slug);
+  mkdirSync(join(siteDir, "assets"), { recursive: true });
+  if (options.preview !== undefined) {
+    writeFileSync(
+      join(siteDir, "assets", "0123456789ab.webp"),
+      options.preview,
+    );
+  }
+  writeFileSync(
+    join(siteDir, "index.md"),
+    `---
+url: "https://maps.example.com/${slug}"
+title: "${slug}"
+domain: "maps.example.com"
+clipped_at: "2026-10-20T08:00:00.000Z"
+${options.preview !== undefined ? 'preview: "./assets/0123456789ab.webp"\n' : ""}${options.unlisted === true ? "unlisted: true\n" : ""}tiro:
+  schema: 1
+---
+`,
   );
 }
 
@@ -221,7 +255,7 @@ describe("getCollections", () => {
       // by an unlisted or missing member stays one group; a section that
       // comes back later is a second group, in file order.
       expect(
-        atlantic?.sections.map((s) => [s.title, s.articles.map((a) => a.slug)]),
+        atlantic?.sections.map((s) => [s.title, s.members.map(refOf)]),
       ).toEqual([
         [null, ["new"]],
         ["Science & Tech", ["a"]],
@@ -253,7 +287,7 @@ describe("getCollections", () => {
 
       const reading = (await getCollections()).find((c) => c.id === "reading");
       expect(
-        reading?.sections.map((s) => [s.title, s.articles.map((a) => a.slug)]),
+        reading?.sections.map((s) => [s.title, s.members.map(refOf)]),
       ).toEqual([[null, ["b", "a"]]]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -744,6 +778,137 @@ describe("the #tiro-page payload", () => {
       expect(
         JSON.parse(payload).collections.map((c: { title: string }) => c.title),
       ).toContain("x</script><img src=y onerror=alert(1)>");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** ADR 0055: a collection names a saved site as `sites/<slug>`. */
+describe("collections holding saved sites", () => {
+  test("lists a site among the articles, in the owner's order", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeArticle(dir, "same");
+      writeSite(dir, "same");
+      writeCollection(
+        dir,
+        "mixed",
+        'title: "混合"\nitems:\n  - slug: "a"\n  - slug: "sites/same"\n    section: "Tools"\n  - slug: "same"\n    section: "Tools"\n',
+      );
+      resetVaultCache();
+      const mixed = (await getCollections()).find((c) => c.id === "mixed");
+      expect(mixed?.members.map(refOf)).toEqual(["a", "sites/same", "same"]);
+      expect(
+        mixed?.sections.map((s) => [s.title, s.members.map(refOf)]),
+      ).toEqual([
+        [null, ["a"]],
+        ["Tools", ["sites/same", "same"]],
+      ]);
+      expect(mixed?.articles.map((a) => a.slug)).toEqual(["a", "same"]);
+      expect(mixed?.sites.map((site) => site.slug)).toEqual(["same"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The article of the same URL is another document: a bare slug never
+  // finds the site, and `sites/<slug>` never finds the article.
+  test("never takes the article of a site's slug for the site", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "only-article");
+      writeSite(dir, "only-site");
+      writeCollection(
+        dir,
+        "crossed",
+        'title: "x"\nitems:\n  - slug: "sites/only-article"\n  - slug: "only-site"\n',
+      );
+      resetVaultCache();
+      const crossed = (await getCollections()).find((c) => c.id === "crossed");
+      expect(crossed?.members).toEqual([]);
+      expect(crossed?.memberSlugs).toEqual(["sites/only-article", "only-site"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unlisted site is a member but is not listed", async () => {
+    const dir = vault();
+    try {
+      writeSite(dir, "hidden", { unlisted: true });
+      writeCollection(
+        dir,
+        "shelf",
+        'title: "x"\nitems:\n  - slug: "sites/hidden"\n',
+      );
+      resetVaultCache();
+      const shelf = (await getCollections()).find((c) => c.id === "shelf");
+      expect(shelf?.members).toEqual([]);
+      expect((await collectionsOf("sites/hidden")).map((c) => c.id)).toEqual([
+        "shelf",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a site lends its screenshot to the cover; an unlisted one does not", async () => {
+    const dir = vault();
+    try {
+      writeSite(dir, "map", { preview: png(1600, 1000) });
+      writeSite(dir, "secret", { preview: png(1600, 1000), unlisted: true });
+      writeCollection(
+        dir,
+        "maps",
+        'title: "x"\nitems:\n  - slug: "sites/secret"\n  - slug: "sites/map"\n',
+      );
+      resetVaultCache();
+      const maps = (await getCollections()).find((c) => c.id === "maps");
+      expect(maps?.coverImages).toEqual([
+        "/vault-assets/sites/map/0123456789ab.webp",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a hand-set cover may be a site's screenshot", async () => {
+    const dir = vault();
+    try {
+      writeArticle(dir, "a");
+      writeSite(dir, "map", { preview: png(1600, 1000) });
+      writeCollection(
+        dir,
+        "pinned",
+        'title: "x"\ncover: "sites/map/assets/0123456789ab.webp"\nitems:\n  - slug: "a"\n',
+      );
+      resetVaultCache();
+      const pinned = (await getCollections()).find((c) => c.id === "pinned");
+      expect(pinned?.coverImages).toEqual([
+        "/vault-assets/sites/map/0123456789ab.webp",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The released extension refuses a slug that is not one path segment, so
+  // it reads a site page as a plain Tiro page — never as the article.
+  test("a site page's payload names the site as sites/<slug>", async () => {
+    const dir = vault();
+    try {
+      writeSite(dir, "map");
+      writeCollection(
+        dir,
+        "maps",
+        'title: "x"\nitems:\n  - slug: "sites/map"\n',
+      );
+      resetVaultCache();
+      const payload = JSON.parse(await tiroPagePayload("sites/map"));
+      expect(payload.slug).toBe("sites/map");
+      expect(payload.member).toEqual(["maps"]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

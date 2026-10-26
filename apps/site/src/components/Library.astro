@@ -6,12 +6,19 @@
  */
 import type { Article } from "../lib/articles.ts";
 import type { CollectionSection } from "../lib/collections.ts";
+import type { Site } from "../lib/sites.ts";
 import { pageNote, STRINGS } from "../lib/strings.ts";
 import ArticleItem from "./ArticleItem.astro";
 import Pager from "./Pager.astro";
 
 interface Props {
   articles: Article[];
+  /**
+   * Saved sites the list is also about (ADR 0055) — a tag's, a category's —
+   * listed after the articles under their own heading. The home library
+   * never passes any: it is a reading list.
+   */
+  sites?: Site[];
   heading: string;
   /** Shown beside the heading on filtered lists (a tag, a category). */
   count?: number;
@@ -27,20 +34,35 @@ interface Props {
   emptyText?: string | null;
   pager?: { current: number; last: number; total: number };
   /**
-   * `articles` under headings — a collection's sections (ADR 0051). Each one
-   * is its own list, so both views lay out per section; absent, `articles`
-   * is the one untitled list.
+   * The members under headings — a collection's sections (ADR 0051), which
+   * may hold saved sites among the articles. Each one is its own list, so
+   * both views lay out per section; absent, `articles` is the one untitled
+   * list and `sites` a second, titled one.
    */
   sections?: CollectionSection[];
 }
 const {
   articles,
+  sites = [],
   heading,
   count,
   emptyText = STRINGS.list.empty,
   pager,
-  sections = [{ title: null, articles }],
+  sections = [
+    {
+      title: null,
+      members: articles.map((article) => ({
+        kind: "article" as const,
+        article,
+      })),
+    },
+    {
+      title: STRINGS.sites.title,
+      members: sites.map((site) => ({ kind: "site" as const, site })),
+    },
+  ].filter((section) => section.members.length > 0),
 } = Astro.props;
+const isEmpty = sections.every((section) => section.members.length === 0);
 const t = STRINGS.library;
 ---
 
@@ -88,7 +110,7 @@ exactly that case, so it is the one page that can hold the declaration without
 putting anything in the index that is not an article. */
 }
 {
-  articles.length === 0 && emptyText !== null && (
+  isEmpty && emptyText !== null && (
     <p class="text-ink-soft" data-pagefind-body>
       {emptyText}
     </p>
@@ -109,12 +131,19 @@ putting anything in the index that is not an article. */
         </h2>
       )}
       <ol class="items m-0 list-none p-0">
-        {section.articles.map((article) => (
-          <ArticleItem
-            article={article}
-            headingLevel={section.title === null ? 2 : 3}
-          />
-        ))}
+        {section.members.map((member) =>
+          member.kind === "article" ? (
+            <ArticleItem
+              article={member.article}
+              headingLevel={section.title === null ? 2 : 3}
+            />
+          ) : (
+            <ArticleItem
+              site={member.site}
+              headingLevel={section.title === null ? 2 : 3}
+            />
+          ),
+        )}
       </ol>
     </Fragment>
   ))

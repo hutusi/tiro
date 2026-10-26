@@ -80,8 +80,15 @@ const nav = [
     active: path.startsWith("/collections/"),
   },
   {
+    href: "/sites/",
+    label: STRINGS.nav.sites,
+    active: path.startsWith("/sites/"),
+  },
+  {
     href: "/search/",
     label: STRINGS.nav.search,
+    // The phone label: see the header's comment on what fits in one row.
+    short: STRINGS.nav.searchShort,
     active: /^\/(search|tags)\//.test(path),
   },
   {
@@ -344,13 +351,20 @@ const mainClass = [
                 href={item.href}
                 aria-current={item.active ? "page" : undefined}
                 class:list={[
-                  "whitespace-nowrap rounded-md px-2 py-1.5 transition-colors sm:px-3",
+                  "whitespace-nowrap rounded-md px-1.5 py-1.5 transition-colors sm:px-3",
                   item.active
                     ? "bg-chip text-ink"
                     : "text-ink-soft hover:bg-wash hover:text-ink",
                 ]}
               >
-                {item.label}
+                {"short" in item ? (
+                  <Fragment>
+                    <span class="sm:hidden">{item.short}</span>
+                    <span class="hidden sm:inline">{item.label}</span>
+                  </Fragment>
+                ) : (
+                  item.label
+                )}
               </a>
             ))
           }
@@ -377,7 +391,13 @@ const mainClass = [
 
             The paper switch inside is `sm`-gated anyway, so the whole group
             goes — leaving an empty `ml-auto` box behind would still cost a
-            16px gap. */
+            16px gap.
+
+            The fifth item (网站, ADR 0055) put the row over again: by 15px at
+            390, 45px at 360 with the button, 41px at 320 without it. Below
+            `sm` the links lose a pixel of padding a side and 搜索与标签 reads
+            搜索 — the page it opens says the rest — which buys about 50px and
+            clears all three, keeping the button where it was. */
         }
         <div
           class="ml-auto hidden items-center gap-2 min-[360px]:flex sm:gap-4"

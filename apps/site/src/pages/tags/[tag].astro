@@ -8,13 +8,22 @@ export async function getStaticPaths() {
   // at a path this route's pattern cannot match.
   return (await tagIndex()).map((group) => ({
     params: { tag: group.slug },
-    props: { label: group.label, articles: group.articles },
+    props: {
+      label: group.label,
+      articles: group.articles,
+      sites: group.sites,
+    },
   }));
 }
 
-const { label, articles } = Astro.props;
+const { label, articles, sites } = Astro.props;
 ---
 
 <Base title={`#${label}`}>
-  <Library articles={articles} heading={`#${label}`} count={articles.length} />
+  <Library
+    articles={articles}
+    sites={sites}
+    heading={`#${label}`}
+    count={articles.length + sites.length}
+  />
 </Base>

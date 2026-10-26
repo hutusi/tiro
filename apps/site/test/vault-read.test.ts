@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   readCollections,
+  readSites,
   readVault,
   resetVaultCache,
 } from "../src/lib/vault-read.ts";
@@ -247,6 +248,28 @@ describe("a deploy that publishes what it can read (ADR 0048)", () => {
     }
   });
 
+  // ADR 0055: a saved site that will not parse gets an article's treatment.
+  test("leaves a broken site out and reports it, keeping the good one", () => {
+    const dir = makeVault({ good: { index: VALID } });
+    try {
+      for (const [slug, text] of [
+        [
+          "map-1234abcd",
+          '---\nurl: "https://maps.example.com/"\ntitle: "Map"\ndomain: "maps.example.com"\nclipped_at: "2026-10-20T08:00:00.000Z"\ntiro:\n  schema: 1\n---\n',
+        ],
+        ["broken-1234abcd", "---\ntitle: x\npreview: cover.png\n---\n"],
+      ] as const) {
+        mkdirSync(join(dir, "sites", slug), { recursive: true });
+        writeFileSync(join(dir, "sites", slug, "index.md"), text);
+      }
+      const { value, report } = withReport(dir, () => readSites());
+      expect(value.map((site) => site.slug)).toEqual(["map-1234abcd"]);
+      expect(report).toContain("sites/broken-1234abcd/index.md: ");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("without a report the build still fails on the first bad entry", () => {
     const dir = makeVault({
       good: { index: VALID },
@@ -256,6 +279,25 @@ describe("a deploy that publishes what it can read (ADR 0048)", () => {
       expect(() => withVault(dir, () => readVault())).toThrow(
         /broken.index\.md/,
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("readSites", () => {
+  test("reads the fixture vault's saved site", () => {
+    expect(readSites().map((site) => site.slug)).toEqual([
+      "maps-example-org-roman-battles-facc4f75",
+    ]);
+  });
+
+  // How every vault starts: not an error, and no guard either.
+  test("a vault with no sites directory has no sites", () => {
+    const dir = makeVault({});
+    mkdirSync(join(dir, "articles"));
+    try {
+      expect(withVault(dir, () => readSites())).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

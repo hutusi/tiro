@@ -6,7 +6,8 @@ import { resolve } from "node:path";
  *
  * `scripts/copy-assets.ts --derivatives` writes a WebP copy of each large
  * raster image beside the original, named `<file>.<DERIVED_WIDTH>.webp`. It
- * records each copy in a manifest, keyed `<slug>/<file>`, with the copy's own
+ * records each copy in a manifest, keyed `<slug>/<file>` (`sites/<slug>/<file>`
+ * for a saved site's screenshot), with the copy's own
  * pixel size. The pages serve the copy in the original's place.
  *
  * Only a build reads the manifest: the `build` script names it in
@@ -58,7 +59,10 @@ export function resetAssetManifest(): void {
   loaded = null;
 }
 
-const VAULT_ASSET = /^\/vault-assets\/([^/]+)\/([^/]+)$/;
+/** An article's asset, `/vault-assets/<slug>/<file>`, or a saved site's,
+ * `/vault-assets/sites/<slug>/<file>` (ADR 0055); group 1 is the manifest's
+ * directory key either way. */
+const VAULT_ASSET = /^\/vault-assets\/((?:sites\/)?[^/]+)\/([^/]+)$/;
 
 /**
  * The resized copy to serve for a vault asset's public path, or null to serve

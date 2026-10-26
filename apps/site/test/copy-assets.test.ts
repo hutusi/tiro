@@ -240,3 +240,56 @@ describe("isAnimatedPng", () => {
     expect(isAnimatedPng(still.subarray(0, 20))).toBe(false);
   });
 });
+
+/** ADR 0055: a saved site's screenshot, beside the articles' assets. */
+describe("copyAssets, for saved sites", () => {
+  test("copies a site's screenshot under sites/<slug>/, apart from the article of its slug", async () => {
+    asset("same-1234abcd", "0123456789ab.webp", new Uint8Array([1, 2, 3]));
+    const sitesDir = join(root, "vault/sites");
+    mkdirSync(join(sitesDir, "same-1234abcd", "assets"), { recursive: true });
+    writeFileSync(
+      join(sitesDir, "same-1234abcd", "assets", "0123456789ab.webp"),
+      new Uint8Array([4, 5, 6]),
+    );
+    const result = await copyAssets({ ...options(false), sitesDir });
+    expect(result.copied).toBe(2);
+    const out = join(root, "public/vault-assets");
+    expect([
+      ...readFileSync(join(out, "same-1234abcd", "0123456789ab.webp")),
+    ]).toEqual([1, 2, 3]);
+    expect([
+      ...readFileSync(join(out, "sites", "same-1234abcd", "0123456789ab.webp")),
+    ]).toEqual([4, 5, 6]);
+  });
+
+  test("a vault with no sites directory copies its articles as before", async () => {
+    asset("a", "x.png", new Uint8Array([1]));
+    const result = await copyAssets({
+      ...options(false),
+      sitesDir: join(root, "vault/sites"),
+    });
+    expect(result.copied).toBe(1);
+  });
+
+  test("a heavy screenshot gets a copy the site page serves", async () => {
+    mkdirSync(articlesDir, { recursive: true });
+    const sitesDir = join(root, "vault/sites");
+    mkdirSync(join(sitesDir, "m-1234abcd", "assets"), { recursive: true });
+    writeFileSync(
+      join(sitesDir, "m-1234abcd", "assets", "wide.png"),
+      await photo(2400, 1200),
+    );
+    await copyAssets({ ...options(), sitesDir });
+    expect(manifest()["sites/m-1234abcd/wide.png"]).toEqual({
+      width: 1600,
+      height: 800,
+    });
+    process.env.TIRO_ASSET_MANIFEST = join(root, ".tiro/assets.json");
+    resetAssetManifest();
+    expect(servedCopy("/vault-assets/sites/m-1234abcd/wide.png")).toEqual({
+      src: "/vault-assets/sites/m-1234abcd/wide.png.1600.webp",
+      width: 1600,
+      height: 800,
+    });
+  });
+});
