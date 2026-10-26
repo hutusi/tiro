@@ -233,7 +233,20 @@ export async function findExistingIndex(
   slug: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<ExistingIndex | null> {
-  const path = `articles/${slug}/index.md`;
+  return findExistingAt(config, `articles/${slug}/index.md`, fetchImpl);
+}
+
+/**
+ * `findExistingIndex` for any document's `index.md` by its vault path — a
+ * saved site's is `sites/<slug>/index.md` (ADR 0055). The same single GET,
+ * the same lenient read of what a rewrite must carry, the same refusal of a
+ * file it cannot read.
+ */
+export async function findExistingAt(
+  config: TiroExtensionConfig,
+  path: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<ExistingIndex | null> {
   const res = await fetchImpl(
     `${API}/repos/${config.owner}/${config.repo}/contents/${path}?ref=${encodeURIComponent(config.branch)}`,
     { headers: headers(config) },

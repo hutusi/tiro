@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { countWords } from "../src/words.ts";
+import { countWords, readableChars } from "../src/words.ts";
 
 describe("countWords", () => {
   test("counts English words by whitespace", () => {
@@ -29,5 +29,24 @@ describe("countWords", () => {
   test("empty text counts zero", () => {
     expect(countWords("")).toBe(0);
     expect(countWords("  \n ")).toBe(0);
+  });
+});
+
+describe("readableChars (ADR 0055)", () => {
+  test("counts the words a reader reads, not the markup around them", () => {
+    expect(readableChars("# Map\n\nDrag the **timeline**.")).toBe(
+      "Map Drag the timeline .".length,
+    );
+  });
+
+  test("leaves out pictures and link targets", () => {
+    const md =
+      "![a legend](https://cdn.example.com/very/long/path/legend.png)\n\n[Battles](https://maps.example.com/battles/of/the/roman/republic)";
+    expect(readableChars(md)).toBe("Battles".length);
+  });
+
+  test("an empty or markup-only clip has nothing to read", () => {
+    expect(readableChars("")).toBe(0);
+    expect(readableChars("<div></div>\n\n---\n")).toBe(0);
   });
 });

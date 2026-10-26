@@ -1,8 +1,8 @@
 import {
-  articleDir,
   COLLECTIONS_DIR,
   dropCollectionMember,
-  indexPath,
+  memberDir,
+  parseMemberRef,
   readFrontmatterLoose,
   stringifyCollection,
 } from "@tiro/shared/documents"; // not the root: see there
@@ -14,10 +14,12 @@ import {
   readAtHead,
 } from "./github.ts";
 import type { TiroExtensionConfig } from "./storage.ts";
-import { isArticleSlug } from "./tiro-page.ts";
+import { isMemberRef } from "./tiro-page.ts";
 
 /**
- * Removing an article from the vault (ADR 0036).
+ * Removing an article from the vault (ADR 0036) — or a saved site (ADR 0055),
+ * named the way the vault names one, `sites/<slug>`; every `slug` below is
+ * such a reference, and a bare slug is an article as it always was.
  *
  * Two steps, the popup's confirmation between them: `lookupArticle` finds out
  * what is really there, so the confirmation can name it, and `removeArticle`
@@ -35,11 +37,15 @@ export interface FoundArticle {
 
 function assertSlug(slug: string): void {
   // A slug comes from a page's marker or from a URL. Either way it becomes a
-  // path in a deletion, so one that is not a plain path segment stops here,
-  // before any request is made.
-  if (!isArticleSlug(slug)) {
+  // path in a deletion, so one that is not a plain path segment — or `sites/`
+  // and one — stops here, before any request is made.
+  if (!isMemberRef(slug)) {
     throw new Error(`"${slug}" is not an article slug`);
   }
+}
+
+function indexOf(slug: string): string {
+  return `${memberDir(slug)}/index.md`;
 }
 
 function text(value: unknown): string | null {
@@ -64,7 +70,7 @@ export async function lookupArticle(
   fetchImpl: FetchLike = fetch,
 ): Promise<FoundArticle | null> {
   assertSlug(slug);
-  const { text: index } = await readAtHead(config, indexPath(slug), fetchImpl);
+  const { text: index } = await readAtHead(config, indexOf(slug), fetchImpl);
   if (index === null) return null;
   const frontmatter = readFrontmatterLoose(index);
   return frontmatter.kind === "ok"
@@ -113,7 +119,7 @@ function commitMessage(
   const lines = [
     `remove: ${title ?? slug}`,
     "",
-    `articles/${slug}/ (${files === 1 ? "1 file" : `${files} files`})`,
+    `${memberDir(slug)}/ (${files === 1 ? "1 file" : `${files} files`})`,
   ];
   if (changes.length > 0) {
     const parts = changes.map(({ id, member, cover }) =>
@@ -161,11 +167,13 @@ export async function removeArticle(
     config,
     {
       build: async (reader) => {
-        const articleFiles = await reader.files(articleDir(slug));
-        if (!articleFiles.includes(indexPath(slug))) return null;
+        const articleFiles = await reader.files(memberDir(slug));
+        if (!articleFiles.includes(indexOf(slug))) return null;
 
         const { parsed, unreadable } = await readEveryCollection(reader);
-        const naming = unreadable.find((file) => file.text.includes(slug));
+        // By the bare slug: a site is named `sites/<slug>`, which holds it.
+        const bare = parseMemberRef(slug).slug;
+        const naming = unreadable.find((file) => file.text.includes(bare));
         if (naming !== undefined) {
           throw new UnreadableCollectionError(naming.path, naming.error);
         }

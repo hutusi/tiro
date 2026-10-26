@@ -1,14 +1,15 @@
 import {
   applyCollectionOps,
-  articleDir,
   collectionPath,
   isValidCollectionId,
+  memberDir,
   parseCollection,
   stringifyCollection,
 } from "@tiro/shared/documents"; // not the root: see there
 import type { QueuedOp } from "./collection-queue.ts";
 import { commitFiles, type FetchLike } from "./github.ts";
 import type { TiroExtensionConfig } from "./storage.ts";
+import { isMemberRef } from "./tiro-page.ts";
 
 export interface FlushOutcome {
   /** The commit made, or null when every op turned out to be a no-op. */
@@ -117,10 +118,17 @@ export async function flushCollections(
         // "An article" means what `validate` means: its `index.md` is there.
         // A directory alone is not enough — one holding only an orphan `zh.md`
         // would pass, and the collection would gain a member `validate` then
-        // refuses and the site silently skips.
+        // refuses and the site silently skips. A saved site is looked for in
+        // its own directory, `sites/<slug>` (ADR 0055) — never satisfied by
+        // the article of its slug — and a reference that is not one document
+        // is never made a path at all.
         const missing = new Set<string>();
         for (const slug of added) {
-          const names = await reader.list(articleDir(slug));
+          if (!isMemberRef(slug)) {
+            missing.add(slug);
+            continue;
+          }
+          const names = await reader.list(memberDir(slug));
           if (!names?.includes("index.md")) missing.add(slug);
         }
         const absent = pending.filter(
