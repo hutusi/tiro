@@ -61,6 +61,21 @@ describe("readableChars (ADR 0055)", () => {
     );
   });
 
+  // Turndown escapes brackets in an alt, and the picture still goes whole.
+  test("an alt with escaped brackets goes with its picture", () => {
+    expect(
+      readableChars("![map \\[north\\]](https://x.example/m.png) Rome"),
+    ).toBe("Rome".length);
+  });
+
+  test("stays fast on a run of pictures that never close", () => {
+    // Each `![` used to scan on to the end of the text: 50,000 took ~3 s, in
+    // the popup, as it renders.
+    const started = performance.now();
+    readableChars("![ x".repeat(50_000));
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   test("an empty or markup-only clip has nothing to read", () => {
     expect(readableChars("")).toBe(0);
     expect(readableChars("<div></div>\n\n---\n")).toBe(0);

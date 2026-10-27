@@ -22,7 +22,14 @@ export function countWords(text: string): number {
  * so a group runs past both — stopping at the first `)` left the rest of a
  * Wikipedia-style `…_(disambiguation)/…` address counted as text. */
 const DESTINATION = String.raw`\((?:\\.|[^()\\]|\([^()]*\))*\)`;
-const PICTURE = new RegExp(String.raw`!\[[^\]]*\]${DESTINATION}`, "g");
+/** A picture, alt text and all. Turndown escapes `[` and `]` in an alt, so
+ * escapes are part of it and an unescaped `[` is not: stopping there keeps a
+ * failed match from running on past the next `![`, which made a run of
+ * unclosed ones quadratic (50,000 took 3 s). */
+const PICTURE = new RegExp(
+  String.raw`!\[(?:\\.|[^[\]\\])*\]${DESTINATION}`,
+  "g",
+);
 const LINK_TARGET = new RegExp(String.raw`\]${DESTINATION}`, "g");
 
 /**
