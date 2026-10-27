@@ -128,6 +128,61 @@ export function samePage(read: string, now: string): boolean {
   }
 }
 
+/** What taking a site's picture asks of the browser — passed in, so the rules
+ * `pictureOfPage` keeps are tested without one. */
+export interface ShotEffects {
+  /** The popup's tab as it is now, or null when it is gone. */
+  tab: () => Promise<{ url: string; active: boolean; windowId: number } | null>;
+  /** The window's visible tab as a PNG data URL; throws when refused. */
+  capture: (windowId: number) => Promise<string>;
+  sleep: (ms: number) => Promise<void>;
+}
+
+export type ShotTaken =
+  | { ok: true; dataUrl: string; url: string }
+  | { ok: false; problem: "failed" | "moved" };
+
+/**
+ * A picture of the tab while it shows `read`, the page the popup read, and the
+ * address it was filed under then.
+ *
+ * Checked before every attempt, so another page is never taken at all, and
+ * again after it: a page that moved while it was being pictured — during the
+ * wait a refused capture is retried after, above all — may be what the picture
+ * shows. A picture with a check on one side only would go out under the first
+ * page's title and text.
+ */
+export async function pictureOfPage(
+  read: string,
+  effects: ShotEffects,
+): Promise<ShotTaken> {
+  const check = async () => {
+    const tab = await effects.tab();
+    if (tab === null || !tab.active || !/^https?:/.test(tab.url)) {
+      return { ok: false, problem: "failed" } as const;
+    }
+    if (!samePage(read, tab.url))
+      return { ok: false, problem: "moved" } as const;
+    return { ok: true, tab } as const;
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    // Most likely the per-second quota refused the first; one wait covers it.
+    if (attempt > 0) await effects.sleep(1000);
+    const before = await check();
+    if (!before.ok) return before;
+    let dataUrl: string;
+    try {
+      dataUrl = await effects.capture(before.tab.windowId);
+    } catch {
+      continue;
+    }
+    const after = await check();
+    if (!after.ok) return after;
+    return { ok: true, dataUrl, url: after.tab.url };
+  }
+  return { ok: false, problem: "failed" };
+}
+
 /** What the vault already holds as this page's site: enough to say a save
  * updates it, and to offer its note again — the one thing a re-save cannot
  * regenerate. */

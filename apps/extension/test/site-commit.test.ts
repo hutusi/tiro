@@ -4,6 +4,8 @@ import {
   buildSiteFile,
   commitSite,
   lookupSite,
+  pictureOfPage,
+  type ShotEffects,
   samePage,
 } from "../src/site-commit.ts";
 import type { TiroExtensionConfig } from "../src/storage.ts";
@@ -218,5 +220,112 @@ describe("samePage", () => {
         "https://arxiv.org/abs/2404.19756",
       ),
     ).toBe(true);
+  });
+});
+
+describe("pictureOfPage", () => {
+  const READ = "https://maps.example.org/roman-battles";
+
+  /** A tab that goes through `urls`, one per look at it — the last one stays —
+   * and a capture that fails the times it is told to. */
+  function browser(urls: string[], refusals = 0) {
+    const seen: string[] = [];
+    let looks = 0;
+    let refused = 0;
+    const effects: ShotEffects = {
+      tab: async () => {
+        const url = urls[Math.min(looks++, urls.length - 1)] as string;
+        seen.push(`tab ${url}`);
+        return { url, active: true, windowId: 7 };
+      },
+      capture: async (windowId) => {
+        seen.push(`capture ${windowId}`);
+        if (refused++ < refusals) throw new Error("quota");
+        return "data:image/png;base64,AAAA";
+      },
+      sleep: async (ms) => {
+        seen.push(`sleep ${ms}`);
+      },
+    };
+    return { effects, seen };
+  }
+
+  test("taken while the tab shows the page, and filed under where it is then", async () => {
+    const { effects, seen } = browser([READ, `${READ}#year=-216`]);
+    expect(await pictureOfPage(READ, effects)).toEqual({
+      ok: true,
+      dataUrl: "data:image/png;base64,AAAA",
+      url: `${READ}#year=-216`,
+    });
+    expect(seen).toEqual([`tab ${READ}`, "capture 7", `tab ${READ}#year=-216`]);
+  });
+
+  test("another page is never taken", async () => {
+    const { effects, seen } = browser(["https://maps.example.org/elsewhere"]);
+    expect(await pictureOfPage(READ, effects)).toEqual({
+      ok: false,
+      problem: "moved",
+    });
+    expect(seen).not.toContain("capture 7");
+  });
+
+  // The page moved while it was being pictured, and the picture may be of
+  // where it went.
+  test("a picture taken across a navigation is thrown away", async () => {
+    const { effects } = browser([READ, "https://maps.example.org/elsewhere"]);
+    expect(await pictureOfPage(READ, effects)).toEqual({
+      ok: false,
+      problem: "moved",
+    });
+  });
+
+  // The case a single check before the loop missed: the first capture is
+  // refused, and the page moves during the wait before the second.
+  test("the retry looks at the tab again", async () => {
+    const { effects, seen } = browser(
+      [READ, "https://maps.example.org/elsewhere"],
+      1,
+    );
+    expect(await pictureOfPage(READ, effects)).toEqual({
+      ok: false,
+      problem: "moved",
+    });
+    expect(seen).toEqual([
+      `tab ${READ}`,
+      "capture 7",
+      "sleep 1000",
+      "tab https://maps.example.org/elsewhere",
+    ]);
+  });
+
+  test("a refused capture is retried once, after a wait", async () => {
+    const once = browser([READ], 1);
+    expect((await pictureOfPage(READ, once.effects)).ok).toBe(true);
+    expect(once.seen.filter((s) => s === "capture 7")).toHaveLength(2);
+    const twice = browser([READ], 2);
+    expect(await pictureOfPage(READ, twice.effects)).toEqual({
+      ok: false,
+      problem: "failed",
+    });
+  });
+
+  test("a tab that is gone, not in front, or not a web page is not taken", async () => {
+    const effects = (tab: Awaited<ReturnType<ShotEffects["tab"]>>) => ({
+      tab: async () => tab,
+      capture: async () => {
+        throw new Error("never asked");
+      },
+      sleep: async () => {},
+    });
+    for (const tab of [
+      null,
+      { url: READ, active: false, windowId: 7 },
+      { url: "chrome://newtab/", active: true, windowId: 7 },
+    ]) {
+      expect(await pictureOfPage(READ, effects(tab))).toEqual({
+        ok: false,
+        problem: "failed",
+      });
+    }
   });
 });

@@ -70,8 +70,8 @@ import { restoreLead } from "../restore-lead.ts";
 import {
   commitSite,
   lookupSite,
+  pictureOfPage,
   type SiteShot,
-  samePage,
 } from "../site-commit.ts";
 import {
   acceptDisclosure,
@@ -593,15 +593,20 @@ async function main(): Promise<void> {
   /** Where saving this page as a site has got to — offered once the page is
    * known to be an ordinary one that can be pictured. */
   let siteSave: SiteState | null = null;
-  /** The picture taken for it, kept across a failed save so a retry commits
-   * the same one rather than taking another. */
-  let siteShot: SiteShot | null = null;
-  /** The tab's address when the picture was taken: the page it shows. */
-  let siteShotUrl: string | null = null;
-  /** The page as the popup read it, pinned with the picture: the save takes
-   * its title, description and text from here, never from a body that
-   * arrived after the picture was checked against it. */
-  let sitePayload: ClipResultMessage["payload"] | null = null;
+  /** The picture taken for it, and the page it is a picture of — kept across
+   * a failed save, so a retry commits the same one rather than taking another.
+   * One value, so nothing of it can be replaced alone: the save takes its
+   * title, description, text and build from the body the picture was checked
+   * against, never from one that arrived after. */
+  let siteTaken: {
+    shot: SiteShot;
+    /** The tab's address when the picture was taken: the page it shows. */
+    url: string;
+    /** The page as the popup read it. */
+    payload: ClipResultMessage["payload"];
+    /** The build that read it: `bodyCommit` as it was then. */
+    commit: string;
+  } | null = null;
   /** This machine saved the page as a site before — the local record, like
    * `clippedAt` for an article. */
   let siteSavedAt: string | null = null;
@@ -612,7 +617,7 @@ async function main(): Promise<void> {
     return (
       siteSave !== null &&
       siteSave.step !== "offered" &&
-      !(siteSave.step === "failed" && siteShot === null)
+      !(siteSave.step === "failed" && siteTaken === null)
     );
   }
 
@@ -1979,44 +1984,41 @@ async function main(): Promise<void> {
    * the tab is still the one the popup opened on, and taken first — before
    * anything else is asked of the page — so it is what the reader saw.
    *
-   * Only while the tab still shows `read`, the page the popup read: a view's
-   * fragment may have moved, another page may not (`samePage`).
+   * Only while the tab shows `read`, the page the popup read, before the
+   * picture and after it: a view's fragment may have moved, another page may
+   * not (`pictureOfPage`). The site is filed under where the tab is then —
+   * a map writes its view into the URL as it is used.
    */
   async function takeScreenshot(
     read: string,
   ): Promise<
     { ok: true; shot: SiteShot; url: string } | { ok: false; problem: string }
   > {
-    let current: chrome.tabs.Tab;
+    const taken = await pictureOfPage(read, {
+      tab: async () => {
+        try {
+          const current = await chrome.tabs.get(tabId);
+          return {
+            url: current.url ?? "",
+            active: current.active,
+            windowId: current.windowId,
+          };
+        } catch {
+          return null;
+        }
+      },
+      capture: (windowId) =>
+        chrome.tabs.captureVisibleTab(windowId, { format: "png" }),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
+    if (!taken.ok) {
+      return {
+        ok: false,
+        problem: taken.problem === "moved" ? m.siteMoved : m.siteShotFailed,
+      };
+    }
     try {
-      current = await chrome.tabs.get(tabId);
-    } catch {
-      return { ok: false, problem: m.siteShotFailed };
-    }
-    // The page's own address may have moved on in place — a map writes its
-    // view into the URL as it is used — so the site is filed under where the
-    // tab is now, as long as that is still a web page and still the page
-    // that was read. Asked before the picture, so another page is never
-    // taken at all.
-    const url = current.url ?? "";
-    if (!current.active || !/^https?:/.test(url)) {
-      return { ok: false, problem: m.siteShotFailed };
-    }
-    if (!samePage(read, url)) return { ok: false, problem: m.siteMoved };
-    let dataUrl: string | null = null;
-    for (let attempt = 0; attempt < 2 && dataUrl === null; attempt++) {
-      try {
-        dataUrl = await chrome.tabs.captureVisibleTab(current.windowId, {
-          format: "png",
-        });
-      } catch {
-        // Most likely the per-second quota; one wait covers it.
-        if (attempt === 0) await new Promise((r) => setTimeout(r, 1000));
-      }
-    }
-    if (dataUrl === null) return { ok: false, problem: m.siteShotFailed };
-    try {
-      const encoded = await encodeScreenshot(dataUrl);
+      const encoded = await encodeScreenshot(taken.dataUrl);
       if (!encoded.ok) {
         return {
           ok: false,
@@ -2027,7 +2029,7 @@ async function main(): Promise<void> {
       return {
         ok: true,
         shot: { id: await snapshotId(encoded.bytes), bytes: encoded.bytes },
-        url,
+        url: taken.url,
       };
     } catch {
       return { ok: false, problem: m.siteShotFailed };
@@ -2041,7 +2043,10 @@ async function main(): Promise<void> {
   });
 
   el.siteOffer.addEventListener("click", () => {
+    // Taken together at the click, as Clip takes them: the body and the build
+    // that read it travel as one.
     const payload = result;
+    const commit = bodyCommit;
     if (
       siteSave === null ||
       siteHolds() ||
@@ -2061,9 +2066,7 @@ async function main(): Promise<void> {
         render();
         return;
       }
-      siteShot = taken.shot;
-      siteShotUrl = taken.url;
-      sitePayload = payload;
+      siteTaken = { shot: taken.shot, url: taken.url, payload, commit };
       if (siteShotObjectUrl !== null) URL.revokeObjectURL(siteShotObjectUrl);
       siteShotObjectUrl = URL.createObjectURL(
         new Blob([taken.shot.bytes as Uint8Array<ArrayBuffer>], {
@@ -2079,9 +2082,7 @@ async function main(): Promise<void> {
         found = await lookupSite(config, taken.url);
       } catch (error) {
         console.error("site lookup failed:", error);
-        siteShot = null;
-        siteShotUrl = null;
-        sitePayload = null;
+        siteTaken = null;
         siteSave = {
           ...base,
           step: "failed",
@@ -2108,9 +2109,7 @@ async function main(): Promise<void> {
 
   el.siteCancel.addEventListener("click", () => {
     if (siteSave === null || siteSave.step === "saving") return;
-    siteShot = null;
-    siteShotUrl = null;
-    sitePayload = null;
+    siteTaken = null;
     siteSave = {
       ...siteSave,
       step: "offered",
@@ -2124,22 +2123,18 @@ async function main(): Promise<void> {
   });
 
   el.siteSave.addEventListener("click", () => {
-    const payload = sitePayload;
-    const shot = siteShot;
-    const url = siteShotUrl;
+    const taken = siteTaken;
     if (
       siteSave === null ||
       (siteSave.step !== "form" && siteSave.step !== "failed") ||
-      shot === null ||
-      url === null ||
-      payload === null
+      taken === null
     ) {
       return;
     }
+    const { shot, url, payload, commit } = taken;
     const base = siteSave;
     const title = el.siteTitle.value;
     const note = el.siteNote.value;
-    const commit = bodyCommit;
     siteSave = { ...base, step: "saving", problem: null };
     render();
     // A popup closed mid-save says so on the toolbar, as a clip's does.
