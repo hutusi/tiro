@@ -6,6 +6,7 @@ import {
   type RemovalView,
   removalView,
 } from "./removal-view.ts";
+import { type SiteState, type SiteView, siteView } from "./site-view.ts";
 
 /**
  * What the popup shows, as a pure function of what it knows.
@@ -120,6 +121,14 @@ export interface PopupState {
   /** The body on screen recovered a lead (`ClipPayload.lead`) — the one
    * thing the button could add. */
   leadAvailable?: boolean;
+  /** Save as site (ADR 0055). Absent, or null, where a page cannot be kept
+   * as one — a PDF, a Tiro page, a tab that cannot be read. */
+  site?: SiteState | null;
+  /** The clip found little or nothing to read: the page is likelier a tool
+   * than an article, and saving it as a site leads (ADR 0055). */
+  thin?: boolean;
+  /** This machine saved the page as a site before, formatted. */
+  siteSavedOn?: string | null;
 }
 
 export interface PopupView {
@@ -170,6 +179,7 @@ export interface PopupView {
   } | null;
   remove: RemovalView;
   lead: LeadView;
+  site: SiteView;
 }
 
 /** Phases an in-flight fetch may repaint. See the derivation below. */
@@ -183,6 +193,8 @@ const FETCH_OVERRIDES: ReadonlySet<Phase> = new Set(["ready", "blocked"]);
  */
 function removalOfferable(s: PopupState): boolean {
   if (!s.configured || s.fetching) return false;
+  // A site just saved from here is known to be in the vault (ADR 0055).
+  if (s.site?.step === "saved") return true;
   switch (s.phase) {
     case "saved":
       return true;
@@ -210,21 +222,49 @@ function leadOfferable(s: PopupState): boolean {
   );
 }
 
+/**
+ * Whether this page is a moment to offer Save as site (ADR 0055): there is a
+ * page to picture — read, or found to hold nothing to clip, which is exactly
+ * the page a site is for — and nothing else is under way.
+ */
+function siteOfferable(s: PopupState): boolean {
+  if (!s.configured || s.fetching) return false;
+  return s.phase === "ready" || (s.phase === "blocked" && s.thin === true);
+}
+
 export function popupView(s: PopupState, m: Messages): PopupView {
-  const view = phaseView(s, m);
+  const base = phaseView(s, m);
+  const page = {
+    offerable: siteOfferable(s),
+    thin: s.thin === true,
+    savedOn: s.siteSavedOn ?? null,
+  };
+  const site = siteView(s.site, m, page);
+  // A thin page says so where it would say it is ready, and Clip steps back
+  // so that saving it as a site is the action in front.
+  const view =
+    site.offer.visible && page.thin && s.phase === "ready"
+      ? {
+          ...base,
+          message: m.thinPage,
+          clip: { ...base.clip, primary: false },
+        }
+      : base;
   const remove = removalView(s.removal, m, removalOfferable(s));
   if (!remove.active && !remove.settled) {
+    if (site.active) return siteMode(view, site, remove, m);
     const lead = leadView(s.lead, m, leadOfferable(s));
     // Adding the lead is a write to this article: Clip, which would write it
-    // too, waits for it.
+    // too, waits for it — and so does a site, which would take the popup.
     return lead.active
       ? {
           ...view,
           clip: { ...view.clip, enabled: false },
           remove: { ...remove, offer: { ...remove.offer, visible: false } },
           lead,
+          site: { ...site, offer: { ...site.offer, visible: false } },
         }
-      : { ...view, remove, lead };
+      : { ...view, remove, lead, site };
   }
   // A removal under way, or done, is what the popup is about now. The preview
   // stays — it shows what is being removed — and everything that would act on
@@ -251,6 +291,42 @@ export function popupView(s: PopupState, m: Messages): PopupView {
     links: null,
     remove,
     lead: leadView(null, m, false),
+    site: siteView(null, m, { offerable: false, thin: false, savedOn: null }),
+  };
+}
+
+/**
+ * The popup while it is saving a site (ADR 0055): the site's form, or what
+ * became of it, and nothing that acts on an article. The article's preview
+ * goes too — the form shows the page as it will be kept, its picture. Remove
+ * stays only once the site is saved, where it removes that site.
+ */
+function siteMode(
+  view: Omit<PopupView, "remove" | "lead" | "site">,
+  site: SiteView,
+  remove: RemovalView,
+  m: Messages,
+): PopupView {
+  return {
+    ...view,
+    label: site.label?.text ?? view.label,
+    labelTone: site.label?.tone ?? view.labelTone,
+    message: null,
+    loading: null,
+    progress: null,
+    preview: null,
+    sourceFetch: { ...view.sourceFetch, visible: false },
+    clip: { ...view.clip, visible: false, enabled: false },
+    savePictures: { ...view.savePictures, visible: false },
+    captureStop: { ...view.captureStop, visible: false },
+    captured: null,
+    links: site.links,
+    remove:
+      site.links !== null
+        ? remove
+        : { ...remove, offer: { ...remove.offer, visible: false } },
+    lead: leadView(null, m, false),
+    site,
   };
 }
 
@@ -329,7 +405,7 @@ function capturedView(
 function phaseView(
   s: PopupState,
   m: Messages,
-): Omit<PopupView, "remove" | "lead"> {
+): Omit<PopupView, "remove" | "lead" | "site"> {
   // Null on an ordinary page, where none of these strings are reachable: every
   // one of them is behind `s.source !== null` by way of `gated`, `fetching` or
   // `fetchOffered`, which only a publisher rule ever sets.
@@ -407,7 +483,7 @@ function phaseView(
     primary: !reclip,
     label: clipLabel,
   };
-  const base: Omit<PopupView, "remove" | "lead"> = {
+  const base: Omit<PopupView, "remove" | "lead" | "site"> = {
     label: "",
     labelTone: "neutral",
     message: null,

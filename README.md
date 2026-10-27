@@ -6,7 +6,10 @@ Clip a page from Chrome → it lands as Markdown in a GitHub repo (the
 "vault") → a job — a GitHub Actions workflow, or the same scripts on a server
 of your own — summarizes, tags, and translates it to Chinese with an LLM → an
 Astro site publishes original and translation side by side with full-text
-search.
+search. A page that is a tool rather than an article — an interactive map, a
+visualization — can be saved as a *site* instead: a screenshot, its
+description, your note and an LLM-written introduction, in a gallery of its
+own.
 
 This monorepo holds all the code; content lives in a separate vault repo
 (`tiro-vault`, bootstrapped from [`vault-template/`](./vault-template/)).
@@ -15,7 +18,7 @@ This monorepo holds all the code; content lives in a separate vault repo
 
 | Path | What |
 | --- | --- |
-| `packages/shared` | The content contract: frontmatter schema, slug rules, block alignment, config schema |
+| `packages/shared` | The content contract: article, saved-site and collection schemas, slug rules, block alignment, config schema |
 | `packages/clip` | Page → Markdown (Readability + Turndown and the repair pass around them), shared by the extension and `sweep` |
 | `packages/processor` | LLM pipeline CLI, and the vault job's scripts (`job/`) — run by the vault's GitHub Actions workflow, or on another host |
 | `apps/extension` | Chrome MV3 clipper: popup, options, worker; clips with `packages/clip`, commits via the GitHub API |

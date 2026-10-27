@@ -9,6 +9,8 @@ items:
     added_at: "2026-09-18T09:00:00.000Z"
   - slug: "example-com-posts-hello-ai-e8446b12"
     added_at: "2026-09-18T09:00:00.000Z"
+  - slug: "sites/maps-example-org-roman-battles-facc4f75"
+    added_at: "2026-10-20T08:16:00.000Z"
 tiro:
   schema: 1
 ---

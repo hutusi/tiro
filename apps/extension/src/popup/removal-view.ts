@@ -33,6 +33,10 @@ export interface RemovalState {
   title: string | null;
   /** The failure, already localized; only read in `failed`. */
   problem: string | null;
+  /** What is being removed: an article, or a saved site (ADR 0055), whose
+   * confirmation names what goes with it — a picture and a note, not a
+   * translation. Absent is an article. */
+  kind?: "article" | "site";
 }
 
 export interface RemovalView {
@@ -83,10 +87,11 @@ export function removalView(
   offerable = true,
 ): RemovalView {
   if (r === null || r === undefined) return NOTHING;
+  const site = r.kind === "site";
   const offer = {
     visible: false,
     label: m.removeOffer,
-    hint: m.removeOfferHint,
+    hint: site ? m.removeSiteOfferHint : m.removeOfferHint,
   };
   switch (r.step) {
     case "offered":
@@ -103,9 +108,11 @@ export function removalView(
         ...NOTHING,
         offer,
         confirm: {
-          heading: m.removeConfirmHeading,
+          heading: site ? m.removeSiteConfirmHeading : m.removeConfirmHeading,
           title: r.title,
-          note: m.removeConfirmNote(r.vault),
+          note: site
+            ? m.removeSiteConfirmNote(r.vault)
+            : m.removeConfirmNote(r.vault),
           confirmLabel: m.removeConfirmButton,
           cancelLabel: m.removeCancel,
         },
@@ -131,7 +138,10 @@ export function removalView(
       return {
         ...NOTHING,
         offer,
-        status: { text: m.removeGone(r.vault), tone: "neutral" },
+        status: {
+          text: site ? m.removeSiteGone(r.vault) : m.removeGone(r.vault),
+          tone: "neutral",
+        },
         label: { text: m.labelNotInVault, tone: "neutral" },
         settled: true,
       };

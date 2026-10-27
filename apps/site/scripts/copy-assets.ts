@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Copy vault article assets into public/vault-assets/<slug>/ before the
- * Astro build. Vault images deliberately bypass Astro's image pipeline
+ * Astro build, and saved sites' screenshots into
+ * public/vault-assets/sites/<slug>/ (ADR 0055). Vault images deliberately bypass Astro's image pipeline
  * (ADR 0006); this plain copy has no Astro-version risk and re-clips
  * overwrite cleanly.
  *
@@ -65,6 +66,13 @@ type CacheIndex = Record<string, DerivedSize | null>;
 
 export interface CopyAssetsOptions {
   articlesDir: string;
+  /**
+   * The vault's `sites/` (ADR 0055), whose screenshots are copied under
+   * `<outRoot>/sites/<slug>/`, or absent for none. A separate root because
+   * a site and an article of one URL share a slug, and the article's own
+   * `<outRoot>/<slug>/` can never be `sites` — every slug ends in its hash.
+   */
+  sitesDir?: string;
   outRoot: string;
   /** Resize large images; needs the two paths below. */
   derive: boolean;
@@ -171,28 +179,37 @@ export async function copyAssets(
     derived: 0,
   };
   // Paths, not bytes: a vault's large images together run to hundreds of MB.
+  // `slug` is the asset's directory below `outRoot`: an article's slug, or
+  // `sites/<slug>` — also its key in the manifest.
   const candidates: { slug: string; file: string; source: string }[] = [];
 
-  for (const relPath of new Bun.Glob("*/assets/*").scanSync({
-    cwd: articlesDir,
-  })) {
-    const source = join(articlesDir, relPath);
-    const bytes = statSync(source).size;
-    if (bytes > MAX_SERVED_ASSET_BYTES) {
-      console.warn(
-        `skipping oversized asset (> ${MAX_SERVED_ASSET_BYTES} bytes): ${relPath}`,
-      );
-      result.skipped += 1;
-      continue;
-    }
-    const [slug, , file] = relPath.split("/");
-    if (slug === undefined || file === undefined) continue;
-    const targetDir = join(outRoot, slug);
-    mkdirSync(targetDir, { recursive: true });
-    copyFileSync(source, join(targetDir, file));
-    result.copied += 1;
-    if (derive && wantsCopy(file, source, bytes)) {
-      candidates.push({ slug, file, source });
+  const roots: { dir: string; prefix: string }[] = [
+    { dir: articlesDir, prefix: "" },
+    ...(options.sitesDir !== undefined && existsSync(options.sitesDir)
+      ? [{ dir: options.sitesDir, prefix: "sites/" }]
+      : []),
+  ];
+  for (const { dir, prefix } of roots) {
+    for (const relPath of new Bun.Glob("*/assets/*").scanSync({ cwd: dir })) {
+      const source = join(dir, relPath);
+      const bytes = statSync(source).size;
+      if (bytes > MAX_SERVED_ASSET_BYTES) {
+        console.warn(
+          `skipping oversized asset (> ${MAX_SERVED_ASSET_BYTES} bytes): ${prefix}${relPath}`,
+        );
+        result.skipped += 1;
+        continue;
+      }
+      const [dirName, , file] = relPath.split("/");
+      if (dirName === undefined || file === undefined) continue;
+      const slug = `${prefix}${dirName}`;
+      const targetDir = join(outRoot, slug);
+      mkdirSync(targetDir, { recursive: true });
+      copyFileSync(source, join(targetDir, file));
+      result.copied += 1;
+      if (derive && wantsCopy(file, source, bytes)) {
+        candidates.push({ slug, file, source });
+      }
     }
   }
 
@@ -303,6 +320,7 @@ if (import.meta.main) {
   const derive = process.argv.includes("--derivatives");
   const result = await copyAssets({
     articlesDir: `${vaultDir()}/articles`,
+    sitesDir: `${vaultDir()}/sites`,
     outRoot: join(siteRoot, "public/vault-assets"),
     derive,
     cacheDir: join(siteRoot, ".tiro/derivatives"),

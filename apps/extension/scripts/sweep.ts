@@ -31,7 +31,9 @@
  *                          `zh.md` are untouched, so nothing is re-translated.
  *                          Collections naming a moved article are rewritten
  *                          to its new slug in the same write (ADR 0029).
- *                          Reports only, until `--write`.
+ *                          Saved sites share the slug rule and move the same
+ *                          way, under `sites/` (ADR 0055). Reports only, until
+ *                          `--write`.
  *
  *   --fill-leads           Lead repair (ADR 0053). Clips each page, and adds
  *                          the lead the clip recovered (ADR 0052) — the dek and
@@ -119,12 +121,17 @@ import {
   type ParsedCollection,
   parseArticle,
   parseCollection,
+  parseSite,
   plainText,
   renameCollectionMember,
+  SITES_DIR,
+  type SiteFrontmatter,
+  siteRef,
   slugForUrl,
   splitBlocks,
   stringifyArticle,
   stringifyCollection,
+  stringifySite,
 } from "@tiro/shared";
 import type { ClipPayload } from "../src/messages.ts";
 
@@ -1107,8 +1114,80 @@ export async function loadCollections(
   return collections;
 }
 
+/** A saved site, as `--recanonicalize` reads it (ADR 0055). */
+export interface SavedSite {
+  slug: string;
+  body: string;
+  frontmatter: SiteFrontmatter;
+}
+
+/**
+ * A saved site's frontmatter for a changed identity rule (ADR 0055): what
+ * `recanonicalize` does for an article, without the refresh. A site's title
+ * and description are what the page said when it was saved, and nothing the
+ * clipper reads afresh is a better answer to those, so there is no fetch.
+ *
+ * The address that was saved survives as `tiro.source_url` — it already
+ * names the exact view when the save had one, and otherwise the old URL is
+ * that address, since it is where the screenshot was taken.
+ */
+export async function recanonicalizeSite(
+  site: SavedSite,
+): Promise<Recanonicalization | null> {
+  const url = normalizeUrl(site.frontmatter.url);
+  const to = await slugForUrl(site.frontmatter.url);
+  if (to === site.slug) return null;
+  const frontmatter: SiteFrontmatter = {
+    ...site.frontmatter,
+    url,
+    domain: new URL(url).hostname,
+    tiro: {
+      ...site.frontmatter.tiro,
+      ...(site.frontmatter.tiro.source_url === undefined &&
+      site.frontmatter.url !== url
+        ? { source_url: site.frontmatter.url }
+        : {}),
+    },
+  };
+  const index = stringifySite(frontmatter, site.body);
+  if (parseSite(index).body !== site.body) {
+    return {
+      from: site.slug,
+      to,
+      index,
+      refreshed: [],
+      refused: "rewriting the frontmatter would alter the body",
+    };
+  }
+  return { from: site.slug, to, index, refreshed: [] };
+}
+
+/** Every saved site in the vault, or none when it has no `sites/`. */
+async function loadSites(vault: string): Promise<SavedSite[]> {
+  const root = join(vault, SITES_DIR);
+  if (!existsSync(root)) return [];
+  const sites: SavedSite[] = [];
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    const path = join(root, entry.name, "index.md");
+    if (!existsSync(path)) continue;
+    try {
+      const { frontmatter, body } = parseSite(await readFile(path, "utf-8"));
+      sites.push({ slug: entry.name, body, frontmatter });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `  ?  sites/${entry.name}: unreadable frontmatter (${reason})`,
+      );
+    }
+  }
+  return sites;
+}
+
 async function recanonicalizeAll(
   articles: Article[],
+  sites: SavedSite[],
   args: ReturnType<typeof parseArgs>,
 ): Promise<{ failed: number }> {
   console.log(
@@ -1201,10 +1280,68 @@ async function recanonicalizeAll(
     ]);
     await rename(from, to);
   }
+
+  // Saved sites, after the articles and against the same collections, so a
+  // collection holding both sees both moves (ADR 0055). Named `sites/<slug>`
+  // there, which is what keeps a site's move from touching the article of the
+  // same slug.
+  let sitesMoved = 0;
+  for (const site of sites) {
+    const plan = await recanonicalizeSite(site);
+    if (plan === null) continue;
+    const label = `${SITES_DIR}/${plan.from}`;
+    if (plan.refused !== undefined) {
+      console.log(`  !  ${label}: refused — ${plan.refused}`);
+      failed++;
+      continue;
+    }
+    const from = join(args.vault, SITES_DIR, plan.from);
+    const to = join(args.vault, SITES_DIR, plan.to);
+    if (existsSync(to)) {
+      console.log(
+        `  !  ${SITES_DIR}/${plan.to} already exists; left ${label} in place`,
+      );
+      failed++;
+      continue;
+    }
+    sitesMoved++;
+    const touched = renameCollectionMember(
+      collections,
+      siteRef(plan.from),
+      siteRef(plan.to),
+    );
+    collections = collections.map(
+      (collection) => touched.find((c) => c.id === collection.id) ?? collection,
+    );
+    const carried =
+      touched.length === 0
+        ? ""
+        : ` — carries it in collections ${touched.map((c) => c.id).join(", ")}`;
+    console.log(`  ${label}
+    → ${SITES_DIR}/${plan.to}${carried}`);
+    if (!args.write) continue;
+    // Same order as an article's, for the same reason: a crash between the
+    // write and the rename leaves the site right in its old directory.
+    await writeTogether([
+      [join(from, "index.md"), plan.index],
+      ...touched.map(
+        (collection) =>
+          [
+            join(args.vault, collectionPath(collection.id)),
+            stringifyCollection(collection.frontmatter, collection.body),
+          ] as const,
+      ),
+    ]);
+    await rename(from, to);
+  }
+
   const verb = args.write ? "moved" : "would move";
   console.log(
     `
 ${moved} of ${articles.length} article(s) ${verb}` +
+      (sites.length > 0
+        ? `, and ${sitesMoved} of ${sites.length} site(s)`
+        : "") +
       (failed > 0 ? ` (${failed} refused)` : ""),
   );
   return { failed };
@@ -1299,15 +1436,25 @@ async function main() {
   if (args.only !== undefined) {
     articles = articles.filter((a) => a.slug.includes(args.only as string));
   }
+
+  if (args.recanonicalize) {
+    let sites = await loadSites(args.vault);
+    if (args.only !== undefined) {
+      sites = sites.filter((s) => s.slug.includes(args.only as string));
+    }
+    if (articles.length === 0 && sites.length === 0) {
+      console.error("no articles matched");
+      process.exit(2);
+    }
+    const { failed } = await recanonicalizeAll(articles, sites, args);
+    if (failed > 0) process.exit(1);
+    return;
+  }
+
+  // Every other mode replays articles; saved sites have no clip to replay.
   if (articles.length === 0) {
     console.error("no articles matched");
     process.exit(2);
-  }
-
-  if (args.recanonicalize) {
-    const { failed } = await recanonicalizeAll(articles, args);
-    if (failed > 0) process.exit(1);
-    return;
   }
 
   // Past this point every mode replays a clip, so the articles that cannot be

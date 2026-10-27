@@ -20,6 +20,7 @@ import {
 } from "./dom-prepare.ts";
 import { clipHackerNewsItem, isHackerNewsItem } from "./hacker-news.ts";
 import { htmlToMarkdown } from "./markdown.ts";
+import { pageDescription } from "./page-claims.ts";
 import type { ClipPayload } from "./payload.ts";
 import { pictureEssayIn } from "./picture-essay.ts";
 import {
@@ -95,6 +96,9 @@ export function clipPage(
   // which deletes every JSON-LD script, and from the head, which the snapshot
   // below does not hold (ADR 0052).
   const leadEvidence = readLeadEvidence(doc, url);
+  // From the head, which Readability does not keep: what the page says it is,
+  // for a page saved as a site rather than clipped (ADR 0055).
+  const description = pageDescription(doc);
   // Snapshot before Readability, which consumes the document. Serializing
   // always costs less than a second cloneNode, and the fallback needs the
   // prepared DOM as much as the happy path does.
@@ -205,6 +209,7 @@ export function clipPage(
     scriptFigures: drawn.figures,
     snapshots: drawn.snapshots,
     lead: leadMarkdown,
+    description,
   };
 }
 

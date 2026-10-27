@@ -1,0 +1,394 @@
+---
+/**
+ * A saved site's page (ADR 0055): the screenshot, linked out; the title; the
+ * introduction the processor wrote; what the page says about itself; and the
+ * owner's note — then the tags, category and collections an article page
+ * shows. There is no body to read: the page's text is kept in the vault as
+ * context for the introduction, and nowhere else.
+ *
+ * The description and the note are printed as text, never as Markdown or
+ * HTML (invariant 5): both reach the vault from outside — a page's `<meta>`,
+ * a person's typing — and nothing here sanitizes them because nothing here
+ * parses them.
+ */
+import CollectionCover from "../../components/CollectionCover.astro";
+import Base from "../../layouts/Base.astro";
+import { categoryPageUrl, tagPageUrl } from "../../lib/articles.ts";
+import { servedCopy } from "../../lib/asset-manifest.ts";
+import {
+  collectionUrl,
+  collectionsOf,
+  tiroPagePayload,
+} from "../../lib/collections.ts";
+import {
+  getAllSites,
+  previewSize,
+  previewSrc,
+  type Site,
+  siteHref,
+} from "../../lib/sites.ts";
+import { dateLabel, STRINGS } from "../../lib/strings.ts";
+import { isUnlisted } from "../../lib/visibility.ts";
+
+interface Props {
+  site: Site;
+}
+
+export function getStaticPaths() {
+  // Every site, unlisted ones included: the flag keeps a site out of the
+  // lists, not off the site (ADR 0017).
+  return getAllSites().map((site) => ({
+    params: { slug: site.slug },
+    props: { site } satisfies Props,
+  }));
+}
+
+const { site } = Astro.props;
+const { frontmatter: fm } = site;
+const t = STRINGS.sites;
+const href = siteHref(site);
+const preview = previewSrc(site);
+const copy = preview === null ? null : servedCopy(preview);
+const shot =
+  preview === null
+    ? null
+    : copy !== null
+      ? copy
+      : { src: preview, ...(previewSize(site) ?? {}) };
+const unlisted = isUnlisted(fm);
+const date = dateLabel(fm.clipped_at);
+// Membership by the vault's name for a site, `sites/<slug>`, so the article
+// of the same URL never lends this page its collections.
+const memberCollections = await collectionsOf(site.ref);
+const tiroPage = await tiroPagePayload(site.ref);
+const categoryHref =
+  fm.category === undefined ? null : await categoryPageUrl(fm.category);
+const tagLinks = await Promise.all(
+  (fm.tags ?? []).map(async (tag) => ({ tag, href: await tagPageUrl(tag) })),
+);
+const processed = fm.tiro.processed_at !== undefined;
+---
+
+<Base
+  title={fm.title_zh ?? fm.title}
+  description={fm.summary ?? fm.description}
+  ogType="article"
+  noindex={unlisted}
+>
+  <script
+    slot="head"
+    id="tiro-page"
+    type="application/json"
+    is:inline
+    set:html={tiroPage}
+  />
+  <article
+    class="site"
+    data-pagefind-body={unlisted ? undefined : true}
+    data-pagefind-meta="kind:site"
+  >
+    <p class="crumbs" data-pagefind-ignore>
+      <a href="/sites/">← {t.title}</a>
+    </p>
+
+    <header class="head">
+      <p class="meta">
+        <span class="pill">{t.badge}</span>
+        {
+          href !== null ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="domain"
+              data-pagefind-meta="domain"
+            >
+              {fm.domain}
+            </a>
+          ) : (
+            <span class="domain" data-pagefind-meta="domain">
+              {fm.domain}
+            </span>
+          )
+        }
+        <span aria-hidden="true">·</span>
+        <span>
+          {t.savedAt}{" "}
+          <time datetime={fm.clipped_at} data-pagefind-meta="date">{date}</time>
+        </span>
+        {unlisted && <span class="pill">{STRINGS.article.unlisted}</span>}
+      </p>
+      <h1 data-pagefind-meta="title">{fm.title}</h1>
+      {
+        fm.title_zh !== undefined && (
+          <p class="title-zh" lang="zh-CN" data-pagefind-meta="title_zh">
+            {fm.title_zh}
+          </p>
+        )
+      }
+    </header>
+
+    <figure class="shot">
+      {
+        shot === null ? (
+          <div class="placeholder">
+            <CollectionCover images={[]} title={fm.title} />
+          </div>
+        ) : href !== null ? (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            <img
+              src={shot.src}
+              width={shot.width}
+              height={shot.height}
+              alt={`${t.screenshot}：${fm.title}`}
+              fetchpriority="high"
+            />
+          </a>
+        ) : (
+          <img
+            src={shot.src}
+            width={shot.width}
+            height={shot.height}
+            alt={`${t.screenshot}：${fm.title}`}
+            fetchpriority="high"
+          />
+        )
+      }
+    </figure>
+
+    {
+      href !== null && (
+        <p class="actions" data-pagefind-ignore>
+          <a class="open" href={href} target="_blank" rel="noopener noreferrer">
+            {t.open} <span aria-hidden="true">↗</span>
+          </a>
+        </p>
+      )
+    }
+
+    <div class="sections">
+      <section>
+        <h2>{t.intro}</h2>
+        {
+          fm.summary !== undefined ? (
+            <p lang="zh-CN">{fm.summary}</p>
+          ) : (
+            <p class="muted">{processed ? "—" : t.pending}</p>
+          )
+        }
+      </section>
+      {
+        fm.description !== undefined && (
+          <section>
+            <h2>{t.description}</h2>
+            <p lang={fm.lang}>{fm.description}</p>
+          </section>
+        )
+      }
+      {
+        fm.note !== undefined && (
+          <section class="note">
+            <h2>{t.note}</h2>
+            <p>{fm.note}</p>
+          </section>
+        )
+      }
+    </div>
+
+    {
+      (fm.category !== undefined ||
+        (fm.tags ?? []).length > 0 ||
+        memberCollections.length > 0) && (
+        <p class="terms">
+          {memberCollections.length > 0 && (
+            <Fragment>
+              <span>{STRINGS.collections.memberOf}</span>
+              {memberCollections.map((collection) => (
+                <a
+                  href={collectionUrl(collection.id)}
+                  class="pill collection"
+                  data-pagefind-meta={`collection:${collection.id}`}
+                >
+                  {collection.title}
+                </a>
+              ))}
+            </Fragment>
+          )}
+          {fm.category !== undefined &&
+            (categoryHref === null ? (
+              <span class="pill" data-pagefind-meta={`category:${fm.category}`}>
+                {fm.category}
+              </span>
+            ) : (
+              <a
+                href={categoryHref}
+                class="pill"
+                data-pagefind-meta={`category:${fm.category}`}
+              >
+                {fm.category}
+              </a>
+            ))}
+          {tagLinks.map(({ tag, href: tagHref }) =>
+            tagHref === null ? (
+              <span>#{tag}</span>
+            ) : (
+              <a href={tagHref}>#{tag}</a>
+            ),
+          )}
+        </p>
+      )
+    }
+  </article>
+</Base>
+
+<style>
+  /* Raw tokens, never --color-*: `@theme inline` substitutes those away. */
+  .site {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  .crumbs {
+    margin: 0 0 18px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+  }
+  .crumbs a {
+    color: var(--ink-mute);
+    text-decoration: none;
+  }
+  .crumbs a:hover {
+    color: var(--accent);
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 0 0 12px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    color: var(--ink-mute);
+  }
+  .domain {
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+    color: var(--ink-soft);
+  }
+  a.domain:hover {
+    color: var(--accent);
+  }
+  h1 {
+    margin: 0;
+    font-size: 34px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .title-zh {
+    margin: 8px 0 0;
+    font-family: var(--font-zh);
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+  .shot {
+    margin: 28px 0 0;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--wash);
+  }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .shot a {
+    display: block;
+  }
+  .placeholder {
+    --cover-ratio: 16 / 9;
+    --cover-glyph: 96px;
+  }
+  .actions {
+    margin: 18px 0 0;
+  }
+  .open {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--accent-fill);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 500;
+    color: #fff;
+    text-decoration: none;
+  }
+  .open:hover {
+    filter: brightness(1.08);
+  }
+  .sections {
+    display: grid;
+    gap: 26px;
+    margin: 34px 0 0;
+    max-width: 720px;
+  }
+  .sections h2 {
+    margin: 0 0 8px;
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+  .sections p {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.8;
+    white-space: pre-line;
+  }
+  .sections p[lang="zh-CN"] {
+    font-family: var(--font-zh);
+  }
+  .muted {
+    color: var(--ink-mute);
+  }
+  /* The owner's own words, set apart from what the page and the model say. */
+  .note p {
+    padding-left: 16px;
+    border-left: 3px solid var(--accent);
+    font-style: italic;
+    color: var(--ink-soft);
+  }
+  .terms {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: 34px 0 0;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    color: var(--ink-mute);
+  }
+  .terms a {
+    color: var(--ink-soft);
+    text-decoration: none;
+  }
+  .terms a:hover {
+    color: var(--accent);
+  }
+  @media (max-width: 39.99rem) {
+    h1 {
+      font-size: 27px;
+    }
+    .shot {
+      margin-top: 20px;
+    }
+  }
+</style>

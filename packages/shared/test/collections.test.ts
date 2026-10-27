@@ -126,8 +126,23 @@ describe("cover", () => {
       "articles/a-1234abcd/assets/0f71f771c929.png",
     );
     expect(parseCoverPath("articles/a-1234abcd/assets/cover.png")).toEqual({
+      kind: "article",
       slug: "a-1234abcd",
+      ref: "a-1234abcd",
       file: "cover.png",
+    });
+  });
+
+  // ADR 0055: a saved site's screenshot may be a cover, named under `sites/`,
+  // and the reference it carries is the one a collection member uses.
+  test("accepts a saved site's asset, referenced as sites/<slug>", () => {
+    const path = "sites/a-1234abcd/assets/0f71f771c929.webp";
+    expect(parseCollection("x", withCover(path)).frontmatter.cover).toBe(path);
+    expect(parseCoverPath(path)).toEqual({
+      kind: "site",
+      slug: "a-1234abcd",
+      ref: "sites/a-1234abcd",
+      file: "0f71f771c929.webp",
     });
   });
 
@@ -141,6 +156,9 @@ describe("cover", () => {
       "articles/a-1234abcd/index.md",
       "articles/A-Upper/assets/c.png",
       "collections/assets/c.png",
+      "sites/a-1234abcd/assets/../c.png",
+      "sites/a-1234abcd/index.md",
+      "inbox/a-1234abcd/assets/c.png",
     ]) {
       expect(() => parseCollection("x", withCover(bad))).toThrow();
       expect(parseCoverPath(bad)).toBeNull();
@@ -477,6 +495,32 @@ describe("renameCollectionMember", () => {
     expect(renameCollectionMember([other], "old-slug", "new")).toEqual([]);
   });
 
+  // A site's directory moves under the same rule (ADR 0055), and the article
+  // of the same URL — a different document with the same slug — stays put.
+  test("moves a saved site's membership and cover, not the article's", () => {
+    const existing = collection([
+      { slug: "old-slug", added_at: T1 },
+      { slug: "sites/old-slug", added_at: T2 },
+    ]);
+    existing.frontmatter.cover = "sites/old-slug/assets/0f71f771c929.webp";
+    const [renamed] = renameCollectionMember(
+      [existing],
+      "sites/old-slug",
+      "sites/new-slug",
+    );
+    expect(renamed?.frontmatter.items).toEqual([
+      { slug: "old-slug", added_at: T1 },
+      { slug: "sites/new-slug", added_at: T2 },
+    ]);
+    expect(renamed?.frontmatter.cover).toBe(
+      "sites/new-slug/assets/0f71f771c929.webp",
+    );
+    // An article rename leaves a site cover of the same slug alone.
+    const sited = collection([{ slug: "x" }]);
+    sited.frontmatter.cover = "sites/old-slug/assets/0f71f771c929.webp";
+    expect(renameCollectionMember([sited], "old-slug", "new-slug")).toEqual([]);
+  });
+
   test("returns only the collections that changed", () => {
     const holding = collection([{ slug: "old-slug" }]);
     const other = { ...collection([{ slug: "x" }]), id: "other" };
@@ -492,6 +536,23 @@ describe("renameCollectionMember", () => {
 });
 
 describe("dropCollectionMember", () => {
+  test("drops a saved site and its cover, never the article of its slug", () => {
+    const existing = collection([
+      { slug: "same", added_at: T1 },
+      { slug: "sites/same", added_at: T2 },
+    ]);
+    existing.frontmatter.cover = "sites/same/assets/0f71f771c929.webp";
+    const [dropped] = dropCollectionMember([existing], "sites/same");
+    expect(dropped?.frontmatter.items).toEqual([
+      { slug: "same", added_at: T1 },
+    ]);
+    expect(dropped && "cover" in dropped.frontmatter).toBe(false);
+    const articleCover = collection([{ slug: "sites/same" }]);
+    articleCover.frontmatter.cover = "articles/same/assets/c.png";
+    const [kept] = dropCollectionMember([articleCover], "sites/same");
+    expect(kept?.frontmatter.cover).toBe("articles/same/assets/c.png");
+  });
+
   test("drops the article and keeps everyone else's place and date", () => {
     const existing = collection([
       { slug: "first", added_at: T1 },

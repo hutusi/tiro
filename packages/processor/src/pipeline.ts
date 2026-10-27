@@ -1,8 +1,10 @@
 import { rm } from "node:fs/promises";
 import {
   type ArticleFrontmatter,
+  previewFile,
   splitBlocks,
   stringifyArticle,
+  stringifySite,
   TAG_LIMIT,
   tagAliases,
 } from "@tiro/shared";
@@ -17,7 +19,12 @@ import {
   type Deadline,
   DeadlineExceededError,
 } from "./deadline.ts";
-import { type DiscoveredArticle, discoverArticles } from "./discover.ts";
+import {
+  type DiscoveredArticle,
+  type DiscoveredSite,
+  discoverArticles,
+  discoverSites,
+} from "./discover.ts";
 import { processImages, reconcileAssets } from "./images.ts";
 import { drainInbox, type InboxReport } from "./inbox.ts";
 import { detectLang } from "./language.ts";
@@ -159,17 +166,32 @@ export async function loadVaultConfig(vaultDir: string): Promise<TiroConfig> {
  * beside a cut `summary` — accepted, because the alternative breaks the one
  * thing that ADR promises about them.
  *
+ * An excerpt — this run's reply unusable, so `fromExcerpt` — never replaces a
+ * summary at all, whatever their lengths. The ellipsis cannot be relied on to
+ * say so: only an excerpt cut at 300 characters carries one, and a short
+ * paragraph, or a saved site's description (ADR 0055), ends like a sentence.
+ * A site measured it: its two-sentence Chinese introduction lost, on a failed
+ * forced rerun, to its longer English description.
+ *
+ * The translated title is kept with the summary it came with, for the same
+ * reason as `summary_orig`: this run has none to offer in its place.
+ *
  * `summary_failed` stays set either way. The article still needs a human look,
  * and the log line below is what tells this route from the other two.
  */
 function keepBetterSummary(
   produced: SummaryResult,
-  frontmatter: { summary?: string; summary_orig?: string },
+  frontmatter: { summary?: string; summary_orig?: string; title_zh?: string },
   log: (line: string) => void,
 ): SummaryResult {
   const existing = frontmatter.summary?.trim() ?? "";
   if (existing === "") return produced;
-  if (!isBetterSummary(existing, produced.summary.trim())) return produced;
+  if (
+    produced.fromExcerpt !== true &&
+    !isBetterSummary(existing, produced.summary.trim())
+  ) {
+    return produced;
+  }
   log(
     `summary would have regressed; keeping the existing one (${existing.length} chars, was offered ${produced.summary.trim().length})`,
   );
@@ -177,6 +199,9 @@ function keepBetterSummary(
     ...produced,
     summary: existing,
     summaryOrig: frontmatter.summary_orig,
+    ...(produced.titleZh === undefined && frontmatter.title_zh !== undefined
+      ? { titleZh: frontmatter.title_zh }
+      : {}),
   };
 }
 
@@ -326,39 +351,95 @@ export async function runPipeline(
     });
   }
 
+  const discoverOptions = {
+    ...(options.slug !== undefined ? { slug: options.slug } : {}),
+    force: options.force === true,
+  };
   const { pending, invalid, tagLists } = await discoverArticles(
     options.vaultDir,
-    {
-      ...(options.slug !== undefined ? { slug: options.slug } : {}),
-      force: options.force === true,
-    },
+    discoverOptions,
   );
-  report.invalid = invalid;
+  const sites = await discoverSites(options.vaultDir, discoverOptions);
+  report.invalid = [...invalid, ...sites.invalid];
   // Built once and held for the whole run, so every article in it is offered
   // the same list, and the order articles run in cannot change their tags.
+  // Sites are tagged from the same vocabulary, and lend it their tags.
   const aliases = tagAliases(config.tags.aliases);
   const tagging: Tagging = {
     aliases,
-    vocabulary: buildVocabulary(tagLists, aliases),
+    vocabulary: buildVocabulary([...tagLists, ...sites.tagLists], aliases),
   };
-  for (const bad of invalid)
+  for (const bad of report.invalid)
     log(`invalid article skipped: ${bad.path}: ${bad.error}`);
-  log(`${pending.length} article(s) to process`);
+  log(
+    `${pending.length} article(s) to process${sites.pending.length > 0 ? `, and ${sites.pending.length} site(s)` : ""}`,
+  );
 
-  for (let i = 0; i < pending.length; i += 1) {
-    const article = pending[i];
-    if (article === undefined) continue;
+  const force = options.force === true;
+  // Sites first. Each is one call to the model and nothing else, which makes
+  // it cheaper than any article — the same cheapest-first rule `discover`
+  // sorts articles by, for the same reason: a budget that runs out should run
+  // out on the expensive work, not starve the cheap.
+  const work: WorkItem[] = [
+    ...sites.pending.map(
+      (site): WorkItem => ({
+        ref: site.ref,
+        dryRun: () => log(`[dry-run] would process ${site.ref}`),
+        process: () => processSite(site, config, deps, report, log, tagging),
+        markPending: () => markSitePending(site, options, log),
+        // Nothing to undo: a site downloads nothing, and the one file in its
+        // `assets/` is the screenshot its committed `index.md` names.
+        rollback: async () => 0,
+      }),
+    ),
+    ...pending.map(
+      (article): WorkItem => ({
+        ref: article.slug,
+        dryRun: () => {
+          const lang =
+            article.parsed.frontmatter.lang ??
+            detectLang(article.parsed.body, config.translation.cjk_threshold);
+          log(`[dry-run] would process ${article.slug} (lang=${lang})`);
+        },
+        process: () =>
+          processOne(
+            article,
+            config,
+            deps,
+            report,
+            log,
+            deadline,
+            force,
+            tagging,
+          ),
+        markPending: () => markPending(article, options, log),
+        // Images are downloaded before the LLM stages, so a failure leaves
+        // files nothing references — and the workflow commits them
+        // regardless. Reaching a failure proves index.md was never rewritten
+        // (the only step after it cannot throw), so the parsed body is exactly
+        // what is on disk: still hotlinked, so this drops just this run's
+        // downloads and keeps every asset the committed article points at.
+        rollback: () =>
+          reconcileQuietly(
+            `${article.dirAbs}/assets`,
+            article.parsed.body,
+            log,
+          ),
+      }),
+    ),
+  ];
+
+  for (let i = 0; i < work.length; i += 1) {
+    const item = work[i];
+    if (item === undefined) continue;
     if (options.dryRun === true) {
-      const lang =
-        article.parsed.frontmatter.lang ??
-        detectLang(article.parsed.body, config.translation.cjk_threshold);
-      log(`[dry-run] would process ${article.slug} (lang=${lang})`);
+      item.dryRun();
       continue;
     }
     if (outages.tripped) {
       let haltedCount = 0;
-      for (const candidate of pending.slice(i)) {
-        if (await deferArticle(candidate, options, report, log, report.halted))
+      for (const candidate of work.slice(i)) {
+        if (await deferItem(candidate, report, log, report.halted))
           haltedCount += 1;
       }
       log(
@@ -375,9 +456,8 @@ export async function runPipeline(
       // booked as a failure. Counting it here would put the overstatement back
       // in the summary after taking it out of the per-article line.
       let deferredCount = 0;
-      for (const candidate of pending.slice(i)) {
-        if (await deferArticle(candidate, options, report, log))
-          deferredCount += 1;
+      for (const candidate of work.slice(i)) {
+        if (await deferItem(candidate, report, log)) deferredCount += 1;
       }
       log(
         `run budget exhausted; ${deferredCount} article(s) left pending for the next run`,
@@ -385,16 +465,7 @@ export async function runPipeline(
       break;
     }
     try {
-      await processOne(
-        article,
-        config,
-        deps,
-        report,
-        log,
-        deadline,
-        options.force === true,
-        tagging,
-      );
+      await item.process();
       outages.succeeded();
     } catch (error) {
       // Budget exhaustion is an orderly stop, not a fault: the article's
@@ -403,13 +474,13 @@ export async function runPipeline(
       const outOfBudget = error instanceof DeadlineExceededError;
       if (outOfBudget) {
         // Only claim the reassuring outcome if the deferral actually held;
-        // deferArticle books it as a failure otherwise. Naming the error
+        // deferItem books it as a failure otherwise. Naming the error
         // matters too: DeadlineExceededError carries the fault observed as the
         // budget ran out, so a deferral actually caused by a 403 or a stuck
         // provider says so here instead of reading as routine.
-        if (await deferArticle(article, options, report, log)) {
+        if (await deferItem(item, report, log)) {
           log(
-            `run budget exhausted mid-article; ${article.slug} left pending with its checkpoint saved: ${String(error)}`,
+            `run budget exhausted mid-article; ${item.ref} left pending with its checkpoint saved: ${String(error)}`,
           );
         }
       } else {
@@ -427,41 +498,30 @@ export async function runPipeline(
         // for both cases.
         let staysPending = true;
         try {
-          await markPending(article, options, log);
+          await item.markPending();
         } catch (markError) {
           staysPending = false;
           log(
-            `${article.slug}: failed, and its marker could not be cleared, so an ordinary run will skip it: ${String(markError)}`,
+            `${item.ref}: failed, and its marker could not be cleared, so an ordinary run will skip it: ${String(markError)}`,
           );
         }
         report.errored.push({
-          slug: article.slug,
+          slug: item.ref,
           error: String(error),
           staysPending,
         });
         if (isProviderFailure(error)) outages.failed();
         log(
           staysPending
-            ? `processing failed for ${article.slug}, left pending: ${String(error)}`
-            : `processing failed for ${article.slug}, and it will NOT be retried by an ordinary run: ${String(error)}`,
+            ? `processing failed for ${item.ref}, left pending: ${String(error)}`
+            : `processing failed for ${item.ref}, and it will NOT be retried by an ordinary run: ${String(error)}`,
         );
       }
-      // Images are downloaded before the LLM stages, so a failure here leaves
-      // files nothing references — and the workflow commits them regardless.
-      // Reaching this catch proves index.md was never rewritten (the only step
-      // after it cannot throw), so the parsed body is exactly what is on disk:
-      // still hotlinked, so this drops just this run's downloads and keeps
-      // every asset the committed article points at.
-      report.imagesPruned += await reconcileQuietly(
-        `${article.dirAbs}/assets`,
-        article.parsed.body,
-        log,
-      );
+      report.imagesPruned += await item.rollback();
       if (outOfBudget) {
         let deferredCount = 0;
-        for (const candidate of pending.slice(i + 1)) {
-          if (await deferArticle(candidate, options, report, log))
-            deferredCount += 1;
+        for (const candidate of work.slice(i + 1)) {
+          if (await deferItem(candidate, report, log)) deferredCount += 1;
         }
         if (deferredCount > 0) {
           log(
@@ -797,6 +857,138 @@ async function processOne(
 }
 
 /**
+ * Introduce a saved site: one call to the model, then the write (ADR 0055).
+ *
+ * Nothing else of an article's pipeline runs. A site's body is the page's
+ * text, kept as context — there is nothing to translate, no picture to
+ * download, no page to fetch — so the only things this adds are the
+ * introduction, the category and tags, the language, and a translated title
+ * for a site in another language.
+ *
+ * The language is read from the title, the description and the text, never
+ * from the note: the note is in the owner's language, which says nothing about
+ * the site's, and counting it would leave an English site with no Chinese
+ * title. An empty body alone would read as English, which is why the
+ * description goes in at all.
+ *
+ * Its ending keeps the article's order — write, record, then clean up — for
+ * the article's reason: a cleanup that ran before the write could delete the
+ * screenshot the committed file still names. The cleanup counts `preview` as
+ * a reference, so a re-save's old screenshot goes and the current one stays.
+ */
+async function processSite(
+  site: DiscoveredSite,
+  config: TiroConfig,
+  deps: PipelineDeps,
+  report: PipelineReport,
+  log: (message: string) => void,
+  tagging: Tagging,
+): Promise<void> {
+  const now = deps.now ?? (() => new Date());
+  const { frontmatter, body } = site.parsed;
+  log(`processing ${site.ref}`);
+
+  const lang =
+    frontmatter.lang ??
+    detectLang(
+      [frontmatter.title, frontmatter.description ?? "", body].join("\n\n"),
+      config.translation.cjk_threshold,
+    );
+  const summary = await summarize({
+    chat: deps.chat,
+    model: modelFor(config, "summary"),
+    categories: config.categories,
+    title: frontmatter.title,
+    body,
+    targetLang: config.translation.target,
+    bilingual: lang !== config.translation.target,
+    cjkThreshold: config.translation.cjk_threshold,
+    tagAliases: tagging.aliases,
+    vocabulary: tagging.vocabulary,
+    currentTags: frontmatter.tags ?? [],
+    maxBodyChars: SITE_TEXT_CHARS,
+    site: {
+      url: frontmatter.url,
+      ...(frontmatter.description !== undefined
+        ? { description: frontmatter.description }
+        : {}),
+      ...(frontmatter.note !== undefined ? { note: frontmatter.note } : {}),
+    },
+    log,
+  });
+  const chosen = summary.failed
+    ? keepExistingTerms(
+        keepBetterSummary(summary, frontmatter, log),
+        frontmatter,
+        config.categories,
+        tagging,
+        log,
+      )
+    : summary;
+  if (chosen.failed) {
+    report.summaryFailed.push(site.ref);
+    log(`summary marked for review: ${site.ref}`);
+  }
+  // Stripped and re-added, as the article's write does: a translated title
+  // this reply did not offer would sit under a title it may not belong to.
+  const { title_zh: _staleTitleZh, ...previous } = frontmatter;
+  const { summary_failed: _staleSummaryFailed, ...previousTiro } =
+    frontmatter.tiro;
+  await Bun.write(
+    site.indexAbs,
+    stringifySite(
+      {
+        ...previous,
+        lang,
+        summary: chosen.summary,
+        category: chosen.category,
+        tags: chosen.tags,
+        ...(chosen.titleZh !== undefined ? { title_zh: chosen.titleZh } : {}),
+        tiro: {
+          ...previousTiro,
+          processed_at: now().toISOString(),
+          processor_version: PROCESSOR_VERSION,
+          ...(chosen.failed ? { summary_failed: true } : {}),
+        },
+      },
+      body,
+    ),
+  );
+  report.processed.push(site.ref);
+
+  const preview = previewFile(frontmatter.preview);
+  report.imagesPruned += await reconcileQuietly(
+    `${site.dirAbs}/assets`,
+    body,
+    log,
+    new Set(preview === null ? [] : [preview]),
+  );
+}
+
+/** How much of a site's text the model is shown. A site is introduced in two
+ * or three sentences, from its description first; past this the text is a
+ * page's chrome, not more about what it is. */
+const SITE_TEXT_CHARS = 8_000;
+
+/** `markPending` for a site: only a forced run has a marker to clear. */
+async function markSitePending(
+  site: DiscoveredSite,
+  options: PipelineOptions,
+  log: (message: string) => void,
+): Promise<void> {
+  if (options.force !== true) return;
+  const { frontmatter, body } = site.parsed;
+  if (frontmatter.tiro.processed_at === undefined) return;
+  const {
+    processed_at: _processedAt,
+    processor_version: _processorVersion,
+    ...tiro
+  } = frontmatter.tiro;
+  await Bun.write(site.indexAbs, stringifySite({ ...frontmatter, tiro }, body));
+  log(`${site.ref}: forced reprocess deferred, returned to pending`);
+}
+
+/**
  * Book an article as deferred to the next run.
  *
  * Deferral is a promise that the work will be picked up again, and for a forced
@@ -810,9 +1002,8 @@ async function processOne(
  * altogether and abandoned every remaining article. One article's failure must
  * never cost the others.
  */
-async function deferArticle(
-  article: DiscoveredArticle,
-  options: PipelineOptions,
+async function deferItem(
+  item: WorkItem,
   report: PipelineReport,
   log: (message: string) => void,
   /** Where a successful deferral is booked: the budget's `skipped` unless the
@@ -820,22 +1011,41 @@ async function deferArticle(
   into: string[] = report.skipped,
 ): Promise<boolean> {
   try {
-    await markPending(article, options, log);
-    into.push(article.slug);
+    await item.markPending();
+    into.push(item.ref);
     return true;
   } catch (error) {
     report.errored.push({
-      slug: article.slug,
+      slug: item.ref,
       error: `deferred, but could not be returned to pending: ${String(error)}`,
       // The marker is still there, so an ordinary run will skip it rather than
       // pick it up — which is precisely what the log line below warns about.
       staysPending: false,
     });
     log(
-      `${article.slug}: deferred, but its marker could not be cleared, so it will not resume: ${String(error)}`,
+      `${item.ref}: deferred, but its marker could not be cleared, so it will not resume: ${String(error)}`,
     );
     return false;
   }
+}
+
+/**
+ * One thing a run processes: an article, or a saved site (ADR 0055). The loop
+ * in `runPipeline` owns what every one of them is promised — the budget, the
+ * outage breaker, the deferral and the per-item fault isolation (invariants 7
+ * and 8) — and asks the item only for what differs between the two.
+ */
+interface WorkItem {
+  /** How the run reports it: an article's slug, or `sites/<slug>`. */
+  ref: string;
+  dryRun(): void;
+  process(): Promise<void>;
+  /** Return a forced item to pending; throws if its marker cannot be
+   * cleared. A no-op on an unforced run, whose items have no marker. */
+  markPending(): Promise<void>;
+  /** After a failure, undo what the attempt left on disk; the number of
+   * assets removed. */
+  rollback(): Promise<number>;
 }
 
 /**
@@ -1136,9 +1346,10 @@ async function reconcileQuietly(
   assetsDirAbs: string,
   body: string,
   log: (message: string) => void,
+  keep?: ReadonlySet<string>,
 ): Promise<number> {
   try {
-    return await reconcileAssets(assetsDirAbs, body, log);
+    return await reconcileAssets(assetsDirAbs, body, log, keep);
   } catch (error) {
     log(`could not reconcile ${assetsDirAbs}: ${String(error)}`);
     return 0;

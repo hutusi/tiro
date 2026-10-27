@@ -5,6 +5,7 @@ import {
   PDF_MIN_CHARS_PER_PAGE,
   PDF_MIN_PAGE_COVERAGE,
 } from "./pdf-limits.ts";
+import { THIN_PAGE_CHARS } from "./site.ts";
 import { aliasProblems } from "./tags.ts";
 
 /**
@@ -137,7 +138,8 @@ export const TiroConfigSchema = z
     // is far below a PDF's; one past it is refused rather than truncated.
     // `min_chars`: a clip shorter than this is taken to be a page that builds
     // its text with scripts, which a fetch cannot run — the same threshold
-    // `sweep` uses to flag one.
+    // `sweep` uses to flag one, and the popup uses to offer saving a page as a
+    // site (ADR 0055).
     fetch: z
       .object({
         max_bytes: z
@@ -146,7 +148,7 @@ export const TiroConfigSchema = z
           .positive()
           .default(5 * 1024 * 1024),
         timeout_ms: z.number().int().positive().default(30_000),
-        min_chars: z.number().int().min(0).default(500),
+        min_chars: z.number().int().min(0).default(THIN_PAGE_CHARS),
       })
       .prefault({}),
     processing: z

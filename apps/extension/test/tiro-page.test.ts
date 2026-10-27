@@ -68,18 +68,42 @@ describe("parseTiroPage", () => {
 
   test("a Tiro page with no readable payload is still a Tiro page", () => {
     expect(parseTiroPage({ site: true, payload: null })).toEqual({
-      kind: "site",
+      kind: "tiro",
     });
-    expect(parseTiroPage(marker("{not json"))).toEqual({ kind: "site" });
+    expect(parseTiroPage(marker("{not json"))).toEqual({ kind: "tiro" });
     expect(parseTiroPage(marker({ ...payload, v: 2 }))).toEqual({
-      kind: "site",
+      kind: "tiro",
     });
+  });
+
+  // ADR 0055: a saved site's page names the site as `sites/<slug>`, so a
+  // tick or a Remove acts on the site, never on the article of its slug.
+  test("a saved site's page yields the site's reference", () => {
+    const parsed = parseTiroPage(
+      marker({ ...payload, slug: `sites/${payload.slug}` }),
+    );
+    expect(parsed).toEqual({
+      kind: "article",
+      slug: `sites/${payload.slug}`,
+      member: ["favorites"],
+      catalog: payload.collections,
+    });
+    for (const slug of [
+      "sites/",
+      `sites/${payload.slug}/assets`,
+      "sites/../config",
+      `articles/${payload.slug}`,
+    ]) {
+      expect(parseTiroPage(marker({ ...payload, slug }))).toEqual({
+        kind: "tiro",
+      });
+    }
   });
 
   // Any page can carry the marker. Nothing it says may become a path.
   test("a slug or id that could not be a path segment is refused", () => {
     expect(parseTiroPage(marker({ ...payload, slug: "../config" }))).toEqual({
-      kind: "site",
+      kind: "tiro",
     });
     const parsed = parseTiroPage(
       marker({

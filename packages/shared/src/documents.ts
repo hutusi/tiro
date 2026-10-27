@@ -1,6 +1,6 @@
 /**
  * @tiro/shared/documents — the vault's document layer and nothing else:
- * frontmatter, collections, paths and slugs.
+ * frontmatter, collections, saved sites, paths and slugs.
  *
  * A subpath rather than only the root export because the root is
  * browser-safe, not *worker*-safe. It re-exports the block splitter, which
@@ -15,4 +15,5 @@
 export * from "./collections.ts";
 export * from "./frontmatter.ts";
 export * from "./paths.ts";
+export * from "./site.ts";
 export * from "./slug.ts";

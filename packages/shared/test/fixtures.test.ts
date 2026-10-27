@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { checkAlignment, splitBlocks } from "../src/blocks.ts";
 import { parseCollection } from "../src/collections.ts";
 import { needsProcessing, parseArticle } from "../src/frontmatter.ts";
+import { parseMemberRef } from "../src/paths.ts";
+import { parseSite, previewFile } from "../src/site.ts";
 import { isValidCollectionId, slugForUrl } from "../src/slug.ts";
 
 /**
@@ -11,6 +13,7 @@ import { isValidCollectionId, slugForUrl } from "../src/slug.ts";
 const vaultDir = `${import.meta.dir}/../../../fixtures/vault`;
 const articlesDir = `${vaultDir}/articles`;
 const collectionsDir = `${vaultDir}/collections`;
+const sitesDir = `${vaultDir}/sites`;
 
 const indexFiles = Array.from(
   new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
@@ -101,6 +104,47 @@ describe("fixture vault", () => {
   });
 });
 
+const siteFiles = Array.from(
+  new Bun.Glob("*/index.md").scanSync({ cwd: sitesDir }),
+).sort();
+
+describe("fixture sites", () => {
+  test("contains the expected sites", () => {
+    expect(siteFiles).toEqual([
+      // Processed, English, with a translated title, a description, a note,
+      // and a `source_url` holding the view's fragment that the identity
+      // drops (ADR 0055). Its body is the little text a map has. It shares a
+      // tag with articles, so a tag page lists both kinds, and it is a member
+      // of `field-guide`, as `sites/<slug>`.
+      "maps-example-org-roman-battles-facc4f75/index.md",
+    ]);
+  });
+
+  test("contains no nested sites", () => {
+    expect(
+      Array.from(new Bun.Glob("*/*/index.md").scanSync({ cwd: sitesDir })),
+    ).toEqual([]);
+  });
+
+  for (const relPath of siteFiles) {
+    const [slug] = relPath.split("/");
+
+    test(`${slug} honors the site contract`, async () => {
+      const { frontmatter } = parseSite(
+        await Bun.file(`${sitesDir}/${relPath}`).text(),
+      );
+      expect(await slugForUrl(frontmatter.url)).toBe(slug ?? "");
+      const file = previewFile(frontmatter.preview);
+      expect(file).not.toBeNull();
+      expect(
+        await Bun.file(`${sitesDir}/${slug}/assets/${file}`).exists(),
+      ).toBe(true);
+      // A site is never translated (ADR 0055).
+      expect(await Bun.file(`${sitesDir}/${slug}/zh.md`).exists()).toBe(false);
+    });
+  }
+});
+
 const collectionFiles = Array.from(
   new Bun.Glob("*.md").scanSync({ cwd: collectionsDir }),
 ).sort();
@@ -117,7 +161,8 @@ describe("fixture collections", () => {
       // two-image mosaic: hello-ai's only image is too small to be picked.
       "favorites.md",
       // A hand-set `cover:` that is not a member's image, so the page shows
-      // the override and not the members' own pictures (ADR 0030).
+      // the override and not the members' own pictures (ADR 0030). Its last
+      // member is a saved site, named `sites/<slug>` (ADR 0055).
       "field-guide.md",
       // A prose body, a description, and one item with no `added_at` — the
       // shape a hand-written collection has, which the extension never emits.
@@ -141,11 +186,14 @@ describe("fixture collections", () => {
 
       const slugs = parsed.frontmatter.items.map((item) => item.slug);
       expect(new Set(slugs).size).toBe(slugs.length);
-      for (const slug of slugs) {
+      for (const ref of slugs) {
         // A dangling member would render as a missing row rather than an
         // error, so the fixture vault has to be the one place it cannot
         // happen — `validate` enforces the same rule on a real vault.
-        expect(indexFiles).toContain(`${slug}/index.md`);
+        const member = parseMemberRef(ref);
+        expect(member.kind === "site" ? siteFiles : indexFiles).toContain(
+          `${member.slug}/index.md`,
+        );
       }
     });
   }

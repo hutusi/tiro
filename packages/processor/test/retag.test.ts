@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseArticle, stringifyArticle } from "@tiro/shared";
+import { parseArticle, parseSite, stringifyArticle } from "@tiro/shared";
 import { createDeadline } from "../src/deadline.ts";
 import type { ChatFn, ChatRequest } from "../src/llm/client.ts";
 import { loadVaultConfig } from "../src/pipeline.ts";
@@ -21,9 +21,10 @@ const fixtureVault = join(import.meta.dir, "../../../fixtures/vault");
 const ATTENTION = "example-net-papers-attention-notes-278b43cb";
 const HELLO = "example-com-posts-hello-ai-e8446b12";
 const PENDING = "example-org-blog-raw-clip-b5de6fbd";
-/** The eight processed fixture articles, none of which is in the vault's form
- * yet: their tags are lowercase English, or fewer than three. */
-const PROCESSED = 8;
+/** The eight processed fixture articles and the one saved site (ADR 0055),
+ * none of which is in the vault's form yet: their tags are lowercase English,
+ * or fewer than three. */
+const PROCESSED = 9;
 
 /**
  * The fixture vault, with the aliases a migration would add first (ADR 0035):
@@ -179,6 +180,31 @@ describe("retagVault", () => {
     );
   });
 
+  // ADR 0055: a site is tagged from the same vocabulary and held to the same
+  // form, so it is retagged with the articles — and written back as a site.
+  test("retags a saved site as a site, keeping what the extension wrote", async () => {
+    const vault = freshVault();
+    const config = await loadVaultConfig(vault);
+    const site = "maps-example-org-roman-battles-facc4f75";
+    const { chat, requests } = tagChat(["可视化", "渲染", "历史"]);
+    const report = await retagVault(
+      vault,
+      config,
+      { slug: `sites/${site}` },
+      { ...quiet, chat },
+    );
+    expect(report.scanned).toBe(1);
+    expect(requests).toHaveLength(1);
+    expect(report.retagged.map((r) => r.slug)).toEqual([`sites/${site}`]);
+    const text = readFileSync(join(vault, "sites", site, "index.md"), "utf8");
+    const { frontmatter } = parseSite(text);
+    expect(frontmatter.tags).toEqual(["可视化", "渲染", "历史"]);
+    expect(frontmatter.note).toBeDefined();
+    expect(frontmatter.preview).toBe("./assets/54ea819b7af4.webp");
+    // The processor's key order: the translated title after the tags.
+    expect(text.indexOf("title_zh:")).toBeGreaterThan(text.indexOf("tags:"));
+  });
+
   test("offers the whole vault's vocabulary to a one-article run", async () => {
     const vault = freshVault();
     const config = await loadVaultConfig(vault);
@@ -189,9 +215,11 @@ describe("retagVault", () => {
       { slug: ATTENTION },
       { ...quiet, chat },
     );
-    expect(report.vocabulary).toEqual(["契约", "渲染", "知识管理"]);
+    // 渲染 leads: the saved site carries `rendering` too, and a site's tags
+    // are the vault's vocabulary as much as an article's (ADR 0055).
+    expect(report.vocabulary).toEqual(["渲染", "契约", "知识管理"]);
     expect(messageOf(requests[0], "system")).toContain(
-      "keeps a tag of its own: 契约, 渲染, 知识管理.",
+      "keeps a tag of its own: 渲染, 契约, 知识管理.",
     );
     expect(requests[0]?.response_format).toEqual({ type: "json_object" });
   });
@@ -338,9 +366,10 @@ describe("retagVault", () => {
       { ...quiet, chat: noCalls },
     );
     expect(report.refused).toBe(true);
+    // `rendering` is the saved site's tag as well (ADR 0055).
     expect(report.undecided).toEqual([
+      { tag: "rendering", articles: 3 },
       { tag: "contract", articles: 2 },
-      { tag: "rendering", articles: 2 },
     ]);
     expect(indexOf(vault, ATTENTION)).toBe(before);
 

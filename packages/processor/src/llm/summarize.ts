@@ -44,6 +44,18 @@ export interface SummarizeOptions {
    * counts: reprocessing an article does not prune its topics (ADR 0035). */
   currentTags?: readonly string[];
   maxBodyChars?: number;
+  /**
+   * Introduce a saved site rather than summarize an article (ADR 0055).
+   *
+   * A site is kept for what it does, not for what it says, and its text is
+   * often a legend and a few buttons — so the model is asked for a short
+   * introduction, and given what the page says about itself and what the owner
+   * wrote about it besides the text. Never a source-language summary: the
+   * page's own description is that half, and a site has no reading column for
+   * a second one. The fallback is the description, not a first paragraph a map
+   * does not have.
+   */
+  site?: { url: string; description?: string; note?: string };
   log?: (message: string) => void;
 }
 
@@ -196,6 +208,7 @@ export async function summarize(
     title,
     body,
     targetLang,
+    site,
     bilingual = false,
     cjkThreshold,
     tagAliases = new Map<string, string | null>(),
@@ -212,13 +225,18 @@ export async function summarize(
   const system = [
     "You are a precise reading assistant for a personal knowledge base.",
     "Respond with a single JSON object with exactly these keys:",
-    `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`,
+    site === undefined
+      ? `- "summary": a structured summary written in the language "${targetLang}" — one short paragraph of the article's core argument, then 2-4 key takeaways as sentences.`
+      : `- "summary": a short introduction to this website, written in the language "${targetLang}" — two or three sentences saying what it is and what a visitor can do with it. Describe only what the page shows or says about itself; do not invent features.`,
     `- "category": exactly one of: ${categories.join(", ")}.`,
     ...tagPromptLines(vocabulary, {
       current: respell(currentTags, tagAliases, vocabulary),
     }),
     ...(bilingual
-      ? [...titlePromptLines(targetLang), sourceSummaryPromptLine()]
+      ? [
+          ...titlePromptLines(targetLang),
+          ...(site === undefined ? [sourceSummaryPromptLine()] : []),
+        ]
       : []),
     QUOTES,
     "Output JSON only, no markdown fences.",
@@ -228,7 +246,10 @@ export async function summarize(
     { role: "system", content: system },
     {
       role: "user",
-      content: `Title: ${title}\n\nArticle (markdown):\n\n${truncated}`,
+      content:
+        site === undefined
+          ? `Title: ${title}\n\nArticle (markdown):\n\n${truncated}`
+          : siteContext(title, site, truncated),
     },
   ];
 
@@ -281,6 +302,7 @@ export async function summarize(
             parsed.data,
             {
               bilingual,
+              sourceSummary: site === undefined,
               title,
               targetLang,
               cjkThreshold,
@@ -333,6 +355,7 @@ export async function summarize(
         unfinished,
         {
           bilingual,
+          sourceSummary: site === undefined,
           title,
           targetLang,
           cjkThreshold,
@@ -354,7 +377,10 @@ export async function summarize(
     `summary unusable after ${MAX_ATTEMPTS} attempts; using a first-paragraph excerpt`,
   );
   return {
-    summary: excerptFallback(body, title),
+    summary:
+      site?.description !== undefined
+        ? clipped(site.description)
+        : excerptFallback(body, title),
     category: fallbackCategory(categories),
     tags: [],
     failed: true,
@@ -412,6 +438,8 @@ function accept(
   data: z.infer<typeof ResponseSchema>,
   context: {
     bilingual: boolean;
+    /** Whether a source-language summary was asked for: never for a site. */
+    sourceSummary: boolean;
     title: string;
     targetLang: string;
     cjkThreshold: number;
@@ -441,16 +469,18 @@ function accept(
     title_zh === undefined ? undefined : simplifiedQuotes(title_zh),
     context.title,
   );
-  const summaryOrig = acceptableSourceSummary(
-    summary_orig,
-    rest.summary,
-    context.targetLang,
-    context.cjkThreshold,
-  );
+  const summaryOrig = context.sourceSummary
+    ? acceptableSourceSummary(
+        summary_orig,
+        rest.summary,
+        context.targetLang,
+        context.cjkThreshold,
+      )
+    : undefined;
   if (titleZh === undefined) {
     log("no usable title translation in the summary reply; leaving it unset");
   }
-  if (summaryOrig === undefined) {
+  if (context.sourceSummary && summaryOrig === undefined) {
     log("no usable source-language summary in the reply; leaving it unset");
   }
   return {
@@ -491,7 +521,40 @@ function excerptFallback(body: string, title: string): string {
     if (block.type !== "paragraph") continue;
     const text = plainText(block.text);
     if (text === "") continue;
-    return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+    return clipped(text);
   }
   return title;
+}
+
+/** At most 300 characters, and a cut says so: the ellipsis is what tells
+ * `keepBetterSummary` this is an excerpt, never the model's reading. */
+function clipped(text: string): string {
+  return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+}
+
+/**
+ * What the model is told about a saved site. The page's text comes last and
+ * is labelled for what it is — on the pages a site is for, a legend and some
+ * buttons — so the description and the owner's note, which say what the page
+ * is for, are read first.
+ */
+function siteContext(
+  title: string,
+  site: { url: string; description?: string; note?: string },
+  text: string,
+): string {
+  return [
+    `Website: ${site.url}`,
+    `Title: ${title}`,
+    ...(site.description !== undefined
+      ? [`The page describes itself as: ${site.description}`]
+      : []),
+    ...(site.note !== undefined
+      ? [`Why the owner saved it: ${site.note}`]
+      : []),
+    "",
+    text.trim() === ""
+      ? "The page has no readable text; it is drawn with script."
+      : `Text on the page (markdown):\n\n${text}`,
+  ].join("\n");
 }

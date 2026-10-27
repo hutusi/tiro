@@ -369,6 +369,9 @@ so re-runs are always safe no-ops for finished articles.
   model — `llm.translation_model`, or `llm.model` when that is unset — either of
   which invalidates every checkpoint wholesale; or delete the article's
   `.tiro-zh-cache.json`.
+- **Redo one saved site** (ADR 0055): `force: true` with the slug written
+  `sites/<slug>` — the site alone — or the bare slug, which redoes the
+  article of the same page too. A site's run is one summary call.
 - **A lead repair** (ADR 0053) leaves the article pending with
   `tiro.refresh: translation`: an ordinary run translates its new blocks and
   keeps its summary. Do not `force` it, which re-summarizes and discards the
@@ -392,8 +395,11 @@ so re-runs are always safe no-ops for finished articles.
   block-aligned with it. A vault not yet retagged reports its old spellings
   here — `retag` (below) is the fix, and a clean `validate` is how you know it
   finished. A pending article is not held to alignment: a re-clip or a lead
-  repair leaves its `zh.md` behind its body until the next run. Exits
-  non-zero on any of these —
+  repair leaves its `zh.md` behind its body until the next run. Saved sites
+  (ADR 0055) get the same layout, schema, slug and tag checks, plus: their
+  screenshot exists and can be served, and they have no `zh.md`; a collection
+  member written `sites/<slug>` must be a site, not the article of that slug.
+  Exits non-zero on any of these —
   `run` only warns, so this is the only thing that fails on a violation.
 
 ### Math rendering
@@ -885,7 +891,9 @@ articles whose URLs the rule touches, and it is the identity itself that moves.
 Adding arXiv canonicalization (ADR 0013) renamed 2 of 36 articles. The gate is
 `validate`, which recomputes `slugForUrl(frontmatter.url)` per article and exits
 non-zero when it disagrees with the directory name; the repair is
-`sweep --recanonicalize`, which is the only thing that can carry it out.
+`sweep --recanonicalize`, which is the only thing that can carry it out. Saved
+sites share the slug rule, so the same run moves `sites/<slug>/` directories
+too, and their `sites/<slug>` collection entries (ADR 0055).
 
 Why it matters: an article under a stale name is invisible to the next clip of
 its own page. The clip derives the new slug, finds nothing there, and creates a
@@ -1191,7 +1199,7 @@ Two decisions worth not relitigating:
   would otherwise wipe it on every Save. If the disclosure ever changes what it
   says about data handling, bump `DISCLOSURE_VERSION` in
   `apps/extension/src/storage.ts` — that re-prompts existing users, which the
-  policy also requires. It is at **7**: 2 added the optional arxiv.org fetch, 3
+  policy also requires. Its history: 2 added the optional arxiv.org fetch, 3
   added opt-in settings sync, which can put the PAT in `chrome.storage.sync`
   for Chrome to replicate, and 4 added the optional raw.githubusercontent.com
   fetch. Each is a new destination, and a new destination is a practice change
@@ -1212,7 +1220,11 @@ Two decisions worth not relitigating:
   the pictures of parts of the page that Clip takes (ADR 0039, reworded for ADR
   0045 to "Clip to vault" first scrolls…, unless the reader unticks "Save
   figures as pictures"): it joined 7 because 7 had not been released, the
-  reasoning that put Remove in 6.
+  reasoning that put Remove in 6. 8 is "Add missing lead" (ADR 0053), after 7
+  had shipped. 9 is "Save as site" (ADR 0055): a picture of the whole window,
+  not of a figure, and a note the reader types that the vault's processor
+  then sends to the model provider — after 8 had shipped. The comment above
+  `DISCLOSURE_VERSION` is the full record.
   Both language
   tables have to say so — a test in `test/i18n.test.ts` asserts that every host
   named in the disclosure is named in both, because an edit once landed in the
@@ -1333,6 +1345,57 @@ pass after changing it:
 3. Clip again and press "Stop and clip" mid-way.
 4. Clip again and click the page mid-way. Nothing should be saved, and the
    next popup should clip normally.
+
+### Saving a site
+
+A page that is a tool rather than an article — an interactive map, a
+visualization, an app — is kept as a **site** (ADR 0055): a picture of what the
+window showed, the page's title and description, and a note. It lives at
+`sites/<slug>/`, beside rather than over an article of the same page, so a page
+can be both; the Tiro site lists sites at `/sites/`.
+
+- **"Save as site"** sits beside Clip. Pressing it takes the picture first,
+  then asks the vault whether the page is already a site — a note written then
+  is offered again — and opens a form: the picture, the title, the note box.
+  Save commits `index.md` and `assets/<12 hex>.webp` as one commit, then
+  offers the collections and Remove for the site.
+- **A thin page puts it first.** Under 500 characters of readable text
+  (`THIN_PAGE_CHARS`, also `fetch.min_chars`' default), the popup says the page
+  may be an app, a map or a tool, and Save as site leads; a page with nothing to
+  clip offers it instead of a dead end.
+- **The picture is the window.** Size the window, scroll to the view worth
+  keeping and close a cookie banner first. A page caught before it drew is
+  refused as blank — wait and try again. Anything the window shows is in the
+  picture, an account name included.
+- **The address is kept exactly.** The site is filed under the normalized URL;
+  the address the tab showed — a map's `#view` included — is
+  `tiro.source_url`, and "打开网站" goes there. A tab that has gone to another
+  page since the popup read it, or while the picture was being taken — a
+  redirect, an app's own navigation — is refused rather than saved with the
+  first page's title and text: reopen Tiro.
+- **Re-saving** replaces the picture and the note with what the form holds;
+  `unlisted` carries over. The processor prunes the old picture, and a
+  collection cover that named it moves to the new one in the save's commit.
+- **The introduction** is written by the next processing run (one call, sites
+  before articles), from the title, the description, the note and the page's
+  text — never from the picture. The site shows the description until then.
+- **Removing** works on the site's Tiro page and right after saving; on the
+  page itself, Remove still means the article.
+
+The live vault's `process.yml` (and `.janus/process.yml` on a Janus host) must
+list `sites/**` among its paths, or a saved site waits for the daily run —
+`vault-template/` does not propagate; copy them in by hand.
+
+The capture runs only in a browser. The manual pass after changing it:
+
+1. On a page with a canvas and little text, check the popup leads with Save
+   as site, take the picture, add a note, save: one commit, `index.md` and the
+   picture.
+2. Process locally, build the site: the card on `/sites/`, the page, the tag
+   pages listing it.
+3. Save it again: the note comes back, the button reads "Update site".
+4. From `/sites/<slug>/`, tick a collection, then Remove: only `sites/<slug>/`
+   and its entries go.
 
 ### Installing on another computer
 

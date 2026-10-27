@@ -87,6 +87,19 @@ describe("isClipResult", () => {
     expect(isClipResult(withLead(null))).toBe(false);
   });
 
+  /** ADR 0055. Optional, since only a page clip reads the head; a saved site
+   * writes it into the vault, so it is text or nothing. */
+  test("takes a page description only as text", () => {
+    const withDescription = (description: unknown) => ({
+      ...valid,
+      payload: { ...valid.payload, description },
+    });
+    expect(isClipResult(withDescription("An interactive map."))).toBe(true);
+    expect(isClipResult(withDescription(""))).toBe(true);
+    expect(isClipResult(withDescription({ text: "x" }))).toBe(false);
+    expect(isClipResult(withDescription(null))).toBe(false);
+  });
+
   test("rejects other message types and non-objects", () => {
     expect(isClipResult({ ...valid, type: "other" })).toBe(false);
     expect(isClipResult(null)).toBe(false);

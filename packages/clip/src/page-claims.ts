@@ -82,6 +82,24 @@ export function metaContents(doc: Document, keys: readonly string[]): string[] {
   return contents;
 }
 
+/** Where a page describes itself, best first: the Open Graph text is the one
+ * written for a person to read, the plain `description` is often written for
+ * a search engine, and the Twitter card usually repeats one of the two. */
+const DESCRIPTION_ORDER = [
+  "og:description",
+  "description",
+  "twitter:description",
+] as const;
+
+/** The page's description of itself, or "" when it gives none. */
+export function pageDescription(doc: Document): string {
+  for (const content of metaContents(doc, DESCRIPTION_ORDER)) {
+    const text = content.replace(/\s+/g, " ").trim();
+    if (text !== "") return text;
+  }
+  return "";
+}
+
 /** Whether `element` or anything around it is hidden by the page. */
 export function hiddenWithin(element: Element): boolean {
   for (

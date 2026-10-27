@@ -12,6 +12,9 @@ import {
   type ParsedCollection,
   parseArticle,
   parseCollection,
+  parseSite,
+  SITES_DIR,
+  type SiteFrontmatter,
 } from "@tiro/shared";
 import { vaultDir } from "./vault.ts";
 
@@ -28,6 +31,16 @@ let cache: VaultEntry[] | null = null;
 let cacheSignature: string | null = null;
 let collectionCache: ParsedCollection[] | null = null;
 let collectionCacheSignature: string | null = null;
+let siteCache: SiteEntry[] | null = null;
+let siteCacheSignature: string | null = null;
+
+/** A saved site (ADR 0055), as the site reads it. */
+export interface SiteEntry {
+  /** The directory name under `sites/` — the same slug an article of the
+   * same URL has under `articles/`, which is why nothing here mixes them. */
+  slug: string;
+  frontmatter: SiteFrontmatter;
+}
 
 /** A build reads the vault once; `astro dev` has to notice edits. NODE_ENV is
  * "production" during `astro build` and "development" under `astro dev`, and is
@@ -63,6 +76,7 @@ function vaultSignature(base: string): string {
     }
   }
   for (const path of collectionFiles(base)) stamp(parts, path);
+  for (const path of siteFiles(base)) stamp(parts, path);
   return parts.join("\n");
 }
 
@@ -99,7 +113,7 @@ function reasonFor(error: unknown): string {
  * the file, as it always has.
  *
  * Every page, the sitemap filter and `short-redirects.ts` read through
- * `readVault`/`readCollections`. So a skipped entry is missing from all of
+ * `readVault`/`readCollections`/`readSites`. So a skipped entry is missing from all of
  * them alike, in every module graph that reads it. Each graph appends its own
  * line, and the deploy de-duplicates them.
  */
@@ -121,6 +135,18 @@ function collectionFiles(base: string): string[] {
   return readdirSync(dir, { withFileTypes: true })
     .filter((dirent) => dirent.isFile() && dirent.name.endsWith(".md"))
     .map((dirent) => join(dir, dirent.name))
+    .sort();
+}
+
+/** Absolute paths of the vault's saved sites' `index.md`, sorted, or none —
+ * most vaults start with no `sites/` at all (ADR 0055). */
+function siteFiles(base: string): string[] {
+  const dir = join(base, SITES_DIR);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => join(dir, dirent.name, "index.md"))
+    .filter((path) => existsSync(path))
     .sort();
 }
 
@@ -247,6 +273,44 @@ export function readCollections(): ParsedCollection[] {
   return entries;
 }
 
+/**
+ * Every saved site in the vault (ADR 0055), read by this module for the
+ * reason `readCollections` gives: one reader, one memo, one signature.
+ *
+ * Optional like collections — no `sites/` is no sites — and no guard against
+ * an empty one, which is how every vault starts. A site that does not parse
+ * gets `refuse`, as an article does. The body is not kept: it is the page's
+ * text, context for the processor's introduction, and the site never shows it.
+ */
+export function readSites(): SiteEntry[] {
+  const base = vaultDir();
+  let signature: string | null = null;
+  if (REVALIDATE) {
+    signature = vaultSignature(base);
+    if (siteCache !== null && signature === siteCacheSignature) {
+      return siteCache;
+    }
+  } else if (siteCache !== null) {
+    return siteCache;
+  }
+
+  const entries: SiteEntry[] = [];
+  for (const path of siteFiles(base)) {
+    try {
+      entries.push({
+        slug: basename(join(path, "..")),
+        frontmatter: parseSite(readFileSync(path, "utf8")).frontmatter,
+      });
+    } catch (error) {
+      refuse(base, path, reasonFor(error));
+    }
+  }
+
+  siteCacheSignature = signature;
+  siteCache = entries;
+  return entries;
+}
+
 /** Drop the memo, for a test that writes a vault and reads it back. Dev picks
  * changes up through the signature above; nothing needs to call this to make
  * the dev server notice an edit. */
@@ -255,4 +319,6 @@ export function resetVaultCache(): void {
   cacheSignature = null;
   collectionCache = null;
   collectionCacheSignature = null;
+  siteCache = null;
+  siteCacheSignature = null;
 }

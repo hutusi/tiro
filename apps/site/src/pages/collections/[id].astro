@@ -57,7 +57,7 @@ const intro =
     articles={collection.articles}
     sections={collection.sections}
     heading={collection.title}
-    count={collection.articles.length}
+    count={collection.members.length}
     emptyText={null}
   >
     {
@@ -74,7 +74,7 @@ const intro =
         no articles yet". */
     }
     {
-      collection.articles.length === 0 && (
+      collection.members.length === 0 && (
         <p class="empty text-ink-soft">{t.emptyCollection}</p>
       )
     }

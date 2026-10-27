@@ -281,3 +281,60 @@ describe("lookupArticle", () => {
     });
   });
 });
+
+/** ADR 0055: a saved site is removed by its reference, `sites/<slug>`. */
+describe("removing a saved site", () => {
+  test("deletes the site and its entries, never the article of its slug", async () => {
+    const gh = fakeGitHub({
+      ...vault(),
+      [`sites/${A}/index.md`]: '---\ntitle: "A map"\n---\n',
+      [`sites/${A}/assets/54ea819b7af4.webp`]: "webp",
+      "collections/maps.md": collectionFile([`sites/${A}`, A], {
+        cover: `sites/${A}/assets/54ea819b7af4.webp`,
+      }),
+    });
+    expect(await lookupArticle(config, `sites/${A}`, gh.fetch)).toEqual({
+      title: "A map",
+      titleZh: null,
+    });
+    const outcome = await removeArticle(
+      config,
+      `sites/${A}`,
+      { title: "A map" },
+      gh.fetch,
+    );
+    expect(outcome).toMatchObject({
+      kind: "removed",
+      files: 2,
+      collections: ["maps"],
+    });
+    const files = gh.files();
+    expect([...files.keys()].filter((p) => p.startsWith("sites/"))).toEqual([]);
+    expect(files.get(`articles/${A}/index.md`)).toBeDefined();
+    const maps = parseCollection(
+      "maps",
+      files.get("collections/maps.md") ?? "",
+    );
+    expect(maps.frontmatter.items.map((item) => item.slug)).toEqual([A]);
+    expect(maps.frontmatter.cover).toBeUndefined();
+    expect(gh.log().at(-1)).toContain(`sites/${A}/ (2 files)`);
+  });
+
+  test("a site that is not there is gone, whatever the article", async () => {
+    const gh = fakeGitHub(vault());
+    expect(await lookupArticle(config, `sites/${A}`, gh.fetch)).toBeNull();
+    expect(await removeArticle(config, `sites/${A}`, {}, gh.fetch)).toEqual({
+      kind: "gone",
+    });
+  });
+
+  test("a reference deeper than sites/<slug> is refused before any request", async () => {
+    const gh = fakeGitHub(vault());
+    for (const ref of [`sites/${A}/assets`, "sites/../articles", "sites/"]) {
+      await expect(removeArticle(config, ref, {}, gh.fetch)).rejects.toThrow(
+        /not an article slug/,
+      );
+    }
+    expect(gh.requests).toEqual([]);
+  });
+});

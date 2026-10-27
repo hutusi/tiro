@@ -1,13 +1,14 @@
-import { compareInstants, FAVORITES_ID } from "@tiro/shared";
+import { compareInstants, FAVORITES_ID, parseMemberRef } from "@tiro/shared";
 import { type Article, getArticles } from "./articles.ts";
 import { coverImages } from "./covers.ts";
+import { getSites, type Member, type Site } from "./sites.ts";
 import { STRINGS } from "./strings.ts";
 import { readCollections } from "./vault-read.ts";
 
 /** A run of listed members under one heading, or under none (ADR 0051). */
 export interface CollectionSection {
   title: string | null;
-  articles: Article[];
+  members: Member[];
 }
 
 export interface Collection {
@@ -27,8 +28,12 @@ export interface Collection {
    * straight back. The membership itself is untouched; see `memberSlugs`.
    */
   articles: Article[];
+  /** The listed saved sites among the members (ADR 0055), in file order. */
+  sites: Site[];
+  /** Both kinds, in the owner's order — what the page lists. */
+  members: Member[];
   /**
-   * `articles`, split where the members' `section` changes (ADR 0051).
+   * `members`, split where the members' `section` changes (ADR 0051).
    *
    * Grouped after the listed join, so a run broken only by an unlisted or
    * missing member is still one group. A collection with no sections is one
@@ -36,7 +41,8 @@ export interface Collection {
    */
   sections: CollectionSection[];
   /**
-   * Every member slug, listed or not, in file order.
+   * Every member as the vault names it — an article's slug, `sites/<slug>`
+   * for a saved site — listed or not, in file order.
    *
    * Membership is a fact about the collection; being listed is a fact about
    * the article. The clipper's tick must reflect the first, so it cannot read
@@ -68,6 +74,7 @@ let cache: Collection[] | null = null;
  * whole staleness check — same trick, same reason, as `articles.ts`. */
 let cacheCollectionSource: unknown = null;
 let cacheArticleSource: unknown = null;
+let cacheSiteSource: unknown = null;
 let membershipCache: Map<string, Collection[]> | null = null;
 
 /**
@@ -86,33 +93,46 @@ let membershipCache: Map<string, Collection[]> | null = null;
 export async function getCollections(): Promise<Collection[]> {
   const entries = readCollections();
   const articles = await getArticles();
+  const sites = getSites();
   if (
     cache !== null &&
     cacheCollectionSource === entries &&
-    cacheArticleSource === articles
+    cacheArticleSource === articles &&
+    cacheSiteSource === sites
   ) {
     return cache;
   }
   cacheCollectionSource = entries;
   cacheArticleSource = articles;
+  cacheSiteSource = sites;
   membershipCache = null;
 
   const bySlug = new Map(articles.map((article) => [article.slug, article]));
-  const listed = new Set(bySlug.keys());
+  // By `sites/<slug>`, the form a collection names a site by (ADR 0055): the
+  // same slug under `articles/` is a different document.
+  const byRef = new Map(sites.map((site) => [site.ref, site]));
+  const listed = new Set([...bySlug.keys(), ...byRef.keys()]);
 
   const collections = entries.map((entry): Collection => {
     const memberSlugs = entry.frontmatter.items.map((item) => item.slug);
-    const members: Article[] = [];
+    const members: Member[] = [];
     const sections: CollectionSection[] = [];
     for (const item of entry.frontmatter.items) {
-      const article = bySlug.get(item.slug);
-      if (article === undefined) continue;
-      members.push(article);
+      const ref = parseMemberRef(item.slug);
+      let member: Member | undefined;
+      if (ref.kind === "site") {
+        const site = byRef.get(item.slug);
+        if (site !== undefined) member = { kind: "site", site };
+      } else {
+        const article = bySlug.get(item.slug);
+        if (article !== undefined) member = { kind: "article", article };
+      }
+      if (member === undefined) continue;
+      members.push(member);
       const title = item.section ?? null;
       const last = sections.at(-1);
-      if (last !== undefined && last.title === title)
-        last.articles.push(article);
-      else sections.push({ title, articles: [article] });
+      if (last !== undefined && last.title === title) last.members.push(member);
+      else sections.push({ title, members: [member] });
     }
     return {
       id: entry.id,
@@ -120,7 +140,11 @@ export async function getCollections(): Promise<Collection[]> {
       description: entry.frontmatter.description ?? null,
       body: entry.body,
       updatedAt: entry.frontmatter.updated_at ?? null,
-      articles: members,
+      articles: members.flatMap((m) =>
+        m.kind === "article" ? [m.article] : [],
+      ),
+      sites: members.flatMap((m) => (m.kind === "site" ? [m.site] : [])),
+      members,
       sections,
       memberSlugs,
       coverImages: coverImages(
@@ -140,6 +164,8 @@ export async function getCollections(): Promise<Collection[]> {
       body: "",
       updatedAt: null,
       articles: [],
+      sites: [],
+      members: [],
       sections: [],
       memberSlugs: [],
       coverImages: [],
@@ -169,6 +195,8 @@ export function collectionUrl(id: string): string {
 /**
  * The collections an article belongs to, in the order `getCollections` puts
  * them — by membership, so an unlisted article still knows its own chips.
+ * `slug` is the member as the vault names it, so a saved site asks with
+ * `sites/<slug>` (ADR 0055).
  */
 export async function collectionsOf(slug: string): Promise<Collection[]> {
   // Asked first, and unconditionally: it is what drops the index below when
@@ -206,6 +234,11 @@ export async function collectionsOf(slug: string): Promise<Collection[]> {
  * document as markup. JSON's `<` is still `<` to any parser, so nothing
  * downstream has to know. Built here rather than in the template so the escape
  * is one testable function and not a regex in an `.astro` file.
+ *
+ * A saved site's page passes `sites/<slug>` (ADR 0055). The released
+ * extension refuses a slug that is not one path segment and so takes that
+ * page for a plain Tiro page — never for the article of the same slug, which
+ * its Remove and its ticks would otherwise act on.
  */
 export async function tiroPagePayload(slug: string): Promise<string> {
   const member = await collectionsOf(slug);

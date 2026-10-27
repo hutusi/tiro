@@ -11,8 +11,11 @@ import Base from "../layouts/Base.astro";
 import { type ArticleGroup, tagIndex } from "../lib/articles.ts";
 import { allTagsLabel, resultsLabel, STRINGS } from "../lib/strings.ts";
 
+/** Articles and saved sites alike: a tag's size is everything listed under it. */
+const size = (group: ArticleGroup): number =>
+  group.articles.length + group.sites.length;
 const byCount = (a: ArticleGroup, b: ArticleGroup): number =>
-  b.articles.length - a.articles.length || a.label.localeCompare(b.label, "zh");
+  size(b) - size(a) || a.label.localeCompare(b.label, "zh");
 const tags = (await tagIndex()).sort(byCount);
 // The long tail folds away behind a summary; the most used stay in view.
 const TOP_TAGS = 30;
@@ -42,7 +45,7 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
         tags.slice(0, TOP_TAGS).map((tag) => (
           <a class="chip" href={`/tags/${tag.slug}/`}>
             {tag.label}
-            <span class="count">{tag.articles.length}</span>
+            <span class="count">{size(tag)}</span>
           </a>
         ))
       }
@@ -57,7 +60,7 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
             {tags.slice(TOP_TAGS).map((tag) => (
               <a class="chip" href={`/tags/${tag.slug}/`}>
                 {tag.label}
-                <span class="count">{tag.articles.length}</span>
+                <span class="count">{size(tag)}</span>
               </a>
             ))}
           </div>
@@ -130,6 +133,7 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
   define:vars={{
     T: {
       results: resultsLabel(0).replace(/^0\s*/, ""),
+      site: STRINGS.sites.badge,
       more: t.more,
       remaining: t.remaining,
       retry: t.retry,
@@ -175,7 +179,15 @@ const notice = import.meta.env.DEV ? t.devNotice : t.unavailable;
         el(
           "p",
           "result-meta",
-          [result.meta.domain, result.meta.date].filter(Boolean).join(" · "),
+          // A saved site's page says what it is (ADR 0055), so a result is
+          // never taken for an article to read.
+          [
+            result.meta.kind === "site" ? T.site : null,
+            result.meta.domain,
+            result.meta.date,
+          ]
+            .filter(Boolean)
+            .join(" · "),
         ),
         el("h2", "result-title", result.meta.title),
       );

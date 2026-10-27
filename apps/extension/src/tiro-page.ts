@@ -1,4 +1,4 @@
-import { isValidCollectionId } from "@tiro/shared/documents"; // not the root: see there
+import { isValidCollectionId, parseMemberRef } from "@tiro/shared/documents"; // not the root: see there
 
 /**
  * Recognizing a Tiro page (ADR 0029).
@@ -44,6 +44,12 @@ export interface CatalogEntry {
 export type TiroPage =
   | {
       kind: "article";
+      /**
+       * The page's document as the vault names it: an article's slug, or
+       * `sites/<slug>` on a saved site's page (ADR 0055). Everything the popup
+       * does with it — a collection tick, Remove — takes that form, so a
+       * site's page acts on the site and never on the article of its slug.
+       */
       slug: string;
       /** The collections the *deployed* site says this article is in. */
       member: string[];
@@ -51,8 +57,9 @@ export type TiroPage =
     }
   /** A Tiro page that is not an article — the library, search, settings — or
    * an article page whose payload could not be read. Nothing to toggle, and
-   * nothing worth clipping either: it is a Tiro site, whoever runs it. */
-  | { kind: "site" };
+   * nothing worth clipping either: it is a page of a Tiro deployment, whoever
+   * runs it. */
+  | { kind: "tiro" };
 
 /** A slug as `slugForUrl` makes them — or as a local import's is. Loose on
  * purpose: this only has to stop something that is not a path segment. */
@@ -65,25 +72,31 @@ export function isArticleSlug(slug: string): boolean {
   return SLUG_RE.test(slug);
 }
 
+/** Whether a reference from untrusted input names one document safely: an
+ * article's slug, or `sites/` and a site's (ADR 0055) — never a deeper path. */
+export function isMemberRef(ref: string): boolean {
+  return isArticleSlug(parseMemberRef(ref).slug);
+}
+
 /** What the popup should make of the tab, or null for an ordinary page. */
 export function parseTiroPage(marker: unknown): TiroPage | null {
   if (typeof marker !== "object" || marker === null) return null;
   const { site, payload } = marker as Partial<TiroMarker>;
   if (site !== true) return null;
-  if (typeof payload !== "string") return { kind: "site" };
+  if (typeof payload !== "string") return { kind: "tiro" };
 
   let data: unknown;
   try {
     data = JSON.parse(payload);
   } catch {
-    return { kind: "site" };
+    return { kind: "tiro" };
   }
-  if (typeof data !== "object" || data === null) return { kind: "site" };
+  if (typeof data !== "object" || data === null) return { kind: "tiro" };
   const d = data as Record<string, unknown>;
   // A future payload version is not something this build can read. Showing
   // it as a plain Tiro page is honest; guessing at its fields is not.
-  if (d.v !== 1 || typeof d.slug !== "string" || !isArticleSlug(d.slug)) {
-    return { kind: "site" };
+  if (d.v !== 1 || typeof d.slug !== "string" || !isMemberRef(d.slug)) {
+    return { kind: "tiro" };
   }
 
   const catalog: CatalogEntry[] = [];

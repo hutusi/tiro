@@ -253,6 +253,13 @@ export async function reconcileAssets(
   assetsDirAbs: string,
   body: string,
   log: (message: string) => void = () => {},
+  /**
+   * Files the document names somewhere other than its body, which are just as
+   * referenced: a saved site's screenshot is named by its `preview`, and its
+   * body is the page's text (ADR 0055). Matched by exact name, since the
+   * caller read the name off the schema, not out of prose.
+   */
+  keep: ReadonlySet<string> = new Set(),
 ): Promise<number> {
   const decodedBody = decodePercentRuns(body);
   let entries: Dirent[];
@@ -266,6 +273,7 @@ export async function reconcileAssets(
     if (!entry.isFile()) continue;
     // Not ours, so not ours to remove — see PROCESSOR_ASSET_RE.
     if (!PROCESSOR_ASSET_RE.test(entry.name)) continue;
+    if (keep.has(entry.name)) continue;
     if (isReferenced(body, decodedBody, entry.name)) continue;
     await rm(`${assetsDirAbs}/${entry.name}`, { force: true });
     pruned += 1;

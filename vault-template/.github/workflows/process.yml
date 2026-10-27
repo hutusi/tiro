@@ -5,7 +5,8 @@ on:
     branches: [main]
     # inbox/: a link saved from a phone or the extension's "Clip link" is a
     # file there, and the run turns it into an article (ADR 0034).
-    paths: ["articles/**", "inbox/**"]
+    # sites/: a page saved as a site, which the run introduces (ADR 0055).
+    paths: ["articles/**", "inbox/**", "sites/**"]
   workflow_dispatch:
     inputs:
       force:
@@ -13,7 +14,7 @@ on:
         type: boolean
         default: false
       slug:
-        description: "Only process this article slug"
+        description: "Only process this slug (sites/<slug> for a site alone)"
         type: string
         default: ""
   # Daily, so an article the run budget deferred is finished without waiting

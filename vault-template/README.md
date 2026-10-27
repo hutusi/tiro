@@ -9,7 +9,9 @@ their Chinese translations, and the processing workflow.
 articles/<slug>/index.md   # original article + frontmatter
 articles/<slug>/zh.md      # paragraph-aligned Chinese translation
 articles/<slug>/assets/    # images downloaded by the workflow, and figure pictures the extension captured
-collections/<id>.md               # a hand-picked list of articles (favorites.md is one)
+sites/<slug>/index.md             # a page saved as a site: its description, your note, an introduction
+sites/<slug>/assets/              # the site's screenshot
+collections/<id>.md               # a hand-picked list of articles and sites (favorites.md is one)
 inbox/                            # links saved without their page; each becomes an article
 config/tiro.yml                   # LLM provider config + category taxonomy
 .github/workflows/process.yml     # the processing workflow
@@ -36,9 +38,17 @@ misaligned — resuming from the blocks that broke alignment would make a
 recoverable fault permanent. Leave these files alone; expect them in `git log`,
 and expect them to come to roughly 1% of the vault's size.
 
+A page that is a tool rather than an article — an interactive map, a
+visualization — can be saved as a **site** from the extension: a screenshot of
+what the window showed, the page's title and description, and your note, under
+`sites/<slug>/`. The workflow adds a short introduction, a category and tags,
+and nothing else — no translation. A page can be an article and a site at once;
+the two share a slug, in different directories (ADR 0055).
+
 Collections are the one part of the vault a person writes rather than a
 machine. Each file is a title and an ordered list of article slugs; the
 filename is the id, so keep it to lowercase ASCII words joined by dashes. A
+saved site is listed as `sites/<slug>`; a bare slug is an article. A
 push under `collections/` redeploys the site through `publish.yml` and never
 starts processing. The extension edits them too: on an article's page on your
 Tiro site, and right after a clip, under it (ADR 0029, ADR 0037). Delete an article and you must also drop it from any
@@ -47,7 +57,8 @@ extension popup's "Remove" does both in one commit (ADR 0036).
 
 A collection may also carry a `description:` line, shown under its title, and
 a `cover:` naming one article image by its vault path,
-`articles/<slug>/assets/<file>`. Without a cover, the site builds one from the
+`articles/<slug>/assets/<file>` — or a site's screenshot, under `sites/`.
+Without a cover, the site builds one from the
 members' own pictures (ADR 0030), so most collections never need one. A long
 list can be split under headings by giving its members a `section:` — the same
 one on every member of a section (ADR 0051).
@@ -106,7 +117,7 @@ one on every member of a section (ADR 0051).
   without a browser (a login, a bot check, text built by scripts). Clip it from
   the browser, which replaces it — or delete it.
 - **Hand edits publish themselves.** Hiding an article (`unlisted: true`),
-  deleting one, or any other push under `articles/` redeploys the site when the
+  deleting one, or any other push under `articles/` or `sites/` redeploys the site when the
   processing run it starts ends, even with nothing to process.
 - **Deleting an article a run is still processing is safe.** The run drops
   what it wrote under that article, logs a notice, and commits everything else

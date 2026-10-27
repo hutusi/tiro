@@ -5,7 +5,7 @@
 // read English.
 import Base from "../layouts/Base.astro";
 
-const updated = "2026-10-19";
+const updated = "2026-10-26";
 ---
 
 <Base title="隐私政策">
@@ -108,6 +108,12 @@ const updated = "2026-10-19";
         截下标签页中该部分的画面，并随剪藏一起提交到你的仓库——除非你取消勾选
         「将图示保存为截图」。页面会为每张图示移动约两秒，结束后回到你原来的位置。
         点击剪藏之前不会截图；若在此之前关闭弹窗，截图随即丢弃。
+      </li>
+      <li>
+        点击「保存为网站」时，扩展会截取标签页中你此刻能看到的部分——窗口里显示的任何内容，
+        包括页面上可能出现的你的账号名等信息——并在你确认后，连同页面标题、页面自述的简介、
+        页面上的文字和你输入的备注，一起提交到你的仓库。点击之前不会截图；不保存就关闭弹窗，截图随即丢弃。
+        之后，你仓库中的处理程序会把这些文字和你的备注发送给你仓库所配置的语言模型，用来为这个网站写一段简介。
       </li>
       <li>
         在 Tiro 站点上——即任何带有 Tiro
@@ -313,6 +319,17 @@ const updated = "2026-10-19";
         unless you untick "Save figures as pictures". The page moves for about
         two seconds a figure and goes back to where you were. No picture is
         taken before you click Clip, and closing the popup first discards them.
+      </li>
+      <li>
+        Clicking "Save as site" takes a picture of the part of the tab you can
+        see right then — whatever the window shows, which can include your
+        account name if the page displays it — and, once you press Save, commits
+        it to your repository with the page's title, the description the page
+        gives of itself, the page's text and the note you type. No picture is
+        taken before you click, and closing the popup without saving discards
+        it. The processor in your repository later sends that text and your note
+        to the language model your repository is set up with, to write the
+        site's introduction.
       </li>
       <li>
         On a Tiro site — any page carrying Tiro's marker, on any domain; the

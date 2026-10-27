@@ -195,7 +195,7 @@ const en = {
   disclosureBody1:
     "To show you a preview, Tiro reads the open page in your browser — its article text, title, and address. For an arXiv paper, or a markdown file on GitHub, it can fetch the document itself — from arxiv.org or raw.githubusercontent.com — instead, once you allow it.",
   disclosureBody2:
-    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a page whose figures its own script draws, “Clip to vault” first scrolls the page to each figure and keeps a picture of that part of the tab — unless you untick “Save figures as pictures” — and the pictures are committed with the clip, to the same repository. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Once a clip is saved, the popup reads your collections from the same repository and offers them under it, kept and committed the same way. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. “Add missing lead”, offered on a page you clipped before, reads that article from the same repository and commits into it only the dek and lead picture at the top of the page, leaving the rest as it was. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
+    "None of it is sent to your vault until you press “Clip to vault”, which commits it to the GitHub repository you configured. Close this popup without clipping and the result is discarded. On a page whose figures its own script draws, “Clip to vault” first scrolls the page to each figure and keeps a picture of that part of the tab — unless you untick “Save figures as pictures” — and the pictures are committed with the clip, to the same repository. On a Tiro site — any page carrying Tiro's marker — the popup offers collections instead: a box you tick is kept, and committed to the same repository when you close the popup or press “Save now”, for an article it already holds. Once a clip is saved, the popup reads your collections from the same repository and offers them under it, kept and committed the same way. “Clip link to Tiro”, in a link's right-click menu, sends only that link's address to the same repository, the moment you choose it — the page itself is read later, by the processor in your repository, not by the extension. “Remove”, at the foot of the popup for an article you clipped or are reading on a Tiro site, looks the article up in the same repository and, once you confirm, deletes it there — its files, and its place in your collections — in one commit. “Add missing lead”, offered on a page you clipped before, reads that article from the same repository and commits into it only the dek and lead picture at the top of the page, leaving the rest as it was. “Save as site” keeps a picture of the part of the tab you can see — whatever the window shows — and, with the page's title, its description, the page's text and the note you type, commits them to the same repository; the processor in your repository later sends that text and your note to the language model your repository is set up with, to write the site's introduction. Your token and settings stay on this machine unless you turn on settings sync, which lets Chrome copy them to your other devices.",
   disclosureAccept: "I understand — continue",
   clipButton: "Clip to vault",
   reclipButton: "Re-clip to vault",
@@ -317,6 +317,8 @@ const en = {
     "Choose the collections this article belongs in. Only an article already in your vault can be added.",
   tiroSiteIntro:
     "This is a Tiro site. Open an article on it to add it to a collection.",
+  tiroSavedSiteIntro:
+    "Choose the collections this saved site belongs in. Only a site already in your vault can be added.",
   // Collections, under a clip just saved (ADR 0037). Optional: the clip is
   // done whether or not anything is ticked.
   afterClipIntro: "Add it to a collection — optional.",
@@ -388,6 +390,51 @@ const en = {
     `This article is not in ${vault} — clip it instead.`,
   leadRefused:
     "The saved article can't take this page's lead as it stands — the page may have changed since it was clipped — so nothing was added. Re-clip to replace the article.",
+
+  // Save as site (ADR 0055): a page kept as a picture and a description —
+  // an interactive map, a visualization, a tool — beside Clip.
+  siteOffer: "Save as site",
+  siteOfferHint:
+    "Keep this page as a site: a picture of what you see now, its title and description, and a note — for pages that are tools rather than reading.",
+  /** The clip found little text: offered with Save as site promoted. */
+  thinPage:
+    "This page has little text to read — it may be an app, a map or a tool. Save it as a site instead?",
+  /** Nothing to clip at all, where the page can still be kept as a site. */
+  nothingToClipSite:
+    "Nothing on this page reads as an article — it may be an app, a map or a tool. Save it as a site instead.",
+  siteHeading: "Save as site",
+  siteTitleLabel: "Title",
+  siteNoteLabel: "Why keep it? (optional)",
+  siteNotePlaceholder: "What it is good for, what to look at…",
+  siteDescription: (text: string) => `The page says: ${text}`,
+  siteSave: "Save site",
+  siteUpdate: "Update site",
+  siteCancel: "Cancel",
+  siteCapturing: "Taking a picture of the page…",
+  siteSaving: "Saving the site to your vault…",
+  siteSaved: (vault: string) =>
+    `Saved to ${vault}. Processing writes its introduction.`,
+  siteUpdated: (vault: string) =>
+    `Updated the saved site in ${vault}, with this picture.`,
+  /** The lookup found this page saved as a site before. */
+  siteExisting: "Already saved as a site — saving again replaces its picture.",
+  siteSavedOn: (date: string) => `Saved as a site ${date}.`,
+  siteShotBlank:
+    "The page looks blank — wait for it to finish drawing, then try again.",
+  siteShotFailed:
+    "Could not take a picture of the page. Keep this tab in front and try again.",
+  /** The tab went to another page after the popup read it. */
+  siteMoved:
+    "This tab has moved to another page since Tiro read it. Reopen Tiro to save the page it shows now.",
+  labelSiteForm: "Save as site",
+  labelSiteCapturing: "Capturing…",
+  // Remove, when what it would remove is a saved site rather than an article.
+  removeSiteOfferHint: "Remove this saved site from your vault",
+  removeSiteConfirmHeading: "Remove this saved site?",
+  removeSiteConfirmNote: (vault: string) =>
+    `Its picture, note and collection entries are deleted from ${vault}, in one commit. Git history keeps a copy.`,
+  removeSiteGone: (vault: string) =>
+    `This site is not in ${vault} — nothing was changed.`,
 };
 
 export type Messages = typeof en;
@@ -525,7 +572,7 @@ const zh: Messages = {
   disclosureBody1:
     "为了生成预览，Tiro 会在你的浏览器中读取当前页面的正文、标题和网址。对于 arXiv 论文或 GitHub 上的 Markdown 文件，在你授权后，它会改为从 arxiv.org 或 raw.githubusercontent.com 抓取文档本身。",
   disclosureBody2:
-    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。对图示由页面脚本绘制的文章，点击「剪藏到仓库」时会先逐个滚动到每张图示，截下标签页中该部分的画面，并随剪藏一起提交到同一个仓库；取消勾选「将图示保存为截图」则不截取。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。剪藏保存后，弹窗会从同一个仓库读取你的合集并在下方列出，勾选的改动同样保留并提交。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。对你剪藏过的页面，弹窗提供「补上导语」：它从同一个仓库读取这篇文章，只把页面顶部的导语和题图提交进去，其余内容保持不变。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
+    "在你点击「剪藏到仓库」之前，这些内容不会发送到你的仓库；点击后会提交到你配置的 GitHub 仓库。不剪藏直接关闭弹窗，结果即被丢弃。对图示由页面脚本绘制的文章，点击「剪藏到仓库」时会先逐个滚动到每张图示，截下标签页中该部分的画面，并随剪藏一起提交到同一个仓库；取消勾选「将图示保存为截图」则不截取。在 Tiro 站点上（任何带有 Tiro 标记的页面），弹窗改为提供合集：你勾选的改动会被保留，并在关闭弹窗或点击「立即保存」时提交到同一个仓库——仅限仓库中已有的文章。剪藏保存后，弹窗会从同一个仓库读取你的合集并在下方列出，勾选的改动同样保留并提交。在链接的右键菜单中选择「用 Tiro 剪藏链接」，只会立即把该链接的地址发送到同一个仓库——页面本身稍后由你仓库中的处理程序读取，而不是由扩展读取。对你剪藏过的文章，或正在 Tiro 站点上阅读的文章，弹窗底部提供「移除」：它先在同一个仓库中查找这篇文章，经你确认后，再以一次提交删除它的文件，并将它从你的合集中移出。对你剪藏过的页面，弹窗提供「补上导语」：它从同一个仓库读取这篇文章，只把页面顶部的导语和题图提交进去，其余内容保持不变。「保存为网站」会截取标签页中你能看到的部分——窗口里显示的任何内容——并连同页面标题、页面简介、页面上的文字和你输入的备注一起提交到同一个仓库；之后，你仓库中的处理程序会把这些文字和你的备注发送给你仓库所配置的语言模型，用来撰写网站简介。除非你开启设置同步，你的令牌与设置只保存在本机；开启后由 Chrome 将它们复制到你的其他设备。",
   disclosureAccept: "我知道了，继续",
   clipButton: "剪藏到仓库",
   reclipButton: "再次剪藏",
@@ -618,6 +665,8 @@ const zh: Messages = {
   labelTiroPage: "Tiro 站点",
   tiroArticleIntro: "选择这篇文章所属的合集。只有你仓库中已有的文章才能加入。",
   tiroSiteIntro: "这是一个 Tiro 站点。打开其中一篇文章即可加入合集。",
+  tiroSavedSiteIntro:
+    "选择这个保存的网站所属的合集。只有已在你仓库中的网站才能加入。",
   afterClipIntro: "加入合集（可选）。",
   afterClipIntroUnreadable: (n: number) =>
     `加入合集（可选）。仓库中有 ${n} 个合集文件无法读取，未列出。`,
@@ -672,6 +721,39 @@ const zh: Messages = {
   leadAbsent: (vault: string) => `${vault} 中没有这篇文章，请直接剪藏。`,
   leadRefused:
     "保存的文章无法直接补上本页的导语（本页可能在剪藏后有过改动），因此没有补上任何内容。如需更新，请再次剪藏。",
+
+  siteOffer: "保存为网站",
+  siteOfferHint:
+    "把这个页面作为网站保存：一张你现在看到的画面、标题与简介，再加一句备注——适合那些用来用、而不是用来读的页面。",
+  thinPage:
+    "这个页面可读的文字很少，可能是应用、地图或工具。要不要改为保存为网站？",
+  nothingToClipSite:
+    "这个页面没有可作为文章读取的内容，可能是应用、地图或工具。可以把它保存为网站。",
+  siteHeading: "保存为网站",
+  siteTitleLabel: "标题",
+  siteNoteLabel: "为什么保存（可选）",
+  siteNotePlaceholder: "它适合做什么、值得看哪里……",
+  siteDescription: (text: string) => `页面自述：${text}`,
+  siteSave: "保存网站",
+  siteUpdate: "更新网站",
+  siteCancel: "取消",
+  siteCapturing: "正在截取页面画面…",
+  siteSaving: "正在把网站保存到你的仓库…",
+  siteSaved: (vault: string) => `已保存到 ${vault}，处理时会为它写一段简介。`,
+  siteUpdated: (vault: string) => `已用这张画面更新 ${vault} 中保存的网站。`,
+  siteExisting: "已保存为网站，再次保存会替换它的画面。",
+  siteSavedOn: (date: string) => `已于 ${date} 保存为网站。`,
+  siteShotBlank: "页面看起来是空白的，请等它绘制完成后再试。",
+  siteShotFailed: "无法截取页面画面。请保持这个标签页在最前面，然后重试。",
+  siteMoved:
+    "读取之后，这个标签页已经跳转到了另一个页面。请重新打开 Tiro，再保存它现在显示的页面。",
+  labelSiteForm: "保存为网站",
+  labelSiteCapturing: "截取中…",
+  removeSiteOfferHint: "从你的仓库移除这个保存的网站",
+  removeSiteConfirmHeading: "移除这个保存的网站？",
+  removeSiteConfirmNote: (vault: string) =>
+    `它的画面、备注和合集条目会以一次提交从 ${vault} 中删除。Git 历史会保留一份副本。`,
+  removeSiteGone: (vault: string) => `${vault} 中没有这个网站，未做任何更改。`,
 };
 
 const tables: Record<Locale, Messages> = { en, zh };

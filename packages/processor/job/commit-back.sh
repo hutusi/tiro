@@ -78,8 +78,10 @@ while :; do
   # which -X theirs does not settle, and lose the whole run; an added
   # one would replay cleanly and bring the directory back as an
   # orphan. --no-renames, so a slug move reads as the deletion it is.
+  # A saved site is removed the same way and processed the same way, so
+  # the same holds for it (ADR 0055).
   # Assigned rather than looped over, so a failing diff ends the step.
-  deleted="$(git -c core.quotePath=false diff --name-only --no-renames --diff-filter=D "$base" FETCH_HEAD -- ':(glob)articles/*/index.md')"
+  deleted="$(git -c core.quotePath=false diff --name-only --no-renames --diff-filter=D "$base" FETCH_HEAD -- ':(glob)articles/*/index.md' ':(glob)sites/*/index.md')"
   while IFS= read -r index; do
     [ -n "$index" ] || continue
     dir="${index%/index.md}"

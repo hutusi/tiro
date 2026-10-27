@@ -16,5 +16,6 @@ export * from "./local-document.ts";
 export * from "./paths.ts";
 export * from "./pdf-limits.ts";
 export * from "./reading-time.ts";
+export * from "./site.ts";
 export * from "./slug.ts";
 export * from "./tags.ts";

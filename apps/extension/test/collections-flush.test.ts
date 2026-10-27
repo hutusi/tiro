@@ -245,3 +245,30 @@ describe("flushCollections", () => {
     expect(gh.requests).toEqual([]);
   });
 });
+
+/** ADR 0055: a saved site is a member as `sites/<slug>`. */
+describe("flushCollections, with saved sites", () => {
+  test("adds a site that is there, and refuses one that is not", async () => {
+    const gh = fakeGitHub({
+      ...vault,
+      [`sites/${B}/index.md`]: "a site",
+    });
+    // A's article is there, its site is not: the reference is the site's.
+    const noSite = op("add", "maps", `sites/${A}`);
+    const outcome = await flushCollections(
+      config,
+      [op("add", "maps", `sites/${B}`), noSite],
+      gh.fetch,
+    );
+    expect(outcome.refused.map((r) => r.id)).toEqual([noSite.id]);
+    expect(members(gh.files(), "maps")).toEqual([`sites/${B}`]);
+  });
+
+  test("a reference that is not one document is refused, never made a path", async () => {
+    const gh = fakeGitHub(vault);
+    const bad = op("add", "maps", "sites/../articles");
+    const outcome = await flushCollections(config, [bad], gh.fetch);
+    expect(outcome.refused.map((r) => r.id)).toEqual([bad.id]);
+    expect(gh.requests.some((r) => r.includes(".."))).toBe(false);
+  });
+});

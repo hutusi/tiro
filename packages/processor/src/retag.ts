@@ -1,7 +1,10 @@
 import {
-  type ArticleFrontmatter,
   parseArticle,
+  parseSite,
+  SITES_DIR,
+  siteRef,
   stringifyArticle,
+  stringifySite,
   TAG_LIMIT,
   tagAliases,
 } from "@tiro/shared";
@@ -109,17 +112,115 @@ function settled(
  * those two keys on every bilingual article — 112 of the live vault's 181 —
  * burying the tag change in a diff of moved lines.
  */
-function withTags(
-  frontmatter: ArticleFrontmatter,
-  tags: string[],
-): ArticleFrontmatter {
+function withTags<
+  T extends { title_zh?: string; summary_orig?: string; tags?: string[] },
+>(frontmatter: T, tags: string[]): T {
   const { title_zh, summary_orig, ...rest } = frontmatter;
   return {
     ...rest,
     tags,
     ...(title_zh !== undefined ? { title_zh } : {}),
     ...(summary_orig !== undefined ? { summary_orig } : {}),
+  } as T;
+}
+
+/**
+ * One tagged document: an article, or a saved site (ADR 0055), which is
+ * tagged from the same vocabulary by the same policy and has to be kept in
+ * the same form — `validate` holds both to it.
+ */
+interface Tagged {
+  /** How the report names it: an article's slug, or `sites/<slug>`. */
+  ref: string;
+  /** Matched by `--slug`: a bare slug names both documents of one URL. */
+  slug: string;
+  frontmatter: {
+    title: string;
+    title_zh?: string;
+    summary?: string;
+    summary_orig?: string;
+    tags?: string[];
+    tiro: { processed_at?: string };
   };
+  /** Write the document back with these tags, in the processor's key order. */
+  write(tags: string[]): Promise<void>;
+}
+
+/** Every document `retag` reads, articles first; the unreadable ones are
+ * reported against their paths when they are in scope. */
+async function readTagged(
+  vaultDir: string,
+  inScope: (slug: string, ref: string) => boolean,
+  report: { scanned: number; invalid: { path: string; error: string }[] },
+): Promise<Tagged[]> {
+  const tagged: Tagged[] = [];
+  const articlesDir = `${vaultDir}/articles`;
+  for (const relPath of Array.from(
+    new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
+  ).sort()) {
+    const [slug] = relPath.split("/");
+    if (slug === undefined) continue;
+    if (inScope(slug, slug)) report.scanned += 1;
+    try {
+      const path = `${articlesDir}/${relPath}`;
+      const { frontmatter, body } = parseArticle(await Bun.file(path).text());
+      tagged.push({
+        ref: slug,
+        slug,
+        frontmatter,
+        write: async (tags) => {
+          await Bun.write(
+            path,
+            stringifyArticle(withTags(frontmatter, tags), body),
+          );
+        },
+      });
+    } catch (error) {
+      // Isolated like `run` (invariant 7), and counted against the exit status
+      // only when it is an article this invocation was about.
+      if (inScope(slug, slug)) {
+        report.invalid.push({ path: relPath, error: String(error) });
+      }
+    }
+  }
+  const sitesDir = `${vaultDir}/${SITES_DIR}`;
+  let sitePaths: string[] = [];
+  try {
+    sitePaths = Array.from(
+      new Bun.Glob("*/index.md").scanSync({ cwd: sitesDir }),
+    ).sort();
+  } catch {
+    // No `sites/` is no sites.
+  }
+  for (const relPath of sitePaths) {
+    const [slug] = relPath.split("/");
+    if (slug === undefined) continue;
+    const ref = siteRef(slug);
+    if (inScope(slug, ref)) report.scanned += 1;
+    try {
+      const path = `${sitesDir}/${relPath}`;
+      const { frontmatter, body } = parseSite(await Bun.file(path).text());
+      tagged.push({
+        ref,
+        slug,
+        frontmatter,
+        write: async (tags) => {
+          await Bun.write(
+            path,
+            stringifySite(withTags(frontmatter, tags), body),
+          );
+        },
+      });
+    } catch (error) {
+      if (inScope(slug, ref)) {
+        report.invalid.push({
+          path: `${SITES_DIR}/${relPath}`,
+          error: String(error),
+        });
+      }
+    }
+  }
+  return tagged;
 }
 
 function sameTags(a: readonly string[], b: readonly string[]): boolean {
@@ -138,19 +239,9 @@ export async function retagVault(
   const model = modelFor(config, "summary");
   const aliases = tagAliases(config.tags.aliases);
 
-  const articlesDir = `${vaultDir}/articles`;
-  const relPaths = Array.from(
-    new Bun.Glob("*/index.md").scanSync({ cwd: articlesDir }),
-  ).sort();
-
   // Every article is read first, for the vocabulary — the whole vault's, even
   // under --slug, and frozen before the first call so that the order articles
   // are retagged in cannot change what any of them is offered.
-  const articles: {
-    slug: string;
-    relPath: string;
-    parsed: ReturnType<typeof parseArticle>;
-  }[] = [];
   const report: RetagReport = {
     scanned: 0,
     retagged: [],
@@ -164,23 +255,10 @@ export async function retagVault(
     undecided: [],
     refused: false,
   };
-  for (const relPath of relPaths) {
-    const [slug] = relPath.split("/");
-    if (slug === undefined) continue;
-    const inScope = options.slug === undefined || options.slug === slug;
-    if (inScope) report.scanned += 1;
-    try {
-      const parsed = parseArticle(
-        await Bun.file(`${articlesDir}/${relPath}`).text(),
-      );
-      articles.push({ slug, relPath, parsed });
-    } catch (error) {
-      // Isolated like `run` (invariant 7), and counted against the exit status
-      // only when it is an article this invocation was about.
-      if (inScope) report.invalid.push({ path: relPath, error: String(error) });
-    }
-  }
-  const tagLists = articles.map((a) => a.parsed.frontmatter.tags ?? []);
+  const inScope = (slug: string, ref: string) =>
+    options.slug === undefined || options.slug === slug || options.slug === ref;
+  const articles = await readTagged(vaultDir, inScope, report);
+  const tagLists = articles.map((a) => a.frontmatter.tags ?? []);
   report.vocabulary = buildVocabulary(tagLists, aliases);
   report.undecided = undecidedTags(tagLists, aliases).filter(
     (t) => t.articles >= VOCABULARY_MIN_ARTICLES,
@@ -198,9 +276,8 @@ export async function retagVault(
   let stopped = false;
   let attempted = 0;
 
-  for (const { slug, relPath, parsed } of articles) {
-    if (options.slug !== undefined && options.slug !== slug) continue;
-    const { frontmatter, body } = parsed;
+  for (const { ref: slug, slug: bare, frontmatter, write } of articles) {
+    if (!inScope(bare, slug)) continue;
     const before = frontmatter.tags ?? [];
 
     if (frontmatter.tiro.processed_at === undefined) {
@@ -224,10 +301,7 @@ export async function retagVault(
     if (needsNoCall) {
       if (options.dryRun !== true) {
         try {
-          await Bun.write(
-            `${articlesDir}/${relPath}`,
-            stringifyArticle(withTags(frontmatter, respelled), body),
-          );
+          await write(respelled);
         } catch (error) {
           // One article, like any other failure here: recorded, and the run
           // goes on. Not counted toward the breaker, which is for a provider
@@ -299,10 +373,7 @@ export async function retagVault(
         report.unchanged.push(slug);
         breaker.succeeded();
       } else {
-        await Bun.write(
-          `${articlesDir}/${relPath}`,
-          stringifyArticle(withTags(frontmatter, after), body),
-        );
+        await write(after);
         report.retagged.push({ slug, before: [...before], after });
         breaker.succeeded();
       }

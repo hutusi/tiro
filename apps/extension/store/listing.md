@@ -63,6 +63,11 @@ across machines, not for an audience.
 >   or on its Tiro page, deletes the article from your repository — its files, and its
 >   place in your collections — in one commit, once you confirm. Your
 >   repository's history keeps a copy.
+> - Keep a page that is a tool rather than an article: "Save as site" takes a
+>   picture of what you see, and commits it to your repository with the page's
+>   title, its description, its text and a note you type — for an interactive map, a
+>   visualization, an app. On a page with little text to read, the popup
+>   suggests it.
 > - Save a link without opening it: "Clip link to Tiro" in any link's
 >   right-click menu sends that link's address to your repository, and the
 >   open-source processor there fetches and clips the page later. Only the
@@ -83,16 +88,17 @@ across machines, not for an audience.
 
 ## Single purpose
 
-> Save a document the user chooses — the web page they are on, a link they
-> right-click, or a PDF on their own computer — into a user-specified GitHub
-> repository as a Markdown file, and let the user file those saved documents
-> into their own collections in that repository, or remove them from it.
+> Save a document the user chooses — the web page they are on (as an article,
+> or as a site: a picture of it with a note), a link they right-click, or a PDF
+> on their own computer — into a user-specified GitHub repository as a Markdown
+> file, and let the user file those saved documents into their own collections
+> in that repository, or remove them from it.
 
 ## Permission justifications
 
 | Permission | Justification |
 | --- | --- |
-| `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. On a page whose figures its own script draws, pressing "Clip to vault" first uses the same grant to take pictures of the visible tab (`captureVisibleTab`), cropped to each figure and committed with the clip, because markdown cannot hold a figure that only exists as a running script — unless the user unticks "Save figures as pictures" beside the button. Never before that click. |
+| `activeTab` | Reads the current tab's content only after the user clicks the toolbar button, so the article can be extracted and converted to Markdown. No access to any other tab, and none until that click. On a page whose figures its own script draws, pressing "Clip to vault" first uses the same grant to take pictures of the visible tab (`captureVisibleTab`), cropped to each figure and committed with the clip, because markdown cannot hold a figure that only exists as a running script — unless the user unticks "Save figures as pictures" beside the button. Never before that click. "Save as site" uses the same grant for one picture of the whole visible tab, taken when the user presses that button and committed only when they then press Save. |
 | `contextMenus` | Adds one item, "Clip link to Tiro", to the right-click menu on links. Choosing it saves that link's address into the user's own repository, so the page can be clipped later without being opened. It reads nothing from the page the link is on, and sends only the address, only on that click. Chrome shows no install warning for this permission. |
 | `scripting` | Injects the extraction script (`clipper.js`) into the active tab on that same click. Before that, on the same click, it runs a two-line function that looks for the marker a Tiro site publishes, so the popup can offer collections instead of a clip on a page carrying that marker — on any domain; it does not check whose site it is. Both are bundled with the extension; nothing is fetched or evaluated at runtime. |
 | `storage` | Stores the user's own settings — GitHub username, repository, branch, and access token — so they are not re-entered on every clip, plus a UI language preference, plus whether Clip saves a page's drawn figures as pictures, plus a record of their acceptance of the first-run disclosure, plus a local record of successful clips (a slug derived from the clipped page's address, and a timestamp; at most 500 entries) that powers the "already clipped" status in the popup, plus collection changes not yet saved to the repository and the outcome of the last save (kept briefly after saving, at most a week, never synced). Removing an article from the popup deletes its entry from the clip record. Local to the machine by default; the user may opt the settings (not the clip record, and not the disclosure acceptance) into `chrome.storage.sync` so a second machine on the same Chrome profile needs no setup. |
@@ -137,7 +143,9 @@ repository — a declaration that reads narrower than the code is a rejection.
   for an article their repository already holds: a page they had already
   clipped, but a use of its address all the same, so declared. The same holds
   for a collection ticked in the popup right after a clip, which files the
-  article just committed. Removing an
+  article just committed. Saving a page as a site commits its URL the same way,
+  in the site's frontmatter and directory name, and the exact address the tab
+  showed besides when normalizing changed it. Removing an
   article sends its slug to the same repository, as the paths it deletes, and
   adding a missing lead reads and writes the article at the slug derived from
   the page's URL. The same
@@ -160,7 +168,13 @@ repository — a declaration that reads narrower than the code is a rejection.
   transmitted the same way, with the clip, to the same repository. "Add missing
   lead" transmits part of a page — its dek and lead picture's address and
   caption — to the same repository, into an article clipped from it before,
-  only when the user presses it. The same declaration is stretched to cover a PDF the user
+  only when the user presses it. "Save as site" transmits a picture of the
+  visible tab — whatever the window shows, which can include personal details
+  the page displays — with the page's title, its own description, its text and
+  a note the user types, to the same repository, only when the user presses
+  Save; the processor in the user's repository, which the developer does not
+  run, later sends that text and note to the language model the repository is
+  configured with. The same declaration is stretched to cover a PDF the user
   imports from their own computer, whose text the extension reads in the page
   and commits the same way. That file is not website content and Google
   publishes no category that fits it, so it is declared here rather than left
@@ -171,7 +185,7 @@ repository — a declaration that reads narrower than the code is a rejection.
 naming what is read and when, and the extension injects nothing until the user
 presses "I understand — continue". A one-line notice then stays beside the
 preview. `DISCLOSURE_VERSION` in `src/storage.ts` re-prompts existing users if
-this disclosure ever changes; it is at 8, having been bumped when the disclosure
+this disclosure ever changes; it is at 9, having been bumped when the disclosure
 gained the optional arxiv.org fetch, again when it gained opt-in settings sync,
 again when it gained the raw.githubusercontent.com fetch, again when
 collections made the popup keep a change after it closes — which falsified the
@@ -186,7 +200,10 @@ clipped. Version 7 also names the pictures of parts of the page that "Clip to
 vault" takes on a page whose figures its script draws; 7 had not been released,
 so it joined 7 rather than bumping to 8. Version 8 came with "Add missing lead",
 which reads an article already in the repository and commits the page's dek and
-lead picture into it: 7 had shipped (0.17.0) without it.
+lead picture into it: 7 had shipped (0.17.0) without it. Version 9 came with
+"Save as site", which takes a picture of the whole visible tab rather than a
+figure, and commits a note the user types that the repository's processor then
+sends to its language model: 8 had shipped (0.18.0) without it.
 
 Required certifications, all true of this extension:
 
@@ -196,7 +213,8 @@ Required certifications, all true of this extension:
   purpose: the clip itself, to GitHub; a collection change, to the same
   repository; a link's address saved from the context menu, to the same
   repository; a removal the user confirms, to the same repository; a missing
-  lead the user adds to an article clipped before, to the same repository; and
+  lead the user adds to an article clipped before, to the same repository; a
+  page the user saves as a site, to the same repository; and
   — only once the user has granted the matching optional
   permission — the request to arxiv.org that fetches the paper being clipped,
   or to raw.githubusercontent.com for the markdown file being clipped, each of

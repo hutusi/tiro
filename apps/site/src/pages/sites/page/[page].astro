@@ -1,0 +1,37 @@
+---
+import SitesGallery from "../../../components/SitesGallery.astro";
+import Base from "../../../layouts/Base.astro";
+import { pageCount, slicePage } from "../../../lib/pager.ts";
+import { getSites, type Site } from "../../../lib/sites.ts";
+import { pageTitle, STRINGS } from "../../../lib/strings.ts";
+
+interface Props {
+  sites: Site[];
+  current: number;
+  total: number;
+}
+
+export function getStaticPaths() {
+  const sites = getSites();
+  const last = pageCount(sites.length);
+  const paths = [];
+  // Page 1 is `/sites/`; this route owns the rest.
+  for (let page = 2; page <= last; page++) {
+    paths.push({
+      params: { page: String(page) },
+      props: {
+        sites: slicePage(sites, page),
+        current: page,
+        total: sites.length,
+      } satisfies Props,
+    });
+  }
+  return paths;
+}
+
+const { sites, current, total } = Astro.props;
+---
+
+<Base title={`${STRINGS.sites.title} · ${pageTitle(current)}`}>
+  <SitesGallery sites={sites} current={current} total={total} />
+</Base>

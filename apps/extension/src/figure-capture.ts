@@ -165,6 +165,30 @@ export async function cropAndEncode(
   const box = cropBox(framed.rect, framed.innerWidth, whole);
   whole.close();
   if (box === null) return { ok: false, refusal: "error" };
+  return encodeBox(source, box);
+}
+
+/**
+ * The whole visible tab as a saved site's screenshot (ADR 0055): what the
+ * reader was looking at, encoded as a figure snapshot is — WebP, no wider
+ * than `SNAPSHOT_MAX_WIDTH`, under `SNAPSHOT_MAX_BYTES` — so the processor
+ * prunes an old one the same way. A blank tab is refused rather than kept: a
+ * page caught before it drew is not a picture of it.
+ */
+export async function encodeScreenshot(dataUrl: string): Promise<EncodeResult> {
+  const source = await (await fetch(dataUrl)).blob();
+  const whole = await createImageBitmap(source);
+  const box = { sx: 0, sy: 0, sw: whole.width, sh: whole.height };
+  whole.close();
+  if (box.sw <= 0 || box.sh <= 0) return { ok: false, refusal: "error" };
+  return encodeBox(source, box);
+}
+
+/** One region of a captured tab, resized and encoded. */
+async function encodeBox(
+  source: Blob,
+  box: { sx: number; sy: number; sw: number; sh: number },
+): Promise<EncodeResult> {
   const size = outputSize(box.sw, box.sh);
   const bitmap = await createImageBitmap(
     source,

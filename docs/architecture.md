@@ -15,6 +15,7 @@ flowchart LR
         ZH[zh.md + assets/]
         WF[vault job\nprocess.yml on Actions,\nor run.sh on another host]
         COL[collections/&lt;id&gt;.md]
+        SITES[sites/&lt;slug&gt;/index.md + screenshot]
         PUB[publish.yml]
     end
     subgraph tiro
@@ -25,9 +26,11 @@ flowchart LR
 
     EXT -- "Contents API PUT" --> MD
     EXT -- "Git Data API: toggles, Remove" --> COL
+    EXT -- "Git Data API: Save as site" --> SITES
     PHONE -- "Contents API PUT" --> INBOX
     INBOX -- "push triggers" --> WF
     MD -- "push triggers" --> WF
+    SITES -- "push triggers" --> WF
     WF -- "runs" --> PROC
     PROC -- "commit back" --> ZH
     WF -- "repository_dispatch" --> SITE
@@ -271,6 +274,17 @@ flowchart LR
    so the save is in git before any workflow runs. Nothing else happens on the
    phone: it cannot compute a slug, and does not need to.
 
+   **Saving a site instead** (ADR 0055). A page that is a tool rather than an
+   article — an interactive map, a visualization — is kept as a picture.
+   "Save as site", beside Clip, takes the visible tab with
+   `captureVisibleTab`, encodes it as a figure snapshot is, and commits it
+   with `sites/<slug>/index.md` — the page's title, its own description, the
+   reader's note, and its text as context — in one Git Data API commit. The
+   slug is an article's slug for the same URL, in a different directory, so a
+   page can be both. When the clip found under 500 characters to read, the
+   popup puts this in front of Clip; a page with nothing to clip at all, once
+   a dead end, offers it instead.
+
    **Removing one** (ADR 0036). "Remove", at the foot of the popup — on the
    article's Tiro page, or on a page this machine clipped — reads the article
    from the vault to name it, then, on confirm, deletes every file under
@@ -286,7 +300,7 @@ flowchart LR
    when the popup closes — a second push after the clip's own. An add for an
    article clipped minutes ago that the vault does not show yet is kept
    pending rather than refused, since GitHub's reads can trail its writes.
-2. **Process.** A push to `articles/**` or `inbox/**` triggers the vault job —
+2. **Process.** A push to `articles/**`, `inbox/**` or `sites/**` triggers the vault job —
    the vault's workflow on Actions, or the same scripts on another host when
    the vault's `TIRO_PROCESSOR` variable says so (ADR 0046) — which checks out
    this repo and runs `tiro-process`:
@@ -324,6 +338,12 @@ flowchart LR
    - for non-Chinese articles, a block-aligned Chinese translation → `zh.md`,
      batched and checkpointed so a long article resumes rather than restarts
      (ADR 0008),
+   - for each pending saved site, and before any article — each is one call —
+     the same summary call with a site's prompt: a short introduction in the
+     target language from the title, the page's description, the owner's note
+     and the page's text, plus category, tags and a translated title. Nothing
+     else runs for a site: no fetch, no image download, no translation
+     (ADR 0055),
    - commit results back and fire a `repository_dispatch` to this repo —
      after every push and manual run, committed or not, so a hand edit to the
      vault publishes itself (ADR 0032),
@@ -343,7 +363,8 @@ flowchart LR
    untouched in the vault (ADR 0049).
 
    The site's shape follows the "Later Reader" design (ADR 0014): a paginated
-   Library at `/` and `/page/N/`, a 搜索与标签 page carrying Pagefind search
+   Library at `/` and `/page/N/`, a gallery of saved sites at `/sites/` with a
+   page each at `/sites/<slug>/` (ADR 0055), a 搜索与标签 page carrying Pagefind search
    plus every tag as a chip (`/tags/` redirects to it — `astro.config.mjs`
    for dev and the static fallback, `public/_redirects` for Cloudflare's
    edge; categories are reached from each article, ADR 0031), the reader, and a settings
@@ -503,6 +524,15 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   memberships, catalog), which is how the clipper recognizes a Tiro page on any
   domain. The clipper also offers them under a clip it has just saved, reading
   the catalog from the vault instead of a page (ADR 0037).
+- **A saved site is its own document** (ADR 0055) at `sites/<slug>/`: its
+  slug is an article's slug for the same URL, its `index.md` holds the
+  page's `description`, a `preview` screenshot (`./assets/<12 hex>.webp`) and
+  the owner's `note`, and its body is the page's text, kept as context and
+  never shown or translated. Wherever the vault names a site — a collection
+  member, a cover, the `#tiro-page` island — it is `sites/<slug>`; a bare
+  slug is still an article. The released extension carries that form
+  through a collection toggle and refuses it in the island, so it can never
+  act on the article of a site's slug. Additive, so no `tiro.schema` bump.
 - **Math is declared, not guessed**: the optional `has_math` flag records that
   the clipper escaped every literal `$` in the article's prose, so every bare
   `$…$` left in it is a formula. Only those articles read `$…$` as a delimiter;
@@ -517,7 +547,7 @@ helpers, and the `tiro.yml` config schema. Key invariants:
 
 | Where | Secret / token | Purpose |
 | --- | --- | --- |
-| Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip, collection and removal commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
+| Extension options page | fine-grained PAT (tiro-vault, Contents RW) | clip, saved-site, collection and removal commits — in `chrome.storage.local`, and in `chrome.storage.sync` too if the user opts into settings sync (ADR 0022) |
 | tiro-vault Actions | `TIRO_LLM_API_KEY` | LLM calls |
 | tiro-vault Actions | `TIRO_DISPATCH_TOKEN` (tiro, Contents RW) | repository_dispatch, from `process.yml` and `publish.yml` |
 | Processing host off Actions (ADR 0046) | files the job user can read: the LLM key (`TIRO_LLM_API_KEY_FILE`) and the dispatch token (`TIRO_DISPATCH_TOKEN_FILE`) | the same, for `run.sh` |

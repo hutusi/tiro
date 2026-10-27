@@ -1,10 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
   type ArticleFrontmatter,
   parseArticle,
+  parseSite,
   slugForUrl,
+  stringifySite,
 } from "@tiro/shared";
-import { recanonicalize } from "../scripts/sweep.ts";
+import {
+  recanonicalize,
+  recanonicalizeSite,
+  type SavedSite,
+} from "../scripts/sweep.ts";
 import type { ClipPayload } from "../src/messages.ts";
 
 const frontmatter = (
@@ -190,5 +206,105 @@ describe("recanonicalize", () => {
     expect(
       parseArticle(plan?.index ?? "").frontmatter.tiro.source_url,
     ).toBeUndefined();
+  });
+});
+
+const site = (slug: string, url: string, source?: string): SavedSite => ({
+  slug,
+  body: "509 BC\n",
+  frontmatter: {
+    url,
+    title: "Battles",
+    domain: new URL(url).hostname,
+    clipped_at: "2026-10-20T08:15:00.000Z",
+    description: "An interactive map.",
+    preview: "./assets/54ea819b7af4.webp",
+    note: "Drag it slowly.",
+    tiro: {
+      schema: 1,
+      ...(source !== undefined ? { source_url: source } : {}),
+    },
+  },
+});
+
+/** ADR 0055: a saved site shares the slug rule, so a rule change moves it. */
+describe("recanonicalizeSite", () => {
+  test("leaves a site whose slug still matches", async () => {
+    const url = "https://maps.example.org/roman-battles";
+    expect(
+      await recanonicalizeSite(site(await slugForUrl(url), url)),
+    ).toBeNull();
+  });
+
+  test("moves a site, keeping the address that was saved", async () => {
+    const url = "https://maps.example.org/roman-battles?utm_source=x";
+    const plan = await recanonicalizeSite(site("old-slug-00000000", url));
+    expect(plan?.to).toBe(await slugForUrl(url));
+    const written = parseSite(plan?.index ?? "");
+    expect(written.frontmatter.url).toBe(
+      "https://maps.example.org/roman-battles",
+    );
+    expect(written.frontmatter.tiro.source_url).toBe(url);
+    expect(written.frontmatter.note).toBe("Drag it slowly.");
+    expect(written.body).toBe("509 BC\n");
+  });
+
+  test("an exact view already recorded is not replaced", async () => {
+    const url = "https://maps.example.org/roman-battles";
+    const view = "https://maps.example.org/roman-battles/#year=-216";
+    const plan = await recanonicalizeSite(site("old-slug-00000000", url, view));
+    expect(parseSite(plan?.index ?? "").frontmatter.tiro.source_url).toBe(view);
+  });
+});
+
+describe("sweep --recanonicalize, over saved sites", () => {
+  test("moves the site and its collection membership, never the article's", async () => {
+    const vault = mkdtempSync(join(tmpdir(), "tiro-sweep-sites-"));
+    try {
+      const url = "https://maps.example.org/roman-battles";
+      const slug = await slugForUrl(url);
+      const old = "maps-example-org-roman-battles-00000000";
+      mkdirSync(join(vault, "articles"), { recursive: true });
+      mkdirSync(join(vault, "sites", old, "assets"), { recursive: true });
+      writeFileSync(
+        join(vault, "sites", old, "index.md"),
+        stringifySite(site(old, url).frontmatter, "509 BC\n"),
+      );
+      writeFileSync(
+        join(vault, "sites", old, "assets", "54ea819b7af4.webp"),
+        "x",
+      );
+      mkdirSync(join(vault, "collections"));
+      writeFileSync(
+        join(vault, "collections", "maps.md"),
+        `---\ntitle: "Maps"\nitems:\n  - slug: "${old}"\n  - slug: "sites/${old}"\ntiro:\n  schema: 1\n---\n`,
+      );
+      const run = Bun.spawnSync(
+        [
+          process.execPath,
+          join(import.meta.dir, "../scripts/sweep.ts"),
+          "--vault",
+          vault,
+          "--recanonicalize",
+          "--write",
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      expect(run.stderr.toString()).toBe("");
+      expect(run.exitCode).toBe(0);
+      expect(existsSync(join(vault, "sites", old))).toBe(false);
+      expect(
+        existsSync(join(vault, "sites", slug, "assets", "54ea819b7af4.webp")),
+      ).toBe(true);
+      const collection = readFileSync(
+        join(vault, "collections", "maps.md"),
+        "utf8",
+      );
+      // The bare slug is an article's, and no article moved.
+      expect(collection).toContain(`- slug: ${old}`);
+      expect(collection).toContain(`- slug: sites/${slug}`);
+    } finally {
+      rmSync(vault, { recursive: true, force: true });
+    }
   });
 });

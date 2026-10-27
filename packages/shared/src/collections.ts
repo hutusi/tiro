@@ -23,26 +23,29 @@ import {
   isoDatetime,
   TIRO_SCHEMA_VERSION,
 } from "./frontmatter.ts";
+import { memberDir, SITES_DIR, siteRef } from "./paths.ts";
 
 /** The one reserved id. A favorite is membership in this collection and
  * nothing else — there is no separate flag to keep in step with it. */
 export const FAVORITES_ID = "favorites";
 
 /**
- * A collection's cover: one article asset, named by its vault path.
+ * A collection's cover: one article's or saved site's asset, named by its
+ * vault path.
  *
  * A path into the vault, not a URL. The site is public and a hotlinked cover
  * breaks the day its host moves it, silently; an asset path is something
  * `validate` can check exists (ADR 0030). Any article's asset may serve, not
- * only a member's — the picture that sums up a shelf is not always inside it.
+ * only a member's — the picture that sums up a shelf is not always inside it —
+ * and so may a saved site's screenshot (ADR 0055).
  *
  * Both parts are held to the alphabet the pipeline itself writes (slugs are
  * lowercase dash-joined ascii, assets are content-hash names), loosened only
  * enough for a hand-placed file: no separators and no leading dot, so the path
- * can never climb out of the article's `assets/`.
+ * can never climb out of the document's `assets/`.
  */
 const COVER_RE =
-  /^articles\/([a-z0-9]+(?:-[a-z0-9]+)*)\/assets\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
+  /^(articles|sites)\/([a-z0-9]+(?:-[a-z0-9]+)*)\/assets\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
 
 /**
  * Files a browser shows as an image — what a cover may be. Checked by
@@ -56,17 +59,39 @@ export function isCoverImageFile(file: string): boolean {
   return COVER_IMAGE_RE.test(file);
 }
 
-/** The article and file a cover path names, or null if it is not one. */
-export function parseCoverPath(
-  cover: string,
-): { slug: string; file: string } | null {
+/** What a cover path names. `ref` is how the vault names the document it
+ * belongs to — an article's slug, or `sites/<slug>` (ADR 0055). */
+export interface CoverTarget {
+  kind: "article" | "site";
+  slug: string;
+  ref: string;
+  file: string;
+}
+
+/** The document and file a cover path names, or null if it is not one. */
+export function parseCoverPath(cover: string): CoverTarget | null {
   const match = COVER_RE.exec(cover);
-  if (match?.[1] === undefined || match[2] === undefined) return null;
-  return { slug: match[1], file: match[2] };
+  if (
+    match?.[1] === undefined ||
+    match[2] === undefined ||
+    match[3] === undefined
+  ) {
+    return null;
+  }
+  const slug = match[2];
+  return match[1] === SITES_DIR
+    ? { kind: "site", slug, ref: siteRef(slug), file: match[3] }
+    : { kind: "article", slug, ref: slug, file: match[3] };
 }
 
 /**
- * One article's membership.
+ * One member: an article, or a saved site.
+ *
+ * `slug` names an article by its bare slug, as it always has, and a saved site
+ * as `sites/<slug>` (ADR 0055) — never a separate key. The extensions already
+ * released parse this as any string and write it back untouched, so a site in
+ * a collection survives their toggles; a key they were not told about would be
+ * dropped by zod on the first one.
  *
  * `added_at` is optional so a collection stays worth hand-editing: `- slug: x`
  * on its own is a valid entry. The extension always writes the timestamp; a
@@ -107,7 +132,8 @@ export const CollectionFrontmatterSchema = z.object({
    * exactly why it is not the id. */
   title: z.string().min(1),
   description: z.string().trim().min(1).optional(),
-  /** Hand-set cover, `articles/<slug>/assets/<file>`. Absent is the normal
+  /** Hand-set cover, `articles/<slug>/assets/<file>` — or a saved site's,
+   * under `sites/`. Absent is the normal
    * case: the site then builds one from the members' own images (ADR 0030).
    *
    * Declared here even though only a person writes it, because this schema is
@@ -116,7 +142,10 @@ export const CollectionFrontmatterSchema = z.object({
    * be erased by the next toggle. */
   cover: z
     .string()
-    .regex(COVER_RE, "expected articles/<slug>/assets/<file>")
+    .regex(
+      COVER_RE,
+      "expected articles/<slug>/assets/<file> or sites/<slug>/assets/<file>",
+    )
     .optional(),
   created_at: isoDatetime.optional(),
   updated_at: isoDatetime.optional(),
@@ -179,6 +208,8 @@ export interface CollectionOp {
    * Without it a brand-new collection would be born titled with its own id.
    */
   title?: string;
+  /** The member, as the vault names it: an article's slug, or `sites/<slug>`
+   * for a saved site (ADR 0055). */
   slug: string;
   action: "add" | "remove";
   /** When the user toggled, ISO. Becomes the item's `added_at`, so the record
@@ -296,6 +327,10 @@ export function applyCollectionOps(
  * member: the rename moves its `assets/` directory, and a cover left pointing
  * at the old one is a broken image the site would quietly replace.
  *
+ * `from` and `to` are references as the vault writes them — an article's slug,
+ * or `sites/<slug>` for a saved site, whose directory a rename moves the same
+ * way (ADR 0055).
+ *
  * Returns only the collections that changed, so the caller writes nothing it
  * does not have to.
  */
@@ -312,7 +347,7 @@ export function renameCollectionMember(
     // article that is not a member — so it is checked on its own, not only
     // for collections that hold `from`.
     const coverTarget = cover === undefined ? null : parseCoverPath(cover);
-    const coverMoves = coverTarget?.slug === from;
+    const coverMoves = coverTarget?.ref === from;
     if (!member && !coverMoves) continue;
     const already = items.some((item) => item.slug === to);
     const renamed = !member
@@ -324,7 +359,7 @@ export function renameCollectionMember(
           );
     const frontmatter = { ...collection.frontmatter, items: renamed };
     if (coverMoves && coverTarget !== null) {
-      frontmatter.cover = `articles/${to}/assets/${coverTarget.file}`;
+      frontmatter.cover = `${memberDir(to)}/assets/${coverTarget.file}`;
     }
     changed.push({ ...collection, frontmatter });
   }
@@ -347,6 +382,9 @@ export function renameCollectionMember(
  * is not the owner deciding anything about the collection — without this,
  * removing one article would float every shelf that held it to the top.
  *
+ * `slug` is a reference as the vault writes it, so a saved site is dropped as
+ * `sites/<slug>` (ADR 0055).
+ *
  * Returns only the collections that changed, so the caller writes nothing it
  * does not have to.
  */
@@ -363,7 +401,7 @@ export function dropCollectionMember(
       (item) => item.slug === slug,
     );
     const coverGoes =
-      cover !== undefined && parseCoverPath(cover)?.slug === slug;
+      cover !== undefined && parseCoverPath(cover)?.ref === slug;
     if (!member && !coverGoes) continue;
     const items = collection.frontmatter.items.filter(
       (item) => item.slug !== slug,
