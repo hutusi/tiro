@@ -45,6 +45,22 @@ describe("readableChars (ADR 0055)", () => {
     expect(readableChars(md)).toBe("Battles".length);
   });
 
+  // The clipper escapes parentheses in an address; Markdown also allows them
+  // balanced. Either way the whole address goes, not just up to the first `)`.
+  test("an address with parentheses in it goes in full", () => {
+    expect(
+      readableChars(
+        "[Cannae](https://en.wikipedia.org/wiki/Cannae_\\(battle\\)/talk/archive)",
+      ),
+    ).toBe("Cannae".length);
+    expect(
+      readableChars("![map](https://cdn.example.com/a_(b)/c/legend.png) Rome"),
+    ).toBe("Rome".length);
+    expect(readableChars("[a](<https://x.example/a b\\(1\\)>) b")).toBe(
+      "a b".length,
+    );
+  });
+
   test("an empty or markup-only clip has nothing to read", () => {
     expect(readableChars("")).toBe(0);
     expect(readableChars("<div></div>\n\n---\n")).toBe(0);

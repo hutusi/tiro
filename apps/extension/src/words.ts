@@ -17,6 +17,14 @@ export function countWords(text: string): number {
   return cjk + rest;
 }
 
+/** A link's or picture's destination group, `(…)`. The clipper escapes `(`
+ * and `)` in an address (`inlineLinkRule`), and Markdown allows them balanced,
+ * so a group runs past both — stopping at the first `)` left the rest of a
+ * Wikipedia-style `…_(disambiguation)/…` address counted as text. */
+const DESTINATION = String.raw`\((?:\\.|[^()\\]|\([^()]*\))*\)`;
+const PICTURE = new RegExp(String.raw`!\[[^\]]*\]${DESTINATION}`, "g");
+const LINK_TARGET = new RegExp(String.raw`\]${DESTINATION}`, "g");
+
 /**
  * How much readable text a clip holds, in characters: the Markdown with its
  * pictures, link targets, HTML tags and markup taken out, whitespace folded.
@@ -28,8 +36,8 @@ export function countWords(text: string): number {
  */
 export function readableChars(markdown: string): number {
   return markdown
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\]\([^)]*\)/g, "]")
+    .replace(PICTURE, " ")
+    .replace(LINK_TARGET, "]")
     .replace(/<[^>]+>/g, " ")
     .replace(/[#>*_`~|[\]-]+/g, " ")
     .replace(/\s+/g, " ")
