@@ -147,6 +147,9 @@ paragraph.
   category and collections. The note and description are text, never
   Markdown or HTML (invariant 5).
 - **The home library and RSS stay articles.** They are a reading list.
+- **The nav names the kinds, then what groups them**: 文章 · 网站 · 合集. The
+  link home read 首页; beside a gallery of sites that no longer said what it
+  opens, which is the article library.
 - **Tags, categories, collections and search show both**, sites badged 网站.
 - **A site in a collection lends its screenshot** to the collection's cover,
   as an article lends its lead image (ADR 0030).

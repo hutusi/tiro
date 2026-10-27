@@ -16,11 +16,13 @@ versions follow the `0.x` line while Tiro is a personal system.
   next processing run writes a short Chinese introduction, a category and
   tags. Sites have their own gallery on the site, `/sites/`, and sit beside
   articles on tag, category, collection and search pages; a page can be both
-  an article and a site. When a page has little text to read, the popup puts
-  Save as site in front of Clip, and a page with nothing to clip — once a
-  dead end — offers it instead. The data disclosure moves to version 9. After
-  merging, copy the template's `process.yml` (and `.janus/process.yml`) into
-  the vault, which must now list `sites/**`.
+  an article and a site. The nav reads 文章 · 网站 · 合集: the link home,
+  首页 before, is named for the article library it opens. When a page has
+  little text to read, the popup puts Save as site in front of Clip, and a
+  page with nothing to clip — once a dead end — offers it instead. The data
+  disclosure moves to version 9. After merging, copy the template's
+  `process.yml` (and `.janus/process.yml`) into the vault, which must now list
+  `sites/**`.
 
 ## [0.12.0] - 2026-10-26
 

@@ -7,9 +7,11 @@ export const STRINGS = {
   /** The public repo — the header Star button and the footer both link here. */
   repoUrl: "https://github.com/hutusi/tiro",
   nav: {
-    home: "首页",
-    collections: "合集",
+    /** The link to `/`, named for what it lists: the home page is the article
+     * library, and beside a gallery of sites 首页 no longer said so. */
+    articles: "文章",
     sites: "网站",
+    collections: "合集",
     search: "搜索与标签",
     /** `search` on a phone, where the header has room for five short items
      * and not for this one's full name. */

@@ -68,21 +68,27 @@ const metaDescription =
 const canonical = new URL(canonicalPath ?? Astro.url.pathname, Astro.site);
 const ogImage = new URL(ogImagePath, Astro.site);
 const path = Astro.url.pathname;
+// The two kinds of document first, then the collections that hold both. Each
+// is current on its own pages too — an article under 文章, as a site is under
+// 网站 and a collection under 合集.
 const nav = [
   {
     href: "/",
-    label: STRINGS.nav.home,
-    active: path === "/" || path.startsWith("/page/"),
-  },
-  {
-    href: "/collections/",
-    label: STRINGS.nav.collections,
-    active: path.startsWith("/collections/"),
+    label: STRINGS.nav.articles,
+    active:
+      path === "/" ||
+      path.startsWith("/page/") ||
+      path.startsWith("/articles/"),
   },
   {
     href: "/sites/",
     label: STRINGS.nav.sites,
     active: path.startsWith("/sites/"),
+  },
+  {
+    href: "/collections/",
+    label: STRINGS.nav.collections,
+    active: path.startsWith("/collections/"),
   },
   {
     href: "/search/",
@@ -374,9 +380,9 @@ const mainClass = [
             the button is what overflows it first. 360 keeps it on every phone
             still in use and costs it only on 320px-class screens.
 
-            The nav's fourth item (合集) is what made the phone-only tightening
-            above necessary — `gap-3` on this bar and `px-2` on the links,
-            against `gap-4`/`px-2.5` before. Measured at 13.5px UI sans: four
+            Adding 合集, the fourth item then, is what made the phone-only
+            tightening above necessary — `gap-3` on this bar and `px-2` on the
+            links, against `gap-4`/`px-2.5` before. Measured at 13.5px UI sans: four
             no-wrap items plus the brand want 382px with this button and 334px
             without, so at 360 and 375 the row was over by 22px and 7px. The
             tightening buys 24px, which clears both and 320 as well, and it
