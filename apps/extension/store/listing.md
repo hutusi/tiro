@@ -65,7 +65,7 @@ across machines, not for an audience.
 >   repository's history keeps a copy.
 > - Keep a page that is a tool rather than an article: "Save as site" takes a
 >   picture of what you see, and commits it to your repository with the page's
->   title, its description and a note you type — for an interactive map, a
+>   title, its description, its text and a note you type — for an interactive map, a
 >   visualization, an app. On a page with little text to read, the popup
 >   suggests it.
 > - Save a link without opening it: "Clip link to Tiro" in any link's

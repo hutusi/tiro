@@ -209,17 +209,20 @@ describe("the disclosure and capturing figures (ADR 0039)", () => {
 });
 
 describe("the disclosure and saving a site (ADR 0055)", () => {
-  // A picture of the whole visible tab, and words the reader types, both
-  // leave the browser — and the note goes on to the model provider. Consent
-  // that named none of it would not cover it, in either language.
-  test("both disclosures name it by its button, and say where the picture and note go", () => {
+  // A picture of the whole visible tab, the page's text and words the reader
+  // types all leave the browser — and the text and note go on to the model
+  // provider. Consent that named none of it would not cover it, in either
+  // language; the page's text was once left out of both.
+  test("both disclosures name it by its button, and say where the picture, text and note go", () => {
     const en = messages("en");
     const zh = messages("zh");
     expect(en.disclosureBody2).toContain(`“${en.siteOffer}”`);
     expect(zh.disclosureBody2).toContain(`「${zh.siteOffer}」`);
-    expect(en.disclosureBody2).toContain("the note you type");
+    expect(en.disclosureBody2).toContain(
+      "the page's text and the note you type",
+    );
     expect(en.disclosureBody2).toContain("language model");
-    expect(zh.disclosureBody2).toContain("你输入的备注");
+    expect(zh.disclosureBody2).toContain("页面上的文字和你输入的备注");
     expect(zh.disclosureBody2).toContain("语言模型");
   });
 });
