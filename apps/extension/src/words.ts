@@ -42,11 +42,15 @@ const LINK_TARGET = new RegExp(String.raw`\]${DESTINATION}`, "g");
  * addresses are not something anyone reads.
  */
 export function readableChars(markdown: string): number {
-  return markdown
-    .replace(PICTURE, " ")
-    .replace(LINK_TARGET, "]")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/[#>*_`~|[\]-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim().length;
+  return (
+    markdown
+      .replace(PICTURE, " ")
+      .replace(LINK_TARGET, "]")
+      // Not `[^>]`: a page's own `<`, which Turndown leaves as it is, would
+      // scan on to the end of the text from each one with no `>` after it.
+      .replace(/<[^<>]+>/g, " ")
+      .replace(/[#>*_`~|[\]-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim().length
+  );
 }

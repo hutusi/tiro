@@ -68,12 +68,19 @@ describe("readableChars (ADR 0055)", () => {
     ).toBe("Rome".length);
   });
 
-  test("stays fast on a run of pictures that never close", () => {
-    // Each `![` used to scan on to the end of the text: 50,000 took ~3 s, in
-    // the popup, as it renders.
-    const started = performance.now();
-    readableChars("![ x".repeat(50_000));
-    expect(performance.now() - started).toBeLessThan(500);
+  // Each of these used to scan on to the end of the text from every opener —
+  // 50,000 pictures that never close took ~3 s, and 40,000 of `a < b` 1.8 s,
+  // in the popup, as it renders.
+  test("stays fast on a run of openers that never close", () => {
+    for (const unit of ["![ x", "a < b ", "<!-- "]) {
+      const started = performance.now();
+      readableChars(unit.repeat(50_000));
+      expect(performance.now() - started).toBeLessThan(500);
+    }
+  });
+
+  test("an HTML tag still goes, and a lone `<` stays as text", () => {
+    expect(readableChars("a <sup>2</sup> < b")).toBe("a 2 < b".length);
   });
 
   test("an empty or markup-only clip has nothing to read", () => {
