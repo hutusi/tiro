@@ -14,6 +14,8 @@ numbers carry on unbroken.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-26
+
 ### Added
 
 - **Saved sites** (ADR 0055). A page that is a tool rather than an article —
@@ -1574,7 +1576,8 @@ verified end to end with real articles in both languages.
 - CI and deploy workflows run with read-only tokens and without persisted
   git credentials.
 
-[Unreleased]: https://github.com/hutusi/tiro/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/hutusi/tiro/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/hutusi/tiro/compare/v0.12.0...v0.19.0
 [0.12.0]: https://github.com/hutusi/tiro/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/hutusi/tiro/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/hutusi/tiro/compare/v0.9.0...v0.10.0
