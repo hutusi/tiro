@@ -17,11 +17,21 @@ export function countWords(text: string): number {
   return cjk + rest;
 }
 
-/** A link's or picture's destination group, `(…)`. The clipper escapes `(`
- * and `)` in an address (`inlineLinkRule`), and Markdown allows them balanced,
- * so a group runs past both — stopping at the first `)` left the rest of a
- * Wikipedia-style `…_(disambiguation)/…` address counted as text. */
-const DESTINATION = String.raw`\((?:\\.|[^()\\]|\([^()]*\))*\)`;
+/** A link's address: `<…>` when it holds a space, otherwise no whitespace,
+ * with `(` and `)` escaped (`inlineLinkRule`) or balanced, as Markdown allows
+ * them. Stopping at the first `)` left the rest of a Wikipedia-style
+ * `…_(disambiguation)/…` address counted as text. */
+const ADDRESS = String.raw`<(?:\\.|[^<>\\\n])*>|(?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\])*\))*`;
+/** A link's title, quoted or parenthesized, its own quote escaped. Read as a
+ * whole, apart from the address: a parenthesis in a title is the title's text
+ * and opens nothing, where scanning it as part of the address left the whole
+ * address counted when a title opened one and never closed it. */
+const TITLE = String.raw`"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)`;
+/** A link's or picture's destination group, `(…)`: an address, then perhaps a
+ * title. No whitespace before the address — an address never holds any, so
+ * whitespace is only ever read in one place, and a run of it cannot be split
+ * a quadratic number of ways. */
+const DESTINATION = String.raw`\((?:${ADDRESS})(?:\s+(?:${TITLE}))?\s*\)`;
 /** A picture, alt text and all. Turndown escapes `[` and `]` in an alt, so
  * escapes are part of it and an unescaped `[` is not: stopping there keeps a
  * failed match from running on past the next `![`, which made a run of
@@ -31,6 +41,17 @@ const PICTURE = new RegExp(
   "g",
 );
 const LINK_TARGET = new RegExp(String.raw`\]${DESTINATION}`, "g");
+/** An HTML tag, which a Markdown file's clip keeps raw. Its quoted attribute
+ * values are read whole, so a `<` or `>` in an `alt="x < y"` stays inside the
+ * tag rather than ending it or starting another, which left the `src` before
+ * it counted as text. A value ends at its line, so a stray quote cannot carry
+ * the tag across the text after it.
+ *
+ * A tag starts with a name, `/`, `!` or `?`. Not `[^<>]` after the `<`: a
+ * page's own `<`, which Turndown leaves as it is, would scan on to the end of
+ * the text from each one with no `>` after it — and a `<` followed by a space
+ * is prose (`a < b`), never a tag. */
+const HTML_TAG = /<[A-Za-z/!?](?:[^<>"']|"[^"\n]*"|'[^'\n]*')*>/g;
 
 /**
  * How much readable text a clip holds, in characters: the Markdown with its
@@ -42,15 +63,11 @@ const LINK_TARGET = new RegExp(String.raw`\]${DESTINATION}`, "g");
  * addresses are not something anyone reads.
  */
 export function readableChars(markdown: string): number {
-  return (
-    markdown
-      .replace(PICTURE, " ")
-      .replace(LINK_TARGET, "]")
-      // Not `[^>]`: a page's own `<`, which Turndown leaves as it is, would
-      // scan on to the end of the text from each one with no `>` after it.
-      .replace(/<[^<>]+>/g, " ")
-      .replace(/[#>*_`~|[\]-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim().length
-  );
+  return markdown
+    .replace(PICTURE, " ")
+    .replace(LINK_TARGET, "]")
+    .replace(HTML_TAG, " ")
+    .replace(/[#>*_`~|[\]-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim().length;
 }

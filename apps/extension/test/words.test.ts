@@ -61,6 +61,27 @@ describe("readableChars (ADR 0055)", () => {
     );
   });
 
+  // A title is the title's text, not more address: a `(` in one used to open
+  // a group that never closed, and the whole address stayed in the count —
+  // 535 characters for a link labelled "Map", over the thin-page threshold
+  // on its own.
+  test("a parenthesis in a title leaves the address out all the same", () => {
+    const address = `https://maps.example.com/${"segment/".repeat(60)}`;
+    for (const title of [
+      '"Opening parenthesis ("',
+      '"closing )"',
+      '"a (b) c"',
+      String.raw`"say \"hi\" ("`,
+      "'single ('",
+      "(parenthesized \\()",
+    ]) {
+      expect(readableChars(`[Map](${address} ${title})`)).toBe("Map".length);
+      expect(readableChars(`![m](${address} ${title}) Rome`)).toBe(
+        "Rome".length,
+      );
+    }
+  });
+
   // Turndown escapes brackets in an alt, and the picture still goes whole.
   test("an alt with escaped brackets goes with its picture", () => {
     expect(
@@ -72,7 +93,16 @@ describe("readableChars (ADR 0055)", () => {
   // 50,000 pictures that never close took ~3 s, and 40,000 of `a < b` 1.8 s,
   // in the popup, as it renders.
   test("stays fast on a run of openers that never close", () => {
-    for (const unit of ["![ x", "a < b ", "<!-- "]) {
+    for (const unit of [
+      "![ x",
+      "a < b ",
+      "<!-- ",
+      '](x "',
+      "](x (",
+      "](  ",
+      '<a b="<',
+      "<a '",
+    ]) {
       const started = performance.now();
       readableChars(unit.repeat(50_000));
       expect(performance.now() - started).toBeLessThan(500);
@@ -81,6 +111,26 @@ describe("readableChars (ADR 0055)", () => {
 
   test("an HTML tag still goes, and a lone `<` stays as text", () => {
     expect(readableChars("a <sup>2</sup> < b")).toBe("a 2 < b".length);
+  });
+
+  // A Markdown file's clip keeps its raw HTML. A `<` in an attribute used to
+  // start the tag over, leaving the `src` before it counted: 523 characters
+  // for one picture.
+  test("a `<` or `>` in a quoted attribute stays inside its tag", () => {
+    const src = `https://cdn.example.com/${"segment/".repeat(60)}m.png`;
+    for (const alt of ['"x < y"', '"x > y"', "'x < y'", `"it's < 1"`]) {
+      expect(readableChars(`<img src="${src}" alt=${alt}> Rome`)).toBe(
+        "Rome".length,
+      );
+    }
+  });
+
+  // A tag starts with its name: a comparison in prose is text, and a quote
+  // after it cannot carry a "tag" on across the sentence.
+  test("a comparison in prose stays text", () => {
+    expect(readableChars('if a < b and "c > d" then e > f')).toBe(
+      'if a < b and "c d" then e f'.length,
+    );
   });
 
   test("an empty or markup-only clip has nothing to read", () => {
