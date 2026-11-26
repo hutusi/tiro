@@ -1411,7 +1411,7 @@ installed that way never quietly drifts a release behind.
 
 **Unpacked** is for a build that is not released yet — a branch under test, or a
 fix wanted on one machine before a version is cut. No clone or toolchain needed:
-every `ext-v*` tag publishes a zip.
+every release publishes a zip (before 0.19.0, every `ext-v*` tag did).
 
 1. Download `tiro-clipper-<version>.zip` from the repo's Releases page.
 2. Unzip it into a **permanent** folder (e.g. `~/Applications/tiro-clipper`).
@@ -1870,29 +1870,49 @@ bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
   (ADR 0032), and translated tags move their pages (`/tags/强化学习/`), the old
   URLs no longer served.
 
-### Cutting an extension release
+### Cutting a release
 
-`apps/extension/manifest.json` holds the only version string in the repo.
+One version covers the whole repo: site, processor and clipper (ADR 0056).
+`apps/extension/manifest.json` holds the only version string, and a
+`v<version>` tag publishes one GitHub Release, `Tiro <version>`, carrying
+`tiro-clipper-<version>.zip` as its only asset and the version's
+`CHANGELOG.md` section as its notes. The `ext-v*` tags and `Tiro Clipper`
+releases before 0.19.0 are the clipper's old separate line, kept because clips
+name them.
 
-1. Bump `version` there and commit — **patch** for a narrow or per-site fix,
-   **minor** for a new capability or a batch of them. The number is what
+1. **One `chore: release X.Y.Z` commit** bumps the manifest's `version` and
+   rolls `CHANGELOG.md`: insert `## [X.Y.Z] - <date>` directly under
+   `## [Unreleased]`, so everything accumulated there becomes the new section
+   and `[Unreleased]` is left empty, then at the foot of the file repoint
+   `[Unreleased]` to `compare/vX.Y.Z...HEAD` and add
+   `[X.Y.Z]: …/compare/v<prev>...vX.Y.Z`. The reasoning for the bump goes in
+   the commit body.
+
+   **Patch** for a narrow fix anywhere — a per-site clip fix that leaves
+   output unchanged for most pages, a site or processor fix — and **minor** for
+   a new capability or a batch of them. The number is what
    `tiro.clipper_version` stamps into every article, so it is how a later audit
    identifies which clips predate a given fix; a version that moves for reasons
-   other than what changed makes that question harder to answer.
+   other than what changed makes that question harder to answer. A release
+   that changed only the site or the processor still moves it, with clipper
+   code identical to the last; `tiro.clipper_commit` and this file are what say
+   whether the clipper changed.
 
    A build with git available also records `tiro.clipper_commit` — `git
-   describe --tags --always --dirty --match 'ext-v*'`, run by the Vite build —
+   describe --tags --always --dirty --match 'v[0-9]*'`, run by the Vite build —
    so provenance does not depend on remembering to bump. Use it when the
    version cannot answer the question: an unpacked build reports the release it
    is *near*, and a minor that batched several fixes cannot say which of them a
-   clip predates. The field is absent entirely from a build with no git to ask
-   (a source zip, a checkout without history), which is why it is optional.
-   It names the build that produced the **body**: clipper.js's own stamp for a
-   page clip, and the popup's for a body the popup fetched (an arXiv full text,
-   a GitHub markdown file) or the options page converted (a local PDF). Each
-   is a separate file Chrome loads separately, and only the body's producer
-   answers "does this clip have the fix". Clips from builds before ext-v0.16.0's
-   successor record the popup's stamp whatever wrote the body.
+   clip predates. Clips from builds before 0.19.0 read `ext-v…`, from the old
+   line; both forms name a commit. The field is absent entirely from a build
+   with no git to ask (a source zip, a checkout without history), which is why
+   it is optional. It names the build that produced the **body**: clipper.js's
+   own stamp for a page clip, and the popup's for a body the popup fetched (an
+   arXiv full text, a GitHub markdown file) or the options page converted (a
+   local PDF). Each is a separate file Chrome loads separately, and only the
+   body's producer answers "does this clip have the fix". Clips from builds
+   before ext-v0.16.0's successor record the popup's stamp whatever wrote the
+   body.
 
    To ask whether a clip contains a given fix, **strip any `-dirty` suffix
    first** — git rejects the full description as a revision:
@@ -1908,51 +1928,27 @@ bun run packages/processor/src/cli.ts tags --vault ../tiro-vault
    same value, so it narrows an investigation rather than settling it; only the
    artifact or the diff identifies such a build exactly. Expect this on
    anything loaded unpacked.
-2. Tag `ext-v<version>` (matching exactly) and push the tag.
-3. "Release extension" builds, verifies the tag against the manifest, zips
-   `dist/` with `manifest.json` at the archive root, and attaches it to a new
-   GitHub Release.
+2. Push `main` and wait for CI to pass. The push also deploys the site, which is
+   the site's release; the tag adds nothing to it.
+3. Optionally, dry-run the workflow: `gh workflow run release.yml --ref main`
+   builds, checks and writes the notes as a tag would, and uploads the zip as a
+   workflow artifact without publishing anything.
+4. Tag `vX.Y.Z` on the release commit and push the tag. "Release" builds the
+   clipper, checks the tag against the manifest and `CHANGELOG.md` against the
+   version, zips `dist/` with `manifest.json` at the archive root, and
+   publishes the release with the zip attached.
 
-A tag that disagrees with the manifest fails the run before publishing
-anything. `bun run --cwd apps/extension package` produces the same zip
-locally; `workflow_dispatch` builds one as a workflow artifact without
-publishing a release.
+A tag that disagrees with the manifest, or a version with no `CHANGELOG.md`
+section, fails the run before publishing anything; a dry run only warns about
+the section. Tag only after CI is green on the commit: the zip is the artifact
+the manual pass tests and the Web Store gets, and its stamp comes from the tag
+at build time, so no correctly stamped build exists before the tag does.
+`bun run --cwd apps/extension package` produces the same zip locally, but
+stamped with whatever tag is nearest when it runs.
 
-### Cutting a repo release
-
-The `v*` tags are the repo-level milestone: what the *system* gained, across
-site, processor and clipper together. They are independent of the `ext-v*` line
-— see the note above the oldest `[Unreleased]` link in `CHANGELOG.md` for why
-extension work is filed under the repo release that carries it rather than
-getting its own heading.
-
-Unlike an extension release, **nothing is automated**. No workflow fires on a
-`v*` tag, and the deploy already happened when the commits landed on `main`.
-
-1. Roll `CHANGELOG.md` in a `docs: cut X.Y.0` commit that touches nothing else.
-   Insert `## [X.Y.0] - <date>` directly under `## [Unreleased]`, so everything
-   accumulated there becomes the new section and `[Unreleased]` is left empty.
-   At the foot of the file, repoint `[Unreleased]` to `compare/vX.Y.0...HEAD`
-   and add `[X.Y.0]: …/compare/v<prev>...vX.Y.0`. The edit is four lines; the
-   reasoning for the milestone goes in the commit body, which is the only place
-   it is recorded.
-2. **Cut the extension release first** if this milestone carries clipper work,
-   so the repo release can link to a zip that already exists.
-3. Tag `vX.Y.0` and push it. This triggers nothing.
-4. Create the GitHub Release by hand, titled `Tiro X.Y.0`:
-
-   ```sh
-   gh release create vX.Y.0 --title "Tiro X.Y.0" --notes-file <body>
-   ```
-
-   The body is a short paragraph saying the extension ships separately and
-   linking the matching `ext-v*` release by name and asset, then a `---`, then
-   the new CHANGELOG section verbatim. **No assets** — the clipper zip belongs
-   to its own release, and duplicating it would create two artifacts that can
-   drift.
-
-Verify with `gh release list`: the new `Tiro X.Y.0` should be `Latest`, with its
-`Tiro Clipper` counterpart directly beneath.
+Verify with `gh release list`: the new `Tiro X.Y.Z` should be `Latest`. Unzip
+its asset and check that `manifest.json` reads `X.Y.Z` and that clipper.js, the
+popup and the options page carry exactly `vX.Y.Z` as their stamp.
 
 ### Chrome Web Store
 
@@ -1979,10 +1975,13 @@ counts as authentication information — is a page on the site,
 <https://tiro.ainaive.com/privacy/> (`apps/site/src/pages/privacy.astro`). It
 must stay reachable for as long as the item is published.
 
-**Publishing an update**: cut an `ext-v*` release as above, then upload that
-same zip in the dashboard as a new version. The manifest version is what
-triggers client updates, so it must be higher than the published one — the tag
-guard in the release workflow is what keeps that number trustworthy.
+**Publishing an update**: cut a release as above, then upload that same zip in
+the dashboard as a new version. The manifest version is what triggers client
+updates, so it must be higher than the published one — the tag guard in the
+release workflow is what keeps that number trustworthy. It need not be the next
+one, so a release whose clipper did not change — a site or processor fix —
+needs no upload: skip it rather than spend a review on a package that clips
+exactly as the last one did.
 
 On a machine that installs from the store, **remove the unpacked copy** —
 otherwise two copies of the extension are clipping. The store assigns its own

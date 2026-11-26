@@ -5,6 +5,13 @@ the git log (Conventional Commits with reasoning in the bodies); this file
 records milestones. Format follows [Keep a Changelog](https://keepachangelog.com/);
 versions follow the `0.x` line while Tiro is a personal system.
 
+One version covers the whole repo, the clipper included (ADR 0056): each
+heading is a `v*` tag, whose GitHub Release carries the clipper zip and the
+section as its notes. Before 0.19.0 the clipper had its own `ext-v*` line —
+Clipper 0.18.0 shipped with Tiro 0.12.0 — and its work is recorded under the
+repo release that carried it. 0.13.0–0.18.0 were skipped so the clipper's
+numbers carry on unbroken.
+
 ## [Unreleased]
 
 ### Added
@@ -23,6 +30,17 @@ versions follow the `0.x` line while Tiro is a personal system.
   disclosure moves to version 9. After merging, copy the template's
   `process.yml` (and `.janus/process.yml`) into the vault, which must now list
   `sites/**`.
+
+### Changed
+
+- **One version for the whole repo** (ADR 0056). The clipper and the repo each
+  had a number, a tag and a GitHub Release, but every release since 0.6.0
+  shipped both together, so one event wore two names: Tiro 0.12.0 was Clipper
+  0.18.0. Now a `v<version>` tag publishes one release, "Tiro <version>", with
+  the clipper zip attached and this file's section as its notes, written by
+  the workflow rather than by hand. The line continues from the clipper's
+  number, so the repo goes from 0.12.0 to 0.19.0, and `tiro.clipper_commit`
+  now reads `v0.19.0-…`, where older clips read `ext-v…`.
 
 ## [0.12.0] - 2026-10-26
 
@@ -950,10 +968,11 @@ versions follow the `0.x` line while Tiro is a personal system.
   `git` can never fail the build. Optional and additive, so no `tiro.schema`
   bump, and no version bump: what a page clips to is unchanged.
 
-<!-- Headings here are *repo* versions, matching the `v*` tags; the extension
-     ships on its own `ext-v*` line and its number lives only in
-     apps/extension/manifest.json. Extension work is recorded under the repo
-     release that carries it — 0.10.0's figure captions are under [0.3.0]. -->
+<!-- Until 0.19.0, headings here were *repo* versions, matching the `v*` tags,
+     while the extension shipped on its own `ext-v*` line. Extension work is
+     recorded under the repo release that carried it — 0.10.0's figure
+     captions are under [0.3.0]. From 0.19.0 there is one version (ADR 0056);
+     see the note at the top of this file. -->
 
 ### Fixed
 

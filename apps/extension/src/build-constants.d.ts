@@ -9,8 +9,9 @@
 
 /**
  * `git describe` for the commit this was built from, e.g.
- * `ext-v0.11.0-8-gbe3dcc8`, `be3dcc8` when no release tag is reachable, or
- * `…-dirty` from a modified tree. Empty when git could not be asked at all.
+ * `v0.19.0-8-gbe3dcc8` (`ext-v…` before 0.19.0, ADR 0056), `be3dcc8` when no
+ * release tag is reachable, or `…-dirty` from a modified tree. Empty when git
+ * could not be asked at all.
  */
 declare const __CLIPPER_COMMIT__: string;
 

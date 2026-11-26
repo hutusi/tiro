@@ -62,7 +62,9 @@ const clipperVersion = z.string().optional();
 
 /**
  * Which clipper *build* wrote the article — `git describe` output, e.g.
- * `ext-v0.11.0-8-gbe3dcc8`, or a bare commit when no release tag is reachable.
+ * `v0.19.0-8-gbe3dcc8`, or a bare commit when no release tag is reachable.
+ * Builds before 0.19.0 described against the clipper's own `ext-v*` tags
+ * (ADR 0056), so older articles read `ext-v0.11.0-8-gbe3dcc8`.
  *
  * `clipper_version` above names a release, and the extension is normally run by
  * loading `dist/` unpacked, which is built from whatever is checked out. So the

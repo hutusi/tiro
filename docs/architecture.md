@@ -473,7 +473,8 @@ helpers, and the `tiro.yml` config schema. Key invariants:
   `tiro.clipper_commit` alongside `tiro.processor_version`, all optional so
   articles predating any of them simply lack them. The version names a
   *release*; the commit — `git describe` output injected at build time, e.g.
-  `ext-v0.11.0-8-gbe3dcc8` — names the *source* it was built from, which is the
+  `v0.19.0-8-gbe3dcc8` (`ext-v…` before 0.19.0, when the clipper had its own
+  tag line; ADR 0056) — names the *source* it was built from, which is the
   honest answer when the extension is loaded unpacked from a working tree
   rather than installed from a release. A `-dirty` suffix records that the tree
   differed from that commit without saying how, so two dirty builds off one

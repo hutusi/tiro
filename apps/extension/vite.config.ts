@@ -7,10 +7,11 @@ import { defineConfig } from "vite";
  * `git describe` for the commit being built, recorded into every article as
  * `tiro.clipper_commit`.
  *
- * `--match "ext-v*"` because the repo carries two tag lines: the extension's
- * `ext-v*` and the repo's own `v*`. Without it `describe` picks whichever is
- * nearest, so a clip could claim to come from `v0.3.0-…`, naming a release of
- * something else entirely.
+ * `--match "v[0-9]*"` because a release is a `v<version>` tag, one version for
+ * the whole repo (ADR 0056). Until 0.19.0 the clipper had its own `ext-v*`
+ * line, which this matched, so older clips record `ext-v0.18.0-…`. Both forms
+ * name a commit. The match keeps `describe` off those old tags, which would
+ * otherwise win wherever one is nearer than a `v*` tag.
  *
  * `--always` is what makes this safe in CI, where `actions/checkout` fetches a
  * single commit with no tag history: rather than failing with "no names found"
@@ -24,7 +25,7 @@ export function clipperCommit(): string {
   try {
     return execFileSync(
       "git",
-      ["describe", "--tags", "--always", "--dirty", "--match", "ext-v*"],
+      ["describe", "--tags", "--always", "--dirty", "--match", "v[0-9]*"],
       {
         cwd: import.meta.dirname,
         encoding: "utf-8",
