@@ -119,6 +119,19 @@ describe("readableChars (ADR 0055)", () => {
     expect(performance.now() - started).toBeLessThan(300);
   });
 
+  // A paragraph is one line, and Chinese has no spaces: cutting at the last
+  // line break read a 17 KB transcript as its 10-character heading.
+  test("one long paragraph is read up to the limit", () => {
+    for (const [heading, words] of [
+      ["# Transcript", "and then we talked about the map "],
+      ["# 访谈实录", "我们接着谈到了那张地图的来历"],
+    ] as const) {
+      const md = `${heading}\n\n${words.repeat(Math.ceil(18_000 / words.length))}`;
+      expect(md.length).toBeGreaterThan(16_000);
+      expect(readableChars(md)).toBeGreaterThan(15_000);
+    }
+  });
+
   // A thin page can still be a long Markdown file: a gallery of 300 pictures
   // reads nothing at all, however much of it there is.
   test("a long gallery has nothing to read", () => {

@@ -19,7 +19,12 @@ export function countWords(text: string): number {
   return cjk + rest;
 }
 
-/** How much of a clip is read: its opening, cut at a line break. */
+/** How much of a clip is read: its opening, cut at the last line break in
+ * its second half, else the last space there, else the limit itself. A line
+ * break splits nothing on a page of short lines, a gallery's say. But a
+ * paragraph is one line and Chinese has no spaces, so the last break can lie
+ * right after a heading: cutting there read a 17 KB transcript as its
+ * 10-character title. */
 const OPENING_CHARS = 16_000;
 
 let last: { markdown: string; count: number } | null = null;
@@ -38,11 +43,11 @@ let last: { markdown: string; count: number } | null = null;
  * leads, both always shown, and the popup asks before it can paint them. The
  * parser is not linear — a 155 KB table takes 1.3 s, where 16 KB of an
  * ordinary page, a table included, takes about 50 ms — so the whole clip is
- * never read. An article passes the
- * threshold long before 16 KB; a page whose opening is all pictures has the
- * text after them judged missing, and a reference whose definition lies past the
- * cut reads as its own brackets. Either costs one click on the other button,
- * which is the price of a popup that never waits on a long page.
+ * never read. An article passes the threshold long before 16 KB; a page
+ * whose opening is all pictures has the text after them judged missing, a
+ * reference whose definition lies past the cut reads as its own brackets, and
+ * a construct the cut splits reads as text. Each costs one click on the other
+ * button, which is the price of a popup that never waits on a long page.
  *
  * The popup asks on every render, so the answer for the last clip is kept.
  */
@@ -55,6 +60,9 @@ export function readableChars(markdown: string): number {
 
 function measure(markdown: string): number {
   if (markdown.length <= OPENING_CHARS) return readableText(markdown).length;
-  const cut = markdown.lastIndexOf("\n", OPENING_CHARS);
-  return readableText(markdown.slice(0, cut > 0 ? cut : OPENING_CHARS)).length;
+  const half = OPENING_CHARS / 2;
+  const line = markdown.lastIndexOf("\n", OPENING_CHARS);
+  const space = markdown.lastIndexOf(" ", OPENING_CHARS);
+  const cut = line > half ? line : space > half ? space : OPENING_CHARS;
+  return readableText(markdown.slice(0, cut)).length;
 }
