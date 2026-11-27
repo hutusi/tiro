@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { THIN_PAGE_CHARS } from "@tiro/shared";
 import { countWords, readableChars } from "../src/words.ts";
 
 describe("countWords", () => {
@@ -35,7 +36,7 @@ describe("countWords", () => {
 describe("readableChars (ADR 0055)", () => {
   test("counts the words a reader reads, not the markup around them", () => {
     expect(readableChars("# Map\n\nDrag the **timeline**.")).toBe(
-      "Map Drag the timeline .".length,
+      "Map Drag the timeline.".length,
     );
   });
 
@@ -89,24 +90,63 @@ describe("readableChars (ADR 0055)", () => {
     ).toBe("Rome".length);
   });
 
-  // Each of these used to scan on to the end of the text from every opener —
-  // 50,000 pictures that never close took ~3 s, and 40,000 of `a < b` 1.8 s,
-  // in the popup, as it renders.
-  test("stays fast on a run of openers that never close", () => {
-    for (const unit of [
-      "![ x",
-      "a < b ",
-      "<!-- ",
-      '](x "',
-      "](x (",
-      "](  ",
-      '<a b="<',
-      "<a '",
-    ]) {
-      const started = performance.now();
-      readableChars(unit.repeat(50_000));
-      expect(performance.now() - started).toBeLessThan(500);
-    }
+  // The parser costs about 50 ms for a 50 KB clip and the popup asks on
+  // every render, so a long article answers from its first 16 KB.
+  test("a long article answers from its opening, once", () => {
+    const paragraph = `Some prose with a [link](https://example.com/a/b) and **bold** words. ${"More words to read. ".repeat(20)}`;
+    const article = `${paragraph}\n\n`.repeat(1_000);
+    expect(article.length).toBeGreaterThan(400_000);
+    let started = performance.now();
+    const early = readableChars(article, THIN_PAGE_CHARS);
+    // ~6 ms from the opening against ~250 ms for all of it, here.
+    expect(performance.now() - started).toBeLessThan(100);
+    started = performance.now();
+    expect(readableChars(article, THIN_PAGE_CHARS)).toBe(early);
+    expect(performance.now() - started).toBeLessThan(5);
+    // The opening's count, not the whole's: at least enough, and short of
+    // the total, which is only read when asked for exactly.
+    expect(early).toBeGreaterThanOrEqual(THIN_PAGE_CHARS);
+    expect(early).toBeLessThan(readableChars(article) / 10);
+  });
+
+  // A thin page can still be a long Markdown file: a gallery of 300 pictures
+  // reads nothing at all, however much of it there is.
+  test("a long clip with little to read is read whole", () => {
+    const gallery = Array.from(
+      { length: 300 },
+      (_, i) =>
+        `![photo ${i}](https://cdn.example.com/${"x".repeat(80)}/${i}.jpg)`,
+    ).join("\n\n");
+    expect(gallery.length).toBeGreaterThan(16_000);
+    expect(readableChars(`${gallery}\n\nMap`, THIN_PAGE_CHARS)).toBe(3);
+  });
+
+  // A reference reads as its own brackets until its definition is read, so
+  // an opening that holds the references and not the definitions would read
+  // more than the whole: 40 badges, 400 characters of brackets for no text.
+  test("a clip with a definition past the opening is read whole", () => {
+    const badges = Array.from(
+      { length: 40 },
+      (_, i) => `[![b${i}][i${i}]][l${i}]`,
+    ).join(" ");
+    const filler = Array.from(
+      { length: 200 },
+      (_, i) => `![p${i}](https://cdn.example.com/${"x".repeat(80)}/${i}.jpg)`,
+    ).join("\n\n");
+    const definitions = Array.from(
+      { length: 40 },
+      (_, i) =>
+        `[i${i}]: https://img.example.com/${i}.svg\n[l${i}]: https://example.com/${i}`,
+    ).join("\n");
+    const md = `${badges}\n\n${filler}\n\nMap\n\n${definitions}`;
+    expect(readableChars(md, THIN_PAGE_CHARS)).toBe(3);
+  });
+
+  // The render must not fail over a hint: a parse that throws reads as the
+  // whole Markdown, and Clip stays first.
+  test("a parse that throws reads as the whole clip", () => {
+    const nested = "> ".repeat(50_000);
+    expect(readableChars(nested, THIN_PAGE_CHARS)).toBe(nested.length);
   });
 
   test("an HTML tag still goes, and a lone `<` stays as text", () => {
@@ -129,8 +169,41 @@ describe("readableChars (ADR 0055)", () => {
   // after it cannot carry a "tag" on across the sentence.
   test("a comparison in prose stays text", () => {
     expect(readableChars('if a < b and "c > d" then e > f')).toBe(
-      'if a < b and "c d" then e f'.length,
+      'if a < b and "c > d" then e > f'.length,
     );
+  });
+
+  // Round three of the review, each a case the patterns could not see and
+  // the parser reads as a reader would.
+  test("an address on the line after its label is left out", () => {
+    const address = `https://maps.example.com/${"segment/".repeat(60)}`;
+    expect(readableChars(`[Map](\n${address})`)).toBe("Map".length);
+    expect(readableChars(`[Map](  ${address} )`)).toBe("Map".length);
+  });
+
+  test("an attribute value may run across lines", () => {
+    const src = `https://cdn.example.com/${"segment/".repeat(60)}m.png`;
+    expect(readableChars(`<img src="${src}" alt="a map\nof Rome">`)).toBe(0);
+  });
+
+  test("a comment is hidden whatever it holds", () => {
+    const address = `https://maps.example.com/${"segment/".repeat(60)}`;
+    expect(
+      readableChars(`<!-- Don't edit this file. ${address} -->\n\nMap`),
+    ).toBe("Map".length);
+    expect(readableChars(`<!-- it's -->\n\n[Map](${address})`)).toBe(
+      "Map".length,
+    );
+  });
+
+  // A README's badges and links are usually references, defined at its foot.
+  test("a reference's definition is an address too", () => {
+    const address = `https://maps.example.com/${"segment/".repeat(60)}`;
+    expect(
+      readableChars(
+        `[![build](https://img.shields.io/badge/b)][ci] [Map][map]\n\n[ci]: ${address}\n[map]: ${address}`,
+      ),
+    ).toBe("Map".length);
   });
 
   test("an empty or markup-only clip has nothing to read", () => {

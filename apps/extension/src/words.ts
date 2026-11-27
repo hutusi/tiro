@@ -1,3 +1,5 @@
+import { readableText } from "@tiro/shared";
+
 /** Word count for the popup's preview meta. A plain whitespace split
  * undercounts CJK prose — Chinese has no spaces, so a whole paragraph would
  * read as one word. Han and kana characters count one each (the usual
@@ -17,57 +19,67 @@ export function countWords(text: string): number {
   return cjk + rest;
 }
 
-/** A link's address: `<…>` when it holds a space, otherwise no whitespace,
- * with `(` and `)` escaped (`inlineLinkRule`) or balanced, as Markdown allows
- * them. Stopping at the first `)` left the rest of a Wikipedia-style
- * `…_(disambiguation)/…` address counted as text. */
-const ADDRESS = String.raw`<(?:\\.|[^<>\\\n])*>|(?:\\.|[^\s()\\]|\((?:\\.|[^\s()\\])*\))*`;
-/** A link's title, quoted or parenthesized, its own quote escaped. Read as a
- * whole, apart from the address: a parenthesis in a title is the title's text
- * and opens nothing, where scanning it as part of the address left the whole
- * address counted when a title opened one and never closed it. */
-const TITLE = String.raw`"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)`;
-/** A link's or picture's destination group, `(…)`: an address, then perhaps a
- * title. No whitespace before the address — an address never holds any, so
- * whitespace is only ever read in one place, and a run of it cannot be split
- * a quadratic number of ways. */
-const DESTINATION = String.raw`\((?:${ADDRESS})(?:\s+(?:${TITLE}))?\s*\)`;
-/** A picture, alt text and all. Turndown escapes `[` and `]` in an alt, so
- * escapes are part of it and an unescaped `[` is not: stopping there keeps a
- * failed match from running on past the next `![`, which made a run of
- * unclosed ones quadratic (50,000 took 3 s). */
-const PICTURE = new RegExp(
-  String.raw`!\[(?:\\.|[^[\]\\])*\]${DESTINATION}`,
-  "g",
-);
-const LINK_TARGET = new RegExp(String.raw`\]${DESTINATION}`, "g");
-/** An HTML tag, which a Markdown file's clip keeps raw. Its quoted attribute
- * values are read whole, so a `<` or `>` in an `alt="x < y"` stays inside the
- * tag rather than ending it or starting another, which left the `src` before
- * it counted as text. A value ends at its line, so a stray quote cannot carry
- * the tag across the text after it.
- *
- * A tag starts with a name, `/`, `!` or `?`. Not `[^<>]` after the `<`: a
- * page's own `<`, which Turndown leaves as it is, would scan on to the end of
- * the text from each one with no `>` after it — and a `<` followed by a space
- * is prose (`a < b`), never a tag. */
-const HTML_TAG = /<[A-Za-z/!?](?:[^<>"']|"[^"\n]*"|'[^'\n]*')*>/g;
+/** How much of a long clip is read first, cut at a blank line, before the
+ * whole of it: an ordinary article passes the threshold well inside it. */
+const PREFIX_CHARS = 16_000;
+
+/** A link reference or footnote definition, `[x]: …` or `[^x]: …`. */
+const DEFINITION = /^ {0,3}\[[^\]\n]+\]:/m;
+
+let last: { markdown: string; enough: number; count: number } | null = null;
 
 /**
- * How much readable text a clip holds, in characters: the Markdown with its
- * pictures, link targets, HTML tags and markup taken out, whitespace folded.
+ * How much readable text a clip holds, in characters, whitespace folded: its
+ * `readableText`, which leaves out pictures, addresses and markup, and keeps
+ * code and the text inside raw HTML.
  *
  * What the popup measures a page against `THIN_PAGE_CHARS` with, to offer
  * saving it as a site instead (ADR 0055). Not the Markdown's own length: a
  * tool's page can be a few labels and a dozen image links, and the links'
  * addresses are not something anyone reads.
+ *
+ * Parsing is not free — about 50 ms for a 50 KB clip, half a second for
+ * 500 KB — and the popup asks on every render, so the answer for the last
+ * clip is kept. When `enough` is given, a long clip's first `PREFIX_CHARS`,
+ * cut at a blank line, are counted alone, and if they already reach it, that
+ * count is the answer: some number at least `enough`, not the exact total.
+ * A prefix cut there never reads more than the whole does — every construct
+ * that spans a blank line reads the same either side of it — except a
+ * reference whose definition lies past the cut, which reads as its own
+ * brackets. So a clip with a definition after the cut is read whole.
+ *
+ * The parser's worst case is far slower than its usual pace: a single
+ * paragraph of hundreds of kilobytes of unmatched brackets takes seconds,
+ * even escaped. That is the parser the processor and the site already run on
+ * every clip, so nothing a page can do here is new; it is paid once per clip,
+ * and a parse that throws reads as the whole Markdown — Clip first, as it was
+ * before there was a choice.
  */
-export function readableChars(markdown: string): number {
-  return markdown
-    .replace(PICTURE, " ")
-    .replace(LINK_TARGET, "]")
-    .replace(HTML_TAG, " ")
-    .replace(/[#>*_`~|[\]-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim().length;
+export function readableChars(
+  markdown: string,
+  enough = Number.POSITIVE_INFINITY,
+): number {
+  if (last !== null && last.markdown === markdown && last.enough === enough) {
+    return last.count;
+  }
+  const count = measure(markdown, enough);
+  last = { markdown, enough, count };
+  return count;
+}
+
+function measure(markdown: string, enough: number): number {
+  try {
+    if (markdown.length > PREFIX_CHARS && Number.isFinite(enough)) {
+      const cut = markdown.lastIndexOf("\n\n", PREFIX_CHARS);
+      if (cut > 0 && !DEFINITION.test(markdown.slice(cut))) {
+        const count = readableText(markdown.slice(0, cut)).length;
+        if (count >= enough) return count;
+      }
+    }
+    return readableText(markdown).length;
+  } catch {
+    // A stack overflow on thousands of nested quotes, say. The render must
+    // not fail over a hint.
+    return markdown.length;
+  }
 }

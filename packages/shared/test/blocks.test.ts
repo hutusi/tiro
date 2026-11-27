@@ -12,6 +12,7 @@ import {
   normalizeBlockMath,
   PULL_QUOTE_MARK,
   plainText,
+  readableText,
   splitBlocks,
   verbatimRanges,
 } from "../src/blocks.ts";
@@ -943,6 +944,54 @@ describe("plainText", () => {
   test("collapses whitespace and trims", () => {
     expect(plainText("  one\n  two   three  ")).toBe("one two three");
     expect(plainText("   ")).toBe("");
+  });
+});
+
+describe("readableText", () => {
+  test("reads a page's prose without its syntax or its addresses", () => {
+    expect(
+      readableText(
+        '# Map\n\nDrag the **timeline**: [Rome](https://example.com/rome "Rome (city") ![x](./x.png)',
+      ),
+    ).toBe("Map Drag the timeline: Rome");
+  });
+
+  // What plainText leaves out for a paragraph's sake, a page's reader reads.
+  test("keeps code, inline and fenced", () => {
+    expect(readableText("Run `make`:\n\n```sh\nmake all\n```")).toBe(
+      "Run make: make all",
+    );
+  });
+
+  // A README's introduction is routinely raw HTML. Its tags go and its text
+  // stays, attributes and all read by the parser rather than a pattern.
+  test("reads the text inside an HTML block, not its tags", () => {
+    expect(
+      readableText(
+        '<p align="center">\n  <img src="https://x.example/logo.png" alt="a\nlogo">\n  A tool for maps.\n</p>',
+      ),
+    ).toBe("A tool for maps.");
+    expect(
+      readableText(
+        "<details><summary>More</summary>\nHidden until opened.\n</details>",
+      ),
+    ).toBe("More Hidden until opened.");
+  });
+
+  test("hides comments, scripts and styles", () => {
+    expect(
+      readableText(
+        "<!--\nDon't edit.\n\nGenerated.\n-->\n\n<script>track()</script>\n\n<style>p{}</style>\n\nMap",
+      ),
+    ).toBe("Map");
+  });
+
+  test("leaves out a reference's definition, keeping its label", () => {
+    expect(
+      readableText(
+        '[Map][m] and [Rome][]\n\n[m]: https://x.example/m\n[Rome]: <https://x.example/r> "t"',
+      ),
+    ).toBe("Map and Rome");
   });
 });
 

@@ -1264,3 +1264,88 @@ export function plainText(markdown: string): string {
   walk(proseParser.parse(markdown) as Root);
   return out.join("").replace(/\s+/g, " ").trim();
 }
+
+/**
+ * Raw HTML read the way a paragraph reads it, one tag at a time, so the text
+ * between the tags comes out as text. Only ever given the value of one HTML
+ * block, which the main parse has already delimited.
+ */
+const tagByTagParser = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkCjkFriendly)
+  .use(function readHtmlBlocksTagByTag() {
+    const data = this.data();
+    data.micromarkExtensions ??= [];
+    data.micromarkExtensions.push({ disable: { null: ["htmlFlow"] } });
+  });
+
+/** An HTML block that shows nothing: a comment, a declaration, CDATA, a
+ * processing instruction, a script or a style. */
+const HIDDEN_HTML_BLOCK = /^ {0,3}<(?:[!?]|(?:script|style)(?:[\s>]|$))/i;
+
+/** The blocks an HTML block can sit in. Anywhere else an `html` node is
+ * inline: a single tag or comment, with nothing in it to read. */
+const FLOW_CONTAINERS: ReadonlySet<string> = new Set([
+  "root",
+  "blockquote",
+  "listItem",
+  "footnoteDefinition",
+]);
+
+/**
+ * Everything a reader reads in a markdown document: `plainText`'s question
+ * asked of the whole page rather than of a paragraph. The extension uses it to
+ * judge whether a page is a tool with little to read (ADR 0055).
+ *
+ * So it keeps what `plainText` leaves out, because a reader reads it all the
+ * same: code, and the text inside a raw HTML block — a README's centred
+ * `<p align="center">` introduction. What it leaves out is what nobody
+ * reads: pictures, alt text and all; every address, whether inline, in a
+ * reference definition or on a tag; comments, scripts and styles.
+ *
+ * The parser decides all of that, because a regex cannot. Four rounds of
+ * patterns each fixed one case and broke another: a parenthesis in a title, a
+ * `<` in an attribute, an address on the line after its label, an apostrophe
+ * in a comment.
+ */
+export function readableText(markdown: string): string {
+  const out: string[] = [];
+  const walk = (node: unknown, inFlow: boolean): void => {
+    const n = node as { type?: string; value?: string; children?: unknown[] };
+    switch (n.type) {
+      case "image":
+      case "imageReference":
+      case "definition":
+        return;
+      case "break":
+        out.push(" ");
+        return;
+      case "html":
+        // An HTML block's own value is re-read tag by tag. That parse has no
+        // HTML blocks, so this recurses once at most.
+        if (inFlow && !HIDDEN_HTML_BLOCK.test(n.value ?? "")) {
+          out.push(" ");
+          walk(tagByTagParser.parse(n.value ?? ""), true);
+          out.push(" ");
+        }
+        return;
+      case "text":
+      case "inlineCode":
+        out.push(n.value ?? "");
+        return;
+      case "code":
+        out.push(" ", n.value ?? "", " ");
+        return;
+    }
+    const isBlock = n.type !== undefined && !INLINE_TYPES.has(n.type);
+    if (isBlock) out.push(" ");
+    const flow = FLOW_CONTAINERS.has(n.type ?? "");
+    if (Array.isArray(n.children)) {
+      for (const child of n.children) walk(child, flow);
+    }
+    if (isBlock) out.push(" ");
+  };
+  walk(proseParser.parse(markdown), true);
+  return out.join("").replace(/\s+/g, " ").trim();
+}

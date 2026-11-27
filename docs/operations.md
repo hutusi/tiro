@@ -1362,7 +1362,9 @@ can be both; the Tiro site lists sites at `/sites/`.
 - **A thin page puts it first.** Under 500 characters of readable text
   (`THIN_PAGE_CHARS`, also `fetch.min_chars`' default), the popup says the page
   may be an app, a map or a tool, and Save as site leads; a page with nothing to
-  clip offers it instead of a dead end.
+  clip offers it instead of a dead end. Readable text is what the Markdown
+  parser finds a reader reading (`readableText` in `@tiro/shared`): code and the
+  text inside raw HTML count; pictures, addresses, tags and comments don't.
 - **The picture is the window.** Size the window, scroll to the view worth
   keeping and close a cookie banner first. A page caught before it drew is
   refused as blank — wait and try again. Anything the window shows is in the
