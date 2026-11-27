@@ -1365,6 +1365,9 @@ can be both; the Tiro site lists sites at `/sites/`.
   clip offers it instead of a dead end. Readable text is what the Markdown
   parser finds a reader reading (`readableText` in `@tiro/shared`): code and the
   text inside raw HTML count; pictures, addresses, tags and comments don't.
+  Only the clip's first 16 KB is judged, so the popup never waits on a long
+  page; a page whose opening is all pictures gets Save as site first, whatever
+  text follows, and Clip is one click away.
 - **The picture is the window.** Size the window, scroll to the view worth
   keeping and close a cookie banner first. A page caught before it drew is
   refused as blank — wait and try again. Anything the window shows is in the

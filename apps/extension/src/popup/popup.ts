@@ -1000,7 +1000,7 @@ async function main(): Promise<void> {
       result !== null &&
       !result.pdfViewer &&
       (hasNothingToClip(result) ||
-        readableChars(result.markdown, THIN_PAGE_CHARS) < THIN_PAGE_CHARS);
+        readableChars(result.markdown) < THIN_PAGE_CHARS);
     // The page is still read when unconfigured — the preview is harmless and
     // shows what Settings would unlock — but the phase stays blocked on the
     // Settings instruction however far the extraction gets.
