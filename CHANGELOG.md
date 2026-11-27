@@ -14,6 +14,19 @@ numbers carry on unbroken.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Save as site leads only on a page with little to read.** The popup puts
+  Save as site before Clip when a page has under 500 characters of text. It
+  counted with patterns that took some addresses for text. One was the
+  reference links a README defines at its foot: a page reading "Map" counted
+  1,033 characters, and Clip led. It now counts with the Markdown parser the
+  rest of Tiro uses (`readableText`), which leaves out pictures, addresses,
+  tags and comments and keeps code and the text inside raw HTML. It reads only
+  a clip's first 16 KB, so the popup never waits on a long page: a 3,000-row
+  table, which the parser reads slower than linearly, took 1.2 s before the
+  popup painted. What a clip saves is unchanged.
+
 ## [0.19.0] - 2026-11-26
 
 ### Added
